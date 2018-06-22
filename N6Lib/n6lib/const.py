@@ -77,9 +77,9 @@ SURICATA_SNORT_CATEGORIES = {
 
 
 # maximum length of a client organization identifier (related both to
-# items of the list being the `client` value of a RecordDict/REST API
-# query params dict/REST API result dict, and to the `o` value of any
-# `o=...,ou=orgs,dc=n6,dc=cert,dc=pl` LDAP entry).
+# items of the list being the `client` value in a RecordDict / REST API
+# query params dict / REST API result dict, and to the `org_id` value
+# in an auth db record / n6 Portal log-in input form).
 CLIENT_ORGANIZATION_MAX_LENGTH = 32
 
 # a dict that maps categories to sets of standard normalized values
