@@ -1,0 +1,27 @@
+# setuptools install section
+pyramid==1.5.7
+Mako>=0.8
+sqlalchemy==0.9.10
+zope.deprecation==4.3.0
+zope.interface==4.5.0
+zope.sqlalchemy==0.7.7
+transaction==2.0.3
+mysql-python==1.2.5
+python-ldap==2.4.28
+lxml==3.6.4
+mock==1.0.1
+pika==0.10.0
+pymongo==2.6.1
+python-dateutil==2.6.0
+radar==0.3
+requests==2.5.1
+unittest_expander==0.3.1
+bcrypt==3.1.4
+iptools==0.6.1
+passlib==1.7.1
+pytz==2016.7
+pygeoip
+dnspython>=1.14.0
+
+# pip install section
+pymisp==2.2

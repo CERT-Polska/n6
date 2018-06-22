@@ -1,0 +1,5 @@
+ipaddr
+Mako>=0.8
+pyramid<=1.5.7
+python-cjson
+requests==2.5.1

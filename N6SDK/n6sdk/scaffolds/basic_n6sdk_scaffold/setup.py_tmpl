@@ -1,0 +1,38 @@
+from setuptools import setup, find_packages
+
+requires = [
+    'pyramid',
+    'pyramid_chameleon',
+    'pyramid_debugtoolbar',
+    'waitress',
+    'n6sdk',
+]
+
+setup(
+    name='{{package}}',
+
+    version='0.0.1',
+    description=(
+        "{{project}}: an n6sdk-based REST API " +
+        "for network incident data distribution"),
+    classifiers=[
+        "Programming Language :: Python",
+        "Framework :: Pyramid",
+        "Topic :: Security",
+    ],
+    #author='',
+    #author_email='',
+    #url='',
+    #keywords='n6sdk pyramid security',
+
+    packages=find_packages(),
+    include_package_data=True,
+    zip_safe=False,
+    install_requires=requires,
+    #tests_require=requires,
+    #test_suite="{{package}}.tests",
+    entry_points="""\
+      [paste.app_factory]
+      main = {{package}}:main
+      """,
+)

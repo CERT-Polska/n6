@@ -1,0 +1,7 @@
+include *.txt *.ini *.cfg *.rst requirements
+
+recursive-include n6sdk *.txt *.ini *.cfg *.rst
+recursive-include n6sdk/scaffolds *_tmpl
+
+include docs/Makefile
+recursive-include docs/source *.py *.rst .placeholder

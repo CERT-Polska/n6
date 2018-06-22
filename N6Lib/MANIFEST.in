@@ -1,0 +1,9 @@
+include *.txt *.rst requirements
+recursive-include n6lib *--data *.conf
+recursive-include n6lib/manage_api/ca_conf *
+recursive-include n6lib/manage_api/fake_ca *
+recursive-include n6lib/utils/iodeflib *.xsd *.html *.txt
+recursive-include n6lib/utils/profiling-result-manager-external-lib *
+recursive-include n6lib/utils/profiling-result-manager-misc *
+recursive-include n6lib/tests/certs_and_requests_for_testing *
+recursive-include n6lib/templates *

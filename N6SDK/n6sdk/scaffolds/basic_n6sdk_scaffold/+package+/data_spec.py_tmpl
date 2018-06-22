@@ -1,0 +1,161 @@
+# -*- coding: utf-8 -*-
+
+from n6sdk.data_spec import DataSpec, Ext
+
+
+class {{capitalized_package}}DataSpec(DataSpec):
+
+    """
+    The data specification class for the `{{project}}` project.
+    """
+
+    ### Important: the following commented code enables *as query
+    ### parameters* most of the field specifications inherited from
+    ### `n6sdk.data_spec.DataSpec`.
+    ###
+    ### TODO: uncomment only the fragments related to the
+    ### parameters that your data backend API implementation
+    ### (`{{package}}.data_backend_api.DataBackendAPI`)
+    ### really supports.  Rest fragments can be deleted.
+    #
+    #id = Ext(in_params='optional')
+    #
+    #source = Ext(in_params='optional')
+    #
+    #restriction = Ext(in_params='optional')
+    #
+    #confidence = Ext(in_params='optional')
+    #
+    #category = Ext(in_params='optional')
+    #
+    #time = Ext(
+    #    extra_params=Ext(
+    ##        min=Ext(in_params='optional'),    # search for >= than...
+    ##        max=Ext(in_params='optional'),    # search for <= than...
+    ##        until=Ext(in_params='optional'),  # search for <  than...
+    #    ),
+    #)
+    #
+    ## (the `address` field from the superclass remains unchanged)
+    #
+    #ip = Ext(
+    #    in_params='optional',
+    ##    extra_params=Ext(
+    ##        net=Ext(in_params='optional'),    # CIDR-notation-based search
+    ##    ),
+    #)
+    #
+    #ipv6 = Ext(
+    #    in_params='optional',
+    ##    extra_params=Ext(
+    ##        net=Ext(in_params='optional'),    # CIDR-notation-based search
+    ##    ),
+    #)
+    #
+    #asn = Ext(in_params='optional')
+    #
+    #cc = Ext(in_params='optional')
+    #
+    ## (the `expires` field from the superclass remains unchanged)
+    #
+    #active = Ext(
+    #    extra_params=Ext(
+    ##        min=Ext(in_params='optional'),    # search for >= than...
+    ##        max=Ext(in_params='optional'),    # search for <= than...
+    ##        until=Ext(in_params='optional'),  # search for <  than...
+    #    ),
+    #)
+    #replaces = Ext(in_params='optional')
+    #
+    #status = Ext(in_params='optional')
+    #
+    ## (the `count` field from the superclass remains unchanged)
+    #
+    ## (the `until` field from the superclass remains unchanged)
+    #
+    #action = Ext(in_params='optional')
+    ## (the `adip` field from the superclass remains unchanged)
+    #
+    #dip = Ext(in_params='optional')
+    #
+    #dport = Ext(in_params='optional')
+    #
+    #email = Ext(in_params='optional')
+    #
+    #fqdn = Ext(
+    #    in_params='optional',
+    ##    extra_params=Ext(
+    ##        sub=Ext(in_params='optional'),    # substring search
+    ##    ),
+    #)
+    #
+    #iban = Ext(in_params='optional')
+    #
+    ## (the `injects` field from the superclass remains unchanged)
+    #
+    #md5 = Ext(in_params='optional')
+    #
+    #modified = Ext(
+    #    extra_params=Ext(
+    ##        min=Ext(in_params='optional'),    # search for >= than...
+    ##        max=Ext(in_params='optional'),    # search for <= than...
+    ##        until=Ext(in_params='optional'),  # search for <  than...
+    #    ),
+    #)
+    #
+    #name = Ext(in_params='optional')
+    #
+    #origin = Ext(in_params='optional')
+    #
+    #phone = Ext(in_params='optional')
+    #
+    #proto = Ext(in_params='optional')
+    #
+    #registrar = Ext(in_params='optional')
+    #
+    #sha1 = Ext(in_params='optional')
+    #
+    #sport = Ext(in_params='optional')
+    #
+    #target = Ext(in_params='optional')
+    #
+    #url = Ext(
+    #    in_params='optional',
+    ##    extra_params=Ext(
+    ##        sub=Ext(in_params='optional'),    # substring search
+    ##    ),
+    #)
+    #
+    #url_pattern = Ext(in_params='optional')
+    #
+    #username = Ext(in_params='optional')
+    #
+    #x509fp_sha1 = Ext(in_params='optional')
+    #
+    ### NOTE:
+    ###
+    ### If you want to replace any of these inherited field
+    ### specifications with a completly different one -- just do it
+    ### (instantiating some Field subclass).  For example:
+    ###
+    ###   id = MD5Field(
+    ###       in_params='optional',
+    ###       in_result='required',
+    ###   )
+    ###
+    ### If you want to get rid of any of these inherited field
+    ### specifications -- just mask it with `None`.  For example:
+    ###
+    ###   phone = None
+
+
+    ### Maybe TODO: below you can place your
+    ### own (additional) field specifications.
+    #
+    #weekday = UnicodeEnumField(  # an example new field specification
+    #    in_result='optional',
+    #    enum_values=(
+    #        'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+    #        'Friday', 'Saturday', 'Sunday'),
+    #    ),
+    #)

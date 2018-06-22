@@ -1,0 +1,4 @@
+{
+  "baseURL": "https://192.168.56.110",
+  "authCookieName": "auth_tkt"
+}

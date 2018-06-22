@@ -1,0 +1,18 @@
+#!/bin/bash
+
+# This file is redundant, as 'npm install' installs all dependencies from 'package.json'.
+echo Installing Vue webpack
+npm install
+# echo Installing dependencies
+# npm install axios
+# npm install --save axios vue-axios
+# npm install vue-bootstrap-datetimepicker --save
+# npm i bootstrap-vue bootstrap@4.0.0-beta.2
+# npm install vue-awesome
+# npm install vue-cookie --save
+# npm install json2csv --save  # or maybe this will be better?
+
+
+echo Installation complete.
+
+echo 'Config file: ".../N6Portal/gui/src/assets/config.json"'
