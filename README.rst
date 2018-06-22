@@ -27,10 +27,9 @@ Copyright and License
 
 Copyright (c) 2013-2018 `Naukowa i Akademicka Sieć Komputerowa
 (Research and Academic Computer Network)`_.  All rights reserved.
-See also: the *Supplementary Attributions* section below.
 
 .. _Naukowa i Akademicka Sieć Komputerowa (Research and Academic
-   Computer Network): http://www.nask.pl
+   Computer Network): https://eng.nask.pl/
 
 *n6* is free software; you can redistribute it and/or modify it under
 the terms of the GNU Affero General Public License, Version 3, as
