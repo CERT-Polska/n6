@@ -1,8 +1,0 @@
-n6digest = n6.archiver.digest:main
-n6anonymizer = n6.utils.anonymizer:main
-n6notifier = n6.utils.notifier:main
-n6counter = n6.utils.counter:main
-n6manage = n6.utils.management.n6manage:main
-n6stream_test_api_generator = n6.utils.stream_test_api_generator:main
-n6splunk_emitter = n6.utils.splunk_emitter:main
-n6notifier_templates_renderer = n6.utils.notifier_templates_renderer:main
