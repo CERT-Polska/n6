@@ -59,11 +59,11 @@ class PopulateAuthDB(object):
         parser.add_argument('login', metavar='USER_LOGIN',
                             help='user login (email address)')
         parser.add_argument('-F', '--full-access', action='store_true',
-                            help='grant superuser rights (access to non-anonymized data etc.)')
+                            help='grant superuser rights (access to deanonymized data etc.)')
         parser.add_argument('-S', '--sources', metavar='SOURCE',
                             nargs='*', default=cls.DEFAULT_SOURCES,
-                            help=('data source identifiers to whom access shall be granted '
-                                  '(defaults: {}; note that this option overrides them)'
+                            help=('data source identifiers to whom access shall be granted; '
+                                  'defaults (note that this option overrides them): {}'
                                   .format(' '.join(cls.DEFAULT_SOURCES))))
         parser.add_argument('-i', '--access-to-inside', action='store_true',
                             help=('grant access to the "inside" access zone '
