@@ -51,7 +51,7 @@ class Filter(ConfigMixin, QueuedBase):
 
     def __init__(self, **kwargs):
         LOGGER.info("Filter Start")
-        self.auth_api = AuthAPI()  # requires ldap config section with some options...
+        self.auth_api = AuthAPI()
         self.config = self.get_config_section()
         self.fqdn_only_categories = frozenset(self.config['categories_filtered_through_fqdn_only'])
         super(Filter, self).__init__(**kwargs)
