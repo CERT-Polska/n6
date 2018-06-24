@@ -1052,8 +1052,8 @@ class InsideCriteriaResolver(object):
     It is assumed that the given data are valid (correct types, no org
     id duplicates in the criteria passed in to the constructor, min. ip
     is never greater than the corresponding max. ip...); it is the
-    responsibility of the callers of the constructor and of the
-    get_client_org_ids_and_urls_matched() method to ensure that.
+    responsibility of the callers of the constructor and the callers of
+    the get_client_org_ids_and_urls_matched() method to ensure that.
     """
 
     _IP_LO_GUARD = -1
