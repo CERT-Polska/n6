@@ -18,7 +18,7 @@ tmpdir        = /tmp
 lc_messages_dir    = /usr/share/mysql
 lc_messages    = en_US
 skip-external-locking
-bind-address        = 0.0.0.0 
+bind-address        = 127.0.0.1
 max_connections        = 100
 connect_timeout        = 5
 wait_timeout        = 600
