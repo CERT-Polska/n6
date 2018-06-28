@@ -101,7 +101,7 @@ class PopulateAuthDB(object):
         self.login = login
         self.password = password
         self.full_access = full_access
-        self.sources = sources
+        self.source_ids = sources
         self.access_to_inside = access_to_inside
         self.access_to_threats = access_to_threats
         self.access_to_search = access_to_search
@@ -115,7 +115,7 @@ class PopulateAuthDB(object):
         user = User(login=self.login)
         user.password = user.get_password_hash_or_none(self.password)
         org.users.append(user)
-        sources = list(self._generate_sources(self.sources))
+        sources = list(self._generate_sources())
         subsources = list(self._generate_subsources(sources, org))
         categories = list(self._generate_categories())
         self._apply_org_permissions(org)
@@ -129,8 +129,8 @@ class PopulateAuthDB(object):
         db_session.commit()
         print '* Done.'
 
-    def _generate_sources(self, sources):
-        for i, source_id in enumerate(sources):
+    def _generate_sources(self):
+        for i, source_id in enumerate(self.source_ids):
             source = db_session.query(Source).get(source_id)
             if source is None:
                 source = Source(
