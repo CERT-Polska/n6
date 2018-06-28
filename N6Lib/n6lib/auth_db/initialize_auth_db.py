@@ -19,22 +19,25 @@ class InitializeAuthDB(SQLAuthDBConfigMixin):
         parser.add_argument('-D', '--do-drop-tables', action='store_true',
                             help='first, drop all tables (!) from the auth database')
         arguments = parser.parse_args()
-        cls(**vars(arguments)).create_tables()
+        cls(**vars(arguments)).run()
 
     def __init__(self, do_drop_tables=False, **kwargs):
         self._do_drop_tables = do_drop_tables
         super(InitializeAuthDB, self).__init__(**kwargs)
 
-    def create_tables(self):
+    def run(self):
         if self._do_drop_tables:
-            print '* Dropping all auth database tables first...'
             self.drop_tables()
-        print '* Creating new auth database tables...'
-        Base.metadata.create_all(self.engine)
+        self.create_tables()
         print '* Done.'
 
     def drop_tables(self):
+        print '* Dropping all auth database tables first...'
         Base.metadata.drop_all(self.engine)
+
+    def create_tables(self):
+        print '* Creating new auth database tables...'
+        Base.metadata.create_all(self.engine)
 
 
 def main():
