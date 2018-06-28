@@ -29,16 +29,13 @@ from sqlalchemy.sql.sqltypes import String
 from wtforms import PasswordField
 from wtforms.fields import Field
 
-from n6lib.config import ConfigMixin
-from n6lib.common_helpers import as_unicode
-from n6lib.log_helpers import logging_configured
+from n6lib.auth_db.config import SQLAuthDBConfigMixin
 from n6lib.auth_db.models import (
     CACert,
     Cert,
     #Component,
     CriteriaASN,
     CriteriaCC,
-    #CriteriaCategory,
     CriteriaContainer,
     CriteriaIPNetwork,
     CriteriaName,
@@ -59,8 +56,10 @@ from n6lib.auth_db.models import (
     User,
     db_session,
 )
-from n6lib.auth_db.config import SQLAuthDBConfigMixin
-from n6sdk.exceptions import FieldValueError
+from n6lib.config import ConfigMixin
+from n6lib.common_helpers import as_unicode
+from n6lib.data_spec import FieldValueError
+from n6lib.log_helpers import logging_configured
 
 
 class _PasswordFieldHandlerMixin(object):
@@ -460,7 +459,6 @@ class AdminPanel(ConfigMixin):
         (User, UserView, None),
         #(Component, ComponentView, None),
         (CriteriaContainer, CriteriaContainerView, None),
-        #(CriteriaCategory, CustomColumnListView, None),
         (Source, SourceView, {'inline_string_pk_models': [Subsource]}),
         (Subsource, CustomColumnListView, None),
         (SubsourceGroup, CustomColumnListView, None),

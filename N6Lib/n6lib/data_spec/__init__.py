@@ -16,6 +16,7 @@ from n6lib.data_spec._data_spec import (
     N6InsideDataSpec,
 )
 from n6sdk.exceptions import (
+    FieldValueError,
     FieldValueTooLongError,
 )
 
@@ -23,5 +24,6 @@ from n6sdk.exceptions import (
 __all__ = [
     'N6DataSpec',
     'N6InsideDataSpec',
+    'FieldValueError',
     'FieldValueTooLongError',
 ]

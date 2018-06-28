@@ -8,13 +8,15 @@ from n6lib.auth_db.fields import (
     URLSimpleField,
     UserLoginField,
 )
-from n6lib.data_spec import N6DataSpec
+from n6lib.data_spec import (
+    N6DataSpec,
+    FieldValueError,
+)
 from n6lib.record_dict import (
     chained,
     make_adjuster_applying_callable,
     make_adjuster_using_data_spec,
 )
-from n6sdk.exceptions import FieldValueError
 
 
 invalid_field_template_msg = 'Value: {value!r} raised {exc.__class__.__name__}: {exc}.'
