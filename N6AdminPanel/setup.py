@@ -1,7 +1,18 @@
+# Copyright (c) 2013-2018 NASK. All rights reserved.
+
+import os.path as osp
+
 from setuptools import setup, find_packages
 
+
+setup_dir = osp.dirname(osp.abspath(__file__))
+
+with open(osp.join(setup_dir, '.n6-version')) as f:
+    n6_version = f.read().strip()
+
+
 requires = [
-    'n6lib',
+    'n6lib==' + n6_version,
 
     'Flask==1.0.2',
     'Flask-Admin==1.5.1',
@@ -11,7 +22,7 @@ requires = [
 
 setup(
     name='n6adminpanel',
-    version='2.0.0',
+    version=n6_version,
 
     packages=find_packages(),
     include_package_data=True,

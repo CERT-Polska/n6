@@ -1,3 +1,5 @@
+# Copyright (c) 2013-2018 NASK. All rights reserved.
+
 import glob
 import os
 import os.path as osp
@@ -5,8 +7,15 @@ import sys
 
 from setuptools import setup, find_packages
 
+
 setup_dir = osp.dirname(osp.abspath(__file__))
 venv_dir = os.environ.get('VIRTUAL_ENV')
+
+with open(osp.join(setup_dir, '.n6-version')) as f:
+    n6_version = f.read().strip()
+
+with open(osp.join(setup_dir, '.n6sdk-version')) as f:
+    n6sdk_version = f.read().strip()
 
 
 def setup_data_line_generator(filename_base):
@@ -20,7 +29,7 @@ def setup_data_line_generator(filename_base):
 
 pip_install = False
 setup_install = False
-requirements = []
+requirements = ['n6sdk==' + n6sdk_version]
 requirements_pip = []
 dep_links = []
 for line in setup_data_line_generator('requirements'):
@@ -40,12 +49,12 @@ for line in setup_data_line_generator('requirements'):
         except IndexError:
             pass
     elif pip_install:
-        requirements_pip.append(line.strip())
+        requirements_pip.append(line)
 
 
 setup(
     name="n6lib",
-    version='2.0.0',
+    version=n6_version,
 
     packages=find_packages(),
     include_package_data=True,

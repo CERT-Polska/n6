@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# Copyright (c) 2013-2018 NASK. All rights reserved.
+
 import ast
 import argparse
 import logging
@@ -10,10 +12,10 @@ import sys
 import traceback
 
 
-LOGGER = None  # to be set in configure_logging()
+LOGGER = None  # to be set in configure_logging() (see below)
 
 DEFAULT_ACTION = 'install'
-DEFAULT_ADDITIONAL_PACKAGES = 'mock==1.0.1', 'nose', 'coverage', 'pylint'
+DEFAULT_ADDITIONAL_PACKAGES = 'nose', 'coverage', 'pylint'
 DEFAULT_LOG_CONFIG = {
     'version': 1,
     'formatters': {
@@ -89,6 +91,7 @@ def parse_arguments():
 
     arguments = parser.parse_args()
 
+    arguments.components = [name.rstrip('/') for name in arguments.components]
     if 'all' in arguments.components:
         arguments.components.remove('all')
         arguments.components.extend(name for name in os.listdir(this_script_dir)
@@ -122,8 +125,6 @@ def parse_arguments():
         parser.error('{!r} is not a literal-evaluable dict'
                      .format(arguments.log_config))
 
-    #import pprint
-    #sys.exit(pprint.pformat(vars(arguments)))
     return arguments
 
 

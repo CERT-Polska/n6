@@ -1,3 +1,5 @@
+# Copyright (c) 2013-2018 NASK. All rights reserved.
+
 import glob
 import os.path as osp
 import sys
@@ -5,7 +7,11 @@ import sys
 from setuptools import setup, find_packages
 import pkgutil
 
+
 setup_dir = osp.dirname(osp.abspath(__file__))
+
+with open(osp.join(setup_dir, '.n6-version')) as f:
+    n6_version = f.read().strip()
 
 
 if "--collectors-only" in sys.argv:
@@ -14,26 +20,14 @@ if "--collectors-only" in sys.argv:
 else:
     collectors_only = False
 
+
 def setup_data_line_generator(filename_base):
     path_base = osp.join(setup_dir, filename_base)
     path_glob = path_base + '*'
     for path in glob.glob(path_glob):
         with open(path) as f:
-            for line in f:
-                if line.strip():
-                    yield line
-
-requirements = []
-dep_links = []
-for line in setup_data_line_generator('requirements'):
-    req = line.split('\t')
-    requirements.append(req[0])
-    try:
-        dep_links.append(req[1])
-    except IndexError:
-        pass
-
-console_scripts_list = ['n6config = n6.base.config:install_default_config']
+            for raw_line in f:
+                yield raw_line.strip()
 
 def find_scripts():
     console_scripts_list.extend(setup_data_line_generator('console_scripts'))
@@ -91,6 +85,10 @@ def find_collectors():
         console_line = "n6collector_%s = %s" % (script_name, entry_name)
         console_scripts_list.append(console_line)
 
+
+requirements = ['n6lib==' + n6_version]
+console_scripts_list = ['n6config = n6.base.config:install_default_config']
+
 if not collectors_only:
     find_scripts()
     find_parsers()
@@ -99,14 +97,13 @@ find_collectors()
 
 setup(
     name="n6",
-    version='2.0.0',
+    version=n6_version,
 
     packages=find_packages(),
     include_package_data=True,
     zip_safe=False,
-    tests_require=["mock==1.0.1", "unittest_expander"],
-    test_suite="n6.tests",
-    dependency_links=dep_links,
+    tests_require=['mock==1.0.1', 'unittest_expander'],
+    test_suite='n6.tests',
     install_requires=requirements,
     entry_points={
         'console_scripts': console_scripts_list,

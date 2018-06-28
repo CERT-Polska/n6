@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# Copyright (c) 2013-2018 NASK. All rights reserved.
+
 import contextlib
 import unittest
 import sys
@@ -81,7 +83,7 @@ def callable_mock(name):
 
 PARSED_ARGS = PrototypeDict({
     'action': 'install',
-    'additional_packages': ['mock==1.0.1', 'nose', 'coverage', 'pylint'],
+    'additional_packages': ['nose', 'coverage', 'pylint'],
     'components': ['N6SDK', 'N6Lib', 'foo'],
     'log_config': {
         'formatters': {'brief': {'format': '\n%(asctime)s [%(levelname)s] %(message)s'}},
@@ -128,19 +130,35 @@ class Test__parse_arguments(unittest.TestCase):
             input=['foo'],
             expected=PARSED_ARGS.copy(),
         ),
-        several_components = Case(
-            input=['N6Core', 'N6Lib', 'N6Blablabla'],  # note: 'N6SDK' and 'N6Lib' will be first
+        several_components1 = Case(                    # note: * duplicates will be omitted
+            input=['N6Core/', 'N6Blablabla///',        #       * trailing '/' will be removed
+                   'N6Blablabla', 'N6Core/'],          #       * 'N6SDK' and 'N6Lib' will be first
             expected=PARSED_ARGS.copy_with(components=['N6SDK', 'N6Lib', 'N6Core', 'N6Blablabla']),
         ),
         several_components2 = Case(
-            input=['N6Core', 'N6Lib',
-                   'N6SDK', 'N6Blablabla'],            # note: 'N6SDK' and 'N6Lib' will be first
+            input=['N6Core', 'N6Lib', 'N6Blablabla'],
             expected=PARSED_ARGS.copy_with(components=['N6SDK', 'N6Lib', 'N6Core', 'N6Blablabla']),
         ),
-        with_all = Case(
-            input=['all', 'foo'],  # patched os.listdir() will return ['N6-a', 'N6-b', 'N6-c']
+        several_components3 = Case(
+            input=['N6Core', 'N6Lib/',
+                   'N6SDK', 'N6Blablabla'],
+            expected=PARSED_ARGS.copy_with(components=['N6SDK', 'N6Lib', 'N6Core', 'N6Blablabla']),
+        ),
+        with_all1 = Case(
+            input=['all'],      # (patched os.listdir() will provide 'N6-a', 'N6-b' and 'N6-c'...)
+            expected=PARSED_ARGS.copy_with(components=['N6SDK', 'N6Lib',
+                                                       'N6-a', 'N6-b', 'N6-c']),
+        ),
+        with_all2 = Case(
+            input=['all', 'foo'],
             expected=PARSED_ARGS.copy_with(components=['N6SDK', 'N6Lib',
                                                        'foo', 'N6-a', 'N6-b', 'N6-c']),
+        ),
+        with_all3 = Case(
+            input=['all', 'N6-b',
+                   'foo'],
+            expected=PARSED_ARGS.copy_with(components=['N6SDK', 'N6Lib', 'N6-b',
+                                                       'foo', 'N6-a', 'N6-c']),
         ),
         # --action
         opt_action = Case(
@@ -352,8 +370,6 @@ class Test__main(unittest.TestCase):
                 Call('do_setup.LOGGER.info', "%r setup done", 'foo'),
 
                 Call('os.chdir', self.THIS_SCRIPT_DIR),
-                Call('do_setup.command', 'pip install mock==1.0.1'),
-                Call('do_setup.LOGGER.info', "%r installed", 'mock==1.0.1'),
                 Call('do_setup.command', 'pip install nose'),
                 Call('do_setup.LOGGER.info', "%r installed", 'nose'),
                 Call('do_setup.command', 'pip install coverage'),

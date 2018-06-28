@@ -1,15 +1,21 @@
+# Copyright (c) 2013-2018 NASK. All rights reserved.
+
 import os.path as osp
 
 from setuptools import setup, find_packages
 
+
 setup_dir = osp.dirname(osp.abspath(__file__))
 
+with open(osp.join(setup_dir, '.n6sdk-version')) as f:
+    n6sdk_version = f.read().strip()
 
 with open(osp.join(setup_dir, 'requirements')) as f:
     requirements = []
     dep_links = []
-    for line in f:
-        if not line.strip():
+    for raw_line in f:
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
             continue
         req = line.split('\t')
         requirements.append(req[0])
@@ -21,7 +27,7 @@ with open(osp.join(setup_dir, 'requirements')) as f:
 
 setup(
     name="n6sdk",
-    version='0.7.0a1',
+    version=n6sdk_version,
 
     packages=find_packages(),
     dependency_links=dep_links,
