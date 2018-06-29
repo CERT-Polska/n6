@@ -3043,7 +3043,6 @@ def cleanup_src():
         _LOGGER.warning('Fail cleanup resources: %r', fail_cleanup)
 
 
-# maybe TODO later: tests (so far, tested manually)
 def make_condensed_debug_msg(exc_info=None,
                              total_limit=2000,
                              exc_str_limit=500,
