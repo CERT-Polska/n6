@@ -247,8 +247,7 @@ class TestValidators(unittest.TestCase):
         u'abcdef',
     )
     def test_illegal_ip_network(self, val):
-        expected_msg_pattern = (r'.+ is not a valid CIDR '
-                                r'IPv4 network specification\Z')
+        expected_msg_pattern = (r'.+ is not a valid CIDR IPv4 network specification\Z')
         self._test_illegal_values(InsideFilterIPNetwork, {'ip_network': val}, FieldValueError,
                                   expected_msg_pattern)
         self._test_illegal_values(CriteriaIPNetwork, {'ip_network': val}, FieldValueError,

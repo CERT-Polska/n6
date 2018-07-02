@@ -30,6 +30,10 @@ from wtforms import PasswordField
 from wtforms.fields import Field
 
 from n6lib.auth_db.config import SQLAuthDBConfigMixin
+from n6lib.config import ConfigMixin
+from n6lib.common_helpers import as_unicode
+from n6lib.data_spec import FieldValueError
+from n6lib.log_helpers import logging_configured
 from n6lib.auth_db.models import (
     CACert,
     Cert,
@@ -56,10 +60,6 @@ from n6lib.auth_db.models import (
     User,
     db_session,
 )
-from n6lib.config import ConfigMixin
-from n6lib.common_helpers import as_unicode
-from n6lib.data_spec import FieldValueError
-from n6lib.log_helpers import logging_configured
 
 
 class _PasswordFieldHandlerMixin(object):
