@@ -28,6 +28,7 @@ from sqlalchemy import inspect
 from sqlalchemy.sql.sqltypes import String
 from wtforms import PasswordField
 from wtforms.fields import Field
+from wtforms.widgets import PasswordInput
 
 from n6lib.auth_db.config import SQLAuthDBConfigMixin
 from n6lib.config import ConfigMixin
@@ -62,15 +63,34 @@ from n6lib.auth_db.models import (
 )
 
 
+class CustomPasswordInput(PasswordInput):
+
+    """
+    Subclass of the widget appending a `placeholder` attribute
+    to an `input` HTML element.
+    """
+
+    def __call__(self, field, **kwargs):
+        if field._value():
+            kwargs['placeholder'] = 'Edit to change user\'s password.'
+        else:
+            kwargs['placeholder'] = 'Add password for the user.'
+        return super(CustomPasswordInput, self).__call__(field, **kwargs)
+
+
 class _PasswordFieldHandlerMixin(object):
 
     form_extra_fields = {
-        'password': PasswordField(),
+        'password': PasswordField(widget=CustomPasswordInput()),
     }
 
     def on_model_change(self, form, model, is_created):
-        if form.password and form.password.data:
+        if hasattr(form, 'password') and form.password and form.password.data:
             model.password = model.get_password_hash_or_none(form.password.data)
+        elif hasattr(model, 'password'):
+            # delete the field from model to avoid overwriting it
+            # with an empty value
+            del model.password
 
 
 class PrimaryKeyOnlyFormAdmin(InlineFormAdmin):
