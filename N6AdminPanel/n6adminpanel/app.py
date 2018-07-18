@@ -1,7 +1,5 @@
 # Copyright (c) 2013-2018 NASK. All rights reserved.
 
-from collections import MutableSequence
-
 from flask import Flask
 from flask_admin import (
     Admin,
@@ -9,6 +7,7 @@ from flask_admin import (
     expose,
 )
 from flask_admin._compat import iteritems
+from flask_admin.actions import ActionsMixin
 from flask_admin.contrib.sqla import (
     form,
     ModelView,
@@ -25,16 +24,16 @@ from flask_admin.model.form import (
 )
 from flask_admin.model.fields import InlineModelFormField
 from sqlalchemy import inspect
-from sqlalchemy.sql.sqltypes import String
 from wtforms import PasswordField
 from wtforms.fields import Field
 from wtforms.widgets import PasswordInput
 
+from n6adminpanel.patches import (
+    get_patched_get_form,
+    get_patched_init_actions,
+    patched_populate_obj,
+)
 from n6lib.auth_db.config import SQLAuthDBConfigMixin
-from n6lib.config import ConfigMixin
-from n6lib.common_helpers import as_unicode
-from n6lib.data_spec import FieldValueError
-from n6lib.log_helpers import logging_configured
 from n6lib.auth_db.models import (
     CACert,
     Cert,
@@ -61,6 +60,8 @@ from n6lib.auth_db.models import (
     User,
     db_session,
 )
+from n6lib.config import ConfigMixin
+from n6lib.log_helpers import logging_configured
 
 
 class CustomPasswordInput(PasswordInput):
@@ -535,68 +536,10 @@ class AdminPanel(ConfigMixin):
                 self.admin.add_view(view(model, db_session))
 
 
-def _get_patched_get_form(original_func):
-    """
-    Patch `get_form()` function, so `hidden_pk` keyword
-    argument is always set to False.
-
-    Columns with "PRIMARY KEY" constraints are represented
-    as non-editable hidden input elements, not as editable
-    forms, when argument `hidden_pk` is True.
-    """
-    def _is_pk_string(model):
-        inspection = inspect(model)
-        main_pk = inspection.primary_key[0]
-        return isinstance(main_pk.type, String)
-
-    def patched_func(model, converter, **kwargs):
-        if _is_pk_string(model):
-            kwargs['hidden_pk'] = False
-        return original_func(model, converter, **kwargs)
-    return patched_func
-
-
-def _get_exception_message(exc):
-    """
-    Try to get a message from a raised exception.
-
-    Args:
-        `exc`:
-            An instance of a raised exception.
-
-    Returns:
-        Message from exception or default message, as unicode.
-    """
-    if isinstance(exc, FieldValueError):
-        return exc.public_message
-    else:
-        exc_message = getattr(exc, 'message', None)
-        if exc_message and isinstance(exc_message, basestring):
-            return as_unicode(exc_message)
-    return u'Failed to create record.'
-
-
-def _patched_populate_obj(self, obj, name):
-    """
-    Patch original method, in order to:
-        * Prevent Flask-admin from populating fields with NoneType.
-        * Append a list of validation errors, if a models' validator
-          raised an exception (not Flask-Admin's validator), to
-          highlight invalid field in application's view.
-    """
-    if self.data is not None:
-        try:
-            setattr(obj, name, self.data)
-        except Exception as exc:
-            invalid_field = getattr(exc, 'invalid_field', None)
-            if invalid_field and isinstance(self.errors, MutableSequence):
-                self.errors.append(_get_exception_message(exc))
-            raise
-
-
 def monkey_patch_flask_admin():
-    setattr(form, 'get_form', _get_patched_get_form(form.get_form))
-    setattr(Field, 'populate_obj', _patched_populate_obj)
+    setattr(form, 'get_form', get_patched_get_form(form.get_form))
+    setattr(Field, 'populate_obj', patched_populate_obj)
+    setattr(ActionsMixin, 'init_actions', get_patched_init_actions(ActionsMixin.init_actions))
 
 
 def get_app():
