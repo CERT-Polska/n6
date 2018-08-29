@@ -30,7 +30,6 @@ from n6.utils.aggregator import (
 @expand
 class TestAggregator(unittest.TestCase):
 
-    sample_dbpath = '/example_dir'
     sample_time_tolerance = 600
     sample_routing_key = 'testsource.testchannel'
     starting_datetime = datetime.datetime(2017, 6, 1, 10)
@@ -803,7 +802,7 @@ class TestAggregator(unittest.TestCase):
 class TestAggregatorDataWrapper(unittest.TestCase):
 
     sample_time_tolerance = 600
-    sample_db_path = '/tmp/example'
+    sample_db_path = '/tmp/example.pickle'
     mocked_utcnow = datetime.datetime(2017, 7, 1, 12, 0, 0)
 
     tested_source_channel = 'testsource.testchannel'

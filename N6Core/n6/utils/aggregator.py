@@ -257,17 +257,18 @@ class Aggregator(QueuedBase):
         config = Config(required={"aggregator": ("dbpath", "time_tolerance")})
         self.aggregator_config = config["aggregator"]
         self.aggregator_config["dbpath"] = os.path.expanduser(self.aggregator_config["dbpath"])
+        dbpath_dirname = os.path.dirname(self.aggregator_config["dbpath"])
         try:
-            os.makedirs(self.aggregator_config["dbpath"], 0700)
+            os.makedirs(dbpath_dirname, 0700)
         except OSError:
             pass
         super(Aggregator, self).__init__(**kwargs)
         # store dir doesn't exist, stop aggregator
-        if not os.path.isdir(os.path.dirname(self.aggregator_config["dbpath"])):
+        if not os.path.isdir(dbpath_dirname):
             raise Exception('store dir does not exist, stop aggregator,  path:',
                             self.aggregator_config["dbpath"])
         # store directory exists, but it has no rights to write
-        if not os.access(os.path.dirname(self.aggregator_config["dbpath"]), os.W_OK):
+        if not os.access(dbpath_dirname, os.W_OK):
             raise Exception('stop aggregator, remember to set the rights'
                             ' for user, which runs aggregator,  path:',
                             self.aggregator_config["dbpath"])

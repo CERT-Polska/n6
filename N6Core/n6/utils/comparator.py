@@ -313,17 +313,18 @@ class Comparator(QueuedBase):
         config = Config(required={"comparator": ("dbpath", "series_timeout", "cleanup_time")})
         self.comparator_config = config["comparator"]
         self.comparator_config["dbpath"] = os.path.expanduser(self.comparator_config["dbpath"])
+        dbpath_dirname = os.path.dirname(self.comparator_config["dbpath"])
         try:
-            os.makedirs(self.comparator_config["dbpath"], 0700)
+            os.makedirs(dbpath_dirname, 0700)
         except OSError:
             pass
         super(Comparator, self).__init__(**kwargs)
         # store dir doesn't exist, stop comparator
-        if not os.path.isdir(os.path.dirname(self.comparator_config["dbpath"])):
+        if not os.path.isdir(dbpath_dirname):
             raise Exception('store dir does not exist, stop comparator,  path:',
                             self.comparator_config["dbpath"])
         # store directory exists, but it has no rights to write
-        if not os.access(os.path.dirname(self.comparator_config["dbpath"]),  os.W_OK):
+        if not os.access(dbpath_dirname,  os.W_OK):
             raise Exception('stop comparator, remember to set the rights'
                             ' for user, which runs comparator,  path:',
                             self.comparator_config["dbpath"])
