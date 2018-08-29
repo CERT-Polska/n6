@@ -45,7 +45,7 @@ export default {
 
     sendQuery(queryString) {
       // // TODO: Use axios when API is ready
-      // this.axios
+      // axios
       //   .get(queryString)
       //   .then(response => {
       //     console.log('got response:', response)

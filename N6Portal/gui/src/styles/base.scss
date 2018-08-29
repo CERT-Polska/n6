@@ -1,0 +1,27 @@
+/*** Base styles - global styles available across the whole application to all
+ *** components.
+ ***/
+
+@import '~@styles/_values.scss';
+
+html {
+  font-size: 1px;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  height: 100%;
+  width: 100%;
+  color: $color-text-primary;
+  background-color: $color-background-primary;
+  font-family: 'Lato', Helvetica, sans-serif;
+  font-size: $font-size-medium;
+}
+
+a,
+button {
+  &:hover {
+    cursor: pointer;
+  }
+}

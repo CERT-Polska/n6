@@ -1,71 +1,48 @@
 import Vue from 'vue'
 import Router from 'vue-router'
-import MainPage from '@/components/MainPage'
 import AdminPanelPage from '@/components/AdminPanelPage'
 import LoginPage from '@/components/LoginPage'
-import SearchPage from '@/components/SearchPage.vue';
+import SearchPage from '@/components/SearchPage';
 import ErrorPage from '@/components/ErrorPage'
 import store from '@/store';
-import CONFIG from '@/config/config.json';
 
 Vue.use(Router)
 
-const BASE_URL = CONFIG.baseURL;
-
 const router = new Router({
   mode: 'history',
+
   routes: [
     {
       path: '/',
       name: 'main',
-      component: MainPage,
+      redirect: { name: 'search' },
     },
+
     {
       path: '/admin',
       name: 'adminPanel',
       component: AdminPanelPage,
       meta: {
+        disabled: true,
         requiresAuth: true,
       },
     },
+
     {
-      path: '/search/events',
-      name: 'eventFreeSearch',
+      path: '/search',
+      name: 'search',
       component: SearchPage,
-      props: {
-        queryBaseString: `${BASE_URL}/search/events.json`,
-      },
       meta: {
         requiresAuth: true,
       },
     },
-    {
-      path: '/report/inside',
-      name: 'insideThreats',
-      component: SearchPage,
-      props: {
-        queryBaseString: `${BASE_URL}/report/inside.json`,
-      },
-      meta: {
-        requiresAuth: true,
-      },
-    },
-    {
-      path: '/report/threats',
-      name: 'otherThreats',
-      component: SearchPage,
-      props: {
-        queryBaseString: `${BASE_URL}/report/threats.json`,
-      },
-      meta: {
-        requiresAuth: true,
-      },
-    },
+
     {
       path: '/login',
       name: 'login',
       component: LoginPage,
     },
+
     {
       path: '/error',
       name: 'error',
@@ -75,9 +52,11 @@ const router = new Router({
 })
 
 router.beforeEach((to, from, next) => {
-  let isLoggedIn = store.state.isLoggedIn;
-  if (isLoggedIn) {
-    if (to.name !== 'loginPage') {
+  if (to.meta.disabled) {
+    next(false);
+  }
+  if (store.state.session.isLoggedIn) {
+    if (to.name !== 'login') {
       next();
     } else {
       next(false);
@@ -85,7 +64,7 @@ router.beforeEach((to, from, next) => {
   } else if (!to.meta.requiresAuth) {
     next();
   } else {
-    next({ name: 'loginPage' });
+    next({ name: 'login' });
   }
 });
 

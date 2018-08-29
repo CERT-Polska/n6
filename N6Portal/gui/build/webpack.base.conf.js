@@ -1,4 +1,5 @@
 'use strict'
+const VueLoaderPlugin = require('vue-loader/lib/plugin');
 const path = require('path')
 const utils = require('./utils')
 const config = require('../config')
@@ -26,6 +27,8 @@ module.exports = {
       'vue$': 'vue/dist/vue.esm.js',
       '@': resolve('src'),
       '@images': resolve('src/images'),
+      '@styles': resolve('src/styles'),
+      '@fonts': resolve('src/fonts'),
     }
   },
   module: {
@@ -34,7 +37,7 @@ module.exports = {
         test: /\.(js|vue)$/,
         loader: 'eslint-loader',
         enforce: 'pre',
-        include: [resolve('src'), resolve('test')],
+        include: [resolve('src')],
         options: {
           formatter: require('eslint-friendly-formatter'),
           emitWarning: !config.dev.showEslintErrorsInOverlay
@@ -48,7 +51,7 @@ module.exports = {
       {
         test: /\.js$/,
         loader: 'babel-loader',
-        include: [resolve('src'), resolve('test')]
+        include: [resolve('src')]
       },
       {
         test: /\.(png|jpe?g|gif|svg)(\?.*)?$/,
@@ -75,5 +78,8 @@ module.exports = {
         }
       }
     ]
-  }
+  },
+  plugins: [
+    new VueLoaderPlugin()
+  ]
 }

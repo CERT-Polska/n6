@@ -11,7 +11,7 @@ export default {
         fqdn: [],
         url: [],
         emailNotificationTime: [],
-        fullAccess: false,
+        isFullAccess: false,
         streamApi: true,
         emailNotify: false,
         timeZone: true,
@@ -344,7 +344,7 @@ export default {
     <b-form-checkbox v-model="form.access_search">
       access to search events
     </b-form-checkbox>
-    <b-form-checkbox v-model="form.fullAccess">
+    <b-form-checkbox v-model="form.isFullAccess">
       full access to n6 REST API
     </b-form-checkbox>
     <b-form-checkbox v-model="form.english">

@@ -1,0 +1,76 @@
+//// Definitions of various values used throught the stylesheets, e.g. colors,
+//// paddings, margins.
+////
+//// The purpose of having limited set of values defined in one place is to have
+//// consistent styles through the whole application.
+////
+//// ATTENTION: For all these groups, no values other than defined here should
+//// be used throught the whole stylesheets. That doesn't mean that new
+//// definitions here are discouraged or disallowed.
+
+
+//// Colors
+// By color
+$color-black: #2f3640;  // Flat UI British: Electromagnetic
+$color-blue-extra-light: #00a8ff; // Flat UI British: Protoss Pylon
+$color-blue-light: #0097e6;  // Flat UI British: Vanadyl Blue
+$color-blue-dark: #273c75;  // Flat UI British: Mazarine Blue
+$color-blue-extra-dark: #192a56;  // Flat UI British: Pico Void
+$color-green-light: #4cd137; // Flat UI British: Download Progress
+$color-green-dark: #44bd32; // Flat UI British: Skirret Green
+$color-grey-extra-extra-light: #f5f6fa;  // Flat UI British: Lynx White
+$color-grey-extra-light: #dcdde1;  // Flat UI British: Hint of Pensive
+$color-grey-light: #7f8fa6;  // Flat UI British: Blueberry Soda
+$color-grey-dark: #718093;  // Flat UI British: Chain Gang Grey
+$color-grey-extra-dark: #353b48;  // Flat UI British: Blue Nights
+$color-grey-extra-extra-dark: #2f3640;  // Flat UI British: Electromagnetic
+$color-navy-light: #487eb0;  // Flat UI British: Seabrook
+$color-navy-dark: #40739e;  // Flat UI British: Naval
+$color-purple-light: #9c88ff;  // Flat UI British: Periwinkle
+$color-purple-dark: #8c7ae6;  // Flat UI British: Matt Purple
+$color-red-light: #e84118;  // Flat UI British: Nastrucian Flower
+$color-red-dark: #c23616;  // Flat UI British: Harley Davidson Orange
+$color-white: #ffffff;  // Just white ;)
+$color-yellow-light: #fbc531; // Flat UI British: Rise-N-Shine
+$color-yellow-dark: #e1b12c; // Flat UI British: Nanohanacha Gold
+// By function
+$color-text-primary: $color-black;
+$color-background-primary: $color-white;
+
+//// Font sizes
+$font-size-small: 14rem;
+$font-size-medium: 16rem;
+$font-size-large: 20rem;
+$font-size-extra-large: 30rem;
+$font-size-primary: $font-size-medium;
+
+/// Margins
+$margin-extra-extra-extra-small: 3px;
+$margin-extra-extra-small: 7px;
+$margin-extra-small: 12px;
+$margin-small: 18px;
+$margin-medium: 28px;
+$margin-large: 36px;
+$margin-extra-large: 44px;
+
+//// Padding
+$padding-extra-extra-extra-small: 3px;
+$padding-extra-extra-small: 5px;
+$padding-extra-small: 8px;
+$padding-small: 13px;
+$padding-medium: 20px;
+$padding-large: 28px;
+$padding-extra-large: 35px;
+$padding-extra-extra-large: 45px;
+
+//// Border
+$border-radius: 2px;
+$border-width: 1px;
+
+//// Layers (z-indexes)
+$z-index-over-regular-content: 1;
+$z-index-very-top: 10;
+
+//// Sizes
+$size-input-y: 34px;
+$size-truncate-text-x: 200px;

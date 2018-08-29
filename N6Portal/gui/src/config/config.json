@@ -1,4 +1,9 @@
 {
   "baseURL": "https://192.168.56.110",
-  "authCookieName": "auth_tkt"
+  "authCookieName": "auth_tkt",
+  "APIURLs": {
+    "eventSearch": "/search/events.json",
+    "insideThreats": "/report/inside.json",
+    "otherThreats": "/report/threats.json"
+  }
 }

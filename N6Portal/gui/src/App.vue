@@ -6,12 +6,21 @@ export default {
     TheHeader,
   },
 
+  computed: {
+    isLoggedIn() {
+      return this.$store.state.session.isLoggedIn;
+    },
+    isCertificateFetched() {
+      return this.$store.state.session.isCertificateFetched;
+    },
+  },
+
   watch: {
     '$route': 'fetchData',
   },
 
   created() {
-    if (!this.$store.state.isLoggedIn && this.$store.state.certificateFetched) {
+    if (!this.isLoggedIn && this.isCertificateFetched) {
       this.flash('You are ready to sign in with certificate.', 'success', {
         timeout: 0,
       })
@@ -20,12 +29,12 @@ export default {
 
   methods: {
     fetchData() {
-      let previousState = this.$store.state.isLoggedIn;
-      this.$store.dispatch('loadData').then(() => {
-        let currentState = this.$store.state.isLoggedIn;
+      let previousState = this.isLoggedIn;
+      this.$store.dispatch('session/loadSessionInfo').then(() => {
+        let currentState = this.isLoggedIn;
         // unexpectedly logged out
         if (previousState && !currentState) {
-          this.$store.dispatch('authLogout').then(() => {
+          this.$store.dispatch('session/authLogout').then(() => {
             this.$router.push('/login');
             this.flash('You have been logged out.', 'error');
           });
@@ -39,143 +48,88 @@ export default {
 
 <template>
   <!-- The whole application container. -->
-  <div id="app">
-    <the-header />
-    <flash-message />
-    <router-view />
+  <div
+    id="app"
+    class="App"
+  >
+    <the-header class="App-Header" />
+    <main class="App-Main">
+      <flash-message class="App-Message"/>
+      <router-view class="App-Page" />
+    </main>
   </div>
 </template>
 
 
-<style>
-/*** Global styles available across the whole application to all components.
+<style lang="scss">
+/*** The only global styles in the whole application.
  ***/
+@import '~@styles/reset.css';
+@import '~@styles/box-sizing.scss';
+@import '~@styles/base.scss';
+@import '~@styles/fonts.scss';
+/* Unfortunately needs to be global, cause the plugin is a directive and doesn't
+ * have it's scoped styles. */
+@import '~@styles/tooltip.scss';
+</style>
 
-body {
-  font-family: 'Avenir', Helvetica, Arial, sans-serif;
-  text-align: center;
-  color: #2c3e50;
+
+<style
+  scoped
+  lang="scss"
+>
+/*** Top-level layout.
+ ***/
+@import '~@styles/_values.scss';
+
+// Padding applied to the browser window.
+@mixin window-padding-x {
+  $padding-x: $padding-medium;
+
+  padding-left: $padding-x;
+  padding-right: $padding-x;
 }
 
-b-container {
+.App {
+  display: grid;
+  grid:
+    'header' auto
+    'main' 1fr
+    / 100%;
+  grid-row-gap: 0;
+  height: 100%;
   width: 100%;
 }
 
-.minibutton {
-  padding: 1px;
-  padding-left: 4px;
-  padding-right: 4px;
-  font-size: 90%;
-  font-weight: bold;
+.App-Header {
+  @include window-padding-x;
+
+  grid-area: header;
 }
 
-.tooltip-inner {
-  font-size: 13px;
-  background: #CCC;
-  color: #111;
+.App-Main {
+  $padding-y: $padding-medium;
+
+  @include window-padding-x;
+
+  grid-area: main;
+  padding-top: $padding-y;
+  padding-bottom: $padding-y;
+  max-height: 100%;
 }
 
-
-.dropdown-wrapper {
-  text-align: center;
-}
-
-.dropdown-content {
-  font-size: 75%;
-  padding-left: 8px;
-  padding-top: 0px;
-  padding-bottom: 0px;
-  border-radius: 5px;
-  margin: 0px;
+.App-Message {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: center;
+  position: fixed;
+  top: $margin-extra-small;
   width: 100%;
 }
 
-.dropdown {
-  display: inline-block;
-  padding: 0px;
-  border-radius: 5px;
-}
-
-
-/* multiselect criterion field */
-
-.selected_removable_option{
-  background: rgb(0, 132, 255);
-  color: white;
-  float: left;
-  padding: 0px 2px 0px 2px;
-  margin: 1px 0px 0px 1px;
-  border-radius: 3px;
-  cursor: pointer;
-}
-
-.multiselect__content-wrapper {
-  overflow-y: scroll;
-}
-
-.multiselect__content {
-  text-align: left;
-  padding-left: 5px;
-}
-
-.multiselect__option {
-  display: block;
-  width: 110px;
-  height: 15px;
-  padding-bottom: 16px;
-  padding-top: 0px;
-  list-style-type: none;
-  text-align: left;
-}
-
-.multiselect__option:hover {
-  background: rgb(136, 243, 150);
-  cursor: copy;
-}
-
-.multiselect__input {
-  display: inline-block;
-  position: relative !important;
-  width: 100% !important;
-  height: 20px;
-  margin-top: 2px;
-  padding-left: 5px;
-  border: 1px solid #bbb;
-  border-radius: 5px;
-}
-
-/* general settings for fill-in forms */
-
-.custom-control {
-  margin-top: 10px;
-  margin-left: 80px;
-  display: block;
-}
-
-.form-title {
-  padding-top: 20px;
-  padding-bottom: 10px;
-}
-
-.form-btn {
-  margin: 20px;
-  width: 100px;
-  margin-top: 35px;
-  margin-left: 85px;
-}
-
-.form-row {
-  text-align: right;
-}
-
-.addon-button {
-  margin: 0px !important;
-  width: 30px;
-  line-height: 10px;
-  padding: 10px;
-}
-
-b-input-group-append {
-  padding: 0px !important;
+.App-Page {
+  height: 100%;
+  grid-area: page;
 }
 </style>
