@@ -113,6 +113,10 @@ class InlineMappingFormAdmin(PrimaryKeyOnlyFormAdmin):
     Extended Flask-admin's `InlineFormAdmin` class, that allows
     to define a custom mapping of inline forms inside a view.
 
+    Important: the class has to be used within subclasses of
+    the `CustomInlineFormsModelView` class. Otherwise, it will
+    not give a desired effect.
+
     Original class creates only one form from each model listed
     in the `inline_models` attribute. This class overrides the
     behavior, allowing to create more than one inline form
@@ -215,13 +219,17 @@ class CustomColumnListView(ModelView):
 
 class PatchedInlineModelFormField(InlineModelFormField):
 
+    """
+    The subclass overrides Flask-Admin's behavior, when populating
+    fields, that omits all types of Primary Key fields. It is modified
+    to ignore only 'HiddenField' type of fields.
+    """
+
+    hidden_field_type = 'HiddenField'
+
     def populate_obj(self, obj, name):
-        string_pk_models = getattr(self, 'string_pk_models', None)
-        check_for_pk = True
-        if string_pk_models and any([x for x in string_pk_models if isinstance(obj, x)]):
-            check_for_pk = False
         for name, field in iteritems(self.form._fields):
-            if not check_for_pk or name != self._pk:
+            if field.type != self.hidden_field_type:
                 field.populate_obj(obj, name)
 
 
@@ -261,21 +269,27 @@ class PatchedInlineModelConverter(InlineModelConverter):
         return contribute_result
 
 
-class ShowInlineStringPKModelView(ModelView):
+class CustomInlineFormsModelView(ModelView):
+
+    """
+    This implementation of a `ModelView` class allows to:
+
+        * Populate Primary Key fields, which have to be filled in
+          manually (they are not auto-incremented integers and do not
+          have default values). Otherwise Flask-Admin omits them,
+          raising an error in result.
+
+        * Use an `InlineMappingFormAdmin` class as an inline form
+          administration class (by default its superclass,
+          `InlineFormAdmin`, is used) inside `inline_models` attribute
+          of `ModelView` subclasses. The `InlineMappingFormAdmin`
+          accepts a mapping between relation names of two models.
+          The mapping forces Flask-Admin to create more than one
+          inline form per related model. Check docstring of the
+          `InlineMappingFormAdmin` for detailed description.
+    """
 
     inline_model_form_converter = PatchedInlineModelConverter
-
-    def __init__(self, model, session, inline_string_pk_models=None, **kwargs):
-        if inline_string_pk_models:
-            self.inline_string_pk_models = inline_string_pk_models
-        super(ShowInlineStringPKModelView, self).__init__(model, session, **kwargs)
-
-    def create_model(self, form):
-        if self.inline_string_pk_models:
-            setattr(self.inline_model_form_converter.inline_field_list_type.form_field_type,
-                    'string_pk_models',
-                    self.inline_string_pk_models)
-        return super(ShowInlineStringPKModelView, self).create_model(form)
 
 
 class ShortTimePickerWidget(TimePickerWidget):
@@ -303,7 +317,7 @@ class OrgModelConverter(form.AdminModelConverter):
         return ShortTimeField(**field_args)
 
 
-class OrgView(ShowInlineStringPKModelView):
+class OrgView(CustomInlineFormsModelView):
 
     # create_modal = True
     # edit_modal = True
@@ -451,7 +465,7 @@ class CriteriaContainerView(CustomColumnListView):
     ]
 
 
-class SourceView(ShowInlineStringPKModelView, CustomColumnListView):
+class SourceView(CustomInlineFormsModelView, CustomColumnListView):
 
     inline_models = [
         SubsourceInlineFormAdmin(Subsource),
@@ -475,15 +489,15 @@ class AdminPanel(ConfigMixin):
     '''
     engine_config_prefix = ''
     string_pk_table_models_views = [
-        (Org, OrgView, {'inline_string_pk_models': [User]}),
-        (OrgGroup, CustomColumnListView, None),
-        (User, UserView, None),
-        #(Component, ComponentView, None),
-        (CriteriaContainer, CriteriaContainerView, None),
-        (Source, SourceView, {'inline_string_pk_models': [Subsource]}),
-        (Subsource, CustomColumnListView, None),
-        (SubsourceGroup, CustomColumnListView, None),
-        (SystemGroup, CustomColumnListView, None),
+        (Org, OrgView),
+        (OrgGroup, CustomColumnListView),
+        (User, UserView),
+        #(Component, ComponentView),
+        (CriteriaContainer, CriteriaContainerView),
+        (Source, SourceView),
+        (Subsource, CustomColumnListView),
+        (SubsourceGroup, CustomColumnListView),
+        (SystemGroup, CustomColumnListView),
     ]
     # list of models with single, main column, which primary keys
     # are auto-generated integers
@@ -529,11 +543,8 @@ class AdminPanel(ConfigMixin):
         db_session.remove()
 
     def _populate_views(self):
-        for model, view, kwargs in self.string_pk_table_models_views:
-            if kwargs:
-                self.admin.add_view(view(model, db_session, **kwargs))
-            else:
-                self.admin.add_view(view(model, db_session))
+        for model, view in self.string_pk_table_models_views:
+            self.admin.add_view(view(model, db_session))
 
 
 def monkey_patch_flask_admin():
