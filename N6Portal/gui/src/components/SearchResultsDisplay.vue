@@ -41,8 +41,8 @@ export default {
       const truncatedClass = 'SearchResultsDisplay-TableCell--Truncated';
       // Additional properties for column with date
       const dateColumn = {
-        dateInputFormat: 'YYYY-MM-DDTHH:MM:SS',
-        dateOutputFormat: 'YYYY-MM-DD HH:MM:SS',
+        dateInputFormat: 'YYYY-MM-DDTHH:mm:SS',
+        dateOutputFormat: 'YYYY-MM-DD HH:mm:SS',
         thClass: 'SearchResultsDisplay-TableHeader--Datetime',
         tdClass: 'SearchResultsDisplay-TableCell--Datetime',
       };

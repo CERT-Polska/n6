@@ -38,6 +38,7 @@ $color-text-primary: $color-black;
 $color-background-primary: $color-white;
 
 //// Font sizes
+$font-size-extra-small: 12rem;
 $font-size-small: 14rem;
 $font-size-medium: 16rem;
 $font-size-large: 20rem;
@@ -69,6 +70,7 @@ $border-width: 1px;
 
 //// Layers (z-indexes)
 $z-index-over-regular-content: 1;
+$z-index-tooltip: 5;
 $z-index-very-top: 10;
 
 //// Sizes

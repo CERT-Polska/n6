@@ -1,7 +1,6 @@
 // State for search page.
 
 import Vue from 'vue';
-import remove from 'lodash-es/remove';
 import CONFIG from '@/config/config.json';
 import columnsConfig from '@/config/searchColumns.js';
 import criteriaConfig from '@/config/searchCriteria';
@@ -21,14 +20,14 @@ export default {
   namespaced: true,
 
   state: {
-    tempProp: false,
     criteria: [],
     displayedColumns: {},
     resultsResponse: [],
     // Status of the whole search. Available values:
-    // * 'idle'
-    // * 'pending'
-    // * 'completed'
+    // * 'idle' - Initial state
+    // * 'touched' - Form submitted but the request wasn't made
+    // * 'pending' - Search request is in progress
+    // * 'completed' - Search request completed
     status: 'idle',
     // Type of the search (what type of events are searched)
     type: 'events',
@@ -36,6 +35,7 @@ export default {
 
   getters: {
     criterion: (state) => (id) => state.criteria.find(criterion => criterion.id === id),
+    criteriaValid: (state) => state.criteria.every(criterion => criterion.valid),
 
     queryBaseUrl(state) {
       let urlKey = SEARCH_TYPE_TO_CONFIG_KEYS[state.type];
@@ -45,6 +45,7 @@ export default {
     statusCompleted: state => state.status === 'completed',
     statusIdle: state => state.status === 'idle',
     statusPending: state => state.status === 'pending',
+    statusTouched: state => state.status === 'touched',
 
     // Results response processed for usage in the table
     resultsTable(state) {
@@ -76,30 +77,44 @@ export default {
       localStorage.setItem(CRITERIA_STORAGE_KEY, criteriaJson);
     },
 
-    // value can be ommited and criterion will be initialized with default value
-    _criterionSet(state, { id, value }) {
-      let criterion = state.criteria.find(criterion => criterion.id === id);
-      if (!criterion) {
+    // When creating a new criterion both `value` and `valid` can be ommited and
+    // the criterion will be initialized with default value.
+    // When setting an existing criterion, either `value` or `valid` should
+    // be given, but it's not a must to specify both.
+    //
+    _criterionSet(state, { id, value, valid }) {
+      let criterionIndex = state.criteria.findIndex(criterion => criterion.id === id);
+      if (criterionIndex === -1) {
         let criterionConfig = criteriaConfig.find(criterion => criterion.id === id);
         state.criteria.push({
           id,
-          value: value || criterionConfig.defaultValue,
           required: Boolean(criterionConfig.required),
+          valid,
+          value: value || criterionConfig.defaultValue,
         });
+        // To trigger the reactivity change, new Array must be made
+        state.criteria = new Array(...state.criteria);
       } else {
-        criterion.value = value;
+        // Copy created and assigned by Vue.$set to trigger the reactivity change
+        let criterionCopy = {};
+        Object.assign(criterionCopy, state.criteria[criterionIndex]);
+        if (value !== undefined) {
+          criterionCopy.value = value;
+        }
+        if (valid !== undefined) {
+          criterionCopy.valid = valid;
+        }
+        Vue.set(state.criteria, criterionIndex, criterionCopy);
       }
-      // To trigger the reactivity change, new Array must be made
-      state.criteria = new Array(...state.criteria);
     },
 
     _criterionRemove(state, { id }) {
-      let removed = remove(state.criteria, criterion => criterion.id === id);
-      if (!removed) {
+      let criterionIndex = state.criteria.findIndex(criterion => criterion.id === id);
+      if (criterionIndex === -1) {
         console.warn(`Tried removing criteria (id: ${id}), which has not been active`);
       } else {
         // To trigger the reactivity change, new Array must be made
-        state.criteria = new Array(...state.criteria);
+        Vue.delete(state.criteria, criterionIndex);
       }
     },
 
@@ -123,6 +138,10 @@ export default {
 
     statusPending(state) {
       state.status = 'pending';
+    },
+
+    statusTouched(state) {
+      state.status = 'touched';
     },
 
     typeSet(state, { type }) {

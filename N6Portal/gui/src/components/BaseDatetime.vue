@@ -211,11 +211,16 @@ export default {
 }
 
 .Datetime-Time {
-  margin-left: $margin-extra-small;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  margin-left: $margin-extra-extra-small;
 }
 
 .Datetime-TimeSeparator {
-  // No styles here so far
+  width: 10px;
+  text-align: center;
 }
 
 %Datetime-HoursMinutes {

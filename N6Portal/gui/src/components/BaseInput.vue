@@ -41,6 +41,9 @@ export default {
 @import '~@styles/_values.scss';
 
 .Input {
+  border-radius: $border-radius;
+  border: 1px solid $color-grey-light;
+  padding: $padding-small $padding-extra-small;
   height: $size-input-y;
 }
 </style>

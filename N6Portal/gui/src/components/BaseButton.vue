@@ -67,6 +67,10 @@ export default {
       border: none;
     }
   }
+
+  &:disabled {
+    opacity: 0.3;
+  }
 }
 
 .Button--Primary {
@@ -76,7 +80,7 @@ export default {
   color: $color-white;
   background-color: $color-blue-light;
 
-  &:hover {
+  &:hover:not(:disabled) {
     border-color: $color-blue-dark;
     background-color: $color-blue-dark;
   }
@@ -89,7 +93,7 @@ export default {
   color: $color-grey-extra-dark;
   background-color: $color-grey-extra-light;
 
-  &:hover {
+  &:hover:not(:disabled) {
     color: $color-white;
     background-color: $color-grey-light;
   }
@@ -102,7 +106,7 @@ export default {
   color: $color-grey-extra-dark;
   background-color: $color-grey-extra-extra-light;
 
-  &:hover {
+  &:hover:not(:disabled) {
     color: $color-white;
     background-color: $color-grey-light;
   }

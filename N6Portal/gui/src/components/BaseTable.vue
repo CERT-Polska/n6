@@ -84,7 +84,7 @@ export default {
 
 
 <style lang="scss" scoped>
-@import '/node_modules/vue-good-table/dist/vue-good-table.css';
+@import '~vue-good-table/dist/vue-good-table.css';
 @import '~@/styles/_values.scss';
 @import '~@/styles/_tools.scss';
 

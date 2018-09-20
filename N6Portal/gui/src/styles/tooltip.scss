@@ -9,13 +9,41 @@ $arrow-offset: 2px;
 
 .tooltip {
   display: block !important;
-  z-index: 10000;
+  z-index: $z-index-tooltip;
+
+  &.error {
+    .tooltip-inner {
+      background-color: $color-red-light;
+    }
+
+    .tooltip-arrow {
+      border-color: $color-red-light;
+    }
+  }
 
   .tooltip-inner {
     background: $background-color;
     color: $text-color;
     border-radius: $border-radius;
     padding: $padding-extra-small;
+  }
+
+  .tooltip-messages--single {
+    /* No styles here so far */
+  }
+
+  .tooltip-messages--multiple {
+    $padding: $padding-extra-small;
+
+    list-style: circle;
+    padding-left: 15px;
+    padding-right: 6px;
+  }
+
+  .tooltip-message {
+    & + .tooltip-message {
+      margin-top: $margin-extra-extra-small;
+    }
   }
 
   .tooltip-arrow {
