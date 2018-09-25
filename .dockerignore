@@ -1,0 +1,11 @@
+.*
+!.n6-version
+!.n6sdk-version
+Makefile
+LICENSE
+VERSION
+README.md
+Changelog.md
+docs
+docker-compose.yml
+n6-env
