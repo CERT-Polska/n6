@@ -12,8 +12,9 @@
 # * `data spec class` (or `data specification class`)
 #   -- n6sdk.data_spec.BaseDataSpec or (more probably) some subclass of
 #      it (especially n6lib.data_spec.N6DataSpec or N6InsideDataSpec)
-#   [can also be informally referred to as `data spec` but the proper
-#    meaning of `data spec` is different -- see below]
+#   [can also be informally referred to as `data spec[ification]` but
+#    the proper meaning of `data spec[ification]` is different -- see
+#    below]
 #
 # * `data spec` (or `data specification`)
 #   -- an *instance* of some *data spec class*
@@ -23,7 +24,8 @@
 #   -- n6sdk.data_spec.fields.Field or (more probably) some subclass of
 #      it (especially a *subclass* of n6lib.data_spec.fields.FieldForN6)
 #   [can also be informally referred to as `field` but the proper
-#   meaning of `field` is different -- see below]
+#    meaning of `field`/`field spec[ification]` is different -- see
+#    below]
 #
 # * `field` or `field spec[ification]` or `field instance`
 #   -- some *instance* of a certain *field class*
@@ -40,8 +42,8 @@
 #    certain database record...]
 #
 # * `field key` or `field name`
-#   -- a string being the name of some attribute of *data spec*;
-#      the value of such an attribute is a *field*
+#   -- a string being the name of a *data spec*'s attribute whose value
+#      is a *field*
 #
 #   [there are also some closely related terms, not necessarily formal:
 #    * used in the context of REST API queries and related machinery --
@@ -389,6 +391,14 @@ class N6DataSpec(DataSpec):
         in_result='optional',
         min_value=0,
         max_value=(2 ** 15 - 1),  ### to be extended to 2**16-1?
+    )                             ### OR rather more (see: ticket #6324)
+
+    # see: ticket #6324
+    count_actual = IntegerFieldForN6(
+        in_params=None,
+        in_result='optional',
+        min_value=0,
+        max_value=(2 ** 53 - 1),  # big enough + seems to be JSON-safe...
     )
 
     until = DateTimeFieldForN6(
@@ -640,6 +650,7 @@ class N6DataSpec(DataSpec):
         'botid',
         'cert_length',
         'channel',
+        'count_actual',
         'dataset',
         'description',
         'detected_since',

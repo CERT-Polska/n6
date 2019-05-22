@@ -8,6 +8,7 @@ let columns = [
     label: 'Time',
     type: 'datetime',
     checked: true,
+    tooltip: 'Time of the event',
   },
 
   {
@@ -15,6 +16,7 @@ let columns = [
     label: 'Category',
     type: 'text',
     checked: true,
+    tooltip: 'Category of the event',
   },
 
   {
@@ -22,6 +24,7 @@ let columns = [
     label: 'Name',
     type: 'text',
     checked: true,
+    tooltip: 'Name of the threat/problem',
   },
 
   {
@@ -29,6 +32,7 @@ let columns = [
     label: 'IP',
     type: 'text',
     checked: true,
+    tooltip: 'IP address associated with the event',
     array: true,
     parent: 'address',
   },
@@ -38,6 +42,7 @@ let columns = [
     label: 'ASN',
     type: 'number',
     checked: true,
+    tooltip: 'Autonomous System Number',
     array: true,
     parent: 'address',
   },
@@ -47,6 +52,7 @@ let columns = [
     label: 'Country',
     type: 'text',
     checked: true,
+    tooltip: 'Country (geolocation)',
     array: true,
     parent: 'address',
   },
@@ -56,6 +62,7 @@ let columns = [
     label: 'FQDN',
     type: 'text',
     checked: true,
+    tooltip: 'Fully-qualified domain name',
   },
 
   {
@@ -63,6 +70,7 @@ let columns = [
     label: 'Source',
     type: 'text',
     checked: true,
+    tooltip: 'Identifier of the information provider',
   },
 
   {
@@ -70,6 +78,7 @@ let columns = [
     label: 'Confidence',
     type: 'text',
     checked: true,
+    tooltip: 'Estimated confidence of the information',
   },
 
   {
@@ -77,6 +86,7 @@ let columns = [
     label: 'URL',
     type: 'text',
     checked: true,
+    tooltip: 'Complete URL associated with the event',
   },
 
   {
@@ -84,6 +94,7 @@ let columns = [
     label: 'Origin',
     type: 'text',
     checked: false,
+    tooltip: 'How the information was obtained',
   },
 
   {
@@ -91,6 +102,7 @@ let columns = [
     label: 'Protocol',
     type: 'text',
     checked: false,
+    tooltip: 'Protocol',
   },
 
   {
@@ -98,6 +110,7 @@ let columns = [
     label: 'Src.port',
     type: 'number',
     checked: false,
+    tooltip: 'Source TCP/UDP port',
   },
 
   {
@@ -105,6 +118,7 @@ let columns = [
     label: 'Dest.port',
     type: 'number',
     checked: false,
+    tooltip: 'Destination TCP/UDP port',
   },
 
   {
@@ -112,6 +126,7 @@ let columns = [
     label: 'Dest.IP',
     type: 'text',
     checked: false,
+    tooltip: 'Destination IP address',
   },
 
   {
@@ -119,6 +134,7 @@ let columns = [
     label: 'MD5',
     type: 'text',
     checked: false,
+    tooltip: 'MD5 hash of the associated sample',
   },
 
   {
@@ -126,6 +142,7 @@ let columns = [
     label: 'SHA1',
     type: 'text',
     checked: false,
+    tooltip: 'SHA1 hash of the associated sample',
   },
 
   {
@@ -133,6 +150,7 @@ let columns = [
     label: 'Target',
     type: 'text',
     checked: false,
+    tooltip: 'Organization or brand targetted by the attack',
   },
 
   {
@@ -140,6 +158,7 @@ let columns = [
     label: 'Status',
     type: 'text',
     checked: false,
+    tooltip: 'Is the threat still reported as active',
   },
 
   {
@@ -147,6 +166,7 @@ let columns = [
     label: 'Until',
     type: 'datetime',
     checked: false,
+    tooltip: 'Time when the blacklist entry expires',
   },
 
   {
@@ -154,6 +174,7 @@ let columns = [
     label: 'Count',
     type: 'number',
     checked: false,
+    tooltip: 'Number of occurences',
   },
 ];
 

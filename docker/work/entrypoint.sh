@@ -7,6 +7,7 @@ rm -rf /etc/n6/*
 yes | n6config
 
 # overwrite data config n6 files
+cp -f docker/work/test_data/integration_tests.conf /etc/n6/integration_tests.conf
 cp -f docker/work/test_data/test-logging.conf /etc/n6/logging.conf
 cp -f docker/work/test_data/test-00_global.conf /etc/n6/00_global.conf
 cp -f docker/work/test_data/test-02_archiveraw.conf /etc/n6/02_archiveraw.conf
@@ -30,6 +31,7 @@ mkdir -p /var/cache/n6
 chmod 777 /var/cache/n6
 /wait-for-services.sh -- echo "All docker containers UP!"
 
+service rsyslog start
 service cron start
 
 exec "$@"

@@ -1,6 +1,8 @@
 <script>
 import { mapGetters, mapState } from 'vuex';
+import { VTooltip } from 'v-tooltip';
 import Spinner from 'vue-spinner-component/src/Spinner';
+
 import BaseTable from './BaseTable';
 import BaseTruncateText from './BaseTruncateText';
 import columnsConfig from '@/config/searchColumns';
@@ -16,6 +18,10 @@ export default {
     BaseTable,
     BaseTruncateText,
     Spinner,
+  },
+
+  directives: {
+    tooltip: VTooltip,
   },
 
   data() {
@@ -96,9 +102,18 @@ export default {
     tableRows() {
       return this.resultsTable;
     },
+
+    // If there are no results returned
+    tableEmpty() {
+      return !this.tableRows || this.tableRows.length === 0;
+    },
   },
 
   methods: {
+    columnTooltip(columnKey) {
+      return columnsConfig.find(column => column.key === columnKey).tooltip;
+    },
+
     columnTruncated(columnKey) {
       return COLUMNS_URL.includes(columnKey);
     },
@@ -215,7 +230,10 @@ export default {
 
 
 <template>
-  <div class="SearchResultsDisplay">
+  <div
+    class="SearchResultsDisplay"
+    :class="{ 'is-notHaveResults': !statusCompleted }"
+  >
     <p
       v-if="statusIdle"
       class="SearchResultsDisplay-Message"
@@ -229,51 +247,63 @@ export default {
       class="SearchResultsDisplay-Spinner"
     />
 
-    <base-table
-      v-else-if="statusCompleted"
-      :columns="tableColumns"
-      class="SearchResultsDisplay-Table"
-      :rows="tableRows"
-      :sort-options="{
-        enabled: true,
-        initialSortBy: { field: 'time', type: 'asc' },
-      }"
-      style-class="vgt-table striped bordered condensed"
-    >
+    <template v-else-if="statusCompleted">
       <!-- When rows are empty -->
-      <p slot="emptystate">
+      <p v-if="tableEmpty">
         Search did not match any records
       </p>
 
-      <!-- Customizing display of some columns -->
-      <template
-        slot="table-row"
-        slot-scope="props"
+      <base-table
+        v-else
+        :columns="tableColumns"
+        class="SearchResultsDisplay-Table"
+        :rows="tableRows"
+        :sort-options="{
+          enabled: true,
+          initialSortBy: { field: 'time', type: 'asc' },
+        }"
+        style-class="vgt-table striped bordered condensed"
       >
-        <!-- Array column -->
-        <ul
-          v-if="props.column.array"
-          class="SearchResultsDisplay-TableCellChild--Array"
+        <!-- Customing diplay of table headings -->
+        <template
+          slot="table-column"
+          slot-scope="props"
         >
-          <li
-            v-for="value in props.row[props.column.field]"
-            class="SearchResultsDisplay-TableCellValue"
+          <span v-tooltip="columnTooltip(props.column.field)">
+            {{ props.column.label }}
+          </span>
+        </template>
+
+        <!-- Customizing display of some columns -->
+        <template
+          slot="table-row"
+          slot-scope="props"
+        >
+          <!-- Array column -->
+          <ul
+            v-if="props.column.array"
+            class="SearchResultsDisplay-TableCellChild--Array"
           >
-            {{ value ? value : cellArrayValueUndefined }}
-          </li>
-        </ul>
-        <!-- Truncated column -->
-        <span v-else-if="columnTruncated(props.column.field)">
-          <base-truncate-text
-            :text="props.formattedRow[props.column.field]"
-          />
-        </span>
-        <!-- Other columns are left untouched -->
-        <span v-else>
-          {{ props.formattedRow[props.column.field] }}
-        </span>
-      </template>
-    </base-table>
+            <li
+              v-for="value in props.row[props.column.field]"
+              class="SearchResultsDisplay-TableCellValue"
+            >
+              {{ value ? value : cellArrayValueUndefined }}
+            </li>
+          </ul>
+          <!-- Truncated column -->
+          <span v-else-if="columnTruncated(props.column.field)">
+            <base-truncate-text
+              :text="props.formattedRow[props.column.field]"
+            />
+          </span>
+          <!-- Other columns are left untouched -->
+          <span v-else>
+            {{ props.formattedRow[props.column.field] }}
+          </span>
+        </template>
+      </base-table>
+    </template>
   </div>
 </template>
 
@@ -284,8 +314,12 @@ export default {
 .SearchResultsDisplay {
   position: relative;
   display: flex;
-  justify-content: center;
-  align-items: center;
+  flex-flow: column nowrap;
+
+  &.is-notHaveResults {
+    justify-content: center;
+    align-items: center;
+  }
 }
 
 .SearchResultsDisplay-Spinner {
@@ -298,15 +332,26 @@ export default {
 }
 
 .SearchResultsDisplay-Table {
+  align-self: flex-start;
   /* To make it cover the full page */
   width: 100%;
-  height: 100%;
+  flex-grow: 0;
+  flex-basis: 0;
+  flex-shrink: 1;
+  height: 50%;
+  // max-height: 100%;
 
   /deep/ .vgt-wrap,
   /deep/ .vgt-inner-wrap,
   /deep/ .vgt-table,
   /deep/ .vgt-responsive {
     height: 100%;
+  }
+
+  /deep/ .vgt-responsive {
+    /* This is needed to fix issues in Firefox when displaying more than 500
+     * results and hovering truncated URL. */
+    overflow-y: scroll;
   }
 }
 
@@ -330,9 +375,5 @@ export default {
   display: flex;
   flex-direction: column;
   flex-wrap: nowrap;
-}
-
-/deep/ .SearchResultsDisplay-TableCellValue + .SearchResultsDisplay-TableCellValue {
-  margin-top: $margin-extra-extra-extra-small;
 }
 </style>

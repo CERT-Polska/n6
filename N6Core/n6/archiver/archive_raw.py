@@ -569,12 +569,13 @@ class DBarchiver(QueuedBase):
         LOGGER.debug("Received headers :%r", properties.headers)
         # set collection name
         self.manager.currcoll = routing_key
-        type_ = properties.type
-        payload = (body.encode('utf-8') if isinstance(body, unicode)
-                   else body)
 
         # Add to archive
         if writing:
+            type_ = properties.type
+            payload = (body.encode('utf-8') if isinstance(body, unicode)
+                       else body)
+
             if type_ == 'stream':
                 s = JsonStream(dbmanager=self.manager, properties=properties)
                 s.preparations_data(payload)

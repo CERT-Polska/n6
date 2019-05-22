@@ -130,10 +130,10 @@ class N6DataBackendAPI(object):
             `access_zone_conditions`:
                 A dict that maps access zones (strings)
                 to lists of SQLAlchemy conditions (see:
-                n6lib.auth_api._get_org_ids_to_access_infos()).
+                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
             `res_limits`:
                 A dict of limits for the particular REST API resource
-                (see: n6lib.auth_api._get_org_ids_to_access_infos()).
+                (see: n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
 
         Optional kwargs:
             `item_number_limit` (int or None; default: None):
@@ -169,10 +169,10 @@ class N6DataBackendAPI(object):
             `access_zone_conditions`:
                 A dict that maps access zones (strings)
                 to lists of SQLAlchemy conditions (see:
-                n6lib.auth_api._get_org_ids_to_access_infos()).
+                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
             `res_limits`:
                 A dict of limits for the particular REST API resource
-                (see: n6lib.auth_api._get_org_ids_to_access_infos()).
+                (see: n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
 
         Optional kwargs:
             `item_number_limit` (int or None; default: None):
@@ -207,10 +207,10 @@ class N6DataBackendAPI(object):
             `access_zone_conditions`:
                 A dict that maps access zones (strings)
                 to lists of SQLAlchemy conditions (see:
-                n6lib.auth_api._get_org_ids_to_access_infos()).
+                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
             `res_limits`:
                 A dict of limits for the particular REST API resource
-                (see: n6lib.auth_api._get_org_ids_to_access_infos()).
+                (see: n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
 
         Optional kwargs:
             `item_number_limit` (int or None; default: None):
@@ -298,10 +298,10 @@ class N6DataBackendAPI(object):
             `access_zone_conditions`:
                 A dict that maps access zones (strings)
                 to lists of SQLAlchemy conditions (see:
-                n6lib.auth_api._get_org_ids_to_access_infos()).
+                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
             `res_limits`:
                 A dict of limits for the particular REST API resource
-                (see: n6lib.auth_api._get_org_ids_to_access_infos()).
+                (see: n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
             `item_number_limit` (int or None):
                 Maximum number of result items.
             `access_zone`:
@@ -380,7 +380,7 @@ class _QueryProcessor(object):
                 A n6lib.data_spec.N6DataSpec instance.
             `access_filtering_conditions`:
                 A list of SQLAlchemy conditions (see:
-                n6lib.auth_api._get_org_ids_to_access_infos()).
+                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
             `max_days_old`:
                 [NOTE: not used yet, to be implemented...]
                 [TODO: doc].

@@ -25,7 +25,7 @@ n6@cert.pl.
 Copyright and License
 =====================
 
-Copyright (c) 2013-2018 `Naukowa i Akademicka Sieć Komputerowa
+Copyright (c) 2013-2019 `Naukowa i Akademicka Sieć Komputerowa
 (Research and Academic Computer Network)`_.  All rights reserved.
 
 .. _Naukowa i Akademicka Sieć Komputerowa (Research and Academic

@@ -1,0 +1,12 @@
+{% extends 'admin/model/list.html' %}
+{% import 'modals/layout.html' as n6_layout with context %}
+
+{% block model_menu_bar_before_filters %}
+    {% if can_set_n6_page_size %}
+    <li class="dropdown">
+        {{ n6_layout.n6_page_size_form(page_size_url) }}
+    </li>
+    {% endif %}
+
+    {{ super() }}
+{% endblock %}

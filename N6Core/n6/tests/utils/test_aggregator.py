@@ -7,7 +7,11 @@ import json
 import unittest
 from collections import namedtuple
 
-from mock import patch
+from mock import (
+    MagicMock,
+    call,
+    patch,
+)
 from unittest_expander import (
     expand,
     foreach,
@@ -24,11 +28,12 @@ from n6.utils.aggregator import (
     SourceData,
     DEFAULT_TIME_TOLERANCE,
 )
+from n6lib.unit_test_helpers import TestCaseMixin
 
 
 
 @expand
-class TestAggregator(unittest.TestCase):
+class TestAggregator(TestCaseMixin, unittest.TestCase):
 
     sample_time_tolerance = 600
     sample_routing_key = 'testsource.testchannel'
@@ -687,6 +692,45 @@ class TestAggregator(unittest.TestCase):
                                      expected_ids_to_single_events,
                                      expected_ids_to_suppressed_events,
                                      expected_last_event_dt_updates)
+
+
+    @foreach([
+        param(
+            count=32767,
+            expected_body_content={
+                'source': 'ham.spam',
+                'type': 'foobar',
+                'count': 32767,
+            },
+        ).label('count not over limit'),
+        param(
+            count=32768,
+            expected_body_content={
+                'source': 'ham.spam',
+                'type': 'foobar',
+                'count': 32767,
+                'count_actual': 32768,
+            },
+        ).label('count over limit'),
+    ])
+    def test_publish_event(self, count, expected_body_content):
+        type_ = 'foobar'
+        payload = {
+            'source': 'ham.spam',
+            '_group': 'something',
+            'count': count,
+        }
+        data = type_, payload
+        expected_routing_key = 'foobar.aggregated.ham.spam'
+        self._aggregator.publish_output = MagicMock()
+
+        self._aggregator.publish_event(data)
+
+        self.assertEqual(len(self._aggregator.publish_output.mock_calls), 1)
+        publish_output_kwargs = self._aggregator.publish_output.mock_calls[0][-1]
+        self.assertEqual(set(publish_output_kwargs.iterkeys()), {'routing_key', 'body'})
+        self.assertEqual(publish_output_kwargs['routing_key'], expected_routing_key)
+        self.assertJsonEqual(publish_output_kwargs['body'], expected_body_content)
 
 
     def test_input_callback(self):

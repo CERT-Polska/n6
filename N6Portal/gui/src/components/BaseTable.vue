@@ -113,6 +113,8 @@ $table-border-width: 1px;
 /* Overriding vue-good-table styles */
 
 /deep/ .vgt-table {
+  line-height: normal;
+
   /* Sticky header */
   thead {
     z-index: $z-index-over-regular-content;
@@ -125,7 +127,7 @@ $table-border-width: 1px;
       span {
         &::after,
         &::before {
-          @include setup-pseudo-element(calc(100% + $table-border-width), $table-border-width);
+          @include setup-pseudo-element(calc(100% + #{$table-border-width}), $table-border-width);
 
           position: absolute;
           left: -1px;
@@ -167,6 +169,7 @@ $table-border-width: 1px;
 
   td {
     border-color: $table-border-color;
+    padding: 0.28em;
   }
 }
 

@@ -1,13 +1,14 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import collections
 import os
 import urlparse
 
-import iptools
-import pygeoip
 import dns.resolver
+import iptools
+import maxminddb.const
 from dns.exception import DNSException
+from geoip2 import database, errors
 
 from n6.base.queue import QueuedBase
 from n6lib.common_helpers import replace_segment, is_ipv4
@@ -47,7 +48,8 @@ class Enricher(QueuedBase):
         self.gi_asn = None
         self.gi_cc = None
         self._resolver = None
-        config = Config(required={"enrich": ("dnshost", "dnsport", "geoippath",)})
+        config = Config(required={"enrich": (
+            "dnshost", "dnsport", "geoippath", "asndatabasefilename", "citydatabasefilename")})
         self._enrich_config = config["enrich"]
         self.excluded_ips = self._get_excluded_ips()
         self._setup_geodb()
@@ -67,8 +69,12 @@ class Enricher(QueuedBase):
 
     def _setup_geodb(self):
         geoipdb_path = self._enrich_config["geoippath"]
-        self.gi_asn = pygeoip.GeoIP(os.path.join(geoipdb_path, "GeoIPASNum.dat"), pygeoip.MEMORY_CACHE)
-        self.gi_cc = pygeoip.GeoIP(os.path.join(geoipdb_path, "GeoIP.dat"), pygeoip.MEMORY_CACHE)
+        geoipdb_asn_file = self._enrich_config["asndatabasefilename"]
+        geoipdb_city_file = self._enrich_config["citydatabasefilename"]
+        self.gi_asn = database.Reader(fileish=os.path.join(geoipdb_path, geoipdb_asn_file),
+                                      mode=maxminddb.const.MODE_MEMORY)
+        self.gi_cc = database.Reader(fileish=os.path.join(geoipdb_path, geoipdb_city_file),
+                                     mode=maxminddb.const.MODE_MEMORY)
 
     #
     # Main activity
@@ -236,23 +242,19 @@ class Enricher(QueuedBase):
 
     def ip_to_asn(self, ip):
         try:
-            isp = self.gi_asn.org_by_addr(ip)
-        except pygeoip.GeoIPError:
+            geoip_asn = self.gi_asn.asn(ip)
+        except errors.GeoIP2Error:
             LOGGER.info("%r cannot be resolved by GeoIP (to ASN)", ip)
             return None
-        if isp is None:
-            asn = None
-        else:
-            asn = isp.split()[0][2:]
-        return asn
+        return geoip_asn.autonomous_system_number
 
     def ip_to_cc(self, ip):
         try:
-            cc = self.gi_cc.country_code_by_addr(ip)
-        except pygeoip.GeoIPError:
+            geoip_city = self.gi_cc.city(ip)
+        except errors.GeoIP2Error:
             LOGGER.info("%r cannot be resolved by GeoIP (to CC)", ip)
             return None
-        return cc
+        return geoip_city.country.iso_code
 
 
 def main():

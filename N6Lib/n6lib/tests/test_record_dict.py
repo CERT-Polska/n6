@@ -857,6 +857,19 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             'aaa', '0x10', '', None, datetime.datetime.now(),
         ))
 
+    def test__setitem__count_actual(self):
+        self._test_setitem_valid('count_actual', (
+            S(0, (0, 0L, '0', u'0', '00000')),
+            S(10, (10, 10L, '10', u'10', '00010')),
+            S(9007199254740991, (9007199254740991, 9007199254740991L,
+                                 '9007199254740991', u'9007199254740991')),
+        ))
+        self._test_setitem_adjuster_error('count_actual', (
+            -1, -1L, '-1', u'-1',
+            9007199254740992, 9007199254740992L, '9007199254740992', u'9007199254740992',
+            'aaa', '0x10', '', None, datetime.datetime.now(),
+        ))
+
     def test__setitem__unsigned_16bit_int_fields(self):
         for key in self.unsigned_16bit_int_field_keys:
             self._test_setitem_valid(key, (

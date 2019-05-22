@@ -8,14 +8,7 @@ script that tests the n6lib.auth_api.AuthAPI stuff integrated with the
 n6lib.ldap_api_replacement module (SQL-auth-db-based) instead of the
 legacy n6lib.ldap_api.
 
-To run this script you need:
-
-1) to have Docker installed,
-2) to place in your sudoers file (see: the `sudoers` and `visudo`
-   man pages) the line:
-   <your Linux user name>  ALL = NOPASSWD: /usr/bin/docker
-   (where `<your Linux user name>` is your Linux user name --
-   who would have thought?).
+To run this script you need to have run mariadb docker container of name mariadb-n6-auth-test on same network.
 
 Note: don't worry about *many* skipped tests and only a few
 actually run; all the tests are "borrowed" from our main AuthAPI
@@ -31,11 +24,6 @@ import os
 import sys
 import time
 import unittest
-from subprocess import (
-    call,
-    check_call,
-    check_output,
-)
 
 import sqlalchemy
 import sqlalchemy.orm
@@ -48,43 +36,15 @@ from n6lib.auth_api import (
     AuthAPI,
 )
 from n6lib.common_helpers import (
-    make_hex_id,
     SimpleNamespace,
 )
 from n6lib.auth_db.config import SimpleSQLAuthDBConnector
 from n6lib.tests import test_auth_api
 
 
-DOCKER_EXECUTABLE = '/usr/bin/docker'
-
-MARIADB_DOCKER_NAME = 'mariadb-n6-auth-test-' + make_hex_id(16)
+MARIADB_DOCKER_NAME = 'mariadb-n6-auth-test'
 MARIADB_NAME = 'n6authtest'
 MARIADB_PASSWORD = 'n654321'
-MARIADB_RUN_COMMAND = [
-    DOCKER_EXECUTABLE,
-    'run',
-    '--name', MARIADB_DOCKER_NAME,
-    '-e', 'MYSQL_ROOT_PASSWORD=' + MARIADB_PASSWORD,
-    '-d',
-    'mariadb:10',
-]
-MARIADB_GET_IP_COMMAND = [
-    DOCKER_EXECUTABLE,
-    'inspect',
-    '--format', '{{ .NetworkSettings.IPAddress }}',
-    MARIADB_DOCKER_NAME,
-]
-MARIADB_STOP_COMMAND = [
-    DOCKER_EXECUTABLE,
-    'stop',
-    MARIADB_DOCKER_NAME,
-]
-MARIADB_REMOVE_COMMAND = [
-    DOCKER_EXECUTABLE,
-    'rm', '-f', '-v',
-    MARIADB_DOCKER_NAME,
-]
-
 IRRELEVANT_TEST_NAMES = {
     'TestAuthAPI__context_manager',
     'TestAuthAPI__authenticate',
@@ -111,11 +71,8 @@ def main():
     monkey_patching()
     logging.basicConfig()
 
-    db_host = run_db()
-    try:
-        unittest.main(test_auth_api, verbosity=1)
-    finally:
-        shutdown_db()
+    db_host = MARIADB_DOCKER_NAME
+    unittest.main(test_auth_api, verbosity=1)
 
 
 def monkey_patching():
@@ -174,18 +131,6 @@ def _patch_AuthAPILdapDataBasedMethodTestMixIn():
     test_auth_api._AuthAPILdapDataBasedMethodTestMixIn.assert_problematic_orgs_logged = \
         monkey_patched_assert_problematic_orgs_logged
 
-
-def run_db():
-    shutdown_db()
-    with _devnull() as devnull:
-        check_call(MARIADB_RUN_COMMAND, stdout=devnull)
-        _db_host = check_output(MARIADB_GET_IP_COMMAND).strip()
-    return _db_host
-
-def shutdown_db():
-    with _devnull() as devnull:
-        call(MARIADB_STOP_COMMAND, stdout=devnull, stderr=devnull)
-        call(MARIADB_REMOVE_COMMAND, stdout=devnull, stderr=devnull)
 
 @contextlib.contextmanager
 def _devnull():

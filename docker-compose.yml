@@ -1,33 +1,30 @@
+# docker-compose for public n6
 version: '2'
 
 services:
   work:
 # build image with custom tag
-    image: "n6_work"
+    image: "n6-pub-work"
     build:
       context: .
       dockerfile: ./docker/work/Dockerfile
-# control the order of service startup
-    depends_on:
-      - rabbit
-      - mysql
-      - mongo
-      - web
     container_name: n6
     hostname: n6
+    environment:
+      N6_FORCE_LDAP_API_REPLACEMENT: 1
     volumes:
       - n6_logs:/var/log/n6/
-      - work_artifacts:/root/n6/tmp/
+      - certs:/root/certs/
     command: ["supervisord", "-c", "etc/supervisord/supervisord.conf"]
     networks:
-      - n6net
-# This line has been commented out because each new n6 container has new ip address
-#       ipv4_address: 172.25.0.101
+      - n6-pub-net
   web:
-    image: "n6_web"
+    image: "n6-pub-web"
     build:
       context: .
       dockerfile: ./docker/web/Dockerfile
+    depends_on:
+      - work
     hostname: apache
     restart: always
     container_name: web
@@ -36,44 +33,45 @@ services:
       - "443:443" # n6 Portal
       - "4443:4443" # n6 REST API
       - "4444:4444" # n6 Admin Panel
+    volumes:
+    - certs:/home/dataman/certs/
     networks:
-      n6net:
-       ipv4_address: 172.25.0.102
+      - n6-pub-net
   rabbit:
-    image: "n6_rabbit"
+    image: "n6-pub-rabbit"
     build:
       context: .
       dockerfile: ./docker/rabbit/Dockerfile
+    depends_on:
+      - work
     hostname: rabbit
     restart: always
     container_name: rabbit
     ports:
       - "15671:15671" # rabbitmq web management
+    volumes:
+    - certs:/root/certs/
     networks:
-      n6net:
-       ipv4_address: 172.25.0.103
+      - n6-pub-net
   mongo:
-    image: "n6_mongo"
+    image: "n6-pub-mongo"
     build:
       context: .
       dockerfile: ./docker/mongo/Dockerfile
     hostname: mongo
     restart: always
     environment:
-      - MONGODB_USER=admin
-      - MONGODB_PASS=password
-      - MONGODB_DATABASE=admin
-      - MONGODB_DATABASEN6=n6
-      - AUTH=yes
-      - JOURNALING=no
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: n6
     container_name: mongo
     ports:
       - "27017:27017" # used by MongoDB
+    command: --smallfiles --auth
     networks:
-      n6net:
-       ipv4_address: 172.25.0.104
+      - n6-pub-net
   mysql:
-    image: "n6_mysql"
+    image: "n6-pub-mysql"
     build:
       context: .
       dockerfile: ./docker/mysql/Dockerfile
@@ -85,16 +83,12 @@ services:
     ports:
       - "3306:3306"
     networks:
-      n6net:
-       ipv4_address: 172.25.0.105
+      - n6-pub-net
 
 volumes:
-  work_artifacts: {}
+  certs: {}
   n6_logs: {}
 
 networks:
-  n6net:
+  n6-pub-net:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.25.0.0/24

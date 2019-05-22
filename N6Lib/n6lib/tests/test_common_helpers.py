@@ -677,13 +677,11 @@ class TestMakeDebugMsg(unittest.TestCase):
 
 
 
-@patch('threading.RLock')
 @patch('sys.stderr')
 @patch('sys.stdout')
 class TestDumpDebugMsg(unittest.TestCase):
 
-    def test_dump_condensed_debug_msg_no_exc(
-            self, mock_stdout, mock_stderr, _dump_condensed_debug_msg_lock):
+    def test_dump_condensed_debug_msg_no_exc(self, mock_stdout, mock_stderr):
         """
         Tests for dumping error msg to stdout and stderr.
 
@@ -692,9 +690,6 @@ class TestDumpDebugMsg(unittest.TestCase):
                 Mocked stdout from a decorator.
             `mock_stderr`
                 Mocked stderr from a decorator.
-            `_dump_condensed_debug_msg_lock`
-                Mocked threading.RLock from a decorator.
-
         """
         # Make sure there is no exc_info from previous
         # exception handling
@@ -705,12 +700,14 @@ class TestDumpDebugMsg(unittest.TestCase):
         dump_condensed_debug_msg(stdout_msg, sys.stdout)
         stdout_call = list(mock_stdout.mock_calls)[0]
         self.assertTrue(stdout_msg in str(stdout_call))
+        self.assertEqual(mock_stdout.mock_calls[-1], call.flush())
 
         # Dump debug msg to stderr
         stderr_msg = '<dump_condensed_debug_msg header stderr>'
         dump_condensed_debug_msg(stderr_msg, sys.stderr)
         stderr_call = list(mock_stderr.mock_calls)[0]
         self.assertTrue(stderr_msg in str(stderr_call))
+        self.assertEqual(mock_stderr.mock_calls[-1], call.flush())
 
         mock_stderr.reset_mock()
         mock_stdout.reset_mock()
@@ -727,6 +724,7 @@ class TestDumpDebugMsg(unittest.TestCase):
             stdout_call = str(list(mock_stdout.mock_calls)[0])
             self.assertRegexpMatches(text=stdout_call,
                                      expected_regexp=exc_stdout_msg)
+            self.assertEqual(mock_stdout.mock_calls[-1], call.flush())
 
             # Dump exception debug msg to stderr
             exc_stderr_msg = re.compile(r"\\nstderr\\n\\nCONDENSED DEBUG INFO:.+\[.+@.+\] "
@@ -736,6 +734,7 @@ class TestDumpDebugMsg(unittest.TestCase):
             stderr_call = str(list(mock_stderr.mock_calls)[0])
             self.assertRegexpMatches(text=stderr_call,
                                      expected_regexp=exc_stderr_msg)
+            self.assertEqual(mock_stderr.mock_calls[-1], call.flush())
 
 
 

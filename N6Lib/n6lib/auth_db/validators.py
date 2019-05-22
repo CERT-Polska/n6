@@ -1,10 +1,13 @@
 # Copyright (c) 2013-2018 NASK. All rights reserved.
 
-import datetime
-
+from n6lib.auth_db import (
+    ILLEGAL_CHARACTERS_FOR_LDAP,
+    INVALID_FIELD_TEMPLATE_MSG,
+)
 from n6lib.auth_db.fields import (
     HexField,
     OrgIdField,
+    TimeHourMinuteField,
     URLSimpleField,
     UserLoginField,
 )
@@ -17,10 +20,6 @@ from n6lib.record_dict import (
     make_adjuster_applying_callable,
     make_adjuster_using_data_spec,
 )
-
-
-invalid_field_template_msg = 'Value: {value!r} raised {exc.__class__.__name__}: {exc}.'
-illegal_characters_for_ldap = ['\\', ',', '+', '"', '<', '>', ';', '=', '\x00']
 
 
 def _check_for_illegal_chars(chars_list, value):
@@ -40,14 +39,14 @@ def ascii_only_to_unicode_stripped(val):
             val.encode('ascii', 'strict')  # just to check against encoding errors
         except UnicodeEncodeError as exc:
             raise FieldValueError(
-                public_message=invalid_field_template_msg.format(value=val, exc=exc))
+                public_message=INVALID_FIELD_TEMPLATE_MSG.format(value=val, exc=exc))
     else:
         assert isinstance(val, str)
         try:
             val = val.decode('ascii', 'strict')
         except UnicodeDecodeError as exc:
             raise FieldValueError(
-                public_message=invalid_field_template_msg.format(value=val, exc=exc))
+                public_message=INVALID_FIELD_TEMPLATE_MSG.format(value=val, exc=exc))
     assert isinstance(val, unicode)
     return val.strip()
 
@@ -60,7 +59,7 @@ def to_stripped(val):
             val = val.decode('utf-8', 'strict')
         except UnicodeDecodeError as exc:
             raise FieldValueError(
-                public_message=invalid_field_template_msg.format(value=val, exc=exc))
+                public_message=INVALID_FIELD_TEMPLATE_MSG.format(value=val, exc=exc))
     assert isinstance(val, unicode)
     return val.strip()
 
@@ -70,7 +69,7 @@ def make_val_ldap_safe(val):
     if val.startswith('#'):
         raise FieldValueError(
             public_message='Value: {value!r} cannot start with "#" symbol.'.format(value=val))
-    illegal_char = _check_for_illegal_chars(illegal_characters_for_ldap, val)
+    illegal_char = _check_for_illegal_chars(ILLEGAL_CHARACTERS_FOR_LDAP, val)
     if illegal_char is not False:
         raise FieldValueError(
             public_message='Value: {value!r} contains illegal character: {char!r}.'.format(
@@ -78,21 +77,13 @@ def make_val_ldap_safe(val):
     return val
 
 
-def validate_time_hour_minute_only(val):
-    hour_minute_format = '%H:%M'
-    try:
-        datetime.datetime.strptime(val, hour_minute_format)
-    except (TypeError, ValueError) as exc:
-        raise FieldValueError(public_message=invalid_field_template_msg.format(value=val, exc=exc))
-    return val
-
-
 class AuthDBDataSpec(N6DataSpec):
 
+    hex_number = HexField()
     org_id = OrgIdField()
+    time_simple = TimeHourMinuteField()
     url_regexed = URLSimpleField()
     user_login = UserLoginField()
-    hex_number = HexField()
 
 
 class AuthDBValidator(object):
@@ -122,7 +113,7 @@ class AuthDBValidator(object):
     adjust_email = chained(
         adjust_ascii_only_to_unicode_stripped,
         make_adjuster_using_data_spec('email'))
-    adjust_notification_time = make_adjuster_applying_callable(validate_time_hour_minute_only)
+    adjust_notification_time = make_adjuster_using_data_spec('time_simple')
     adjust_fqdn = chained(
         adjust_stripped,
         make_adjuster_using_data_spec('fqdn'))

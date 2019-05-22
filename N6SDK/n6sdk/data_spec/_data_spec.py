@@ -378,9 +378,10 @@ class BaseDataSpec(object):
     @classmethod
     def filter_by_which(cls, which, all_fields_dict, required_fields_dict):
         """
-        Select fields that match the `which` argument (called by the
-        :meth:`param_field_specs` and :meth:`result_field_specs`
-        methods).
+        Select fields that match the `which` argument.
+
+        (This method is called by the :meth:`param_field_specs` and
+        :meth:`result_field_specs` methods.)
 
         Args:
             `which`:

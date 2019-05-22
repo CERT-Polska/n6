@@ -4,7 +4,7 @@ import Icon from 'vue-awesome/components/Icon';
 import 'vue-awesome/icons/trash';
 import { validationMixin } from 'vuelidate';
 import { mapGetters } from 'vuex';
-import isEqual from 'lodash/isEqual';
+import isEqual from 'lodash-es/isEqual';
 
 import BaseDatetime from './BaseDatetime';
 import BaseFormControl from './BaseFormControl';

@@ -52,10 +52,10 @@ class N6ArgumentParser(ArgumentParser):
                           default={},
                           help=('override the script\'s config options '
                                 'for the particular run. Provide options '
-                                'in given format: `<section>.<option>=<value>`. If you '
-                                'want to provide more than one option separate '
-                                'each of them using space, eg. `<section1>.<option1>=<value> '
-                                '<section1>.<option2>=<value>`'))
+                                'in the format: <section>.<option>=<value> '
+                                '(to provide several options, just separate '
+                                'them with spaces, e.g.: sect_a.opt1=val1 '
+                                'sect_a.opt2=val2 sect_b.opt3=val3)'))
 
     def get_config_overridden_dict(self):
         # Here we use (implicitly) global state: sys.argv.  It may feel a bit

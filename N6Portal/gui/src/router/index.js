@@ -49,23 +49,38 @@ const router = new Router({
       component: ErrorPage,
     },
   ],
-})
+});
 
 router.beforeEach((to, from, next) => {
   if (to.meta.disabled) {
     next(false);
   }
-  if (store.state.session.isLoggedIn) {
-    if (to.name !== 'login') {
+  let previousState = store.state.session.isLoggedIn;
+  store.dispatch('session/loadSessionInfo').then(() => {
+    let currentState = store.state.session.isLoggedIn;
+    if (currentState) {
+      if (to.name !== 'login') {
+        next();
+      } else if (!!from.name && !from.meta.disabled) {
+        // passing false causes router to go back to the previous
+        // route, specified in `from`, so make sure it is not
+        // an empty route, has `name` attribute
+        next(false);
+      } else {
+        next({path: '/'});
+      }
+    } else if (previousState) {
+      // previously logged in, now unexpectedly logged out
+      store.dispatch('session/authLogout').then(() => {
+        next({name: 'login'});
+        Vue.prototype.$flashStorage.flash('You have been signed out', 'error');
+      });
+    } else if (!to.meta.requiresAuth) {
       next();
     } else {
-      next(false);
+      next({name: 'login'});
     }
-  } else if (!to.meta.requiresAuth) {
-    next();
-  } else {
-    next({ name: 'login' });
-  }
+  });
 });
 
 export default router

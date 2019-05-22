@@ -8,7 +8,7 @@ import unittest
 
 import iptools
 import mock
-import pygeoip
+from geoip2.errors import GeoIP2Error
 from dns.exception import DNSException
 
 from n6.utils.enrich import Enricher
@@ -23,6 +23,8 @@ class MockConfig(object):
             'dnshost': '8.8.8.8',
             'dnsport': '53',
             'geoippath': '/usr/share/GeoIP',
+            'asndatabasefilename': 'GeoLite2-ASN.mmdb',
+            'citydatabasefilename': 'GeoLite2-City.mmdb',
         },
         'rabbitmq': {
             'host': 'localhost',
@@ -55,14 +57,11 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
     @mock.patch('n6.utils.enrich.Config', MockConfig)
     def setUp(self, *args):
         Enricher._setup_dnsresolver = mock.MagicMock()
-        Enricher._setup_geodb = mock.MagicMock()
         self.enricher = Enricher()
         self.enricher._resolver = mock.MagicMock()
-        self.enricher.gi_asn = mock.MagicMock()
-        self.enricher.gi_cc = mock.MagicMock()
         self.enricher._resolver.query = mock.MagicMock(return_value=["127.0.0.1"])
-        self.enricher.gi_asn.org_by_addr = mock.MagicMock(return_value="AS1234")
-        self.enricher.gi_cc.country_code_by_addr = mock.MagicMock(return_value="PL")
+        self.enricher.gi_asn.asn = mock.Mock(return_value=mock.MagicMock(autonomous_system_number="1234"))
+        self.enricher.gi_cc.city = mock.Mock(return_value=mock.MagicMock(country=mock.Mock(iso_code="PL")))
 
     def test__enrich__with_no_data(self):
         data = self.enricher.enrich(RecordDict({}))
@@ -335,63 +334,123 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
         self.enricher.enrich(data)
         self.enricher.url_to_fqdn_or_ip.assert_called_with("http://192.168.0.1")
 
-    def test_adding_asn_cc_if_possible(self):
+    def test_adding_asn_cc_if_asn_not_valid_and_cc_is_valid(self):
         """Test if asn/cc are (maybe) added"""
-        self.enricher.gi_asn.org_by_addr.side_effect = [
-            pygeoip.GeoIPError,
-            "AS1234",
-            "AS123456"]
-        self.enricher.gi_cc.country_code_by_addr.side_effect = [
-            "PL",
-            "UK",
-            pygeoip.GeoIPError]
-        data = RecordDict({
+
+        data_init = self.actual_data_for_adding_asn_cc_if_possible(
+            mock.MagicMock(side_effect=GeoIP2Error),
+            mock.MagicMock(return_value=mock.MagicMock(country=mock.Mock(iso_code="PL")))
+        )
+        data_expected = self.enricher_execution_helper(data_init)
+        self.assertEqual([{u'cc': u'PL', u'ip': u'127.0.0.1'},
+                          {u'cc': u'PL', u'ip': u'192.187.0.1'},
+                          {u'cc': u'PL', u'ip': u'10.15.1.255'}], data_expected["address"])
+        self.assertEqual(([], {u'10.15.1.255': [u'cc'], u'127.0.0.1': [u'cc'], u'192.187.0.1': [u'cc']}),
+                         data_expected["enriched"])
+
+    def test_adding_asn_cc_if_asn_and_cc_are_valid(self):
+        """Test if asn/cc are (maybe) added"""
+
+        data_init = self.actual_data_for_adding_asn_cc_if_possible(
+            mock.MagicMock(return_value=mock.Mock(autonomous_system_number=1234)),
+            mock.MagicMock(return_value=mock.MagicMock(country=mock.Mock(iso_code="UK")))
+        )
+        data_expected = self.enricher_execution_helper(data_init)
+        self.assertEqual([{u'asn': 1234, u'cc': u'UK', u'ip': u'127.0.0.1'},
+                          {u'asn': 1234, u'cc': u'UK', u'ip': u'192.187.0.1'},
+                          {u'asn': 1234, u'cc': u'UK', u'ip': u'10.15.1.255'}], data_expected["address"])
+        self.assertEqual(([], {u'10.15.1.255': [u'asn', u'cc'],
+                               u'127.0.0.1': [u'asn', u'cc'],
+                               u'192.187.0.1': [u'asn', u'cc']}), data_expected["enriched"])
+
+    def test_adding_asn_cc_if_asn_is_valid_and_cc_is_not(self):
+        """Test if asn/cc are (maybe) added"""
+
+        data_init = self.actual_data_for_adding_asn_cc_if_possible(
+            mock.MagicMock(return_value=mock.Mock(autonomous_system_number=123456)),
+            mock.MagicMock(side_effect=GeoIP2Error)
+        )
+        data_expected = self.enricher_execution_helper(data_init)
+        self.assertEqual([{u'asn': 123456, u'ip': u'127.0.0.1'},
+                          {u'asn': 123456, u'ip': u'192.187.0.1'},
+                          {u'asn': 123456, u'ip': u'10.15.1.255'}], data_expected["address"])
+        self.assertEqual(([], {u'10.15.1.255': [u'asn'], u'127.0.0.1': [u'asn'], u'192.187.0.1': [u'asn']}),
+                         data_expected["enriched"])
+
+    def actual_data_for_adding_asn_cc_if_possible(self, asn_mock, cc_mock):
+        self.enricher.gi_asn.asn = asn_mock
+        self.enricher.gi_cc.city = cc_mock
+        return RecordDict({
             "address": [{"ip": "127.0.0.1"},
                         {"ip": "192.187.0.1"},
                         {"ip": "10.15.1.255"}]})
-        data.update(self.COMMON_DATA)
-        self.enricher.enrich(data)
-        self.assertEqual(data["address"], [
-            {"ip": "127.0.0.1", "cc": "PL"},
-            {"ip": "192.187.0.1", "asn": 1234, "cc": "UK"},
-            {"ip": "10.15.1.255", "asn": 123456},
-        ])
-        self.assertEqual(data["enriched"], ([], {
-            "127.0.0.1": ["cc"],
-            "192.187.0.1": ["asn", "cc"],
-            "10.15.1.255": ["asn"],
-        }))
 
     @mock.patch('n6.utils.enrich.LOGGER')
-    def test_existing_asn_cc_always_dropped_and_new_ones_added_if_possible(self, LOGGER_mock):
+    def test_existing_asn_cc_always_dropped_and_new_ones_added_if_asn_and_are_not_valid(self, LOGGER_mock):
         """Test if already existing asn/cc are removed and new ones are (maybe) added"""
-        self.enricher.gi_asn.org_by_addr.side_effect = [
-            pygeoip.GeoIPError,
-            pygeoip.GeoIPError,
-            "AS12345"]
-        self.enricher.gi_cc.country_code_by_addr.side_effect = [
-            pygeoip.GeoIPError,
-            "PL",
-            "UK"]
-        data = RecordDict({
+
+        data_init = self.actual_data_for_existing_asn_cc_always_dropped_and_new_ones_added_if_possible(
+            mock.MagicMock(side_effect=GeoIP2Error),
+            mock.MagicMock(side_effect=GeoIP2Error))
+        data_expected = self.enricher_execution_helper(data_init, expected_num_of_warnings=4)
+        self.assertEqual([{u'ip': u'127.0.0.1'},
+                          {u'ip': u'192.187.0.1'},
+                          {u'ip': u'10.15.1.255'}], data_expected["address"])
+        self.assertEqual(([], {}), data_expected["enriched"])
+        self.assertEqual(len(LOGGER_mock.warning.mock_calls), self.expected_num_of_warnings)
+
+    @mock.patch('n6.utils.enrich.LOGGER')
+    def test_existing_asn_cc_always_dropped_and_new_ones_added_if_asn_is_not_valid(self, LOGGER_mock):
+        """Test if already existing asn/cc are removed and new ones are (maybe) added"""
+
+        data_init = self.actual_data_for_existing_asn_cc_always_dropped_and_new_ones_added_if_possible(
+            mock.MagicMock(side_effect=GeoIP2Error),
+            mock.MagicMock(return_value=mock.MagicMock(country=mock.Mock(iso_code="PL")))
+        )
+        data_expected = self.enricher_execution_helper(data_init, expected_num_of_warnings=4)
+        self.assertEqual([{u'cc': u'PL', u'ip': u'127.0.0.1'},
+                          {u'cc': u'PL', u'ip': u'192.187.0.1'},
+                          {u'cc': u'PL', u'ip': u'10.15.1.255'}], data_expected["address"])
+        self.assertEqual(([], {u'10.15.1.255': [u'cc'], u'127.0.0.1': [u'cc'], u'192.187.0.1': [u'cc']}),
+                         data_expected["enriched"])
+        self.assertEqual(
+            len(LOGGER_mock.warning.mock_calls),
+            self.expected_num_of_warnings)
+
+    @mock.patch('n6.utils.enrich.LOGGER')
+    def test_existing_asn_cc_always_dropped_and_new_ones_added_if_asn_and_cc_are_valid(self, LOGGER_mock):
+        """Test if already existing asn/cc are removed and new ones are (maybe) added"""
+
+        data_init = self.actual_data_for_existing_asn_cc_always_dropped_and_new_ones_added_if_possible(
+            mock.MagicMock(return_value=mock.Mock(autonomous_system_number=12345)),
+            mock.MagicMock(return_value=mock.MagicMock(country=mock.Mock(iso_code="UK")))
+        )
+        data_expected = self.enricher_execution_helper(data_init, expected_num_of_warnings=4)
+        self.assertEqual([{u'asn': 12345, u'cc': u'UK', u'ip': u'127.0.0.1'},
+                          {u'asn': 12345, u'cc': u'UK', u'ip': u'192.187.0.1'},
+                          {u'asn': 12345, u'cc': u'UK', u'ip': u'10.15.1.255'}], data_expected["address"])
+        self.assertEqual(([],
+                          {u'10.15.1.255': [u'asn', u'cc'],
+                           u'127.0.0.1': [u'asn', u'cc'],
+                           u'192.187.0.1': [u'asn', u'cc']}), data_expected["enriched"])
+        self.assertEqual(
+            len(LOGGER_mock.warning.mock_calls),
+            self.expected_num_of_warnings)
+
+    def actual_data_for_existing_asn_cc_always_dropped_and_new_ones_added_if_possible(self, mock_asn, mock_cc):
+        self.enricher.gi_asn.asn = mock_asn
+        self.enricher.gi_cc.city = mock_cc
+        return RecordDict({
             "address": [{"ip": "127.0.0.1", "cc": "JP"},
                         {"ip": "192.187.0.1", "cc": "US", "asn": 424242},
                         {"ip": "10.15.1.255", "asn": 434343}]})
+
+    def enricher_execution_helper(self, data_init, expected_num_of_warnings=None):
+        data = data_init
         data.update(self.COMMON_DATA)
-        expected_num_of_warnings = 4  # 2 existing `cc` + 2 existing `asn`
         self.enricher.enrich(data)
-        self.assertEqual(data["address"], [
-            {"ip": "127.0.0.1"},
-            {"ip": "192.187.0.1", "cc": "PL"},
-            {"ip": "10.15.1.255", "asn": 12345, "cc": "UK"},
-        ])
-        self.assertEqual(data["enriched"], ([], {
-            "192.187.0.1": ["cc"],
-            "10.15.1.255": ["asn", "cc"],
-        }))
-        self.assertEqual(
-            len(LOGGER_mock.warning.mock_calls),
-            expected_num_of_warnings)
+        self.expected_num_of_warnings = expected_num_of_warnings
+        return data
 
     def test__ip_to_asn__called(self):
         """Test if ip_to_asn was called for all ips"""

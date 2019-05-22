@@ -64,6 +64,53 @@ from n6lib.config import ConfigMixin
 from n6lib.log_helpers import logging_configured
 
 
+class N6ModelView(ModelView):
+
+    """
+    Base n6 view.
+
+    Used to define global parameters in all views.
+    """
+
+    can_set_page_size = False
+    """
+        This property is derived from flask-admin. This property has been
+        disabled to use our customized version. If `true` then at `list` view
+        will be displayed dropdown with page_size options definied by flask
+    """
+
+    can_set_n6_page_size = True
+    """
+        Custom page size property.
+    """
+
+    page_size = None
+    """
+        Default page size.
+        Its tricky to set `no limit` on page size.
+
+        * when `page_size` is class defined number and from dropdown you set
+          `page_size = None` or literally option `No limit` then flask
+          will switch `page_size` to your here defined number - instead of `None`.
+
+        * when `page_size` is `None` from the start, then option `No Limit` on
+          dropdown works as expected.
+    """
+
+    list_template = 'list.html'
+
+    @property
+    def _template_args(self):
+        args = super(N6ModelView, self)._template_args
+
+        custom_args = {
+            'can_set_n6_page_size': self.can_set_n6_page_size
+        }
+        args.update(custom_args)
+
+        return args
+
+
 class CustomPasswordInput(PasswordInput):
 
     """
@@ -189,7 +236,7 @@ class SubsourceInlineFormAdmin(InlineFormAdmin):
     ]
 
 
-class CustomColumnListView(ModelView):
+class CustomColumnListView(N6ModelView):
 
     def _set_list_of_form_columns(self, model):
         pk_columns = []
@@ -269,7 +316,7 @@ class PatchedInlineModelConverter(InlineModelConverter):
         return contribute_result
 
 
-class CustomInlineFormsModelView(ModelView):
+class CustomInlineFormsModelView(N6ModelView):
 
     """
     This implementation of a `ModelView` class allows to:
@@ -435,7 +482,7 @@ class OrgView(CustomInlineFormsModelView):
     ]
 
 
-class UserView(_PasswordFieldHandlerMixin, ModelView):
+class UserView(_PasswordFieldHandlerMixin, N6ModelView):
 
     column_descriptions = {
         'login': 'User\'s login (e-mail address)',
@@ -447,7 +494,7 @@ class UserView(_PasswordFieldHandlerMixin, ModelView):
     #                'revoked_certs', 'sent_request_cases']
 
 
-class ComponentView(_PasswordFieldHandlerMixin, ModelView):
+class ComponentView(_PasswordFieldHandlerMixin, N6ModelView):
 
     column_list = ['login']
     form_columns = ['login', 'password']

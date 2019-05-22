@@ -13,51 +13,13 @@ import {
 import { weekAgo } from '../helpers/dates';
 import {
   cidr,
-  domain,
-  domainPart,
+  fqdn,
   hexadecimal,
+  source,
   url,
 } from '../helpers/validators';
 
 let criteria = [
-  {
-    label: 'Max results',
-    id: 'opt.limit',
-    type: 'select',
-    required: true,
-    defaultValue: 100,
-
-    possibleOptions: [
-      {
-        value: 10,
-        label: '10',
-      },
-      {
-        value: 50,
-        label: '50',
-      },
-      {
-        value: 100,
-        label: '100',
-      },
-      {
-        value: 200,
-        label: '200',
-      },
-      {
-        value: 500,
-        label: '500',
-      },
-      {
-        value: 1000,
-        label: '1000',
-      },
-    ],
-    validations: {
-      required,
-    },
-  },
-
   {
     label: 'Start date',
     id: 'time.min',
@@ -197,7 +159,17 @@ let criteria = [
       required,
     },
   },
-
+  {
+    label: 'Source',
+    id: 'source',
+    type: 'text',
+    validations: {
+      required,
+      $each: {
+        source,
+      },
+    },
+  },
   {
     label: 'Name',
     id: 'name',
@@ -223,7 +195,7 @@ let criteria = [
     validations: {
       required,
       $each: {
-        domain: domain,
+        fqdn,
       },
     },
   },
@@ -234,9 +206,6 @@ let criteria = [
     type: 'text',
     validations: {
       required,
-      $each: {
-        domainPart,
-      },
     },
   },
 

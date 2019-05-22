@@ -3,13 +3,7 @@
 
 
 <script>
-import { VTooltip } from 'v-tooltip';
-
 export default {
-  directives: {
-    'tooltip': VTooltip,
-  },
-
   props: {
     text: {
       type: String,
@@ -44,15 +38,16 @@ export default {
   <span
     v-if="text"
     class="TruncateText"
-    :class="expandedStateClass"
-    v-tooltip="{
-      content: text,
-      placement: 'bottom',
-      delay: 0,
-    }"
-    @click="textExpand()"
   >
-    {{ text }}
+    <!-- Truncated text -->
+    <span class="TruncateText-TextTruncated">
+      {{ text }}
+    </span>
+
+    <!-- Full text displayed on hover -->
+    <span class="TruncateText-TextFull">
+      {{ text }}
+    </span>
   </span>
 </template>
 
@@ -63,18 +58,35 @@ export default {
 .TruncateText {
   display: block;
   max-width: $size-truncate-text-x;
+
+  &:hover {
+    position: relative;
+
+    /* Show full text on hover */
+    .TruncateText-TextFull {
+      z-index: 1;
+      display: block;
+      position: absolute;
+      top: -1 * $table-cell-padding;
+      left: -1 * $table-cell-padding;
+      right: -1 * $table-cell-padding;
+      padding: $table-cell-padding;
+      background-color: $color-background-primary;
+      white-space: normal;
+      word-break: break-all;
+    }
+  }
+}
+
+.TruncateText-TextTruncated {
+  display: block;
   overflow-x: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
 
-  &:hover {
-    cursor: pointer;
-  }
-
-  &.TruncateText--IsExpanded {
-    overflow-x: visible;
-    white-space: normal;
-    word-break: break-all;
-  }
+.TruncateText-TextFull {
+  /* Hide until hover */
+  display: none;
 }
 </style>

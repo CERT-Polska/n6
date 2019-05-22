@@ -16,6 +16,7 @@ from n6.collectors.generic import (
     BaseCollector,
     BaseOneShotCollector,
     BaseEmailSourceCollector,
+    BaseUrlDownloaderCollector,
 )
 
 
@@ -542,3 +543,43 @@ class TestBaseEmailSourceCollector(unittest.TestCase):
                          {'foo': sentinel.foo,
                           'headers': {'meta': {'mail_subject': 'Subject z polskimi znaćżkąmi',
                                       'mail_time': '2013-05-29 14:05:19'}}})
+
+
+@expand
+class TestBaseUrlDownloaderCollector___try_to_set_http_last_modified(unittest.TestCase):
+
+    def setUp(self):
+        self.instance = object.__new__(BaseUrlDownloaderCollector)
+        self.instance._http_last_modified = None  # as in BaseUrlDownloaderCollector.__init__()
+
+    # related to the fixed bug #6673
+    @foreach(
+        param(
+            headers={'Last-Modified': 'Sun, 06 Nov 2019 08:49:37 GMT'},
+            expected__http_last_modified=datetime.datetime(2019, 11, 6, 8, 49, 37),
+        ).label('preferred RFC-7231 format of header Last-Modified'),
+
+        param(
+            headers={'Last-Modified': 'Sunday, 06-Nov-19 08:49:37 GMT'},
+            expected__http_last_modified=datetime.datetime(2019, 11, 6, 8, 49, 37),
+        ).label('old RFC-850 format of header Last-Modified'),
+
+        param(
+            headers={'Last-Modified': 'Sun Nov  6 08:49:37 2019'},
+            expected__http_last_modified=datetime.datetime(2019, 11, 6, 8, 49, 37),
+        ).label('old ANSI C asctime() format of header Last-Modified'),
+
+        param(
+            headers={'Last-Modified': 'foo bar'},
+            expected__http_last_modified=None,
+        ).label('unsupported format of header Last-Modified'),
+
+        param(
+            headers={},
+            expected__http_last_modified=None,
+        ).label('no header Last-Modified'),
+    )
+    def test(self, headers, expected__http_last_modified):
+        self.instance._try_to_set_http_last_modified(headers)
+        self.assertEqual(self.instance._http_last_modified,
+                         expected__http_last_modified)

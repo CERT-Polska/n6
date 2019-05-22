@@ -3853,13 +3853,206 @@ class _ConfSpecData(ConfigString):
     ... x:y::conv1 ;inline-comment
     ... Y=ZZ::XX::conv2\t\t\t;inline-comment\t\t\t;yeah
     ... z :: conv3
-    ... empty1 :
-    ... empty2 : ;inline-comment
-    ... empty3 : :: int
-    ... empty4 : ;inline-comment
-    ... empty5 : :: int ;inline-comment
-    ... empty6=""::int
-    ... empty7=::int ;inline-comment
+    ... empty1:""
+    ... empty2: ""
+    ... empty3:"" ;inline-comment
+    ... empty4: "" ;inline-comment
+    ... empty5:"" ; inline-comment
+    ... empty6: "" ; inline-comment
+    ... empty7:  "" ; inline-comment
+    ... empty8: ""  ; inline-comment
+    ... empty9:  ""  ; inline-comment
+    ... empty10 :""
+    ... empty11 : ""
+    ... empty12 :"" ;inline-comment
+    ... empty13 : "" ;inline-comment
+    ... empty14 :"" ; inline-comment
+    ... empty15 : "" ; inline-comment
+    ... empty16 :  "" ; inline-comment
+    ... empty17  :  ""  ; inline-comment
+    ... empty18:
+    ... empty19 :
+    ... empty20  :
+    ... empty21 : ;inline-comment
+    ... empty22 : ; inline-comment
+    ... empty23 :  ; inline-comment
+    ... empty24  :  ; inline-comment
+    ... empty25=""
+    ... empty26= ""
+    ... empty27 =""
+    ... empty28="" ;inline-comment
+    ... empty29= "" ;inline-comment
+    ... empty30 ="" ;inline-comment
+    ... empty31 = "" ;inline-comment
+    ... empty32="" ; inline-comment
+    ... empty33= "" ; inline-comment
+    ... empty34 ="" ; inline-comment
+    ... empty35 = "" ; inline-comment
+    ... empty36 =  ""  ; inline-comment
+    ... empty37 = ""  ; inline-comment
+    ... empty38 =  ""  ; inline-comment
+    ... empty39=
+    ... empty40 =
+    ... empty41  =
+    ... empty42= ;inline-comment
+    ... empty43 = ;inline-comment
+    ... empty44= ; inline-comment
+    ... empty45 = ; inline-comment
+    ... empty46= ;inline-comment
+    ... empty47=  ;inline-comment
+    ... empty48 = ;inline-comment
+    ... empty49 =  ;inline-comment
+    ... empty50= ; inline-comment
+    ... empty51=  ; inline-comment
+    ... empty52 = ; inline-comment
+    ... empty53 =  ; inline-comment
+    ... empty54  =  ; inline-comment
+    ... empty1_i:""::int
+    ... empty2_i: ""::int
+    ... empty3_i:"" ::int
+    ... empty4_i: "" ::int
+    ... empty5_i:"":: int
+    ... empty6_i: "":: int
+    ... empty7_i:"" :: int
+    ... empty8_i: "" :: int
+    ... empty9_i: ""  :: int
+    ... empty10_i: ""  ::  int
+    ... empty11_i:  ""  ::  int
+    ... empty12_i:""::int ;inline-comment
+    ... empty13_i: ""::int ;inline-comment
+    ... empty14_i:"" ::int ;inline-comment
+    ... empty15_i: "" ::int ;inline-comment
+    ... empty16_i:"":: int ;inline-comment
+    ... empty17_i: "":: int ;inline-comment
+    ... empty18_i:"" :: int ;inline-comment
+    ... empty19_i: "" :: int ;inline-comment
+    ... empty20_i: "" ::  int ;inline-comment
+    ... empty21_i: "" ::  int  ;inline-comment
+    ... empty22_i:""::int ; inline-comment
+    ... empty23_i: ""::int ; inline-comment
+    ... empty24_i:"" ::int ; inline-comment
+    ... empty25_i: "" ::int ; inline-comment
+    ... empty26_i:"":: int ; inline-comment
+    ... empty27_i: "":: int ; inline-comment
+    ... empty28_i:"" :: int ; inline-comment
+    ... empty29_i: "" :: int ; inline-comment
+    ... empty30_i: ""  ::  int ; inline-comment
+    ... empty31_i: "" ::  int ; inline-comment
+    ... empty32_i: "" ::  int  ; inline-comment
+    ... empty33_i:  ""  ::  int  ; inline-comment
+    ... empty34_i :""::int
+    ... empty35_i : ""::int
+    ... empty36_i :"" ::int
+    ... empty37_i : "" ::int
+    ... empty38_i :"":: int
+    ... empty39_i : "":: int
+    ... empty40_i :"" :: int
+    ... empty41_i : "" :: int
+    ... empty42_i :""  :: int
+    ... empty43_i : ""  :: int
+    ... empty44_i :  ""  :: int
+    ... empty45_i :  ""  ::  int
+    ... empty46_i  :  ""  ::  int
+    ... empty47_i :""::int ;inline-comment
+    ... empty48_i : ""::int ;inline-comment
+    ... empty49_i :"" ::int ;inline-comment
+    ... empty50_i : "" ::int ;inline-comment
+    ... empty51_i :"":: int ;inline-comment
+    ... empty52_i : "":: int ;inline-comment
+    ... empty53_i :"" :: int ;inline-comment
+    ... empty54_i : "" :: int ;inline-comment
+    ... empty55_i :""::int ; inline-comment
+    ... empty56_i : ""::int ; inline-comment
+    ... empty57_i :"" ::int ; inline-comment
+    ... empty58_i : "" ::int ; inline-comment
+    ... empty59_i :"":: int ; inline-comment
+    ... empty60_i : "":: int ; inline-comment
+    ... empty61_i :"" :: int ; inline-comment
+    ... empty62_i : "" :: int ; inline-comment
+    ... empty63_i  :  ""  ::  int  ; inline-comment
+    ... empty64_i: ::int
+    ... empty65_i : ::int
+    ... empty66_i: :: int
+    ... empty67_i : :: int
+    ... empty68_i: ::int ;inline-comment
+    ... empty69_i : ::int ;inline-comment
+    ... empty70_i: :: int ;inline-comment
+    ... empty71_i : :: int ;inline-comment
+    ... empty72_i: ::int ; inline-comment
+    ... empty73_i : ::int ; inline-comment
+    ... empty74_i: :: int ; inline-comment
+    ... empty75_i : :: int ; inline-comment
+    ... empty76_i  :  ::  int  ; inline-comment
+    ... empty77_i=""::int
+    ... empty78_i= ""::int
+    ... empty79_i =""::int
+    ... empty80_i=""::int ;inline-comment
+    ... empty81_i= ""::int ;inline-comment
+    ... empty82_i =""::int ;inline-comment
+    ... empty83_i = ""::int ;inline-comment
+    ... empty84_i=""::int ; inline-comment
+    ... empty85_i= ""::int ; inline-comment
+    ... empty86_i =""::int ; inline-comment
+    ... empty87_i = ""::int ; inline-comment
+    ... empty88_i="" ::int
+    ... empty89_i= "" ::int
+    ... empty90_i ="" ::int
+    ... empty91_i="" ::int ;inline-comment
+    ... empty92_i= "" ::int ;inline-comment
+    ... empty93_i ="" ::int ;inline-comment
+    ... empty94_i = "" ::int ;inline-comment
+    ... empty95_i="" ::int ; inline-comment
+    ... empty96_i= "" ::int ; inline-comment
+    ... empty97_i ="" ::int ; inline-comment
+    ... empty98_i = "" ::int ; inline-comment
+    ... empty99_i="":: int
+    ... empty100_i= "":: int
+    ... empty101_i ="":: int
+    ... empty102_i="":: int ;inline-comment
+    ... empty103_i= "":: int ;inline-comment
+    ... empty104_i ="":: int ;inline-comment
+    ... empty105_i = "":: int ;inline-comment
+    ... empty106_i="":: int ; inline-comment
+    ... empty107_i= "":: int ; inline-comment
+    ... empty108_i ="":: int ; inline-comment
+    ... empty109_i = "":: int ; inline-comment
+    ... empty110_i="" :: int
+    ... empty111_i= "" :: int
+    ... empty112_i ="" :: int
+    ... empty113_i="" :: int ;inline-comment
+    ... empty114_i= "" :: int ;inline-comment
+    ... empty115_i ="" :: int ;inline-comment
+    ... empty116_i = "" :: int ;inline-comment
+    ... empty117_i="" :: int ; inline-comment
+    ... empty118_i= "" :: int ; inline-comment
+    ... empty119_i ="" :: int ; inline-comment
+    ... empty120_i = "" :: int ; inline-comment
+    ... empty121_i  =  ""  ::  int  ; inline-comment
+    ... empty122_i=::int
+    ... empty123_i =::int
+    ... empty124_i= ::int
+    ... empty125_i = ::int
+    ... empty126_i=:: int
+    ... empty127_i =:: int
+    ... empty128_i= :: int
+    ... empty129_i = :: int
+    ... empty130_i=::int ;inline-comment
+    ... empty131_i =::int ;inline-comment
+    ... empty132_i= ::int ;inline-comment
+    ... empty133_i = ::int ;inline-comment
+    ... empty134_i=:: int ;inline-comment
+    ... empty135_i =:: int ;inline-comment
+    ... empty136_i= :: int ;inline-comment
+    ... empty137_i = :: int ;inline-comment
+    ... empty138_i=::int ; inline-comment
+    ... empty139_i =::int ; inline-comment
+    ... empty140_i= ::int ; inline-comment
+    ... empty141_i = ::int ; inline-comment
+    ... empty142_i=:: int ; inline-comment
+    ... empty143_i =:: int ; inline-comment
+    ... empty144_i= :: int ; inline-comment
+    ... empty145_i = :: int ; inline-comment
+    ... empty146_i  =  ::  int  ; inline-comment
     ... bar = http:// :: x \t ; inline comment ; yeah it is
     ...
     ... # comment
@@ -3899,40 +4092,21 @@ class _ConfSpecData(ConfigString):
     >>> cs2.get_opt_spec('second.z')
     _OptSpec(name='z', default=None, converter_spec='conv3')
 
-    >>> cs2.get_opt_value('second.empty1')
-    ''
-    >>> cs2.get_opt_spec('second.empty1')
-    _OptSpec(name='empty1', default='', converter_spec=None)
+    >>> empty_options = ['empty{}'.format(i) for i in xrange(1, 55)]
+    >>> all(cs2.get_opt_value('second.' + o) == ''
+    ...     for o in empty_options)
+    True
+    >>> all(cs2.get_opt_spec('second.' + o) == _OptSpec(o, '', None)
+    ...     for o in empty_options)
+    True
 
-    >>> cs2.get_opt_value('second.empty2')
-    ''
-    >>> cs2.get_opt_spec('second.empty2')
-    _OptSpec(name='empty2', default='', converter_spec=None)
-
-    >>> cs2.get_opt_value('second.empty3')
-    ''
-    >>> cs2.get_opt_spec('second.empty3')
-    _OptSpec(name='empty3', default='', converter_spec='int')
-
-    >>> cs2.get_opt_value('second.empty4')
-    ''
-    >>> cs2.get_opt_spec('second.empty4')
-    _OptSpec(name='empty4', default='', converter_spec=None)
-
-    >>> cs2.get_opt_value('second.empty5')
-    ''
-    >>> cs2.get_opt_spec('second.empty5')
-    _OptSpec(name='empty5', default='', converter_spec='int')
-
-    >>> cs2.get_opt_value('second.empty6')
-    ''
-    >>> cs2.get_opt_spec('second.empty6')
-    _OptSpec(name='empty6', default='', converter_spec='int')
-
-    >>> cs2.get_opt_value('second.empty7')
-    ''
-    >>> cs2.get_opt_spec('second.empty7')
-    _OptSpec(name='empty7', default='', converter_spec='int')
+    >>> empty_int_options = ['empty{}_i'.format(i) for i in xrange(1, 147)]
+    >>> all(cs2.get_opt_value('second.' + o) == ''
+    ...     for o in empty_int_options)
+    True
+    >>> all(cs2.get_opt_spec('second.' + o) == _OptSpec(o, '', 'int')
+    ...     for o in empty_int_options)
+    True
 
     >>> cs2.get_opt_value('second.BaR')
     'http:// :: x\n; not a comment  ;  ! :: foo :: xx\nzz\nexample.com/; not-a-comment'
@@ -3969,13 +4143,7 @@ class _ConfSpecData(ConfigString):
     ...         'x',
     ...         'y',
     ...         'z',
-    ...         'empty1',
-    ...         'empty2',
-    ...         'empty3',
-    ...         'empty4',
-    ...         'empty5',
-    ...         'empty6',
-    ...         'empty7',
+    ...       ] + empty_options + empty_int_options + [
     ...         'bar',
     ...      ]),
     ...     ('another', [
@@ -3995,13 +4163,12 @@ class _ConfSpecData(ConfigString):
     ...         _OptSpec(name='x', default='y', converter_spec='conv1'),
     ...         _OptSpec(name='y', default='ZZ::XX', converter_spec='conv2'),
     ...         _OptSpec(name='z', default=None, converter_spec='conv3'),
-    ...         _OptSpec(name='empty1', default='', converter_spec=None),
-    ...         _OptSpec(name='empty2', default='', converter_spec=None),
-    ...         _OptSpec(name='empty3', default='', converter_spec='int'),
-    ...         _OptSpec(name='empty4', default='', converter_spec=None),
-    ...         _OptSpec(name='empty5', default='', converter_spec='int'),
-    ...         _OptSpec(name='empty6', default='', converter_spec='int'),
-    ...         _OptSpec(name='empty7', default='', converter_spec='int'),
+    ...       ]
+    ...       + list(_OptSpec(name=o, default='', converter_spec=None)
+    ...              for o in empty_options)
+    ...       + list(_OptSpec(name=o, default='', converter_spec='int')
+    ...              for o in empty_int_options)
+    ...       + [
     ...         _OptSpec(
     ...             name='bar',
     ...             default=('http:// :: x\n; not a comment  ;  ! :: foo :: '
@@ -4056,13 +4223,12 @@ class _ConfSpecData(ConfigString):
     ...         _OptSpec(name='x', default='y', converter_spec='conv1'),
     ...         _OptSpec(name='y', default='ZZ::XX', converter_spec='conv2'),
     ...         _OptSpec(name='z', default=None, converter_spec='conv3'),
-    ...         _OptSpec(name='empty1', default='', converter_spec=None),
-    ...         _OptSpec(name='empty2', default='', converter_spec=None),
-    ...         _OptSpec(name='empty3', default='', converter_spec='int'),
-    ...         _OptSpec(name='empty4', default='', converter_spec=None),
-    ...         _OptSpec(name='empty5', default='', converter_spec='int'),
-    ...         _OptSpec(name='empty6', default='', converter_spec='int'),
-    ...         _OptSpec(name='empty7', default='', converter_spec='int'),
+    ...       ]
+    ...       + list(_OptSpec(name=o, default='', converter_spec=None)
+    ...              for o in empty_options)
+    ...       + list(_OptSpec(name=o, default='', converter_spec='int')
+    ...              for o in empty_int_options)
+    ...       + [
     ...         _OptSpec(
     ...             name='bar',
     ...             default=('http:// :: x\n; not a comment  ;  ! :: foo :: '

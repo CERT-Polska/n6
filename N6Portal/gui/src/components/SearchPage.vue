@@ -33,8 +33,8 @@ export default {
   display: grid;
   grid:
     'form' auto
-    'results' 1fr
-    / 1fr;
+    'results' 1fr /
+    100%;
   grid-row-gap: $margin-medium;
   position: relative;
 }
@@ -45,6 +45,6 @@ export default {
 
 .SearchPage-Results {
   grid-area: results;
-  overflow: auto;
+  overflow: hidden;
 }
 </style>

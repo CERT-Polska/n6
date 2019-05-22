@@ -600,6 +600,7 @@ class RecordDict(collections.MutableMapping):
     adjust_sport = make_adjuster_using_data_spec('sport')
     adjust_dport = make_adjuster_using_data_spec('dport')
     adjust_count = make_adjuster_using_data_spec('count')
+    adjust_count_actual = make_adjuster_using_data_spec('count_actual')
 
     adjust_time = chained(
         make_adjuster_using_data_spec('time'),  # will return datetime

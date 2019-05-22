@@ -7,7 +7,6 @@ import mock
 from unittest_expander import expand, foreach, param
 
 from n6.collectors.abuse_ch import (
-    AbuseChSSLBlacklistCollector,
     AbuseChSSLBlacklistDyreCollector,
     NoNewDataException,
 )
@@ -406,11 +405,6 @@ class _TestAbuseChSSLBlacklistBase(unittest.TestCase):
             else:
                 output_data_body = self.COLLECTOR_CLASS.get_output_data_body(instance)
                 self.assertDictEqual(loads(output_data_body), result)
-
-
-class TestAbuseChSSLBlacklistCollector(_TestAbuseChSSLBlacklistBase):
-
-    COLLECTOR_CLASS = AbuseChSSLBlacklistCollector
 
 
 class TestAbuseChSSLBlacklistDyreCollector(_TestAbuseChSSLBlacklistBase):

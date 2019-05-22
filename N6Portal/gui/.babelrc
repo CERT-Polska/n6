@@ -5,7 +5,10 @@
     }],
     "stage-3"
   ],
-  "plugins": ["transform-runtime"],
+  "plugins": [
+    "lodash",
+    "transform-runtime"
+  ],
   "env": {
     "test": {
       "presets": ["env", "stage-3"],

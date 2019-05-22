@@ -45,9 +45,14 @@ class n6CollectorException(Exception):
 
 class CollectorConfigMixin(ConfigMixin):
 
+    config_spec_format_kwargs = None
+
     def set_configuration(self):
         if self.is_config_spec_or_group_declared():
-            self.config = self.get_config_section()
+            format_kwargs = (self.config_spec_format_kwargs
+                             if self.config_spec_format_kwargs is not None
+                             else {})
+            self.config = self.get_config_section(**format_kwargs)
         else:
             # backward-compatible behavior needed by a few collectors
             # that have `config_group = None` and -- at the same
@@ -265,6 +270,15 @@ class BaseCollector(CollectorConfigMixin, QueuedBase, AbstractBaseCollector):
         if self.type not in self.limits_type_of:
             raise Exception('Wrong type of archived data in mongo: {0},'
                             '  should be one of: {1}'.format(self.type, self.limits_type_of))
+
+    def update_connection_params_dict_before_run(self, params_dict):
+        """
+        For some collectors there may be a need to override the standard
+        AMQP heartbeat interval (e.g., when collecting large files...).
+        """
+        super(BaseCollector, self).update_connection_params_dict_before_run(params_dict)
+        if 'heartbeat_interval' in self.config:
+            params_dict['heartbeat_interval'] = self.config['heartbeat_interval']
 
     #
     # Permanent (daemon-like) processing
@@ -637,7 +651,9 @@ class BaseUrlDownloaderCollector(BaseCollector):
     _http_datetime_formats = [
         "%a, %d %b %Y %H:%M:%S GMT",     # the preferred format
         "%A, %d-%b-%y %H:%M:%S GMT",
-        "%a %b %m %H:%M:%S %Y",
+        "%a %b %d %H:%M:%S %Y",  # (note: using '%d' here is OK, because datetime.strptime()
+                                 # is lenient about '%d' vs. numbers that are *not* zero-padded,
+                                 # as well as about extra spaces *between* input string elements)
     ]
     _http_last_modified_header = 'Last-Modified'
 

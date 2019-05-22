@@ -4,7 +4,7 @@ FROM debian:stretch-slim
 ENV TERM xterm
 ENV DEBIAN_FRONTEND noninteractive
 
-# setting apt tool will automatically retry if a package download fails
+# additional apt settings
 RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/99AcquireRetries
 
 # building environments
@@ -14,32 +14,29 @@ RUN set -ex; \
                       cron \
                       default-libmysqlclient-dev \
                       iputils-ping \
-                      ldap-utils \
-                      libattr1-dev \
-                      libffi-dev \
-                      libfuse-dev \
-                      libgeoip1 \
                       geoip-database \
                       libldap2-dev \
                       libsasl2-dev \
-                      libssl-dev \
-                      libxml2-dev \
-                      libxslt1-dev \
-                      libyajl2 \
-                      mongodb-clients \
                       mysql-client \
-                      pkg-config \
-                      procps \
-                      python-dev \
-                      python-pastedeploy \
                       python-pip \
-                      python-pycurl \
+                      python-dev \
+                      libssl-dev \
+                      libyajl2 \
+                      swig \
                       python-setuptools \
                       supervisor \
                       rsyslog \
-                      swig \
                       vim \
                       wget && \
+                      apt-get clean
+
+
+# Mongo client
+RUN set -ex; \
+    apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 9DA31620334BD75D9DCB49F368818C72E52529D4 && \
+    echo "deb http://repo.mongodb.org/apt/debian stretch/mongodb-org/4.0 main" | tee /etc/apt/sources.list.d/mongodb-org-4.0.list && \
+    apt-get update && apt-get install -y \
+                      mongodb-org-shell && \
                       apt-get clean
 
 # speed up building image
@@ -56,8 +53,9 @@ ADD . /root/n6/
 RUN set -ex; \
     ./do_setup.py N6Lib N6Core
 
-# rabbit access
-ADD docker/rabbit/certs /root/certs
+# generate rabbit and web ssl certs
+ADD docker/work/test_data/test-generate_certs.sh /root/certs/generate_certs.sh
+RUN /root/certs/generate_certs.sh
 ADD docker/rabbit/conf/rabbitmqadmin /usr/local/bin
 RUN chmod a+x /usr/local/bin/rabbitmqadmin
 
@@ -79,9 +77,9 @@ RUN python get_parsers_conf.py && \
 WORKDIR /root/n6
 ADD docker/work/test_data/test-run_collectors /etc/cron.d/run_collectors
 ADD docker/work/wait-for-services-inside.sh /wait-for-services.sh
-RUN chmod a+x /wait-for-services.sh
+RUN chmod +x /wait-for-services.sh
 ADD docker/work/entrypoint.sh /entrypoint.sh
-RUN chmod a+x /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["supervisord", "-c", "etc/supervisord/supervisord.conf"]

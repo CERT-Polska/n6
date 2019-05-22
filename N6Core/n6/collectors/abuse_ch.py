@@ -1,10 +1,11 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 """
 Collectors: abuse-ch.spyeye-doms, abuse-ch.spyeye-ips,
 abuse-ch.zeus-doms, abuse-ch.zeus-ips, abuse-ch.zeustracker,
 abuse-ch.palevo-doms, abuse-ch.palevo-ips, abuse-ch.feodotracker,
-abuse-ch.ransomware, abuse-ch.ssl-blacklist, abuse-ch.ssl-blacklist-dyre
+abuse-ch.ransomware, abuse-ch.ssl-blacklist,
+abuse-ch.ssl-blacklist-dyre, abuse-ch.urlhaus-urls
 """
 
 import csv
@@ -406,9 +407,133 @@ class _AbuseChSSLBlacklistBaseCollector(CollectorWithStateMixin, BaseRSSCollecto
                     new_data_body.pop(url)
 
 
-class AbuseChSSLBlacklistCollector(_AbuseChSSLBlacklistBaseCollector):
+class AbuseChSSLBlacklistCollector(CollectorWithStateMixin,
+                                   BaseUrlDownloaderCollector,
+                                   BaseOneShotCollector):
 
-    config_group = "abuse_ch_ssl_blacklist"
+    config_spec = '''
+        [abusech_ssl_blacklist]
+        source :: str
+        cache_dir :: str
+        url :: str
+        download_timeout :: int
+        retry_timeout :: int
+    '''
+    raw_format_version_tag = '201902'
+    type = 'file'
+    content_type = 'text/csv'
+
+
+    def run_handling(self):
+        self._state = self._load_state_or_get_default_state()
+        # see BaseUrlDownloaderCollector.run_handling()
+        super(AbuseChSSLBlacklistCollector, self).run_handling()
+
+
+    def _load_state_or_get_default_state(self):
+        state = self.load_state()
+        if state is None:
+            state = {'time': '', 'sha1s': set()}
+        return state
+
+
+    def process_data(self, data):
+        all_rows = data.split('\n')
+        fresh_rows = self._get_fresh_rows_only(all_rows)
+        if fresh_rows:
+            return '\n'.join(fresh_rows)
+        return None
+
+
+    def _get_fresh_rows_only(self, all_rows):
+        # the *previously newest* abuse time
+        prev_newest_time = self._state['time']
+
+        # abuse IDs from the rows with the *previously newest* abuse time
+        # that have already been collected
+        prev_newest_time_sha1s = self._state['sha1s']
+
+        newest_time = None
+        newest_time_sha1s = set()
+        fresh_rows = []
+
+        preceding_row_time = None  # (for asserts only)
+
+        for row in all_rows:
+            if row.startswith('#') or not row.strip():
+                # row is commented or blank -> skip it
+                continue
+
+            # each row (if not commented or blank) consists of (possibly
+            # quoted, comma-separated):
+            # 1) listing date (abuse time in some *sortable* format (ISO-8601-like)),
+            # 2) abuse SHA1,
+            # 3) listing reason (irrelevant here)
+            (row_time,
+             row_sha1,
+             _) = [column for column in row.split(',', 2)]
+
+            if __debug__:
+                # we assume that time values in consecutive rows are monotonic
+                # (non-increasing, possibly repeating)
+                assert (preceding_row_time is None
+                        or row_time <= preceding_row_time)
+                preceding_row_time = row_time
+
+            if row_time < prev_newest_time:
+                # stop collecting when reached rows which are old enough
+                # that we are sure they must have already been collected
+                break
+
+            if newest_time is None:
+                # this is the first (newest) actual (not blank/commented)
+                # row in the downloaded file -- so here we have the *newest*
+                # abuse time
+                newest_time = row_time
+
+            if row_time == newest_time:
+                # this row is amongst those with the *newest* abuse time
+                newest_time_sha1s.add(row_sha1)
+
+            if row_sha1 in prev_newest_time_sha1s:
+                # this row is amongst those with the *previously newest*
+                # abuse time, *and* we know that it has already been
+                # collected -> so we *skip* it
+                assert row_time == prev_newest_time
+                continue
+
+            # this row have *not* been collected yet -> let's collect it
+            # now (in its original form, i.e., without any modifications)
+            fresh_rows.append(row)
+
+        if fresh_rows:
+            self._state = {
+                # the *newest* abuse time
+                'time': newest_time,
+                # abuse SHA1s from all rows with the *newest* abuse time
+                'sha1s': newest_time_sha1s,
+            }
+        return fresh_rows
+
+
+    def get_output_prop_kwargs(self, source, output_data_body, **processed_data):
+        if output_data_body is None:
+            # process_data() [see above...] returned None (nothing to be published)
+            return None
+        # see BaseUrlDownloaderCollector.get_output_prop_kwargs()
+        return super(AbuseChSSLBlacklistCollector, self).get_output_prop_kwargs(source,
+                                                                                output_data_body,
+                                                                                **processed_data)
+
+
+    # note: this method is called *only*
+    # [see BaseUrlDownloaderCollector.run_handling()]
+    # if process_data() [see above...] returned some data (not None)
+    def start_publishing(self):
+        # see BaseOneShotCollector.start_publishing()
+        super(AbuseChSSLBlacklistCollector, self).start_publishing()
+        self.save_state(self._state)
+
 
     @property
     def source_name(self):
@@ -428,6 +553,150 @@ class AbuseChSSLBlacklistDyreCollector(_AbuseChSSLBlacklistBaseCollector):
 
     def get_source_channel(self, **kwargs):
         return "ssl-blacklist-dyre"
+
+
+
+class AbuseChUrlhausUrls(CollectorWithStateMixin,
+                         BaseUrlDownloaderCollector,
+                         BaseOneShotCollector):
+
+    config_spec = '''
+        [abusech_urlhaus_urls]
+        source :: str
+        cache_dir :: str
+        url :: str
+        download_timeout :: int
+        retry_timeout :: int
+    '''
+
+    type = 'file'
+    content_type = 'text/csv'
+
+
+    def __init__(self, *args, **kwargs):
+        super(AbuseChUrlhausUrls, self).__init__(*args, **kwargs)
+        self.url = self.config['url']
+        self._state = None  # to be set in run_handling()
+
+
+    def run_handling(self):
+        self._state = self._load_state_or_get_default_state()
+        super(AbuseChUrlhausUrls,
+              self).run_handling()  # see BaseUrlDownloaderCollector.run_handling()
+
+
+    def _load_state_or_get_default_state(self):
+        state = self.load_state()
+        if state is None:
+            state = {'time': '', 'ids': set()}
+        return state
+
+
+    def get_source_channel(self, **kwargs):
+        return 'urlhaus-urls'
+
+
+    # see BaseUrlDownloaderCollector.get_output_data_body()
+    def process_data(self, data):
+        all_rows = data.split('\n')
+        fresh_rows = self._get_fresh_rows_only(all_rows)
+        if fresh_rows:
+            return '\n'.join(fresh_rows)
+        return None
+
+
+    def _get_fresh_rows_only(self, all_rows):
+        # the *previously newest* abuse time
+        prev_newest_time = self._state['time']
+
+        # abuse IDs from the rows with the *previously newest* abuse time
+        # that have already been collected
+        prev_newest_time_ids = self._state['ids']
+
+        newest_time = None
+        newest_time_ids = set()
+        fresh_rows = []
+
+        preceding_row_time = None  # (for asserts only)
+
+        for row in all_rows:
+            if row.startswith('#') or not row.strip():
+                # row is commented or blank -> skip it
+                continue
+
+            # each row (if not commented or blank) consists of (possibly
+            # quoted, comma-separated):
+            # 1) *unique* abuse ID (its format is irrelevant),
+            # 2) abuse time in some *sortable* format (ISO-8601-like),
+            # 3) other fields (irrelevant here)
+            (abuse_id,
+             row_time,
+             _) = [column.strip().strip('"') for column in row.split(',', 2)]
+
+            if __debug__:
+                # we assume that time values in consecutive rows are monotonic
+                # (non-increasing, possibly repeating)
+                assert (preceding_row_time is None
+                        or row_time <= preceding_row_time)
+                preceding_row_time = row_time
+
+            if row_time < prev_newest_time:
+                # stop collecting when reached rows which are old enough
+                # that we are sure they must have already been collected
+                break
+
+            if newest_time is None:
+                # this is the first (newest) actual (not blank/commented)
+                # row in the downloaded file -- so here we have the *newest*
+                # abuse time
+                newest_time = row_time
+
+            if row_time == newest_time:
+                # this row is amongst those with the *newest* abuse time
+                newest_time_ids.add(abuse_id)
+
+            if abuse_id in prev_newest_time_ids:
+                # this row is amongst those with the *previously newest*
+                # abuse time, *and* we know that it has already been
+                # collected -> so we *skip* it
+                assert row_time == prev_newest_time
+                continue
+
+            # this row have *not* been collected yet -> let's collect it
+            # now (in its original form, i.e., without any modifications)
+            fresh_rows.append(row)
+
+        if fresh_rows:
+            fresh_newest_time_ids = newest_time_ids - prev_newest_time_ids
+            assert newest_time and fresh_newest_time_ids
+        else:
+            assert (newest_time is None and not newest_time_ids
+                    or
+                    newest_time == prev_newest_time and newest_time_ids == prev_newest_time_ids)
+
+        self._state = {
+            'time': newest_time,     # the *newest* abuse time
+            'ids': newest_time_ids,  # abuse IDs from all rows with the *newest* abuse time
+        }
+        return fresh_rows
+
+
+    def get_output_prop_kwargs(self, source, output_data_body, **processed_data):
+        if output_data_body is None:
+            # process_data() [see above...] returned None (nothing to be published)
+            return None
+        # see BaseUrlDownloaderCollector.get_output_prop_kwargs()
+        return super(AbuseChUrlhausUrls, self).get_output_prop_kwargs(source,
+                                                                      output_data_body,
+                                                                      **processed_data)
+
+
+    # note: this method is called *only* [see BaseUrlDownloaderCollector.run_handling()]
+    # if process_data() [see above...] returned some data (not None)
+    def start_publishing(self):
+        # see BaseOneShotCollector.start_publishing()
+        super(AbuseChUrlhausUrls, self).start_publishing()
+        self.save_state(self._state)
 
 
 entry_point_factory(sys.modules[__name__])

@@ -1,8 +1,9 @@
 'use strict'
+
 const VueLoaderPlugin = require('vue-loader/lib/plugin');
 const path = require('path')
-const utils = require('./utils')
 const config = require('../config')
+const utils = require('./utils')
 const vueLoaderConfig = require('./vue-loader.conf')
 
 function resolve (dir) {
@@ -11,9 +12,11 @@ function resolve (dir) {
 
 module.exports = {
   context: path.resolve(__dirname, '../'),
+
   entry: {
     app: './src/main.js'
   },
+
   output: {
     path: config.build.assetsRoot,
     filename: '[name].js',
@@ -21,6 +24,7 @@ module.exports = {
       ? config.build.assetsPublicPath
       : config.dev.assetsPublicPath
   },
+
   resolve: {
     extensions: ['.js', '.vue', '.json'],
     alias: {
@@ -31,9 +35,10 @@ module.exports = {
       '@fonts': resolve('src/fonts'),
     }
   },
+
   module: {
     rules: [
-      ...(config.dev.useEslint? [{
+      ...config.dev.useEslint ? [{
         test: /\.(js|vue)$/,
         loader: 'eslint-loader',
         enforce: 'pre',
@@ -42,7 +47,7 @@ module.exports = {
           formatter: require('eslint-friendly-formatter'),
           emitWarning: !config.dev.showEslintErrorsInOverlay
         }
-      }] : []),
+      }] : [],
       {
         test: /\.vue$/,
         loader: 'vue-loader',
@@ -79,6 +84,7 @@ module.exports = {
       }
     ]
   },
+
   plugins: [
     new VueLoaderPlugin()
   ]

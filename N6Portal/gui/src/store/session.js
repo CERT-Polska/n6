@@ -12,6 +12,7 @@ export default {
   namespaced: true,
 
   state: {
+    infoLoaded: false,
     isLoggedIn: false,
     isFullAccess: false,
     isCertificateFetched: false,
@@ -20,6 +21,7 @@ export default {
 
   actions: {
     loadSessionInfo({ commit }) {
+      commit('setInfoNotLoaded');
       return new Promise((resolve, reject) => {
         axios
           .create({
@@ -62,6 +64,9 @@ export default {
   },
 
   mutations: {
+    setInfoNotLoaded(state) {
+      state.infoLoaded = false;
+    },
     saveCredentials(state, responseData) {
       let isLoggedIn = responseData.authenticated;
       Vue.set(state, 'isLoggedIn', isLoggedIn);
@@ -70,6 +75,7 @@ export default {
         state.isFullAccess = responseData.full_access;
       }
       state.isCertificateFetched = responseData.certificate_fetched;
+      state.infoLoaded = true;
     },
 
     logout(state) {

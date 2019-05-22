@@ -137,7 +137,7 @@ class TestFieldTypes(unittest.TestCase):
 
 
 #
-# Tests of field classes correlated with SDK ones
+# Tests of n6lib versions of field classes defined in SDK
 
 # ugly hack but saves a lot of redundant typing :-)
 globals().update(
@@ -149,7 +149,7 @@ globals().update(
 
 
 #
-# Tests of n6-specific field classes
+# Tests of n6lib-specific field classes
 
 ### TODO:
 
@@ -158,14 +158,17 @@ globals().update(
 #     CLASS = n6_fields.ClientFieldForN6
 
 #     def cases__clean_param_value(self):
+#         ...
 #         yield case(
 #             given='',
 #             expected=TypeError,
 #         )
+#         ...
 
 #     def cases__clean_result_value(self):
 #         for c in self.cases__clean_param_value():
 #             yield c
+#         ...
 
 
 # class TestURLsMatchedFieldForN6(FieldTestMixin, unittest.TestCase):
@@ -173,14 +176,17 @@ globals().update(
 #     CLASS = n6_fields.URLsMatchedFieldForN6
 
 #     def cases__clean_param_value(self):
+#         ...
 #         yield case(
 #             given='',
 #             expected=TypeError,
 #         )
+#         ...
 
 #     def cases__clean_result_value(self):
 #         for c in self.cases__clean_param_value():
 #             yield c
+#         ...
 
 
 # class TestSomeUnicodeFieldForN6(FieldTestMixin, unittest.TestCase):
@@ -188,14 +194,17 @@ globals().update(
 #     CLASS = n6_fields.SomeUnicodeFieldForN6
 
 #     def cases__clean_param_value(self):
+#         ...
 #         yield case(
 #             given='',
 #             expected=TypeError,
 #         )
+#         ...
 
 #     def cases__clean_result_value(self):
 #         for c in self.cases__clean_param_value():
 #             yield c
+#         ...
 
 
 # class TestSomeUnicodeListFieldForN6(FieldTestMixin, unittest.TestCase):
@@ -203,14 +212,17 @@ globals().update(
 #     CLASS = n6_fields.SomeUnicodeListFieldForN6
 
 #     def cases__clean_param_value(self):
+#         ...
 #         yield case(
 #             given='',
 #             expected=TypeError,
 #         )
+#         ...
 
 #     def cases__clean_result_value(self):
 #         for c in self.cases__clean_param_value():
 #             yield c
+#         ...
 
 
 # class TestSomeFieldForN6(FieldTestMixin, unittest.TestCase):
@@ -218,14 +230,17 @@ globals().update(
 #     CLASS = n6_fields.SomeFieldForN6
 
 #     def cases__clean_param_value(self):
+#         ...
 #         yield case(
 #             given='',
 #             expected=TypeError,
 #         )
+#         ...
 
 #     def cases__clean_result_value(self):
 #         for c in self.cases__clean_param_value():
 #             yield c
+#         ...
 
 
 # class TestEnrichedFieldForN6(FieldTestMixin, unittest.TestCase):
@@ -233,14 +248,17 @@ globals().update(
 #     CLASS = n6_fields.EnrichedFieldForN6
 
 #     def cases__clean_param_value(self):
+#         ...
 #         yield case(
 #             given='',
 #             expected=TypeError,
 #         )
+#         ...
 
 #     def cases__clean_result_value(self):
 #         for c in self.cases__clean_param_value():
 #             yield c
+#         ...
 
 
 

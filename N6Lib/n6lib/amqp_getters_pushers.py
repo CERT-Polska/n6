@@ -12,7 +12,10 @@ import pika.credentials
 import pika.exceptions
 
 from n6lib.amqp_helpers import get_amqp_connection_params_dict
-from n6lib.common_helpers import dump_condensed_debug_msg
+from n6lib.common_helpers import (
+    NonBlockingLockWrapper,
+    dump_condensed_debug_msg,
+)
 
 
 
@@ -68,6 +71,11 @@ class BaseAMQPTool(object):
         self._queues_to_declare = queues_to_declare
 
         self._shutdown_lock = threading.Lock()
+
+        self._connection_lock = threading.Lock()
+        self._connection_lock_nonblocking = NonBlockingLockWrapper(
+            self._connection_lock,
+            lock_description='the connection/channel operations lock')
         self._connection_closed = False
 
         # setup AMQP communication
@@ -100,7 +108,8 @@ class BaseAMQPTool(object):
                 self._before_close()
             finally:
                 if not self._connection_closed:
-                    self._connection.close()
+                    with self._connection_lock:
+                        self._connection.close()
                     self._connection_closed = True
 
 
@@ -108,23 +117,26 @@ class BaseAMQPTool(object):
     # Non-public methods
 
     def _setup_communication(self):
-        try:
-            self._connection.close()
-        except Exception:
-            pass
-        self._connection = self._make_connection()
-        self._channel = self._connection.channel()
-        self._declare_exchanges()
-        self._declare_queues()
-        self._additional_communication_setup()
+        with self._connection_lock_nonblocking:
+            try:
+                self._connection.close()
+            except Exception:
+                pass
+            self._connection = self._make_connection()
+            self._channel = self._connection.channel()
+            self._declare_exchanges()
+            self._declare_queues()
+            self._additional_communication_setup()
 
     def _make_connection(self):
+        exc = None
         for attempt in xrange(self.CONNECTION_ATTEMPTS):
             parameters = pika.ConnectionParameters(**self._connection_params_dict)
             try:
                 return pika.BlockingConnection(parameters)
             except pika.exceptions.AMQPConnectionError as exc:
                 time.sleep(self.CONNECTION_RETRY_DELAY)
+        assert exc is not None
         raise exc
 
     def _declare_exchanges(self):
@@ -142,7 +154,8 @@ class BaseAMQPTool(object):
 
 
 
-# TODO: tests (at least what is not yet tested for AMQPThreadedPusher)
+# TODO: finish implementation of this class! (now it's only a stub!)
+# then TODO: tests (at least what is not yet tested for AMQPThreadedPusher)
 class AMQPSimpleGetter(BaseAMQPTool):
 
     def __init__(self,
@@ -343,11 +356,12 @@ class AMQPSimplePusher(BaseAMQPTool):
         if custom_prop_kwargs:
             prop_kwargs = dict(prop_kwargs, **custom_prop_kwargs)
         properties = pika.BasicProperties(**prop_kwargs)
-        self._channel.basic_publish(exchange=self._exchange_name,
-                                    routing_key=routing_key,
-                                    body=data,
-                                    properties=properties,
-                                    mandatory=self._mandatory)
+        with self._connection_lock_nonblocking:
+            self._channel.basic_publish(exchange=self._exchange_name,
+                                        routing_key=routing_key,
+                                        body=data,
+                                        properties=properties,
+                                        mandatory=self._mandatory)
 
     def _stop_publishing(self):
         self._publishing = False

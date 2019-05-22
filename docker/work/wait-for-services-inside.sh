@@ -11,7 +11,7 @@ if [ $# -eq 0 ]
 fi
 
 until rabbitmqadmin --ssl --ssl-disable-hostname-verification \
-             --ssl-ca-cert-file=/root/n6/docker/rabbit/certs/n6-CA/cacert.pem \
+             --ssl-ca-cert-file=/root/certs/n6-CA/cacert.pem \
              --host=rabbit \
              --port=15671 \
              --username=login@example.com \
@@ -29,7 +29,7 @@ until echo 'show databases;' | mysql -h mysql -u root -ppassword | grep n6 > /de
 done
 >&2 echo "mysq is up!"
 
-until echo 'db.stats()' | mongo n6 -u admin -p admin1 --host mongo | grep n6 > /dev/null 2>&1; do
+until echo 'db.stats()' | mongo n6 --host mongo -u admin -p password > /dev/null 2>&1; do
   >&2 echo "mongo is unavailable - sleeping. Please wait..."
   sleep 2
 done

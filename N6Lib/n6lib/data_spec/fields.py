@@ -58,8 +58,9 @@ VALID_ACCESS_QUALIFIERS = frozenset({'unrestricted', 'anonymized'})
 # Actual field classes
 #
 
-# NOTE: all field classes defined in this module should have names
-# ending with 'FieldForN6' (for consistency and easier testing...).
+# NOTE: all field classes defined in this module should be subclasses of
+# the following class (to have features provided by it) and should have
+# names ending with 'FieldForN6' (for consistency and easier testing...)
 
 class FieldForN6(Field):
 
@@ -147,7 +148,7 @@ class FieldForN6(Field):
                     ', '.join(sorted(map(repr, found_access_qual)))))
 
 
-# n6lib versions of fields defined in SDK:
+# n6lib versions of field classes defined in SDK:
 
 class AddressFieldForN6(AddressField, FieldForN6):
     pass
@@ -228,7 +229,7 @@ class UnicodeRegexFieldForN6(UnicodeRegexField, FieldForN6):
     pass
 
 
-# fields for n6lib only:
+# n6lib-specific field classes:
 
 class _ClientOrgIdFieldForN6(UnicodeLimitedFieldForN6):
     ###encoding = 'ascii'     ### XXX: to be uncommented...

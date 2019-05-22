@@ -48,8 +48,8 @@ from n6lib.data_spec import (
 class TestValidators(unittest.TestCase):
 
     value_too_long_pattern = r'\A(Length of .+ is greater than )(\d{1,3})\Z'
-    decode_error_pattern = r'\AValue: .+ raised UnicodeDecodeError.+'
-    encode_error_pattern = r'\AValue: .+ raised UnicodeEncodeError.+'
+    decode_error_pattern = r'\AValue .+ caused UnicodeDecodeError.+'
+    encode_error_pattern = r'\AValue .+ caused UnicodeEncodeError.+'
     ldap_not_safe_char_pattern = r'\AValue: .+ contains illegal character: .+\Z'
 
     @foreach([
@@ -202,6 +202,10 @@ class TestValidators(unittest.TestCase):
         '1:1',
         '23:30',
         u'1:12',
+        10,
+        21,
+        datetime.time(13, 14),
+        datetime.time(15),
     )
     def test_notification_time(self, val):
         self._test_proper_values(EMailNotificationTime, {'notification_time': val})
@@ -214,15 +218,24 @@ class TestValidators(unittest.TestCase):
         'abc',
     )
     def test_illegal_notification_time(self, val):
-        expected_msg_pattern = r'\AValue: .+ raised ValueError:.+'
+        expected_msg_pattern = r'\AValue .+ caused ValueError:.+'
         self._test_illegal_values(EMailNotificationTime, {'notification_time': val},
                                   FieldValueError, expected_msg_pattern)
 
-    def test_wrong_type_notification_time(self):
-        tested_value = datetime.time(hour=12, minute=33)
-        expected_msg_pattern = (r'\AValue: datetime.time\(12, 33\) raised TypeError: '
-                                r'.*must be string, not datetime\.time\.\Z')
-        self._test_illegal_values(EMailNotificationTime, {'notification_time': tested_value},
+    @foreach(
+        11,
+        14,
+        0,
+        23,
+    )
+    def test_int_cleaning_method_notification_time(self, val):
+        expected_val = datetime.time(val)
+        self._test_proper_values(EMailNotificationTime, {'notification_time': expected_val})
+
+    def test_illegal_type_notification_time(self):
+        expected_msg_pattern = r"\AValue .* is of a wrong type.*"
+        new_time = datetime.datetime(2018, 3, 14, 15, 11)
+        self._test_illegal_values(EMailNotificationTime, {'notification_time': new_time},
                                   FieldValueError, expected_msg_pattern)
 
     @foreach(

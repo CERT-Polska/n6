@@ -12,6 +12,7 @@ import collections
 import copy
 import datetime
 import functools
+import re
 import threading
 
 import ldap
@@ -51,6 +52,25 @@ LOGGER = get_logger(__name__)
 LDAP_DATETIME_FORMAT = "%Y%m%d%H%M%SZ"
 
 LDAP_TREE_ROOT_DN = 'dc=n6,dc=cert,dc=pl'
+
+
+_N6ORG_ID_OFFICIAL_ATTR_REGEX = re.compile(
+    r'''
+        \A
+        (   # kind of official id
+            [A-Z]+
+        )
+        \s*
+        (   # separator
+            :
+        )
+        \s*
+        (   # actual id number
+            [0-9\-]+
+        )
+        \Z
+    ''', re.VERBOSE | re.IGNORECASE)
+
 
 
 class LdapAPIConnectionError(RuntimeError):
@@ -257,8 +277,6 @@ class LdapAPI(SQLAuthDBConfigMixin):
                     yield subentry_dn, subentry_attrs
 
     def __generate_org_az_subentries(self, org_dn, org, access_zone):
-        ### XXX: vide wątpliwość "co gdy jest cn=res-{az}, a nie ma cn={az} lub 0 subsource-ów?!"
-        ### -- i, co więcej, taka sytuacja *wyłącza* w WHERE warunek dot. full access!!
         assert access_zone in {'inside', 'search', 'threats'}
         access_to = getattr(org, 'access_to_'+access_zone)
         if access_to:
@@ -860,7 +878,7 @@ class _LdapAttrNormalizer(object):
         # whether DN is 'o=<client org id>,ou=orgs,dc=n6,dc=cert,dc=pl'
         # (or equivalent) *and* the LDAP attribute is the corresponding
         # RDN ('o=<client org id>` or equivalent)
-        return self.__does_attr_is_rdn_of_2nd_level_entry_of_specific_kind(
+        return self.__is_attr_rdn_of_2nd_level_entry_of_specific_kind(
             dn, ldap_attr_name,
             this_attr_names=('o', 'organization', 'organizationName'),
             top_attr_value='orgs')
@@ -869,12 +887,12 @@ class _LdapAttrNormalizer(object):
         # whether DN is 'cn=<source name>,ou=sources,dc=n6,dc=cert,dc=pl'
         # (or equivalent) *and* the LDAP attribute is the corresponding
         # RDN ('cn=<source name>` or equivalent)
-        return self.__does_attr_is_rdn_of_2nd_level_entry_of_specific_kind(
+        return self.__is_attr_rdn_of_2nd_level_entry_of_specific_kind(
             dn, ldap_attr_name,
             this_attr_names=('cn', 'CommonName'),
             top_attr_value='sources')
 
-    def __does_attr_is_rdn_of_2nd_level_entry_of_specific_kind(
+    def __is_attr_rdn_of_2nd_level_entry_of_specific_kind(
             self, dn, ldap_attr_name,
             this_attr_names,
             top_attr_value,
@@ -918,6 +936,7 @@ class _LdapAttrNormalizer(object):
                     ldap_attr_name, dn,
                     get_class_name(exc), ascii_str(exc), val)
 
+
     #
     # normalizer helpers
 
@@ -948,6 +967,7 @@ class _LdapAttrNormalizer(object):
     def _pass_unmodified(self, val):
         assert isinstance(val, basestring)
         return val
+
 
     #
     # actual normalizer methods
@@ -1031,6 +1051,31 @@ class _LdapAttrNormalizer(object):
             raise ValueError('{!r} does not seem to be a valid '
                              'e-mail address'.format(val))
         return val
+
+
+    # XXX: for additional LDAP attributes for whom there are no counterparts
+    # in n6lib.ldap_api_replacement.LdapAPI (at least for now)
+
+    _normalize_n6org_location = _to_unicode_stripped
+    _normalize_n6org_location_coords = _to_unicode_stripped
+    _normalize_n6org_address = _to_unicode_stripped
+    _normalize_n6user_name = _to_unicode_stripped
+    _normalize_n6user_surname = _to_unicode_stripped
+    _normalize_n6user_phone = _to_unicode_stripped
+    _normalize_n6user_title = _to_unicode_stripped
+
+    _normalize_n6org_verified = _pass_unmodified
+    _normalize_n6org_public = _pass_unmodified
+    _normalize_n6user_contact_point = _pass_unmodified
+
+    def _normalize_n6org_id_official(self, val):
+        val = self._ascii_only_to_unicode_stripped(val)
+        match = _N6ORG_ID_OFFICIAL_ATTR_REGEX.search(val)
+        if match is None:
+            raise ValueError('{!r} is not a valid official id'.format(val))
+        val = ''.join(match.groups()).upper().replace('-', '')
+        return val
+
 
     #
     # auxiliary stuff

@@ -95,6 +95,7 @@ CATEGORY_TO_NORMALIZED_NAME = {
         'feodo',
         'irc-bot',
         'kelihos',
+        'mirai',
         'palevo',
         'spyeye',
         'tdss',

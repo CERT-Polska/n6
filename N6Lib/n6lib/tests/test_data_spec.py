@@ -74,6 +74,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'adip',
         'additional_data',
         'alternative_fqdns',
+        'count_actual',
         'description',
         'ip_network',
         'min_amplification',

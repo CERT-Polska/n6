@@ -4,38 +4,31 @@ FROM debian:stretch-slim
 ENV TERM xterm
 ENV DEBIAN_FRONTEND noninteractive
 
-# setting apt tool will automatically retry if a package download fails
+# additional apt settings
 RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/99AcquireRetries
 
 # building environments
 RUN set -ex; \
-    apt update && apt -y install \
+    apt-get update && apt-get install -y \
                                 apache2 \
                                 curl \
                                 default-libmysqlclient-dev \
                                 libapache2-mod-wsgi \
-                                libattr1-dev \
-                                libffi-dev \
-                                libfuse-dev \
-                                libgeoip1 \
                                 geoip-database \
                                 libldap2-dev \
                                 libsasl2-dev \
-                                libssl-dev \
-                                libxml2-dev \
-                                libxslt-dev \
-                                libxslt1-dev \
-                                libyajl2 \
-                                pkg-config \
                                 python \
-                                python-dev \
                                 python-pip \
                                 python-setuptools \
                                 python-virtualenv \
                                 rsyslog \
+                                python-pip \
+                                python-dev \
+                                libssl-dev \
+                                libyajl2 \
+                                swig \
                                 sudo \
-                                wget \
-                                swig && \
+                                wget && \
                                 apt-get clean
 
 # adding the standard user with a blank password
@@ -43,15 +36,13 @@ RUN useradd -ms /bin/bash -p '' dataman
 WORKDIR /home/dataman
 # cloning the repository
 ADD . /home/dataman/n6
-# adding certs and other importatn files
-ADD docker/rabbit/certs /home/dataman/certs
 ADD docker/web/test_data/test-n6-api.conf /etc/apache2/sites-available/n6-api.conf
 ADD docker/web/test_data/test-n6-api.wsgi /home/dataman/n6/N6RestApi/n6-api.wsgi
 ADD docker/web/test_data/test-production.ini /home/dataman/n6/N6RestApi/production.ini
 
 # permissions
 RUN chown -R dataman:dataman /home/dataman/n6 ;\
-    chown -R dataman:dataman /home/dataman/certs ;\
+#    chown -R dataman:dataman /home/dataman/certs ;\
     usermod -a -G dataman www-data; \
     usermod -aG sudo dataman; \
     chown -R www-data:www-data /etc/apache2/sites-available/n6-api.conf; \
@@ -75,7 +66,7 @@ ADD docker/web/test_data/test-config.json N6Portal/gui/src/config/config.json
 USER root
 RUN set -ex; \
     curl -sL https://deb.nodesource.com/setup_8.x | sudo -E bash - ;\
-    apt install -y nodejs && \
+    apt-get install -y nodejs && \
     apt-get clean
 WORKDIR /home/dataman/n6/N6Portal/gui
 RUN npm install && \
@@ -87,6 +78,11 @@ RUN chown -R www-data:www-data /etc/apache2/sites-available/n6-portal-api.conf
 
 # default website redirect to ssl connetions
 ADD docker/web/test_data/test-000-default.conf /etc/apache2/sites-available/000-default.conf
+
+# generate new app_secret_key
+ADD docker/web/test_data/test-admin_panel.conf /etc/n6/admin_panel.conf
+RUN app_secret_key=`python -c 'import os, base64; print(base64.b64encode(os.urandom(16)))'`;\
+    sed -i "s/1dOvshmX+dU2Bl8XB0itYg==/$app_secret_key/g" /etc/n6/admin_panel.conf
 
 # permissions
 WORKDIR /home/dataman/n6

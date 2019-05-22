@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import collections
 import cPickle
@@ -39,7 +39,7 @@ class HiFreqEventData(object):
         self.group = payload.get("_group")
         self.until = parse_iso_datetime_to_utc(payload.get('time'))
         self.first = parse_iso_datetime_to_utc(payload.get('time'))
-        self.count = 1
+        self.count = 1  # XXX: see ticket #6243
         self.payload = payload
 
     def to_dict(self):
@@ -84,7 +84,7 @@ class SourceData(object):
                 LOGGER.info('Event out of order, but not older than group\'s first event, '
                             'so it will be added to existing aggregate group. Data: %s', data)
                 event.until = max(event.until, event_time)
-                event.count += 1
+                event.count += 1  # XXX: see ticket #6243
                 return False
 
         if event is None:
@@ -94,13 +94,13 @@ class SourceData(object):
                              "tolerance. Check and update buffer.", data['_group'], data['source'])
                 buffered_event = self.buffer.get(data['_group'])
                 if buffered_event is not None:
-                    buffered_event.count += 1
+                    buffered_event.count += 1  # XXX: see ticket #6243
                     self.buffer[data['_group']] = buffered_event
                     return False
             # Event not seen before - add new event to group
             LOGGER.debug("A new group '%s' for '%s' source began to be aggregated, "
                          "first event is being generated.", data['_group'], data['source'])
-            self.groups[data['_group']] = HiFreqEventData(data)
+            self.groups[data['_group']] = HiFreqEventData(data)  # XXX: see ticket #6243
             self.update_time(parse_iso_datetime_to_utc(data['time']))
             return True
 
@@ -111,7 +111,7 @@ class SourceData(object):
                          data['_group'], data['source'], AGGREGATE_WAIT)
             # 24 hour aggregation or AGGREGATE_WAIT time passed between events in group
             del self.groups[data['_group']]
-            self.groups[data['_group']] = HiFreqEventData(data)
+            self.groups[data['_group']] = HiFreqEventData(data)  # XXX: see ticket #6243
             self.buffer[data['_group']] = event
             self.update_time(parse_iso_datetime_to_utc(data['time']))
             return True
@@ -119,7 +119,7 @@ class SourceData(object):
         # Event for existing group and still aggregating
         LOGGER.debug("Event is being aggregated in the '%s' group of the '%s' source.",
                      data['_group'], data['source'])
-        event.count += 1
+        event.count += 1  # XXX: see ticket #6243
         if event_time > event.until:
             event.until = event_time
         del self.groups[data['_group']]
@@ -149,14 +149,17 @@ class SourceData(object):
             if v.until >= cutoff_time:
                 break
             for_cleanup.append(k)
+            # XXX: see ticket #6243 (check whether here is OK or also will need to be changed)
             yield 'suppressed', v.to_dict() if v.count > 1 else None
         for k in for_cleanup:
             del self.buffer[k]
 
     def generate_suppressed_events_after_inactive(self):
         for k, v in self.buffer.iteritems():
+            # XXX: see ticket #6243 (check whether here is OK or also will need to be changed)
             yield 'suppressed', v.to_dict() if v.count > 1 else None
         for k, v in self.groups.iteritems():
+            # XXX: see ticket #6243 (check whether here is OK or also will need to be changed)
             yield 'suppressed', v.to_dict() if v.count > 1 else None
         self.groups.clear()
         self.buffer.clear()
@@ -304,11 +307,20 @@ class Aggregator(QueuedBase):
             if event is not None:
                 self.publish_event((type_, event))
 
-    def _cleanup_data(self, data):
-        """Removes artifacts from earlier processing ('_group')
-        """
-        data.pop("_group", None)
-        return data
+    # XXX: can be removed after resolving ticket #6324
+    def _clean_count_related_stuff(self, cleaned_payload):
+        COUNT_MAX = RecordDict.data_spec.count.max_value
+        count = cleaned_payload.get('count', 1)
+        if count > COUNT_MAX:
+            cleaned_payload['count_actual'] = count
+            cleaned_payload['count'] = COUNT_MAX
+
+    def _get_cleaned_payload(self, type_, payload):
+        cleaned_payload = payload.copy()
+        cleaned_payload["type"] = type_
+        cleaned_payload.pop('_group', None)
+        self._clean_count_related_stuff(cleaned_payload)
+        return cleaned_payload
 
     def publish_event(self, data):
         """Publishes event to the output queue
@@ -316,11 +328,10 @@ class Aggregator(QueuedBase):
         type_, payload = data
         if type_ is None:
             return
-        payload = self._cleanup_data(payload)
-        payload["type"] = type_
-        source, channel = payload["source"].split(".")
+        cleaned_payload = self._get_cleaned_payload(type_, payload)
+        source, channel = cleaned_payload['source'].split('.')
         rk = "{}.{}.{}.{}".format(type_, "aggregated", source, channel)
-        body = json.dumps(payload)
+        body = json.dumps(cleaned_payload)
         self.publish_output(routing_key=rk, body=body)
 
     def set_timeout(self):

@@ -1,45 +1,19 @@
 <script>
+import Spinner from 'vue-spinner-component/src/Spinner';
 import TheHeader from './components/TheHeader';
 
 export default {
   components: {
+    Spinner,
     TheHeader,
   },
 
   computed: {
+    isAuthPending() {
+      return !this.$store.state.session.infoLoaded;
+    },
     isLoggedIn() {
       return this.$store.state.session.isLoggedIn;
-    },
-    isCertificateFetched() {
-      return this.$store.state.session.isCertificateFetched;
-    },
-  },
-
-  watch: {
-    '$route': 'fetchData',
-  },
-
-  created() {
-    if (!this.isLoggedIn && this.isCertificateFetched) {
-      this.flash('You are ready to sign in with certificate.', 'success', {
-        timeout: 0,
-      })
-    }
-  },
-
-  methods: {
-    fetchData() {
-      let previousState = this.isLoggedIn;
-      this.$store.dispatch('session/loadSessionInfo').then(() => {
-        let currentState = this.isLoggedIn;
-        // unexpectedly logged out
-        if (previousState && !currentState) {
-          this.$store.dispatch('session/authLogout').then(() => {
-            this.$router.push('/login');
-            this.flash('You have been logged out.', 'error');
-          });
-        }
-      });
     },
   },
 };
@@ -53,7 +27,12 @@ export default {
     class="App"
   >
     <the-header class="App-Header" />
-    <main class="App-Main">
+    <spinner
+      class="App-Spinner"
+      v-if="isAuthPending"
+      :size="80"
+    />
+    <main class="App-Main" v-else>
       <flash-message class="App-Message"/>
       <router-view class="App-Page" />
     </main>
@@ -84,7 +63,7 @@ export default {
 
 // Padding applied to the browser window.
 @mixin window-padding-x {
-  $padding-x: $padding-medium;
+  $padding-x: $padding-window;
 
   padding-left: $padding-x;
   padding-right: $padding-x;
@@ -108,7 +87,7 @@ export default {
 }
 
 .App-Main {
-  $padding-y: $padding-medium;
+  $padding-y: $padding-window;
 
   @include window-padding-x;
 
@@ -130,6 +109,11 @@ export default {
 
 .App-Page {
   height: 100%;
-  grid-area: page;
+}
+.App-Spinner {
+  position: fixed;
+  top: 35%;
+  left: 50%;
+  margin-left: -40px;
 }
 </style>

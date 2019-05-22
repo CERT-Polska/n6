@@ -79,7 +79,7 @@ Checking RestAPI status (`https://localhost/api/info`)
 
 Additional tools:
 
-Robomongo - client GUI MongoDB
+Robo3t - client GUI MongoDB
     
     Connection:
         - name: any ex. "n6-open"
@@ -89,12 +89,12 @@ Robomongo - client GUI MongoDB
         - database: n6 or admin
         - username: admin
         - password: password
-        - auth mechanism: MONGODB-CR
+        - auth mechanism: SCRAM-SHA-1
 
 Interactive mode:
 
-    `docker-compose exec mongo  bash`
-    `mongo --host mongo n6 -u admin -p password`
+    `docker-compose exec mongo bash`
+    `mongo admin|n6 --host mongo --port 27017 -u admin -password password`
 
 Mysql - client GUI sql
    
@@ -107,7 +107,7 @@ Mysql - client GUI sql
 
 Interactive mode:
     
-    `docker-compose exec mysql  bash`
+    `docker-compose exec mysql bash`
     `mysql --host mysql --user root -ppassword`        
 
 # Shutdown and clean up

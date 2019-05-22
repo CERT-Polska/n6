@@ -28,10 +28,13 @@ from n6.parsers.abuse_ch import (
     _AbuseChSSLBlacklistBaseParser,
     AbuseChSSLBlacklistDyreParser,
     AbuseChSSLBlacklistParser,
+    AbuseChSSLBlacklistParser201902,
+    AbuseChUrlhausUrlsParser,
 )
 from n6.parsers.generic import (
     BaseParser,
     BlackListTabDataParser,
+    TabDataParser,
 )
 from n6.tests.parsers._parser_test_mixin import ParserTestMixIn
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
@@ -194,7 +197,7 @@ def _cases_for_tracker(self):
                 'md5': 'da95b3bf473c2e18537c925e640820b9',
             }]
         )
-    yield ('''[["sjcvaleguia.com.br/Mix/valeg/bot.exe (2015-06-07)", "URL: http://sjcvaleguia.com.br/Mix/valeg/bot.exe, status: offline, MD5 hash: "]]''', 
+    yield ('''[["sjcvaleguia.com.br/Mix/valeg/bot.exe (2015-06-07)", "URL: http://sjcvaleguia.com.br/Mix/valeg/bot.exe, status: offline, MD5 hash: "]]''',
             [{
                 'time': '2015-06-07 00:00:00',
                 'url': 'http://sjcvaleguia.com.br/Mix/valeg/bot.exe',
@@ -682,3 +685,86 @@ class TestAbuseChSSLBlacklistDyreParser(_TestAbuseChSSLBlacklistParserBase):
 
     PARSER_SOURCE = 'abuse-ch.ssl-blacklist-dyre'
     PARSER_CLASS = AbuseChSSLBlacklistDyreParser
+
+
+class TestAbuseChSSLBlacklistsParser201902(ParserTestMixIn, unittest.TestCase):
+
+    PARSER_SOURCE = 'abuse-ch.ssl-blacklist'
+    PARSER_CLASS = AbuseChSSLBlacklistParser201902
+    PARSER_BASE_CLASS = TabDataParser
+    PARSER_CONSTANT_ITEMS = {
+        'restriction': 'public',
+        'confidence': 'low',
+        'category': 'cnc',
+    }
+
+    def cases(self):
+        yield (
+            '2019-02-26 15:42:09,7112c502625cec0a0211714f8d5c2972868963d4,Gozi C&C\n'
+            'this_line,should_not,be_here\n'
+            '2019-02-26 06:40:29,8adcad74167f5b27d47a4f629d11aa187710fd41,Malware C&C\n',
+        [
+            {
+                'category': 'cnc',
+                'restriction': 'public',
+                'confidence': 'low',
+                'name': 'gozi c&c',
+                'x509fp_sha1': '7112c502625cec0a0211714f8d5c2972868963d4',
+                'time': '2019-02-26 15:42:09',
+            },
+            {
+                'category': 'cnc',
+                'restriction': 'public',
+                'confidence': 'low',
+                'name': 'malware c&c',
+                'x509fp_sha1': '8adcad74167f5b27d47a4f629d11aa187710fd41',
+                'time': '2019-02-26 06:40:29',
+            }
+
+        ])
+
+        yield (
+            'asdasd',
+            IndexError
+        )
+
+
+class TestAbuseChUrlhausUrlsParser(ParserTestMixIn, unittest.TestCase):
+
+    PARSER_SOURCE = 'abuse-ch.urlhaus-urls'
+    PARSER_CLASS = AbuseChUrlhausUrlsParser
+    PARSER_BASE_CLASS = TabDataParser
+    PARSER_CONSTANT_ITEMS = {
+        'restriction': 'public',
+        'confidence': 'low',
+        'category': 'malurl',
+    }
+
+    def cases(self):
+        yield (
+            '"31629","2018-07-12 16:18:02","http://10.20.30.40/bins/x86.foobar","online","malware_download","None","https://urlhaus.abuse.ch/url/31629/"\n'
+            '"this is", wrong, line\n'
+            '"31628","2018-07-12 16:01:19","http://www.example.in/pdf/EN_en/Jul2018/Pay-Invoice/","online","malware_download","doc,emotet","https://urlhaus.abuse.ch/url/31628/"\n',
+            [
+                {
+                    'category': 'malurl',
+                    'restriction': 'public',
+                    'confidence': 'low',
+                    'url': 'http://10.20.30.40/bins/x86.foobar',
+                    'source': 'abuse-ch.urlhaus-urls',
+                    'time': '2018-07-12 16:18:02',
+                },
+                {
+                    'category': 'malurl',
+                    'restriction': 'public',
+                    'confidence': 'low',
+                    'url': 'http://www.example.in/pdf/EN_en/Jul2018/Pay-Invoice/',
+                    'source': 'abuse-ch.urlhaus-urls',
+                    'time': '2018-07-12 16:01:19',
+                },
+            ]
+        )
+        yield (
+            'asdasd',
+            IndexError
+        )

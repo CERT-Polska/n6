@@ -88,10 +88,10 @@ def _patching_method(method_name, patcher_maker, target_autocompletion=True):
     package) and -- what is more interesting -- provides automatic
     cleanup: thanks to that you can just do in your test case methods:
     `self.patch(...)` (or `some_mock = self.patch(...)`) and that's all!
-    (Note that neither `with` statements nor any manual cleanup are
-    needed!)  The only requirement is that a test class in which you use
-    this stuff is a subclass of unittest.TestCase (which provides the
-    addCleanup() method, used by this stuff).
+    (Neither `with` statements nor any manual cleanup are needed!)  The
+    only requirement is that a test class in which you use this stuff is
+    a subclass of unittest.TestCase (which provides the addCleanup()
+    method, used by this stuff).
 
     A method created with this helper factory provides also another
     convenience feature: target auto-completion.  Instead of repeating
@@ -358,6 +358,136 @@ class TestCaseMixin(SDKTestCaseMixin):
     # * Note #2: *no* target auto-completion will be done if the value
     #   is None.
     default_patch_prefix = None
+
+
+class _ExpectedObjectPlaceholder(object):
+
+    def __new__(cls, *args, **kwargs):
+        self = super(_ExpectedObjectPlaceholder, cls).__new__(cls)
+        self._constructor_args = args
+        self._constructor_kwargs = kwargs
+        return self
+
+    def __eq__(self, other):
+        raise NotImplementedError
+
+    def __ne__(self, other):
+        return not (self == other)
+
+    def __repr__(self):
+        arg_reprs = [repr(a) for a in self._constructor_args]
+        arg_reprs.extend(
+            '{}={!r}'.format(k, v)
+            for k, v in sorted(self._constructor_kwargs.iteritems()))
+        return '{}({})'.format(
+            self.__class__.__name__,
+            ', '.join(arg_reprs))
+
+
+class AnyInstanceOf(_ExpectedObjectPlaceholder):
+
+    """
+    A class that implements a placeholder (somewhat similar to mock.ANY)
+    that compares equal only to instances of the specified classes.
+
+    >>> import numbers
+    >>> any_str_or_integral = AnyInstanceOf(str, numbers.Integral)
+    >>> any_str_or_integral
+    AnyInstanceOf(<type 'str'>, <class 'numbers.Integral'>)
+
+    >>> any_str_or_integral == 'foo'
+    True
+    >>> 'foo' == any_str_or_integral
+    True
+    >>> any_str_or_integral == 42
+    True
+    >>> 42 == any_str_or_integral
+    True
+    >>> any_str_or_integral == 12345678901234567890L
+    True
+    >>> 12345678901234567890L == any_str_or_integral
+    True
+
+    >>> any_str_or_integral != 'foo'
+    False
+    >>> 'foo' != any_str_or_integral
+    False
+    >>> any_str_or_integral != 42
+    False
+    >>> 42 != any_str_or_integral
+    False
+    >>> any_str_or_integral != 12345678901234567890L
+    False
+    >>> 12345678901234567890L != any_str_or_integral
+    False
+
+    >>> any_str_or_integral == u'foo'
+    False
+    >>> u'foo' == any_str_or_integral
+    False
+    >>> any_str_or_integral == 42.0
+    False
+    >>> 42.0 == any_str_or_integral
+    False
+
+    >>> any_str_or_integral != u'foo'
+    True
+    >>> u'foo' != any_str_or_integral
+    True
+    >>> any_str_or_integral != 42.0
+    True
+    >>> 42.0 != any_str_or_integral
+    True
+    """
+
+    def __init__(self, *classes):
+        self._classes = classes
+
+    def __eq__(self, other):
+        return isinstance(other, self._classes)
+
+
+class AnyFunctionNamed(_ExpectedObjectPlaceholder):
+
+    """
+    A class that implements a placeholder (somewhat similar to mock.ANY)
+    that compares equal only to functions whose name is equal to the
+    specified one.
+
+    >>> any_func_named_foo = AnyFunctionNamed('foo')
+    >>> any_func_named_foo
+    AnyFunctionNamed('foo')
+    >>> AnyFunctionNamed(name='foo')  # the same, only repr slightly different
+    AnyFunctionNamed(name='foo')
+
+    >>> def foo(): pass
+    >>> any_func_named_foo == foo
+    True
+    >>> foo == any_func_named_foo
+    True
+    >>> any_func_named_foo != foo
+    False
+    >>> foo != any_func_named_foo
+    False
+
+    >>> def bar(): pass
+    >>> any_func_named_foo == bar
+    False
+    >>> bar == any_func_named_foo
+    False
+    >>> any_func_named_foo != bar
+    True
+    >>> bar != any_func_named_foo
+    True
+    """
+
+    def __init__(self, name):
+        self._name = name
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, types.FunctionType) and
+            other.__name__ == self._name)
 
 
 # TODO: document it -- because it's a nice helper :-)

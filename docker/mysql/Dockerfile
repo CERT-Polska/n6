@@ -3,7 +3,7 @@ FROM mariadb:10.3
 # interactive mode
 ENV TERM xterm
 ENV DEBIAN_FRONTEND noninteractive
-# Setting apt tool will automatically retry if a package download fails
+# additional apt settings
 RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/99AcquireRetries
 
 # mysql config

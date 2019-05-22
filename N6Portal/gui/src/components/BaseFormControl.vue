@@ -185,7 +185,7 @@ export default {
 
 @mixin FormControlActualElement {
   /* v-popover is adding this extra container */
-  /deep/ > .trigger {
+  /deep/ .trigger {
     @content;
   }
 }
@@ -193,18 +193,19 @@ export default {
 /*** While form control ***/
 
 .FormControl {
+  margin-top: $margin-small;
+
+  &:first-of-type {
+    margin-top: 0;
+  }
+
   @include FormControlActualElement {
     display: flex !important;
     flex-wrap: nowrap;
     align-items: center;
     position: relative;
-    margin-top: $margin-small;
     width: 100%;
     height: 100%;
-
-    &:first-of-type {
-      margin-top: 0;
-    }
   }
 }
 

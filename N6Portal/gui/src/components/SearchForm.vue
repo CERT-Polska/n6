@@ -8,6 +8,9 @@ import CRITERIA_CONFIG from '@/config/searchCriteria';
 
 const FORBIDDEN_STATUS = 403;
 
+// Key under which max results parameter is sent to the server
+const MAX_RESULTS_KEY = 'opt.limit';
+
 export default {
   components: {
     BaseButton,
@@ -18,9 +21,12 @@ export default {
     ...mapGetters('search', [
       'criteriaValid',
       'queryBaseUrl',
+      'resultsCount',
     ]),
+
     ...mapState('search', [
       'criteria',
+      'maxResultsCurrent',
     ]),
   },
 
@@ -44,7 +50,6 @@ export default {
             this.$store.commit('search/statusIdle');
             console.error(error);
             if (error.response.status && error.response.status === FORBIDDEN_STATUS) {
-              this.flash('You have been signed out.', error);
               this.$router.push('/login')
             } else {
               this.$router.push('/error')
@@ -54,7 +59,9 @@ export default {
     },
 
     makeQueryObject() {
-      let queryObject = {};
+      const queryObject = {
+        [MAX_RESULTS_KEY]: this.maxResultsCurrent,
+      };
       for (let { id, value } of this.criteria) {
         let valueString;
         const criterionConfig = CRITERIA_CONFIG.find(
@@ -85,7 +92,10 @@ export default {
 
 
 <template>
-  <form @submit.prevent="getResults">
+  <form
+    class="SearchForm"
+    @submit.prevent="getResults"
+  >
     <search-form-controls />
   </form>
 </template>

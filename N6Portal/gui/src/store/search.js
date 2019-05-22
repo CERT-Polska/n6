@@ -21,6 +21,10 @@ export default {
 
   state: {
     criteria: [],
+    // Max results value used in the last search
+    maxResultsLast: undefined,
+    // Max results value currently selected
+    maxResultsCurrent: 100,
     displayedColumns: {},
     resultsResponse: [],
     // Status of the whole search. Available values:
@@ -68,6 +72,11 @@ export default {
         }
         return resultTable;
       });
+    },
+
+    // How many results are in the response
+    resultsCount(state) {
+      return state.resultsResponse.length;
     },
   },
 
@@ -127,6 +136,10 @@ export default {
       localStorage.setItem(DISPLAYED_COLUMNS_STORAGE_KEY, displayedColumnsJson);
     },
 
+    maxResultsSet(state, maxResults) {
+      state.maxResultsCurrent = maxResults;
+    },
+
     statusCompleted(state, { response }) {
       state.status = 'completed';
       state.resultsResponse = response;
@@ -138,6 +151,7 @@ export default {
 
     statusPending(state) {
       state.status = 'pending';
+      state.maxResultsLast = state.maxResultsCurrent;
     },
 
     statusTouched(state) {

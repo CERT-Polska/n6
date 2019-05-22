@@ -160,6 +160,50 @@ class RsyncFileContextManager(object):
                 self._file = None
 
 
+class NonBlockingLockWrapper(object):
+
+    """
+    A lock wrapper to acquire a lock in non-blocking manner.
+
+    Constructor args/kwargs:
+        `lock`: a threading.Lock or threading.RLock instance.
+        `lock_description` (optional): a description for debug purposes.
+
+    Instance interface includes:
+        * the context manager (`with` statement) interface,
+        * explicit `acquire()` (argumentless, always non-blocking),
+        * explicit `release()`.
+
+    If `lock` cannot be acquired, `RuntimeError` is raised (with
+    `lock_description`, if provided, used in the error message).
+
+    Example use:
+        my_lock = threading.Lock()  # or threading.RLock()
+        ...
+        with NonBlockingLockWrapper(my_lock, 'my very important lock')
+            ...
+    """
+
+    def __init__(self, lock, lock_description=None):
+        self.lock = lock
+        self._lock_description_ascii = ascii_str(lock_description or repr(lock))
+
+    def __enter__(self):
+        self.acquire()
+        return self.lock
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
+
+    def acquire(self):
+        if self.lock.acquire(False):
+            return True
+        raise RuntimeError('could not acquire {}'.format(self._lock_description_ascii))
+
+    def release(self):
+        self.lock.release()
+
+
 class SimpleNamespace(object):
 
     """
@@ -1912,6 +1956,167 @@ def make_dict_delta(dict1, dict2):
     return delta
 
 
+def update_mapping_recursively(*args, **kwargs):
+    """
+    Update the given mapping recursively with items from other mappings.
+
+    Args:
+        `target_mapping` (a collection.MutableMapping, e.g. a dict):
+            The target mapping, that is, the mapping to be mutated.
+        <other positional arguments>:
+            The source mappings (e.g., dicts); their items will be
+            used to update `target_mapping` recursively.  The mappings
+            will be used in the given order.  Instead of a mapping
+            (collection.Mapping instance) some other iterable can
+            be given, provided it yields `(<key>, <value>)` pairs.
+
+    Kwargs:
+        <all keyword arguments (if any)>:
+            Items that form yet another source mapping that will be used
+            (as the last one) in the same way the mappings specified as
+            <other positional arguments> will be.
+
+    Here, *recursive update* means that for each key in the particular
+    source mapping:
+
+    * if the corresponding value in the target mapping *is* a mutable
+      mapping (dict or another instance of collections.MutableMapping)
+      -- it will be *updated recursively* with the contents of the value
+      from the source mapping (which then must be either an instance of
+      collections.Mapping or an iterable that yields `(<key>, <value>)`
+      pairs);
+
+    * if the corresponding value in the target mapping is *not* a
+      mutable mapping or does *not* exist at all -- the result of
+      applying copy.deepcopy() will be applied to the value from the
+      source mapping, and that copy will be stored in the target mapping
+      (replacing the aformentioned value, if any).
+
+    For example:
+
+    >>> target = {
+    ...     'abc': 42,
+    ...     'foo': 'BAR',
+    ...     'xyz': {1: 2, 3: {4: 5, 'spam': 'ham'}, 6: 7},
+    ...     123: [set(['FOO', 'BAR']), 'S', 'P', 'AM'],
+    ... }
+    >>> src1 = {
+    ...     'abc': {'x': 'y', 'ZZZ': {'A': 789, 'B': 'C'}},
+    ...     'SPAMMY': 'hammy',
+    ...     True: {'no': False},
+    ... }
+    >>> src2 = {
+    ...     'abc': {'qqq': 'rrr', 'ZZZ': [('A', 456)]},
+    ...     'xyz': {3: {4: 55, 8: 99}, 6: 77, 'z': 0},
+    ...     'SPAMMY': 'non-hammy',
+    ...     123: [333, 22, 1],
+    ... }
+    >>> kwarg_xyz = [(44.0, 't'), ('z', None)]
+    >>> update_mapping_recursively(target, src1, src2,
+    ...                            xyz=kwarg_xyz,
+    ...                            YetAnother=43)
+    >>> target == {
+    ...     'abc': {'x': 'y', 'qqq': 'rrr', 'ZZZ': {'A': 456, 'B': 'C'}},
+    ...     'foo': 'BAR',
+    ...     'xyz': {1: 2, 3: {4: 55, 8: 99, 'spam': 'ham'},
+    ...             6: 77, 44.0: 't', 'z': None},
+    ...     'SPAMMY': 'non-hammy',
+    ...     'YetAnother': 43,
+    ...     123: [333, 22, 1],
+    ...     True: {'no': False},
+    ... }
+    True
+    >>> # NOTE that the source data containers have *not* been changed:
+    ... src1 == {
+    ...     'abc': {'x': 'y', 'ZZZ': {'A': 789, 'B': 'C'}},
+    ...     'SPAMMY': 'hammy',
+    ...     True: {'no': False},
+    ... } and src2 == {
+    ...     'abc': {'qqq': 'rrr', 'ZZZ': [('A', 456)]},
+    ...     'xyz': {3: {4: 55, 8: 99}, 6: 77, 'z': 0},
+    ...     'SPAMMY': 'non-hammy',
+    ...     123: [333, 22, 1],
+    ... } and kwarg_xyz == [(44.0, 't'), ('z', None)]
+    True
+    """
+    target_mapping = args[0]
+    source_mappings = args[1:] + (kwargs,)
+    for src_mapping in source_mappings:
+        src_items = (
+            src_mapping.items()
+            if isinstance(src_mapping, collections.Mapping)
+            else src_mapping)
+        for key, src_val in src_items:
+            target_val = target_mapping.get(key)
+            if isinstance(target_val, collections.MutableMapping):
+                update_mapping_recursively(target_val, src_val)
+            else:
+                target_mapping[key] = copy.deepcopy(src_val)
+
+
+def merge_mappings_recursively(*args, **kwargs):
+    """
+    Create a dict whose contents is the result of applying the
+    update_mapping_recursively() function to a new empty dict plus any
+    source mappings specified as positional/keyword arguments (see the
+    following example as well as the docstring of the
+    update_mapping_recursively() function).
+
+    >>> src0 = {
+    ...     'abc': 42,
+    ...     'foo': 'BAR',
+    ...     'xyz': {1: 2, 3: {4: 5, 'spam': 'ham'}, 6: 7},
+    ...     123: [set(['FOO', 'BAR']), 'S', 'P', 'AM'],
+    ... }
+    >>> src1 = {
+    ...     'abc': {'x': 'y', 'ZZZ': {'A': 789, 'B': 'C'}},
+    ...     'SPAMMY': 'hammy',
+    ...     True: {'no': False},
+    ... }
+    >>> src2 = {
+    ...     'abc': {'qqq': 'rrr', 'ZZZ': [('A', 456)]},
+    ...     'xyz': {3: {4: 55, 8: 99}, 6: 77, 'z': 0},
+    ...     'SPAMMY': 'non-hammy',
+    ...     123: [333, 22, 1],
+    ... }
+    >>> kwarg_xyz = [(44.0, 't'), ('z', None)]
+    >>> new = merge_mappings_recursively(src0, src1, src2,
+    ...                                  xyz=kwarg_xyz,
+    ...                                  YetAnother=43)
+    >>> new == {
+    ...     'abc': {'x': 'y', 'qqq': 'rrr', 'ZZZ': {'A': 456, 'B': 'C'}},
+    ...     'foo': 'BAR',
+    ...     'xyz': {1: 2, 3: {4: 55, 8: 99, 'spam': 'ham'},
+    ...             6: 77, 44.0: 't', 'z': None},
+    ...     'SPAMMY': 'non-hammy',
+    ...     'YetAnother': 43,
+    ...     123: [333, 22, 1],
+    ...     True: {'no': False},
+    ... }
+    True
+    >>> # NOTE that the source data containers have *not* been changed:
+    ... src0 == {
+    ...     'abc': 42,
+    ...     'foo': 'BAR',
+    ...     'xyz': {1: 2, 3: {4: 5, 'spam': 'ham'}, 6: 7},
+    ...     123: [set(['FOO', 'BAR']), 'S', 'P', 'AM'],
+    ... } and src1 == {
+    ...     'abc': {'x': 'y', 'ZZZ': {'A': 789, 'B': 'C'}},
+    ...     'SPAMMY': 'hammy',
+    ...     True: {'no': False},
+    ... } and src2 == {
+    ...     'abc': {'qqq': 'rrr', 'ZZZ': [('A', 456)]},
+    ...     'xyz': {3: {4: 55, 8: 99}, 6: 77, 'z': 0},
+    ...     'SPAMMY': 'non-hammy',
+    ...     123: [333, 22, 1],
+    ... } and kwarg_xyz == [(44.0, 't'), ('z', None)]
+    True
+    """
+    target_dict = {}
+    update_mapping_recursively(target_dict, *args, **kwargs)
+    return target_dict
+
+
 def deep_copying_result(func):
     """
     A decorator which ensures that the result of each call is deep-copied.
@@ -3043,6 +3248,20 @@ def cleanup_src():
         _LOGGER.warning('Fail cleanup resources: %r', fail_cleanup)
 
 
+def make_exc_ascii_str(exc):
+    """
+    Generate a short ASCII string representing the given exception.
+
+    Args:
+        `exc`:
+            Instance of the exception.
+
+    Returns:
+        Representation of the exception as an ASCII string.
+    """
+    return '{}: {}'.format(exc.__class__.__name__, ascii_str(exc))
+
+
 def make_condensed_debug_msg(exc_info=None,
                              total_limit=2000,
                              exc_str_limit=500,
@@ -3148,7 +3367,21 @@ def make_condensed_debug_msg(exc_info=None,
 
 _dump_condensed_debug_msg_lock = threading.RLock()
 
-def dump_condensed_debug_msg(header=None, stream=None):
+def _try_to_release_dump_condensed_debug_msg_lock(
+            # this object is intended to be accessible even when this
+            # module is in a weird state on interpreter exit...
+            _release_lock=_dump_condensed_debug_msg_lock.release):
+    try:
+        _release_lock()
+    except RuntimeError:
+        # already unlocked
+        pass
+
+def dump_condensed_debug_msg(header=None, stream=None,
+                             # these objects are intended to be accessible even when
+                             # this module is in a weird state on interpreter exit...
+                             _acquire_lock=_dump_condensed_debug_msg_lock.acquire,
+                             _try_to_release_lock=_try_to_release_dump_condensed_debug_msg_lock):
     """
     Call make_condensed_debug_msg(total_limit=None, exc_str_limit=1000,
     tb_str_limit=None, stack_str_limit=None) and print the resultant
@@ -3167,27 +3400,44 @@ def dump_condensed_debug_msg(header=None, stream=None):
             The stream the debug message is to be printed to.  If None
             the message will be printed to the standard error output.
     """
-    with _dump_condensed_debug_msg_lock:
-        header = (
-            '\n{0}\n'.format(ascii_str(header)) if header is not None
-            else '')
-        if stream is None:
-            stream = sys.stderr
-        debug_msg = make_condensed_debug_msg(
-            total_limit=None,
-            exc_str_limit=1000,
-            tb_str_limit=None,
-            stack_str_limit=None)
-        cur_thread = threading.current_thread()
-        print >>stream, '{0}\nCONDENSED DEBUG INFO: [thread {1!r} (#{2})] {3}\n'.format(
-            header,
-            ascii_str(cur_thread.name),
-            cur_thread.ident,
-            debug_msg)
+    try:
+        _acquire_lock()
         try:
-            stream.flush()
-        except Exception:
-            pass
+            header = (
+                '\n{0}\n'.format(ascii_str(header)) if header is not None
+                else '')
+            if stream is None:
+                stream = sys.stderr
+            debug_msg = make_condensed_debug_msg(
+                total_limit=None,
+                exc_str_limit=1000,
+                tb_str_limit=None,
+                stack_str_limit=None)
+            cur_thread = threading.current_thread()
+            print >>stream, '{0}\nCONDENSED DEBUG INFO: [thread {1!r} (#{2})] {3}\n'.format(
+                header,
+                ascii_str(cur_thread.name),
+                cur_thread.ident,
+                debug_msg)
+            try:
+                stream.flush()
+            except Exception:
+                pass
+        finally:
+            _try_to_release_lock()
+    except:
+        # The purpose of the following call is to reduce probability of
+        # deadlocks in a rare case when the normal lock release (above)
+        # has been omitted (because of some asynchronous exception,
+        # such as a KeyboardInterrupt raised by a signal handler, in an
+        # unfortunate moment...).  Note that, even if -- in a very rare
+        # case -- this additional lock release attempt was redundant
+        # (and therefore premature), the only risk of executing
+        # simultaneously this function's code by more than one thread
+        # seems to be printing intermixed debug messages (not a big
+        # deal, especially compared with a possibility of a deadlock).
+        _try_to_release_lock()
+        raise
 
 
 if __name__ == '__main__':

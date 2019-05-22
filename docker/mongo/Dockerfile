@@ -1,20 +1,13 @@
-FROM mongo:2.6.9
+FROM mongo:4
 
 # interactive mode
 ENV TERM xterm
 ENV DEBIAN_FRONTEND noninteractive
 
-ENV AUTH yes
-ENV JOURNALING no
-# Setting apt tool will automatically retry if a package download fails
-RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/99AcquireRetries
-
-ADD docker/mongo/entrypoint.sh /entrypoint.sh
-ADD docker/mongo/set_mongodb_password.sh /set_mongodb_password.sh
-RUN set -ex; \
-    chmod a+x /entrypoint.sh \
-              /set_mongodb_password.sh
-
-CMD ["/entrypoint.sh"]
+# create new database for n6 usage
+ADD docker/mongo/test-data/mongodb-setup.js /docker-entrypoint-initdb.d
 
 EXPOSE 27017
+
+# mongo admin --host mongo --port 27017 -u admin -password password
+# mongo n6 --host mongo --port 27017 -u admin -password password

@@ -156,7 +156,9 @@ class MispCollector(CollectorWithStateMixin, BaseCollector):
 
     def get_arg_parser(self):
         arg_parser = super(MispCollector, self).get_arg_parser()
-        arg_parser.add_argument('n6config_section_name', help="Config section name",)
+        arg_parser.add_argument(
+            'n6config_section_name',
+            help='the config section name specific to the chosen MISP collector, e.g.: misp_circl')
         return arg_parser
 
     def _establish_connection(self):

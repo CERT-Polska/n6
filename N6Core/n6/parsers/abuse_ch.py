@@ -12,6 +12,7 @@ from cStringIO import StringIO
 from n6.parsers.generic import (
     BaseParser,
     BlackListTabDataParser,
+    TabDataParser,
     entry_point_factory,
 )
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
@@ -428,6 +429,51 @@ class AbuseChSSLBlacklistParser(_AbuseChSSLBlacklistBaseParser):
 class AbuseChSSLBlacklistDyreParser(_AbuseChSSLBlacklistBaseParser):
 
     default_binding_key = "abuse-ch.ssl-blacklist-dyre"
+
+
+class AbuseChSSLBlacklistParser201902(TabDataParser):
+
+    default_binding_key = "abuse-ch.ssl-blacklist.201902"
+
+    constant_items = {
+            "restriction": "public",
+            "confidence": "low",
+            "category": "cnc",
+    }
+
+    field_sep = ','
+    ignored_row_prefixes = '#'
+
+    def process_row_fields(self, data, parsed, *fields):
+        # SOURCE FIELDS FORMAT:
+        # Listingdate,SHA1,Listingreason
+        listingdate = fields[0].strip('"')
+        sha1 = fields[1].strip('"')
+        listingreason = fields[2].strip('"')
+
+        parsed['time'] = listingdate
+        parsed['x509fp_sha1'] = sha1
+        parsed['name'] = listingreason
+
+
+class AbuseChUrlhausUrlsParser(TabDataParser):
+
+    default_binding_key = 'abuse-ch.urlhaus-urls'
+
+    constant_items = {
+        "restriction": "public",
+        "confidence": "low",
+        "category": "malurl",
+    }
+
+    field_sep = ','
+
+    def process_row_fields(self, data, parsed, *fields):
+        # SOURCE FIELDS FORMAT:
+        # id,dateadded,url,url_status,threat,tags,urlhaus_link
+        dateadded, url = fields[1].strip('"'), fields[2].strip('"')
+        parsed['time'] = dateadded
+        parsed['url'] = url
 
 
 entry_point_factory(sys.modules[__name__])

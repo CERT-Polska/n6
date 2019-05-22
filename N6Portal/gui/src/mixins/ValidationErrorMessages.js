@@ -4,14 +4,14 @@
 const messages = {
   alpha: () => 'Must consist only of alphanumeric characters',
   cidr: () => 'Invalid IP address in CIDR notation',
-  domain: () => 'Invalid domain name',
-  domainPart: () => 'Invalid domain part',
+  fqdn: () => 'Invalid domain name',
   hexadecimal: () => 'Must consist only of hexadecimal digits',
   ipAddress: () => 'Invalid IP address',
   minLength: (params) => `Must have at least ${params.min} characters`,
   maxLength: (params) => `Must have no more than ${params.max} characters`,
   integer: () => 'Must be a number',
   required: () => 'Field is required',
+  source: () => 'May contain only lowercase letters, numbers and dashes; has to be split in two parts, separated by a dot.',
   url: () => 'Invalid URL',
 };
 

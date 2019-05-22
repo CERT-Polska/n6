@@ -1,93 +1,78 @@
 // Validators for Vuelidate
 
+import isFQDN from 'validator/lib/isFQDN';
+import isHexadecimal from 'validator/lib/isHexadecimal';
+import isURL from 'validator/lib/isURL';
 import { helpers, ipAddress, minValue, maxValue } from 'vuelidate/lib/validators';
-import XRegExp from 'xregexp';
 
-/* eslint-disable no-useless-escape */
+// =============================================================================
+// Regular expressions used in validators
+// =============================================================================
 
 const cidrMaskMin = 0;
 const cidrMaskMax = 32;
-const cidrExtractorRegexp = XRegExp.build(
-  `^ {{ip}} \\/ {{mask}} $`,
-  {
-    ip: '(?<ip> .*)',
-    mask: '(?<mask> \\d{1,2})',
-  },
-  'x',
-);
+// Regular expression does not need to check the validity of IP, just capture
+// it, as it will be later checked by ipAdress() validator from Vuelidate
+const cidrIpPattern = '(.*)';
+const cidrMaskPattern = '(\\d{1,2})';
+const sourceAvailableChars = '([-0-9a-z]+)';
+const cidrRegex = new RegExp(`^${cidrIpPattern}\\/${cidrMaskPattern}$`);
+const sourceRegex = new RegExp(`^${sourceAvailableChars}\\.${sourceAvailableChars}$`);
 
-const domainCharacterRegex = '[\\p{Letter}\\d-_]';
-
-const domainRegex = XRegExp.build(
-  '^ {{firstDomainPart}} {{subsequentDomainParts}} $',
-  {
-    domainCharacter: domainCharacterRegex,
-    firstDomainPart: '{{domainCharacter}}+',
-    subsequentDomainParts: '( \\. {{domainCharacter}}+ )+',
-  },
-  'xn'
-);
-
-const domainPartRegex = XRegExp.build(
-  // Domain part characters and dots
-  '^ ( {{domainCharacter}} | \\. )+ $',
-  { domainCharacter: domainCharacterRegex },
-  'xn',
-);
-
-const hexadecimalRegex = XRegExp('^ [0-9a-fA-F]+ $', 'x');
-
-// Based on: https://stackoverflow.com/a/3809435/3355252
-const urlRegex = XRegExp.build(
-  '^ {{protocol}} {{www}}? {{domainCharacter}}{2,256} {{restOfURL}} $',
-  {
-    domainCharacter: domainCharacterRegex,
-    protocol: '( \\w+ : \\/\\/ )',
-    www: '( [wW]{3} \\. )',
-    restOfURL: '\\. \\p{Letter}{2,6} \\b ( ( \\p{Letter} | [0-9-_@:%+.~#?&//=] )* )',
-  },
-  'xn'
-);
-
-/* eslint-enable no-useless-escape */
+// =============================================================================
+// Validators
+// =============================================================================
 
 function cidrValidator(value) {
   if (!value) {
     return !helpers.req(value);
   } else {
-    const matches = XRegExp.exec(value, cidrExtractorRegexp);
+    const matches = cidrRegex.exec(value);
     if (!matches) {
       return false;
     } else {
       return (
-        ipAddress(matches.ip) &&
-        minValue(cidrMaskMin)(matches.mask) &&
-        maxValue(cidrMaskMax)(matches.mask)
+        ipAddress(matches[1]) &&
+        minValue(cidrMaskMin)(matches[2]) &&
+        maxValue(cidrMaskMax)(matches[2])
       );
     }
   }
 }
 
-function domainValidator(value) {
-  return !helpers.req(value) || domainRegex.test(value);
-}
-
-function domainPartValidator(value) {
-  return !helpers.req(value) || domainPartRegex.test(value);
+function fqdnValidator(value) {
+  return !helpers.req(value) || isFQDN(value, { allow_underscores: true });
 }
 
 function hexadecimalValidator(value) {
-  return !helpers.req(value) || hexadecimalRegex.test(value);
+  return !helpers.req(value) || isHexadecimal(value);
 }
 
 function urlValidator(value) {
-  return !helpers.req(value) || urlRegex.test(value);
+  return !helpers.req(value) || isURL(value, { require_valid_protocol: false });
 }
+
+function sourceValidator(value) {
+  if (!value) {
+    return !helpers.req(value);
+  } else {
+    const matches = sourceRegex.exec(value);
+    if (matches) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+}
+
+// =============================================================================
+// Exports
+// =============================================================================
 
 export {
   cidrValidator as cidr,
-  domainValidator as domain,
-  domainPartValidator as domainPart,
+  fqdnValidator as fqdn,
   hexadecimalValidator as hexadecimal,
   urlValidator as url,
+  sourceValidator as source,
 };

@@ -20,15 +20,13 @@ Vue.config.productionTip = false;
 VTooltip.options.defaultPlacement = 'bottom';
 VTooltip.options.defaultDelay = 500;
 
-store.dispatch('session/loadSessionInfo').then(response => {
-  /* eslint-disable-next-line no-new */
-  new Vue({
-    el: '#app',
-    components: {
-      App,
-    },
-    template: '<App />',
-    router,
-    store,
-  });
+/* eslint-disable-next-line no-new */
+new Vue({
+  el: '#app',
+  components: {
+    App,
+  },
+  template: '<App />',
+  router,
+  store,
 });
