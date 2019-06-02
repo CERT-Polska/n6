@@ -1,0 +1,2 @@
+The certificates, keys and CSRs stored in this directory (including CA
+ones) are intended to be used for testing purposes only.

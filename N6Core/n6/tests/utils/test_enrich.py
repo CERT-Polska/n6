@@ -57,11 +57,17 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
     @mock.patch('n6.utils.enrich.Config', MockConfig)
     def setUp(self, *args):
         Enricher._setup_dnsresolver = mock.MagicMock()
+        Enricher._setup_geodb = mock.MagicMock()
         self.enricher = Enricher()
         self.enricher._resolver = mock.MagicMock()
         self.enricher._resolver.query = mock.MagicMock(return_value=["127.0.0.1"])
-        self.enricher.gi_asn.asn = mock.Mock(return_value=mock.MagicMock(autonomous_system_number="1234"))
-        self.enricher.gi_cc.city = mock.Mock(return_value=mock.MagicMock(country=mock.Mock(iso_code="PL")))
+        self.enricher.gi_asn = mock.Mock(
+            asn=mock.Mock(return_value=mock.MagicMock(
+                autonomous_system_number="1234")))
+        self.enricher.gi_cc = mock.Mock(
+            city=mock.Mock(return_value=mock.MagicMock(
+                country=mock.Mock(
+                    iso_code="PL"))))
 
     def test__enrich__with_no_data(self):
         data = self.enricher.enrich(RecordDict({}))

@@ -53,7 +53,7 @@ class Anonymizer(QueuedBase):
     def __init__(self, **kwargs):
         LOGGER.info("Anonymizer Start")
         super(Anonymizer, self).__init__(**kwargs)
-        self.auth_api = AuthAPI()  # requires the [ldap] config section with some options...
+        self.auth_api = AuthAPI()
         self.data_spec = N6DataSpec()
 
     def input_callback(self, routing_key, body, properties):

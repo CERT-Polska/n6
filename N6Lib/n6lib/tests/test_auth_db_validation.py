@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import datetime
 import sys
@@ -30,7 +30,6 @@ from n6lib.auth_db.models import (
     InsideFilterURL,
     Org,
     OrgGroup,
-    RequestCase,
     Source,
     Subsource,
     SubsourceGroup,
@@ -357,26 +356,44 @@ class TestValidators(unittest.TestCase):
                                   expected_msg_pattern)
 
     @foreach(
-        'abc123',
-        'aF09',
-        u'01cd',
-        '    FF0012  ',
+        '06f30a5903f4cf0642b5',
+        'abcdef0123456789ffff',
+        u'5cc863bfbf1b669e5f05',
+        'B4162A543BE9E50ACE42',
     )
     def test_hex_number(self, val):
         self._test_proper_values(Cert, {'serial_hex': val})
-        self._test_proper_values(RequestCase, {'request_case_id': val})
 
     @foreach(
-        'A B123',
-        'A-b_C',
-        'd,e,f',
-        'ąę123',
+        'e479-09b_23572199b66',
+        '19f16e,29fd.8b56294c',
+        '6ę515be3556ą8267826c',
+        '   9aadc6e968ee4a4d5601   ',
+        'b215',
     )
     def test_illegal_hex_number(self, val):
-        expected_msg_pattern = r'.+ is not a valid hexadecimal number\.\Z'
+        expected_msg_pattern = r'.+ is not a valid certificate serial number\Z'
         self._test_illegal_values(Cert, {'serial_hex': val}, FieldValueError, expected_msg_pattern)
-        self._test_illegal_values(RequestCase, {'request_case_id': val}, FieldValueError,
-                                  expected_msg_pattern)
+
+    @foreach(
+        'n6-service-ca',
+        'n6-client-ca',
+        'abcc#cert',
+        'cert@ca.com',
+    )
+    def test_ca_label_lowercase(self, val):
+        self._test_proper_values(CACert, {'ca_label': val})
+
+    @foreach(
+        'n6-service-CA',
+        'N6Ca',
+        'abcc#Cert',
+        'cert@cA.com',
+        'certcA',
+    )
+    def test_non_lowercase_ca_label(self, val):
+        expected_msg_pattern = r'\ACA label .+ has to be lowercase\.\Z'
+        self._test_illegal_values(CACert, {'ca_label': val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
         (Org, 'org_id'),

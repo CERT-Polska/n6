@@ -1,0 +1,13 @@
+.col-ssl_config {
+    white-space: pre-line;
+}
+
+.table-responsive {
+    overflow-x: visible;
+}
+
+td.col-certificate > div {
+    overflow: scroll;
+    width: 200px;
+    height: 200px;
+}

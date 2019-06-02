@@ -22,10 +22,6 @@ cp -f docker/work/test_data/test-70_misp.conf /etc/n6/70_misp.conf
 cp -f docker/work/test_data/test-70_zone_h.conf /etc/n6/70_zone_h.conf
 wget -qO - http://geolite.maxmind.com/download/geoip/database/asnum/GeoIPASNum.dat.gz | gunzip -c > /usr/share/GeoIP/GeoIPASNum.dat
 
-# temp files
-mkdir -p /tmp/data
-chmod 777 /tmp/data
-
 # pickle configuration module
 mkdir -p /var/cache/n6
 chmod 777 /var/cache/n6

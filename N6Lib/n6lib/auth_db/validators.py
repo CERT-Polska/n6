@@ -1,16 +1,20 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
+
+import json
+import string
 
 from n6lib.auth_db import (
     ILLEGAL_CHARACTERS_FOR_LDAP,
     INVALID_FIELD_TEMPLATE_MSG,
 )
 from n6lib.auth_db.fields import (
-    HexField,
+    ExtraIDField,
     OrgIdField,
     TimeHourMinuteField,
     URLSimpleField,
     UserLoginField,
 )
+from n6lib.const import CERTIFICATE_SERIAL_NUMBER_HEXDIGIT_NUM
 from n6lib.data_spec import (
     N6DataSpec,
     FieldValueError,
@@ -31,6 +35,12 @@ def _check_for_illegal_chars(chars_list, value):
 
 def to_lowercase(val):
     return val.lower()
+
+
+def check_if_lowercase(val):
+    if not val.islower():
+        raise FieldValueError(public_message="CA label {!r} has to be lowercase.".format(val))
+    return val
 
 
 def ascii_only_to_unicode_stripped(val):
@@ -77,9 +87,61 @@ def make_val_ldap_safe(val):
     return val
 
 
+def make_json_serializable(val):
+    if isinstance(val, basestring):
+        try:
+            json.loads(val)
+        except ValueError:
+            raise FieldValueError(public_message="Cannot decode value: {!r} "
+                                                 "as JSON object.".format(val))
+        else:
+            return val
+    else:
+        try:
+            return json.dumps(val)
+        except (TypeError, ValueError):
+            raise FieldValueError(public_message="Cannot encode value: {!r} "
+                                                 "as JSON object.".format(val))
+
+
+# the function may be used in the future, after it is fixed
+# def make_json_key_to_bool(val):
+#     def is_json_boolean(v):
+#         if v.lower() in ('true', 'false'):
+#             return True
+#         return False
+#     if not val:
+#         return val
+#     decoded = json.loads(val)
+#     try:
+#         for key, val in decoded.iteritems():
+#             if not is_json_boolean(val):
+#                 raise FieldValueError(public_message="Values of JSON object's ({!r} keys "
+#                                                      "should be of boolean only.".format(val))
+#     except AttributeError:
+#         raise FieldValueError(public_message="A JSON encoded value: {!r} has to "
+#                                              "decode to a simple, not nested dict.".format(val))
+#     return val
+
+
+_HEXDIGITS_LOWERCASE = set(string.hexdigits.lower())
+
+
+def is_cert_serial_number_valid(serial_number):
+    return (_HEXDIGITS_LOWERCASE.issuperset(serial_number) and
+            len(serial_number) == CERTIFICATE_SERIAL_NUMBER_HEXDIGIT_NUM)
+
+
+def validate_cert_serial_number(val):
+    if not is_cert_serial_number_valid(val):
+        raise FieldValueError(public_message="Value {!r} is not a valid "
+                                             "certificate serial number".format(val))
+    return val
+
+
 class AuthDBDataSpec(N6DataSpec):
 
-    hex_number = HexField()
+    extra_id = ExtraIDField()
     org_id = OrgIdField()
     time_simple = TimeHourMinuteField()
     url_regexed = URLSimpleField()
@@ -93,10 +155,14 @@ class AuthDBValidator(object):
 
     # base adjuster methods
     adjust_to_lowercase = make_adjuster_applying_callable(to_lowercase)
+    adjust_lowercase_only = make_adjuster_applying_callable(check_if_lowercase)
     adjust_ascii_only_to_unicode_stripped = make_adjuster_applying_callable(
         ascii_only_to_unicode_stripped)
     adjust_stripped = make_adjuster_applying_callable(to_stripped)
     adjust_ldap_safe = make_adjuster_applying_callable(make_val_ldap_safe)
+    adjust_json_serializable = make_adjuster_applying_callable(make_json_serializable)
+    # adjust_json_bool_vals = make_adjuster_applying_callable(make_json_key_to_bool)
+    adjust_valid_cert_serial_number = make_adjuster_applying_callable(validate_cert_serial_number)
 
     # adjuster methods used for specific columns
     adjust_org_id = chained(
@@ -110,6 +176,14 @@ class AuthDBValidator(object):
     adjust_email_notifications_language = chained(
         adjust_stripped,
         make_adjuster_using_data_spec('cc'))
+    adjust_request_parameters = chained(
+        adjust_json_serializable,
+        adjust_ascii_only_to_unicode_stripped,
+        # adjust_json_bool_vals,
+    )
+    adjust_inside_request_parameters = adjust_request_parameters
+    adjust_search_request_parameters = adjust_request_parameters
+    adjust_threats_request_parameters = adjust_request_parameters
     adjust_email = chained(
         adjust_ascii_only_to_unicode_stripped,
         make_adjuster_using_data_spec('email'))
@@ -125,6 +199,7 @@ class AuthDBValidator(object):
         make_adjuster_using_data_spec('url_regexed'))
     adjust_criteria_name_name = adjust_ascii_only_to_unicode_stripped
     adjust_criteria_category_category = adjust_ascii_only_to_unicode_stripped
+    adjust_extra_id_value = make_adjuster_using_data_spec('extra_id')
     adjust_org_group_id = chained(
         adjust_ascii_only_to_unicode_stripped,
         adjust_ldap_safe)
@@ -147,11 +222,14 @@ class AuthDBValidator(object):
         adjust_ldap_safe,
         adjust_ascii_only_to_unicode_stripped,
     )
-    adjust_serial_hex = make_adjuster_using_data_spec('hex_number')
+    adjust_serial_hex = chained(
+        adjust_to_lowercase,
+        adjust_valid_cert_serial_number,
+    )
+    adjust_creator_details = adjust_json_serializable
     adjust_revocation_comment = adjust_stripped
-    adjust_request_case_id = adjust_serial_hex
-    adjust_status = adjust_stripped
     adjust_ca_label = chained(
+        adjust_lowercase_only,
         adjust_ascii_only_to_unicode_stripped,
         adjust_ldap_safe,
     )

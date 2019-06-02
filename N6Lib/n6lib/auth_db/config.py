@@ -109,11 +109,11 @@ class SQLAuthDBConfigMixin(ConfigMixin):
                                                       charset='utf8'),
                                     convert_unicode=True,
                                     encoding='utf-8')
-        create_engine_kwargs.update(self._get_ssl_related_create_engine_kwargs())
+        create_engine_kwargs.update(self.get_ssl_related_create_engine_kwargs())
         create_engine_kwargs.update(self.config[self.config_section_connection_pool])
         return create_engine_kwargs
 
-    def _get_ssl_related_create_engine_kwargs(self):
+    def get_ssl_related_create_engine_kwargs(self):
         opts = self.config[self.config_section]
         return (
             dict(
@@ -176,22 +176,48 @@ class SQLAuthDBConfigMixin(ConfigMixin):
 
 class SimpleSQLAuthDBConnector(SQLAuthDBConfigMixin):
 
-    def __init__(self, db_host, db_name, db_user, db_password):
-        option_key = '{}.url'.format(self.default_config_section)
-        super(SimpleSQLAuthDBConnector, self).__init__(settings={
-            option_key: 'mysql+mysqldb://{user}:{password}@{host}/{name}'.format(
+    def __init__(self,
+                 db_host=None,
+                 db_name=None,
+                 db_user=None,
+                 db_password=None,
+                 settings=None,
+                 config_section=None):
+        config_section = self.default_config_section if config_section is None else config_section
+        if self._verify_args_for_connection(db_host, db_name, db_user, db_password):
+            option_key = '{}.url'.format(config_section)
+            option_val = 'mysql+mysqldb://{user}:{password}@{host}/{name}'.format(
                 user=db_user,
                 password=db_password,
                 host=db_host,
-                name=db_name)})
+                name=db_name)
+            if settings is None:
+                settings = {
+                    option_key: option_val,
+                }
+            else:
+                # keep a config from `settings` (it is most likely
+                # a Pyramid-style config dict), but config options
+                # made with kwargs should have higher priority
+                settings = dict(settings, option_key=option_val)
+        super(SimpleSQLAuthDBConnector, self).__init__(settings, config_section)
+
+    @staticmethod
+    def _verify_args_for_connection(*args):
+        if all(args):
+            return True
+        if any(args):
+            raise TypeError('All arguments defining AuthDB connection options have to '
+                            'be passed, or none of them.')
+        return False
 
     def configure_db(self):
         super(SimpleSQLAuthDBConnector, self).configure_db()
-        self._db_session_maker = sqlalchemy.orm.sessionmaker(bind=self.engine,
-                                                             autocommit=False,
-                                                             autoflush=False)
+        self.db_session_maker = sqlalchemy.orm.sessionmaker(bind=self.engine,
+                                                            autocommit=False,
+                                                            autoflush=False)
     def __enter__(self):
-        session = self._db_session_maker()
+        session = self.db_session_maker()
         self._db_session = session
         return session
 
@@ -202,6 +228,9 @@ class SimpleSQLAuthDBConnector(SQLAuthDBConfigMixin):
                     self._db_session.commit()
                 else:
                     self._db_session.rollback()
+            except:
+                self._db_session.rollback()
+                raise
             finally:
                 self._db_session.close()
         finally:

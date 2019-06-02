@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import datetime
 import json
@@ -56,13 +56,9 @@ from n6sdk.pyramid_commons import (
     DefaultStreamViewBase,
     registered_stream_renderers,
 )
-try:
-    from n6lib.manage_api import ManageAPIClientError
-except ImportError:
-    _MANAGE_API = False
-else:
-    _MANAGE_API = True
 
+
+_MANAGE_API = False  # TODO: remove whole request-case-related stuff
 
 LOGGER = get_logger(__name__)
 

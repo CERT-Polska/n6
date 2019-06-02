@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import datetime
 utcnow = datetime.datetime.utcnow  # for easier mocking in unit tests
@@ -27,10 +27,7 @@ from n6sdk.pyramid_commons import (
     HttpResource,
 )
 
-if DeviceRequestPostViewBase is not None or DeviceRequestGetViewBase is not None:
-    from n6lib.manage_api import ManageAPI
-else:
-    ManageAPI = None
+ManageAPI = None  # TODO: remove whole request-case-related stuff
 
 
 
@@ -208,7 +205,6 @@ def main(global_config, **settings):
         settings=settings,
         data_backend_api_class=N6DataBackendAPI,
         auth_api_class=AuthAPI,
-        manage_api_class=ManageAPI,
         authentication_policy=SSLUserAuthenticationPolicy(settings),
         resources=DATA_RESOURCES + REQUEST_CASE_RESOURCES,
     ).make_wsgi_app()
@@ -219,7 +215,6 @@ def main_test_api(global_config, **settings):
         settings=settings,
         data_backend_api_class=N6TestDataBackendAPI,
         auth_api_class=AuthAPI,
-        manage_api_class=None,
         authentication_policy=SSLUserAuthenticationPolicy(settings),
         resources=DATA_RESOURCES,
     ).make_wsgi_app()

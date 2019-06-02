@@ -1,6 +1,10 @@
 {% extends 'admin/model/list.html' %}
 {% import 'modals/layout.html' as n6_layout with context %}
 
+{% macro pre_block(model, column) %}
+    <pre>{{ model[column] }}</pre>
+{% endmacro %}
+
 {% block model_menu_bar_before_filters %}
     {% if can_set_n6_page_size %}
     <li class="dropdown">

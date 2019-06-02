@@ -1,5 +1,7 @@
 # Copyright (c) 2013-2018 NASK. All rights reserved.
 
+import os
+
 from flask import Flask
 from flask_admin import (
     Admin,
@@ -25,7 +27,10 @@ from flask_admin.model.form import (
 from flask_admin.model.fields import InlineModelFormField
 from sqlalchemy import inspect
 from wtforms import PasswordField
-from wtforms.fields import Field
+from wtforms.fields import (
+    Field,
+    TextAreaField,
+)
 from wtforms.widgets import PasswordInput
 
 from n6adminpanel.patches import (
@@ -37,7 +42,7 @@ from n6lib.auth_db.config import SQLAuthDBConfigMixin
 from n6lib.auth_db.models import (
     CACert,
     Cert,
-    #Component,
+    Component,
     CriteriaASN,
     CriteriaCC,
     CriteriaContainer,
@@ -45,14 +50,17 @@ from n6lib.auth_db.models import (
     CriteriaName,
     EMailNotificationAddress,
     EMailNotificationTime,
+    EntityType,
+    ExtraID,
+    ExtraIDType,
     InsideFilterASN,
     InsideFilterCC,
     InsideFilterFQDN,
     InsideFilterIPNetwork,
     InsideFilterURL,
+    LocationType,
     Org,
     OrgGroup,
-    RequestCase,
     Source,
     Subsource,
     SubsourceGroup,
@@ -141,6 +149,14 @@ class _PasswordFieldHandlerMixin(object):
             del model.password
 
 
+class _ExtraCSSMixin(object):
+
+    def render(self, *args, **kwargs):
+        custom_css_url = self.get_url('static', filename='custom.css')
+        self.extra_css = [custom_css_url]
+        return super(_ExtraCSSMixin, self).render(*args, **kwargs)
+
+
 class PrimaryKeyOnlyFormAdmin(InlineFormAdmin):
 
     column_display_pk = True
@@ -204,7 +220,16 @@ class UserInlineFormAdmin(_PasswordFieldHandlerMixin, InlineFormAdmin):
     column_descriptions = {
         'login': 'User\'s login (e-mail address)',
     }
-    form_columns = ['login', 'password']
+    form_columns = [
+        'login',
+        'password',
+        'contact_point',
+        'name',
+        'surname',
+        'phone',
+        'title',
+        'system_groups',
+    ]
 
 
 class NotificationTimeInlineFormAdmin(InlineFormAdmin):
@@ -364,6 +389,14 @@ class OrgModelConverter(form.AdminModelConverter):
         return ShortTimeField(**field_args)
 
 
+class NoneValueTextAreaField(TextAreaField):
+
+    def process_formdata(self, valuelist):
+        super(NoneValueTextAreaField, self).process_formdata(valuelist)
+        if self.data == '':
+            self.data = None
+
+
 class OrgView(CustomInlineFormsModelView):
 
     # create_modal = True
@@ -378,7 +411,9 @@ class OrgView(CustomInlineFormsModelView):
     column_searchable_list = ['org_id']
     column_list = [
         'org_id',
+        'actual_name',
         'full_access',
+        'verified',
         # 'stream_api_enabled',
         # 'email_notifications_enabled',
         # 'email_notifications_business_days_only',
@@ -388,37 +423,45 @@ class OrgView(CustomInlineFormsModelView):
     ]
     form_columns = [
         'org_id',
+        'actual_name',
         'org_groups',
         'users',
         'full_access',
+        'verified',
         'access_to_inside',
         # 'inside_max_days_old',
-        # 'inside_request_parameters',
+        'inside_request_parameters',
         'inside_subsources',
         'inside_ex_subsources',
         'inside_subsource_groups',
         'inside_ex_subsource_groups',
         'access_to_threats',
         # 'threats_max_days_old',
-        # 'threats_request_parameters',
+        'threats_request_parameters',
         'threats_subsources',
         'threats_ex_subsources',
         'threats_subsource_groups',
         'threats_ex_subsource_groups',
         'access_to_search',
         # 'search_max_days_old',
-        # 'search_request_parameters',
+        'search_request_parameters',
         'search_subsources',
         'search_ex_subsources',
         'search_subsource_groups',
         'search_ex_subsource_groups',
         # other options/notifications settings
-        # 'stream_api_enabled',
-        # 'email_notifications_enabled',
-        # 'email_notifications_addresses',
-        # 'email_notifications_times',
-        # 'email_notifications_language',
-        # 'email_notifications_business_days_only',
+        'stream_api_enabled',
+        'entity_type',
+        'location_type',
+        'location',
+        'location_coords',
+        'address',
+        'extra_ids',
+        'email_notifications_enabled',
+        'email_notifications_addresses',
+        'email_notifications_times',
+        'email_notifications_language',
+        'email_notifications_business_days_only',
         'inside_filter_asns',
         'inside_filter_ccs',
         'inside_filter_fqdns',
@@ -428,14 +471,16 @@ class OrgView(CustomInlineFormsModelView):
     form_rules = [
         rules.Header('Basic options for organization'),
         rules.Field('org_id'),
+        rules.Field('actual_name'),
         rules.Field('org_groups'),
         rules.Field('full_access'),
+        rules.Field('verified'),
         rules.Header('Users'),
         rules.Field('users'),
         rules.Header('"Inside" resource'),
         rules.Field('access_to_inside'),
         # rules.Field('inside_max_days_old'),
-        # rules.Field('inside_request_parameters'),
+        rules.Field('inside_request_parameters'),
         rules.Field('inside_subsources'),
         rules.Field('inside_ex_subsources'),
         rules.Field('inside_subsource_groups'),
@@ -443,7 +488,7 @@ class OrgView(CustomInlineFormsModelView):
         rules.Header('"Threats" resource'),
         rules.Field('access_to_threats'),
         # rules.Field('threats_max_days_old'),
-        # rules.Field('threats_request_parameters'),
+        rules.Field('threats_request_parameters'),
         rules.Field('threats_subsources'),
         rules.Field('threats_ex_subsources'),
         rules.Field('threats_subsource_groups'),
@@ -451,18 +496,24 @@ class OrgView(CustomInlineFormsModelView):
         rules.Header('"Search" resource'),
         rules.Field('access_to_search'),
         # rules.Field('search_max_days_old'),
-        # rules.Field('search_request_parameters'),
+        rules.Field('search_request_parameters'),
         rules.Field('search_subsources'),
         rules.Field('search_ex_subsources'),
         rules.Field('search_subsource_groups'),
         rules.Field('search_ex_subsource_groups'),
         # rules.Header('Other options'),
-        # rules.Field('stream_api_enabled'),
-        # rules.Field('email_notifications_enabled'),
-        # rules.Field('email_notifications_addresses'),
-        # rules.Field('email_notifications_times'),
-        # rules.Field('email_notifications_language'),
-        # rules.Field('email_notifications_business_days_only'),
+        rules.Field('stream_api_enabled'),
+        rules.Field('entity_type'),
+        rules.Field('location_type'),
+        rules.Field('location'),
+        rules.Field('location_coords'),
+        rules.Field('address'),
+        rules.Field('extra_ids'),
+        rules.Field('email_notifications_enabled'),
+        rules.Field('email_notifications_addresses'),
+        rules.Field('email_notifications_times'),
+        rules.Field('email_notifications_language'),
+        rules.Field('email_notifications_business_days_only'),
         rules.Header('Criteria for "Inside" (n6filter)'),
         rules.Field('inside_filter_asns'),
         rules.Field('inside_filter_ccs'),
@@ -472,6 +523,7 @@ class OrgView(CustomInlineFormsModelView):
     ]
     inline_models = [
         UserInlineFormAdmin(User),
+        ExtraID,
         EMailNotificationAddress,
         NotificationTimeInlineFormAdmin(EMailNotificationTime),
         InsideFilterASN,
@@ -480,6 +532,11 @@ class OrgView(CustomInlineFormsModelView):
         InsideFilterIPNetwork,
         InsideFilterURL,
     ]
+    form_overrides = {
+        'inside_request_parameters': NoneValueTextAreaField,
+        'threats_request_parameters': NoneValueTextAreaField,
+        'search_request_parameters': NoneValueTextAreaField,
+    }
 
 
 class UserView(_PasswordFieldHandlerMixin, N6ModelView):
@@ -487,11 +544,21 @@ class UserView(_PasswordFieldHandlerMixin, N6ModelView):
     column_descriptions = {
         'login': 'User\'s login (e-mail address)',
     }
-    column_list = ['login', 'org', 'system_groups']
-    form_columns = ['login', 'password', 'org', 'system_groups']
-    # column list including certificate-related columns
-    # column_list = ['login', 'org', 'system_groups', 'created_certs', 'owned_certs',
-    #                'revoked_certs', 'sent_request_cases']
+    column_list = ['login', 'contact_point', 'name', 'surname', 'title', 'org', 'system_groups']
+    form_columns = [
+        'login',
+        'password',
+        'contact_point',
+        'name',
+        'surname',
+        'phone',
+        'title',
+        'org',
+        'system_groups',
+        'created_certs',
+        'owned_certs',
+        'revoked_certs',
+    ]
 
 
 class ComponentView(_PasswordFieldHandlerMixin, N6ModelView):
@@ -519,6 +586,58 @@ class SourceView(CustomInlineFormsModelView, CustomColumnListView):
     ]
 
 
+class CertView(_ExtraCSSMixin, N6ModelView):
+
+    list_template = 'wrapped_list.html'
+
+    column_searchable_list = ['owner_login', 'owner_component_login']
+
+    column_list = [
+        'created_by',
+        'owner',
+        'created_on',
+        'expires_on',
+        'owner_component',
+        'revoked_by_component',
+        'ca_cert',
+        'certificate',
+        'csr',
+        'serial_hex',
+        'creator_details'
+        'is_client_cert',
+        'is_server_cert',
+        'valid_from',
+        'revoked_by',
+        'created_by_component',
+        'revoked_on',
+        'revocation_comment',
+    ]
+    form_columns = [
+        'ca_cert',
+        'serial_hex',
+        'certificate',
+        'csr',
+        'is_client_cert',
+        'is_server_cert',
+        'created_on',
+        'valid_from',
+        'expires_on',
+        'created_by',
+        'created_by_component',
+        'owner',
+        'owner_component',
+        'revoked_by',
+        'revoked_by_component',
+        'revoked_on',
+        'revocation_comment',
+    ]
+
+
+class CACertView(_ExtraCSSMixin, CustomColumnListView):
+
+    column_searchable_list = ['ca_label', 'profile']
+
+
 class CustomIndexView(AdminIndexView):
 
     @expose('/')
@@ -539,12 +658,18 @@ class AdminPanel(ConfigMixin):
         (Org, OrgView),
         (OrgGroup, CustomColumnListView),
         (User, UserView),
-        #(Component, ComponentView),
+        (Component, ComponentView),
         (CriteriaContainer, CriteriaContainerView),
         (Source, SourceView),
         (Subsource, CustomColumnListView),
         (SubsourceGroup, CustomColumnListView),
         (SystemGroup, CustomColumnListView),
+        (CACert, CACertView),
+        (Cert, CertView),
+        (EntityType, CustomColumnListView),
+        (LocationType, CustomColumnListView),
+        (ExtraIDType, CustomColumnListView),
+        (InsideFilterCC, CustomColumnListView),
     ]
     # list of models with single, main column, which primary keys
     # are auto-generated integers
@@ -554,17 +679,13 @@ class AdminPanel(ConfigMixin):
         CriteriaIPNetwork,
         CriteriaName,
         EMailNotificationAddress,
+        EntityType,
+        ExtraID,
         InsideFilterASN,
         InsideFilterCC,
         InsideFilterFQDN,
         InsideFilterIPNetwork,
         InsideFilterURL,
-    ]
-    # temporarily disabled in the Flask-Admin view
-    certificate_related_models = [
-        CACert,
-        Cert,
-        RequestCase,
     ]
 
     def __init__(self, engine):
@@ -617,5 +738,6 @@ def get_app():
 
 if __name__ == '__main__':
     # run admin panel on development server
+    os.environ['FLASK_ENV'] = 'development'
     a = get_app()
     a.run()

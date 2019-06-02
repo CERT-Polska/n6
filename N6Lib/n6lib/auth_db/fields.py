@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import datetime
 
@@ -36,15 +36,6 @@ class EmailRestrictedField(UnicodeLimitedField, UnicodeRegexField):
 class UserLoginField(EmailRestrictedField):
 
     error_msg_template = '"{}" is not a valid user login - an e-mail address is expected.'
-
-
-class HexField(UnicodeRegexField):
-
-    regex = r'\A[0-9a-f]*\Z'
-    error_msg_template = '"{}" is not a valid hexadecimal number.'
-
-    def clean_result_value(self, value):
-        return super(HexField, self).clean_result_value(value.strip().lower())
 
 
 class TimeHourMinuteField(FieldForN6):
@@ -134,3 +125,12 @@ class TimeHourMinuteField(FieldForN6):
         except ValueError as exc:
             raise FieldValueError(public_message=INVALID_FIELD_TEMPLATE_MSG.format(value=value,
                                                                                    exc=exc))
+
+
+class ExtraIDField(UnicodeRegexField):
+
+    regex = r'\A[0-9\-]+\Z'
+    error_msg_template = '"{}" is not a valid extra ID value.'
+
+    def clean_result_value(self, value):
+        return super(ExtraIDField, self).clean_result_value(value.strip())
