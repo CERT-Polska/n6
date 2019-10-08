@@ -9,16 +9,19 @@ The IntelMQ Adapter component, responsible for communicating
 with IntelMQ System.
 """
 
-from logging import getLogger
 
 from n6.base.queue import QueuedBase
 from n6.utils.intelmq.intelmq_converter import (
     IntelToN6Converter,
     N6ToIntelConverter,
 )
-from n6lib.common_helpers import replace_segment
+from n6lib.log_helpers import (
+    get_logger,
+    logging_configured,
+)
 
-LOGGER = getLogger(__name__)
+
+LOGGER = get_logger(__name__)
 
 
 class IntelMQAdapter(QueuedBase):
@@ -42,7 +45,7 @@ class IntelMQAdapter(QueuedBase):
     }
 
     output_queue = {
-        'exchange': 'integration',
+        'exchange': 'event',
         'exchange_type': 'topic',
     }
 
@@ -73,9 +76,15 @@ class IntelToN6(IntelMQAdapter):
 
 def run_intelmq_to_n6():
     intelmq_to_n6_adapter = IntelToN6()
-    intelmq_to_n6_adapter.run()
+    with logging_configured():
+        intelmq_to_n6_adapter.run()
 
 
 def run_n6_to_intelmq():
     n6_to_intelmq_adapter = N6ToIntel()
-    n6_to_intelmq_adapter.run()
+    with logging_configured():
+        n6_to_intelmq_adapter.run()
+
+
+if __name__ == '__main__':
+    run_intelmq_to_n6()

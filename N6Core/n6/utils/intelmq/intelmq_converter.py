@@ -25,12 +25,14 @@ field unknown to either system                             ignored
 
 import bisect
 import json
-import logging
 from collections import MutableMapping
 from copy import deepcopy
 
+from n6lib.log_helpers import get_logger
 
-LOGGER = logging.getLogger(__name__)
+
+LOGGER = get_logger(__name__)
+
 
 #XXX: Perhaps the dictionaries below may need be moved to separate config file -
 #     - but maybe it can be done as a refactoring task in the future.
