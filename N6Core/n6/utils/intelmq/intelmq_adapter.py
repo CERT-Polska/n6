@@ -33,6 +33,7 @@ class IntelMQAdapter(QueuedBase):
 
     converter = NotImplemented
     queue_name = NotImplemented
+    event_type = 'event'
 
     input_queue = {
         'exchange': 'integration',
@@ -49,10 +50,13 @@ class IntelMQAdapter(QueuedBase):
         self.input_queue['queue_name'] = self.queue_name
         super(IntelMQAdapter, self).preinit_hook()
 
+    def get_output_rk(self, input_rk):
+        return '{}.parsed.{}'.format(self.event_type, input_rk)
+
     def input_callback(self, routing_key, body, properties):
         for converted in self.converter.convert(body.decode()):
-            rk = replace_segment(routing_key, 1, self.__class__.__name__.lower())
-            self.publish_output(routing_key=rk, body=converted)
+            output_rk = self.get_output_rk(routing_key)
+            self.publish_output(routing_key=output_rk, body=converted)
 
 
 class N6ToIntel(IntelMQAdapter):
