@@ -32,16 +32,22 @@ class IntelMQAdapter(QueuedBase):
     """
 
     converter = NotImplemented
+    queue_name = NotImplemented
 
     input_queue = {
-        'exchange': 'event',
+        'exchange': 'integration',
         'exchange_type': 'topic',
+        'binding_keys': ['#'],
     }
 
     output_queue = {
-        'exchange': 'event',
+        'exchange': 'integration',
         'exchange_type': 'topic',
     }
+
+    def preinit_hook(self):
+        self.input_queue['queue_name'] = self.queue_name
+        super(IntelMQAdapter, self).preinit_hook()
 
     def input_callback(self, routing_key, body, properties):
         for converted in self.converter.convert(body.decode()):
@@ -52,11 +58,13 @@ class IntelMQAdapter(QueuedBase):
 class N6ToIntel(IntelMQAdapter):
 
     converter = N6ToIntelConverter()
+    queue_name = 'n6-to-intelmq'
 
 
 class IntelToN6(IntelMQAdapter):
 
     converter = IntelToN6Converter()
+    queue_name = 'intelmq-to-n6'
 
 
 def run_intelmq_to_n6():
