@@ -55,6 +55,9 @@ def get_amqp_connection_params_dict(rabbitmq_config_section='rabbitmq'):
             keyfile=os.path.expanduser(queue_conf["ssl_keyfile"]),
             cert_reqs=ssl.CERT_REQUIRED,
         )
+    else:
+        params_dict['credentials'] = pika.credentials.PlainCredentials(queue_conf["username"],
+                                                                       queue_conf["password"])
     return params_dict
 
 
