@@ -89,7 +89,6 @@ def find_collectors():
 requirements = ['n6lib==' + n6_version]
 console_scripts_list = [
     'n6config = n6.base.config:install_default_config',
-    'n6adapt_to_intelmq = n6.utils.intelmq.intelmq_adapter:run_n6_to_intelmq',
     'n6adapt_to_n6 = n6.utils.intelmq.intelmq_adapter:run_intelmq_to_n6',
 ]
 

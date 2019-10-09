@@ -315,9 +315,12 @@ class BaseConverter(object):
         if self._extra_data:
             extra_json = self._adjust_extra_data(self._extra_data)
             self._output_dict[self.extra_field_name_out] = extra_json
-        for output_data in self._final_process_data():
-            output_data_json = json.dumps(output_data)
-            yield output_data_json
+        return self._final_process_data()
+        # code is commented, because we do not serialize data
+        # to JSON here
+        # for output_data in self._final_process_data():
+        #     output_data_json = json.dumps(output_data)
+        #     yield output_data_json
 
     def _final_process_data(self):
         yield self._output_dict
