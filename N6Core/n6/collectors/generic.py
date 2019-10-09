@@ -526,7 +526,8 @@ class BaseCollector(CollectorConfigMixin, QueuedBase, AbstractBaseCollector):
 
         return properties
 
-    def get_output_message_id(self, source, created_timestamp,
+    @staticmethod
+    def get_output_message_id(source, created_timestamp,
                               output_data_body, **processed_data):
         """
         Get the output message id.
