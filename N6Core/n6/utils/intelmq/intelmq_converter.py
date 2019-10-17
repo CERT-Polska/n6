@@ -6,20 +6,18 @@ Copyright (c) 2017-2019 NASK
 Software Development Department
 
 The IntelMQ Adapter component, responsible for converting data
-between N6 and IntelMQ Systems.
+between n6 and IntelMQ Systems.
 
 Usage:
-n6_to_intel_converter = N6ToIntelConverter()
-message <str-JSON> = n6_to_intel_converter.convert(n6_message <str-JSON>)
-
-intel_to_n6_converter = IntelToN6Converter()
-n6_message <str-JSON> = intel_to_n6_converter.convert(intel_message <str-JSON>)
+    Create an instance of one of the converter classes and call
+    the `convert()` public method with input message as a serialized
+    JSON string as method's argument.
 
 Source field                                               Destination field
-
-convertible field                                          converted field
-field unmappable to IntelMQ but known to N6                added to 'extra' <JSON>
-field unmappable to N6 but known to IntelMQ                added to 'intelmq' <dict>
+------------------------------------------------------------------------------------
+convertible field, mapped to other field                   converted field
+n6 field without its IntelMQ equivalent                    added to 'extra' <JSON>
+IntelMQ field without its n6 equivalent                    added to 'intelmq' <dict>
 field unknown to either system                             ignored
 """
 
