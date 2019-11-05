@@ -15,7 +15,7 @@ requires = [
     'n6lib==' + n6_version,
 
     'Flask==1.0.2',
-    'Flask-Admin==1.5.1',
+    'Flask-Admin==1.5.2',
     'SQLAlchemy==0.9.10',
     'WTForms==2.1',
 ]
