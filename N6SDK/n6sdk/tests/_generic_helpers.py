@@ -5,14 +5,17 @@
 
 import collections
 
+import mock
+
 
 class TestCaseMixin(object):
 
     def assertEqualIncludingTypes(self, first, second, msg=None):
         self.assertEqual(first, second)
-        self.assertIs(type(first), type(second),
-                      'type of {!r} ({}) is not type of {!r} ({})'
-                      .format(first, type(first), second, type(second)))
+        if first is not mock.ANY and second is not mock.ANY:
+            self.assertIs(type(first), type(second),
+                          'type of {!r} ({}) is not type of {!r} ({})'
+                          .format(first, type(first), second, type(second)))
         if isinstance(first, collections.Sequence) and not isinstance(first, basestring):
             for val1, val2 in zip(first, second):
                 self.assertEqualIncludingTypes(val1, val2)

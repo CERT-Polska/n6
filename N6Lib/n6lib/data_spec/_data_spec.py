@@ -73,8 +73,8 @@
 #
 # * `cleaned param value`
 #   -- an object (*not* necessarily a string) being the result of
-#      applying some *raw param value* to the clean_param_value()
-#      method of the apropriate *param field*
+#      applying the clean_param_value() method of the apropriate
+#      *param field* to some *raw param value*
 #   [may also be, less formally, referred to as
 #    `[cleaned] [query] param[eter] value`
 #    (parts in square brackets may be omitted)]
@@ -90,8 +90,8 @@
 # * `cleaned param dict`
 #   -- a dict that maps *field keys* (each related to some *param
 #      field*) to *lists* of *cleaned param values*; generally, such
-#      a dict is created by applying some *raw param dict* to the
-#      clean_param_dict() method of *data spec*
+#      a dict is created by applying the clean_param_dict() method of
+#      *data spec* to some *raw param dict*
 #   [may also be, less formally, referred to as
 #    `[cleaned] [query] param[eter][s] dict[ionary]`
 #    (parts in square brackets may be omitted)]
@@ -114,8 +114,8 @@
 #
 # * `cleaned result value`
 #   -- an object (*not* necessarily a string) being the result of
-#      applying some *raw result value* to the clean_result_value()
-#      method of the apropriate *result field*
+#      applying the clean_result_value() method of the apropriate
+#      *result field* to some *raw result value*
 #   [may also be, less formally, referred to as
 #    `[cleaned] result [item] value`
 #    (parts in square brackets may be omitted)]
@@ -130,8 +130,8 @@
 #   -- a dict containing cleaned data of a particular event; such as
 #      dict maps *field keys* (each related to some *result field*) to
 #      *cleaned result values*; generally, such a dict is created by
-#      applying some *raw result dict* to the clean_result_dict() method
-#      of *data spec*
+#      applying the clean_result_dict() method of *data spec* to some
+#      *raw result dict*
 #
 #
 # See also
@@ -182,6 +182,7 @@ from n6lib.data_spec.fields import (
     SourceFieldForN6,
     UnicodeEnumFieldForN6,
     UnicodeLimitedFieldForN6,
+    URLBase64FieldForN6,
     URLFieldForN6,
     URLSubstringFieldForN6,
     URLsMatchedFieldForN6,
@@ -522,6 +523,15 @@ class N6DataSpec(DataSpec):
                     func='like_query',
                 ),
             ),
+            # *EXPERIMENTAL*
+            # (likely to be changed or removed in the future
+            # without any warning/deprecation/etc.)
+            b64=URLBase64FieldForN6(
+                in_params=('optional', 'unrestricted'),
+                custom_info=dict(
+                    func='url_b64_experimental_query',
+                ),
+            )
         ),
     )
 
@@ -593,6 +603,7 @@ class N6DataSpec(DataSpec):
     # * of the SomeUnicodeFieldForN6 type:
     description = SomeUnicodeFieldForN6(in_result='optional')
     min_amplification = SomeUnicodeFieldForN6(in_result='optional')
+    filename = SomeUnicodeFieldForN6(in_result='optional')
     x509issuer = SomeUnicodeFieldForN6(in_result=('optional', 'unrestricted'))
     x509subject = SomeUnicodeFieldForN6(in_result=('optional', 'unrestricted'))
 
@@ -658,6 +669,7 @@ class N6DataSpec(DataSpec):
         'email',
         'enriched',
         'facebook_id',
+        'filename',
         'first_seen',
         'handshake',
         'header',
@@ -1138,7 +1150,7 @@ class N6DataSpec(DataSpec):
                     result.get('id', 'not set'),
                     result.get('time', 'not set'),
                     result.get('modified', 'not set')))
-        except (ValueError, TypeError):  # a bit of paranoia :)
+        except (AttributeError, ValueError, TypeError):  # a bit of paranoia :)
             return '(@unknown event)'
 
 

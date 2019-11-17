@@ -353,7 +353,7 @@ class Aggregator(QueuedBase):
 
 def main():
     with logging_configured():
-        if 'n6integration_test' in os.environ:
+        if os.environ.get('n6integration_test'):
             # for debugging only
             import logging
             import sys

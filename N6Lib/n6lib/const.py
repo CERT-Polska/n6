@@ -45,10 +45,6 @@ USER_DIR = osp.expanduser('~/.n6')
 # certificate serial number should have in n6 PKI
 CERTIFICATE_SERIAL_NUMBER_HEXDIGIT_NUM = 20
 
-# how many hexadecimal digits a request_id (id of
-# a remote certificate request case) should have
-REQUEST_ID_HEXDIGIT_NUM = 28
-
 
 # possible values of RecordDict's 'type' item
 TYPE_ENUMS = (

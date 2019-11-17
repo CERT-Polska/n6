@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import datetime
 import sys
@@ -14,6 +14,30 @@ from n6lib.log_helpers import get_logger
 
 
 LOGGER = get_logger(__name__)
+
+
+class DnsBhMalwareDomainsCom201906Parser(BlackListTabDataParser):
+
+    default_binding_key = 'dns-bh.malwaredomainscom.201906'
+    constant_items = {
+        'restriction': 'public',
+        'confidence': 'low',
+    }
+
+    ignored_row_prefixes = '#'
+    field_sep = "\t"
+
+    def process_row_fields(self, data, parsed,
+                           _empty, _next_date, fqdn, malware_type, *fields):
+        parsed['time'] = data['properties.timestamp']
+        parsed['expires'] = (parse_iso_datetime_to_utc(data['properties.timestamp']) +
+                             datetime.timedelta(days=2))
+        parsed['fqdn'] = fqdn
+        if malware_type == 'phishing':
+            parsed['category'] = 'phish'
+        else:
+            parsed['category'] = 'malurl'
+            parsed['name'] = malware_type
 
 
 class DnsBhMalwareDomainsCom201412Parser(BlackListTabDataParser):

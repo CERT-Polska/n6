@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 #
 # For some code in this module:
 # Copyright (c) 2001-2013 Python Software Foundation. All rights reserved.
@@ -76,7 +76,7 @@ class EmailMessage(email.message.Message):
 
     def get_utc_timestamp(self):
         """
-        Parse the 'Date' header and return UTC time as float, like time.time().
+        Parse the 'Date' header and return UTC time as int or float (UNIX timestamp).
         """
         return email.utils.mktime_tz(email.utils.parsedate_tz(self['Date']))
 
@@ -89,14 +89,22 @@ class EmailMessage(email.message.Message):
         # seem to compute dates using local times...)
         return datetime.datetime.utcfromtimestamp(self.get_utc_timestamp())
 
-    def get_subject(self):
+    def get_subject(self, normalize_whitespace=True):
         """
-        Get subject from msg, return str or None.
+        Get the (whitespace-normalized) subject of the message (if present).
+
+        Args/kwargs:
+            `normalize_whitespace` (bool; default: True):
+                If true then whitespace characters are normalized (with
+                `' '.join(subject.split()`).
+
+        Returns:
+            The subject as a string (if present), or None.
         """
-        for item in self._headers:
-            if item[0] == 'Subject':
-                return " ".join(item[1].split())
-        return None
+        subject = self['Subject']
+        if normalize_whitespace and subject is not None:
+            subject = ' '.join(subject.split())
+        return subject
 
     def get_matching_file_content(self, filename_regex=None,
                                   maintype=None, subtype=None):
@@ -191,12 +199,20 @@ class EmailMessage(email.message.Message):
 
     def get_decoded_payload(self):
         """
-        As get_payload(decode=True) but logging warnings on decoding failures.
+        Similar to get_payload(decode=True), but:
+
+        * decoding failures are logged as warnings (instead of being
+          completely silent);
+        * if the message is a multipart one, the payload of its first
+          part is extracted (with `.get_decoded_payload()`, recursively)
+          and returned instead of `None`.
         """
         # copied from Py2.7's email.message.Message.get_payload() and adjusted
-        if self.is_multipart():
-            return self.get_payload()[0].get_payload(decode=True)
         payload = self._payload
+        if self.is_multipart():
+            first_part = payload[0]
+            assert isinstance(first_part, self.__class__)
+            return first_part.get_decoded_payload()
         cte = self.get('content-transfer-encoding', '').lower()
         if cte == 'quoted-printable':
             payload = quopri.decodestring(payload)

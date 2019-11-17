@@ -426,7 +426,7 @@ class Recorder(QueuedBase):
 
 def main():
     with logging_configured():
-        if 'n6integration_test' in os.environ:
+        if os.environ.get('n6integration_test'):
             # for debugging only
             LOGGER.setLevel(logging.DEBUG)
             LOGGER.addHandler(logging.StreamHandler(stream=sys.__stdout__))

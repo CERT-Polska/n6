@@ -1,44 +1,106 @@
 # Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import datetime
+import string
 
-from n6lib.auth_db import INVALID_FIELD_TEMPLATE_MSG
+from n6lib.auth_db import (
+    INVALID_FIELD_TEMPLATE_MSG,
+    MAX_LEN_OF_DOMAIN_NAME,
+    MAX_LEN_OF_EMAIL,
+    MAX_LEN_OF_GENERIC_SHORT_STRING,
+    MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL,
+    MAX_LEN_OF_ORG_ID,
+    MAX_LEN_OF_URL,
+)
 from n6lib.common_helpers import EMAIL_OVERRESTRICTED_SIMPLE_REGEX
-from n6lib.const import CLIENT_ORGANIZATION_MAX_LENGTH
+from n6lib.const import CATEGORY_ENUMS
 from n6lib.data_spec import FieldValueError
 from n6lib.data_spec.fields import (
+    DateTimeField,
     DomainNameField,
-    FieldForN6,
+    EmailSimplifiedField,
+    Field,
     UnicodeLimitedField,
     UnicodeRegexField,
 )
+from n6lib.log_helpers import get_logger
 
 
-class OrgIdField(DomainNameField):
+LOGGER = get_logger(__name__)
 
-    disallow_empty = True
-    max_length = CLIENT_ORGANIZATION_MAX_LENGTH
+
+class CategoryCustomizedField(UnicodeLimitedField, UnicodeRegexField):
+
+    max_length = MAX_LEN_OF_GENERIC_SHORT_STRING
+    regex = r'\A[\-0-9a-z]+\Z'
+    error_msg_template = u'"{}" is not a valid event category'
+
+    warning_msg_template = ('category value %r is not amongst the elements '
+                            'of n6lib.const.CATEGORY_ENUMS!')
+
+    def clean_result_value(self, value):
+        value = super(CategoryCustomizedField, self).clean_result_value(value)
+        if value not in CATEGORY_ENUMS:
+            # we do not raise an error here -- to make future
+            # transitions/migrations more convenient...
+            LOGGER.warning(self.warning_msg_template, value)
+        return value
+
+
+class DomainNameCustomizedField(DomainNameField):
+
+    max_length = MAX_LEN_OF_DOMAIN_NAME
+
+
+class ComponentLoginField(DomainNameCustomizedField):
+
+    error_msg_template = u'"{}" is not a valid component login - a domain name is expected'
+
+
+class OrgIdField(DomainNameCustomizedField):
+
+    max_length = MAX_LEN_OF_ORG_ID
+    error_msg_template = u'"{}" is not a valid organization ID - a domain name is expected'
+
+
+class EmailCustomizedField(EmailSimplifiedField):
+
+    max_length = MAX_LEN_OF_EMAIL
+    regex = EMAIL_OVERRESTRICTED_SIMPLE_REGEX
+    error_msg_template = u'"{}" is not a valid e-mail address'
+
+
+class UserLoginField(EmailCustomizedField):
+
+    error_msg_template = u'"{}" is not a valid user login - an e-mail address is expected'
 
 
 class URLSimpleField(UnicodeLimitedField):
 
-    max_length = 2048
+    max_length = MAX_LEN_OF_URL
+    disallow_empty = True
     decode_error_handling = 'strict'
 
 
-class EmailRestrictedField(UnicodeLimitedField, UnicodeRegexField):
+class DateTimeCustomizedField(DateTimeField):
 
-    max_length = 255
-    regex = EMAIL_OVERRESTRICTED_SIMPLE_REGEX
-    error_msg_template = u'"{}" is not a valid e-mail address.'
+    min_datetime = datetime.datetime.utcfromtimestamp(0)  # 1970-01-01T00:00:00Z
+
+    def clean_result_value(self, value):
+        value = super(DateTimeCustomizedField, self).clean_result_value(value)
+        # get rid of the fractional part of seconds
+        value = value.replace(microsecond=0)
+        # do not accept times that are *not* representable as UNIX timestamps
+        if value < self.min_datetime:
+            raise FieldValueError(public_message=(
+                'The given date+time {} is older '
+                'than the required minimum {}'.format(
+                    value.isoformat(),
+                    self.min_datetime.isoformat())))
+        return value
 
 
-class UserLoginField(EmailRestrictedField):
-
-    error_msg_template = '"{}" is not a valid user login - an e-mail address is expected.'
-
-
-class TimeHourMinuteField(FieldForN6):
+class TimeHourMinuteField(Field):
 
     """
     A field class, specifying valid data types and values
@@ -127,10 +189,22 @@ class TimeHourMinuteField(FieldForN6):
                                                                                    exc=exc))
 
 
-class ExtraIDField(UnicodeRegexField):
+class _BaseOfficialIdOrTypeLabelField(UnicodeLimitedField, UnicodeRegexField):
 
-    regex = r'\A[0-9\-]+\Z'
-    error_msg_template = '"{}" is not a valid extra ID value.'
+    max_length = MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL
+    disallow_empty = True
 
     def clean_result_value(self, value):
-        return super(ExtraIDField, self).clean_result_value(value.strip())
+        return super(_BaseOfficialIdOrTypeLabelField, self).clean_result_value(value.strip())
+
+
+class TypeLabelField(_BaseOfficialIdOrTypeLabelField):
+
+    regex = r'\w+'
+    error_msg_template = u'"{}" is not a valid type label'
+
+
+class ExtraIdField(_BaseOfficialIdOrTypeLabelField):
+
+    regex = r'\A[0-9\-]+\Z'
+    error_msg_template = u'"{}" is not a valid extra ID'

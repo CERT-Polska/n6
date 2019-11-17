@@ -24,6 +24,7 @@ from n6lib.common_helpers import ip_network_tuple_to_min_max_ip, ip_str_to_int
 from n6lib.data_spec import N6DataSpec
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.log_helpers import get_logger
+from n6lib.url_helpers import make_provisional_url_search_key
 
 
 LOGGER = get_logger(__name__)
@@ -182,6 +183,17 @@ class n6NormalizedData(Base):
         mapping = {"url.sub": "url", "fqdn.sub": "fqdn"}
         return or_(*[getattr(cls, mapping[key]).like("%{}%".format(val))
                      for val in value])
+
+    @classmethod
+    def url_b64_experimental_query(cls, key, value):
+        # *EXPERIMENTAL* (likely to be changed or removed in the future
+        # without any warning/deprecation/etc.)
+        if key != 'url.b64':
+            raise AssertionError("key != 'url.b64' (but == {!r})".format(key))
+        db_key = 'url'
+        url_search_keys = list(map(make_provisional_url_search_key, value))
+        return or_(getattr(cls, db_key).in_(value),
+                   getattr(cls, db_key).in_(url_search_keys))
 
     @classmethod
     def ip_net_query(cls, key, value):

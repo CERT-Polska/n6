@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 """
 Collector base classes + auxiliary tools.
@@ -20,17 +20,27 @@ import lxml.etree
 import lxml.html
 
 from n6lib.config import (
+    ConfigError,
     ConfigMixin,
     ConfigSection,
 )
 from n6.base.queue import QueuedBase
-from n6lib.class_helpers import all_subclasses
-from n6lib.common_helpers import ascii_str
+from n6lib.class_helpers import (
+    all_subclasses,
+    attr_required,
+)
+from n6lib.common_helpers import make_exc_ascii_str
 from n6lib.email_message import EmailMessage
-from n6lib.log_helpers import get_logger, logging_configured
+from n6lib.http_helpers import RequestPerformer
+from n6lib.log_helpers import (
+    get_logger,
+    logging_configured,
+)
+
 
 
 LOGGER = get_logger(__name__)
+
 
 
 #
@@ -40,19 +50,18 @@ class n6CollectorException(Exception):
     pass
 
 
+
 #
 # Mixin classes
 
 class CollectorConfigMixin(ConfigMixin):
 
-    config_spec_format_kwargs = None
+    def get_config_spec_format_kwargs(self):
+        return {}
 
     def set_configuration(self):
         if self.is_config_spec_or_group_declared():
-            format_kwargs = (self.config_spec_format_kwargs
-                             if self.config_spec_format_kwargs is not None
-                             else {})
-            self.config = self.get_config_section(**format_kwargs)
+            self.config = self.get_config_section(**self.get_config_spec_format_kwargs())
         else:
             # backward-compatible behavior needed by a few collectors
             # that have `config_group = None` and -- at the same
@@ -137,11 +146,11 @@ class CollectorWithStateMixin(object):
             with open(self._cache_file_path, 'rb') as cache_file:
                 state = cPickle.load(cache_file)
         except (EnvironmentError, ValueError, EOFError) as exc:
+            state = self.make_default_state()
             LOGGER.warning(
-                "Could not load state, returning None (%s: %s)",
-                exc.__class__.__name__,
-                ascii_str(exc))
-            state = None
+                "Could not load state (%s), returning: %r",
+                make_exc_ascii_str(exc),
+                state)
         else:
             LOGGER.info("Loaded state: %r", state)
         return state
@@ -166,6 +175,10 @@ class CollectorWithStateMixin(object):
         source_channel = self.get_source_channel()
         source = self.get_source(source_channel=source_channel)
         return '{}.{}.pickle'.format(source, self.__class__.__name__)
+
+    def make_default_state(self):
+        return None
+
 
 
 #
@@ -266,7 +279,7 @@ class BaseCollector(CollectorConfigMixin, QueuedBase, AbstractBaseCollector):
         return {}
 
     def _validate_type(self):
-        """Validate type of mesage, should be one of: 'stream', 'file', 'blacklist."""
+        """Validate type of message, should be one of: 'stream', 'file', 'blacklist."""
         if self.type not in self.limits_type_of:
             raise Exception('Wrong type of archived data in mongo: {0},'
                             '  should be one of: {1}'.format(self.type, self.limits_type_of))
@@ -602,12 +615,6 @@ class BaseEmailSourceCollector(BaseOneShotCollector):
     (Concrete subclasses are typically used in procmail-triggered scripts).
     """
 
-    class NoMatchingRegexException(Exception):
-        """
-        Raised when a searched regex pattern was not found in e-mail's
-        body.
-        """
-
     @classmethod
     def get_script_init_kwargs(cls):
         return {'input_data': {'raw_email': sys.stdin.read()}}
@@ -900,6 +907,297 @@ class BaseRSSCollector(BaseOneShotCollector, BaseUrlDownloaderCollector):
                                         "{0}.rss".format(self.config['source'])))
 
 
+
+class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
+
+    """
+    TODO
+    """
+
+    config_required = ('source', 'cache_dir')
+
+    _NEWEST_ROW_TIME_STATE_KEY = 'newest_row_time'
+    _NEWEST_ROWS_STATE_KEY = 'newest_rows'
+
+    def __init__(self, **kwargs):
+        super(BaseTimeOrderedRowsCollector, self).__init__(**kwargs)
+        self._state = None           # to be set in run_handling()
+        self._selected_data = None   # to be set in run_handling() if needed
+
+    def run_handling(self):
+        self._state = self.load_state()
+        orig_data = self.obtain_orig_data()
+        all_rows = self.split_orig_data_into_rows(orig_data)
+        fresh_rows = self.get_fresh_rows_only(all_rows)
+        if fresh_rows:
+            self._selected_data = self.join_fresh_rows(fresh_rows)
+            super(BaseTimeOrderedRowsCollector, self).run_handling()
+
+    def make_default_state(self):
+        return {
+            self._NEWEST_ROW_TIME_STATE_KEY: self.get_oldest_possible_row_time(),
+            self._NEWEST_ROWS_STATE_KEY: set(),
+        }
+
+    def start_publishing(self):
+        self.start_iterative_publishing()
+
+    def publish_iteratively(self):
+        rk, body, prop_kwargs = self.get_output_components(selected_data=self._selected_data)
+        self.publish_output(rk, body, prop_kwargs)
+        yield self.FLUSH_OUT
+        self.save_state(self._state)
+
+    def get_output_data_body(self, selected_data, **kwargs):
+        return selected_data
+
+
+    #
+    # Stuff that can be overridden in subclasses (if needed; note
+    # that sensible defaults are provided, except two abstract
+    # methods: obtain_orig_data() and extract_row_time())
+
+    # * basic raw event attributes:
+
+    type = 'file'
+    content_type = 'text/csv'
+
+    # * related to writable state management:
+
+    def get_oldest_possible_row_time(self):
+        # The value returned by this method should be less than any
+        # real row time (in subclasses it can be, e.g.,
+        # `datetime.datetime.min` or `0`, if needed).
+        # See also: the return value description in the docstring
+        # of the extract_row_time() method.
+        return ''
+
+    # * obtaining of original data:
+
+    def obtain_orig_data(self):
+        """
+        Abstract method: obtain the original raw data and return it.
+
+        Example implementation:
+
+            return RequestPerformer.fetch(method='GET',
+                                          url=self.config['url'],
+                                          retries=self.config['download_retries'])
+
+        (Though, in practice -- when it comes to obtaining original
+        data with the RequestPerformer stuff -- you will want to use
+        the BaseDownloadingTimeOrderedRowsCollector class rather than
+        to implement RequestPerformer-based obtain_orig_data() by your
+        own.)
+        """
+        raise NotImplementedError
+
+    # * splitting original data and re-joining selected data:
+
+    def split_orig_data_into_rows(self, orig_data):
+        return orig_data.split('\n')
+
+    def join_fresh_rows(self, fresh_rows):
+        return '\n'.join(fresh_rows)
+
+    # * selection of fresh rows:
+
+    def get_fresh_rows_only(self, all_rows):
+        prev_newest_row_time = self._state[self._NEWEST_ROW_TIME_STATE_KEY]
+        prev_newest_rows = self._state[self._NEWEST_ROWS_STATE_KEY]
+
+        newest_row_time = None
+        newest_rows = set()
+
+        fresh_rows = []
+
+        preceding_row_time = None
+
+        for row in all_rows:
+            if self.should_row_be_ignored(row):
+                continue
+
+            row_time = self.extract_row_time(row)
+
+            # it is required that time values in consecutive rows are:
+            # non-increasing, monotonic, possibly repeating
+            if preceding_row_time is not None and row_time > preceding_row_time:
+                raise ValueError(
+                    'encountered row time {!r} > preceding row time {!r}'.format(
+                        row_time,
+                        preceding_row_time))
+            preceding_row_time = row_time
+
+            if row_time < prev_newest_row_time:
+                # stop collecting when reached rows which are old enough
+                # that we are sure they must have already been collected
+                break
+
+            if newest_row_time is None:
+                # this is the first (newest) actual (not blank/commented)
+                # row in the downloaded file -- so here we have the *newest*
+                # abuse time
+                newest_row_time = row_time
+
+            if row_time == newest_row_time:
+                # this row is amongst those with the *newest* abuse time
+                newest_rows.add(row)
+
+            if row in prev_newest_rows:
+                # this row is amongst those with the *previously newest*
+                # abuse time, *and* we know that it has already been
+                # collected -> so we *skip* it
+                assert row_time == prev_newest_row_time
+                continue
+
+            # this row have *not* been collected yet -> let's collect it
+            # now (in its original form, i.e., without any modifications)
+            fresh_rows.append(row)
+
+        if fresh_rows:
+            self._state[self._NEWEST_ROW_TIME_STATE_KEY] = newest_row_time
+            self._state[self._NEWEST_ROWS_STATE_KEY] = newest_rows
+
+            # sanity assertions
+            fresh_newest_rows = newest_rows - prev_newest_rows
+            assert newest_row_time and fresh_newest_rows
+        else:
+            # sanity assertions
+            assert (newest_row_time is None and not newest_rows
+                    or
+                    newest_row_time == prev_newest_row_time and newest_rows == prev_newest_rows)
+
+        return fresh_rows
+
+
+    def should_row_be_ignored(self, row):
+        return row.startswith('#') or not row.strip()
+
+
+    def extract_row_time(self, row):
+        """
+        Abstract method: extract a row time indicator from the given row.
+
+        Args:
+            `row`:
+                An item yielded by an iterable returned by
+                split_orig_data_into_rows().  It is guaranteed that
+                only a `row` for whom should_row_be_ignored() returned
+                false can appear here.
+
+        Returns:
+            A sortable date/time value -- an object that represents the date
+            or timestamp extracted from `row`, e.g., an ISO-8601-formatted
+            string (representing some date of date+time), or a float/int being
+            a UNIX timestamp, or a datetime.datetime instance.  What is
+            important is that objects returned by this method are sortable
+            in a sensible way: newer one is always greater than older one,
+            and values representing the same time are always equal.
+
+        Example implementation for a case when `row` has a form such as
+        `"some integer id", "YYYY-MM-DD", "some URL", ...`:
+
+            fields = row.split(',')
+            time_field = fields[1]
+            row_time = time_field.strip().strip('"')
+            if not re.match(r'[0-9]{4}-[0-9]{2}-[0-9]{2}$', row_time):
+                raise ValueError('wrong format of row time indicator {!r} '
+                                 '(from row {!r})'.format(row_time, row))
+            return row_time
+
+        Note: the above example includes a simple validation.
+        Implementing some kind of validation is not required, but
+        recommended (as it is better to fail loudly if the format
+        of source data changed).
+        """
+        raise NotImplementedError
+
+
+class BaseDownloadingCollector(BaseCollector):
+
+    # This constant is used only if neither config files nor
+    # defaults in the config spec (if any) provide the value
+    # of the `download_retries` option.
+    DEFAULT_DOWNLOAD_RETRIES_IF_NOT_SPECIFIED = 10
+
+    def __init__(self):
+        super(BaseDownloadingCollector, self).__init__()
+        self._http_response = None          # to be set in download()
+        self._http_last_modified = None     # to be set in download()
+
+    @property
+    def http_response(self):
+        return self._http_response
+
+    @property
+    def http_last_modified(self):
+        return self._http_last_modified
+
+    def download(self,
+                 url,
+                 method='GET',
+                 retries=None,
+                 custom_request_headers=None,
+                 **rest_performer_constructor_kwargs):
+        retries = self._get_request_retries(retries)
+        headers = self._get_request_headers(custom_request_headers)
+        with RequestPerformer(method=method,
+                              url=url,
+                              retries=retries,
+                              headers=headers,
+                              **rest_performer_constructor_kwargs) as perf:
+            self._http_response = perf.response
+            self._http_last_modified = perf.get_dt_header('Last-Modified')
+            return perf.response.content
+
+    def _get_request_retries(self, retries):
+        if retries is None:
+            retries = self.config.get('download_retries',
+                                      self.DEFAULT_DOWNLOAD_RETRIES_IF_NOT_SPECIFIED)
+        return retries
+
+    def _get_request_headers(self, custom_request_headers):
+        base_request_headers = self.config.get('base_request_headers', {})
+        if not isinstance(base_request_headers, dict):
+            raise ConfigError('config option `base_request_headers` '
+                              'is not a dict: {!r}'.format(base_request_headers))
+        headers = base_request_headers.copy()
+        if custom_request_headers:
+            headers.update(custom_request_headers)
+        return headers
+
+    def get_output_prop_kwargs(self, **processed_data):
+        prop_kwargs = super(BaseDownloadingCollector,
+                            self).get_output_prop_kwargs(**processed_data)
+        if self.http_last_modified:
+            prop_kwargs['headers'].setdefault('meta', dict())
+            prop_kwargs['headers']['meta']['http_last_modified'] = str(self.http_last_modified)
+        return prop_kwargs
+
+
+class BaseDownloadingTimeOrderedRowsCollector(BaseDownloadingCollector,
+                                              BaseTimeOrderedRowsCollector):
+
+    source_config_section = None
+
+    config_spec_pattern = '''
+        [{source_config_section}]
+        source :: str
+        cache_dir :: str
+        url :: str
+        download_retries = 10 :: int
+        base_request_headers = {{}} :: py
+    '''
+
+    @attr_required('source_config_section')
+    def get_config_spec_format_kwargs(self):
+        return {'source_config_section': self.source_config_section}
+
+    def obtain_orig_data(self):
+        return self.download(self.config['url'])
+
+
+
 def generate_collector_main(collector_class):
     def parser_main():
         with logging_configured():
@@ -915,3 +1213,4 @@ def entry_point_factory(module):
               not collector_class.__name__.startswith('_')):
             setattr(module, "%s_main" % collector_class.__name__,
                     generate_collector_main(collector_class))
+

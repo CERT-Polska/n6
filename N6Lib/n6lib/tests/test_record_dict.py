@@ -514,6 +514,32 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                      asn=1),
             ],
         )
+        self.with_url_data1 = dict(
+            self.only_required,
+            url=u'foo:bar',
+            _url_data=dict(
+                # in fact it will be transformed to `_url_data_ready`...
+                # (FIXME: should'n it be tested somewhere else?)
+                url_orig=u'http://\u0106ma.eXample.COM:80/\udcdd\ud800Ala-ma-kota\U0010ffff\udccc',
+                url_norm_opts=dict(
+                    transcode1st=True,
+                    epslash=True,
+                    rmzone=True,
+                ),
+            ),
+        )
+        self.with_url_data2 = dict(
+            self.only_required,
+            url=u'foo:bar',
+            _url_data_ready=dict(
+                url_orig='aHR0cDovL8SGbWEuZVhhbXBsZS5DT006ODAv7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM',
+                url_norm_opts=dict(
+                    transcode1st=True,
+                    epslash=True,
+                    rmzone=True,
+                ),
+            ),
+        )
         self.some_init_args = [
             {},
             self.only_required,
@@ -708,6 +734,42 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                      ip="127.0.0.2",
                      cc='PL',
                      asn=1),
+            ],
+            with_url_data1=[
+                dict(
+                    self.only_required,
+                    url=u'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd',
+                    custom=dict(
+                        url_data=dict(
+                            url_orig=(
+                                'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006ODAv7bOd7aCAQWxhLW1hLWtvdGH0j7'
+                                '-_7bOM'),
+                            url_norm_opts=dict(
+                                transcode1st=True,
+                                epslash=True,
+                                rmzone=True,
+                            ),
+                        ),
+                    ),
+                ),
+            ],
+            with_url_data2=[
+                dict(
+                    self.only_required,
+                    url=u'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd',
+                    custom=dict(
+                        url_data=dict(
+                            url_orig=(
+                                'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006ODAv7bOd7aCAQWxhLW1hLWtvdGH0j7'
+                                '-_7bOM'),
+                            url_norm_opts=dict(
+                                transcode1st=True,
+                                epslash=True,
+                                rmzone=True,
+                            ),
+                        ),
+                    ),
+                ),
             ],
         )
         for fixture_key, expected_db_items in sorted(expected_db_item_lists.items()):

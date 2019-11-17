@@ -1,15 +1,20 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 # For some code in this module:
-# Copyright (C) 2005-2018 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2019 the SQLAlchemy authors and contributors
 # (For more information -- see comments...)
+
+import collections
 
 import sqlalchemy
 import sqlalchemy.event
 import sqlalchemy.exc
 import sqlalchemy.orm
 import sqlalchemy.pool
+from sqlalchemy.engine.url import URL, make_url
 
+from n6lib.auth_db import MYSQL_CHARSET
+from n6lib.common_helpers import update_mapping_recursively
 from n6lib.config import ConfigMixin
 
 
@@ -37,9 +42,11 @@ class SQLAuthDBConfigMixin(ConfigMixin):
 
         [{config_section_session_variables}]
 
-        # all MySQL variables specified within this section will be set
-        # by executing "SET SESSION <variable> = <value>, ..."
+        # all MySQL variables specified within this section will be set by
+        # executing "SET SESSION <var1> = <val1>, SESSION <var2> = <val2>, ..."
+        # (without any escaping!)
 
+        # should be significantly greater than `pool_recycle` defined below
         wait_timeout = 7200
         ...
 
@@ -55,11 +62,39 @@ class SQLAuthDBConfigMixin(ConfigMixin):
 
     default_config_section = 'auth_db'
 
+    # All MySQL variables specified by the following attribute will
+    # be set by executing "SET SESSION <var1> = <val1>, SESSION <var2>
+    # = <val2>, ..." (without any escaping!).
+    #
+    # What is important to know is that:
+    #
+    # * the attribute (as a whole) can be overridden in subclasses;
+    #
+    # * at runtime, individual variables it defines can be overridden
+    #   in the config (see: the `{config_section_session_variables}`
+    #   section in the above `config_spec_pattern`);
+    #
+    # * caution is needed when doing any of the above (i.e., overriding
+    #   the attribute or overriding individual variables it defines...)
+    #   as the variables it defines are crucial for proper functioning
+    #   of the Auth DB.
+    constant_session_variables = (
+        # each item is a tuple:
+        # (<variable name (str)>, <variable value (str)>)
+
+        # see: https://mariadb.com/kb/en/library/sql-mode/
+        ('sql_mode', ("'STRICT_ALL_TABLES"  # <- similar, but rather more strict, than default
+                                            #    for >= MariaDB 10.2.4 (`STRICT_TRANS_TABLES`)
+                      ",ERROR_FOR_DIVISION_BY_ZERO"  # <- default restriction for >= MariaDB 10.2.4
+                      ",NO_AUTO_CREATE_USER"         # <- default restriction for >= MariaDB 10.1.7
+                      ",NO_ENGINE_SUBSTITUTION"      # <- default restriction for >= MariaDB 10.1.7
+                      ",NO_ZERO_DATE"                # <- non-default restriction
+                      ",NO_ZERO_IN_DATE"             # <- non-default restriction
+                      "'")),
+    )
+
     isolation_level = 'SERIALIZABLE'
 
-
-    #
-    # Public interface
 
     def __init__(self, settings=None, config_section=None):
         self.set_config(settings, config_section)
@@ -81,37 +116,15 @@ class SQLAuthDBConfigMixin(ConfigMixin):
         self.config_section_connection_pool = config_section + '_connection_pool'
 
     def configure_db(self):
-        self.engine = self._configure_db_engine()
+        self.engine = self.make_db_engine()
+        self._dialect_specific_quote = self._make_dialect_specific_quote()
         self._install_session_variables_setter()
         self._install_reconnector()
 
-
-    #
-    # Private helpers
-
-    def _configure_db_engine(self):
-        url = self._get_db_url()
+    def make_db_engine(self, url_overwrite_attrs=None):
+        url = self._get_db_url(url_overwrite_attrs)
         create_engine_kwargs = self._get_create_engine_kwargs()
         return sqlalchemy.create_engine(url, **create_engine_kwargs)
-
-    def _get_db_url(self):
-        url = self.config[self.config_section]['url']
-        if not url.startswith(self.SUPPORTED_URL_PREFIXES):
-            raise ValueError(
-                'database URL {!r} specifies unsupported '
-                'dialect+driver'.format(url))
-        return url
-
-    def _get_create_engine_kwargs(self):
-        create_engine_kwargs = dict(isolation_level=self.isolation_level,
-                                    connect_args=dict(use_unicode=0,
-                                                      ### TODO after upgrades...: change to 'utf8mb4'
-                                                      charset='utf8'),
-                                    convert_unicode=True,
-                                    encoding='utf-8')
-        create_engine_kwargs.update(self.get_ssl_related_create_engine_kwargs())
-        create_engine_kwargs.update(self.config[self.config_section_connection_pool])
-        return create_engine_kwargs
 
     def get_ssl_related_create_engine_kwargs(self):
         opts = self.config[self.config_section]
@@ -128,24 +141,75 @@ class SQLAuthDBConfigMixin(ConfigMixin):
             if opts['ssl_key'].lower() != 'none'
             else {})
 
+    # utility method (may be useful in subclasses)
+    def quote_sql_identifier(self, sql_identifier):
+        return self._dialect_specific_quote(sql_identifier)
+
+
+    #
+    # Private helpers
+
+    def _make_dialect_specific_quote(self):
+        dialect = self.engine.dialect
+        return dialect.preparer(dialect).quote
+
+    def _get_db_url(self, url_overwrite_attrs):
+        url_string = self._get_db_url_string()
+        url = self._make_db_url(url_string, url_overwrite_attrs)
+        assert isinstance(url, URL)
+        return url
+
+    def _get_db_url_string(self):
+        url_string = self.config[self.config_section]['url']
+        if not url_string.startswith(self.SUPPORTED_URL_PREFIXES):
+            raise ValueError(
+                'database URL {!r} specifies unsupported '
+                'dialect+driver'.format(url_string))
+        return url_string
+
+    def _make_db_url(self, url_string, url_overwrite_attrs):
+        url = make_url(url_string)
+        assert isinstance(url, URL)
+        if url_overwrite_attrs is not None:
+            for attr_name, attr_value in url_overwrite_attrs.iteritems():
+                setattr(url, attr_name, attr_value)
+        return url
+
+    def _get_create_engine_kwargs(self):
+        create_engine_kwargs = dict(isolation_level=self.isolation_level,
+                                    connect_args=dict(use_unicode=0,
+                                                      charset=MYSQL_CHARSET),
+                                    convert_unicode=True,
+                                    encoding='utf-8')
+        update_mapping_recursively(create_engine_kwargs,
+                                   self.get_ssl_related_create_engine_kwargs(),
+                                   self.config[self.config_section_connection_pool])
+        return create_engine_kwargs
+
     def _install_session_variables_setter(self):
-        setter_sql = 'SET SESSION ' + ' , '.join(
-            '{} = {}'.format(name, value)
-            for name, value in self.config[self.config_section_session_variables].iteritems())
+        session_variables = collections.OrderedDict(self.constant_session_variables)
+        session_variables.update(
+            sorted(self.config[self.config_section_session_variables].iteritems()))
+
+        setter_sql = 'SET ' + ' , '.join(
+            'SESSION {} = {}'.format(name, value)
+            for name, value in session_variables.iteritems())
 
         @sqlalchemy.event.listens_for(self.engine, 'connect')
         def set_session_variable(dbapi_connection, connection_record):
             """
-            Execute "SET SESSION <variable> = <value> , ..." to set the
-            variables specified in the `{config_section}_session_variables`
-            config section.
+            Execute "SET SESSION <var1> = <val1>, ..." to set the
+            variables specified by the `constant_session_variables`
+            attribute and in the appropriate configuration section.
 
-            To be called whenever a new MySQLdb (low-level) connection
-            is created.
+            To be called automatically whenever a new low-level
+            connection to the database is established.
 
             WARNING: for simplicity, the variable names and values are
             inserted "as is", *without* any escaping -- we assume we
-            can treat config options as a *trusted* source of data.
+            can treat config options (and, even more so, Python-level
+            object attributes, of course) as a *trusted* source of
+            data.
             """
             cursor = dbapi_connection.cursor()
             try:

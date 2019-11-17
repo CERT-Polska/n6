@@ -9,8 +9,15 @@
 #    `N6Lib/n6lib/data_spec/_data_spec.py` file.
 
 
+import base64
 import collections
+import string
+import urllib
 
+from n6lib.common_helpers import (
+    ascii_str,
+    string_as_bytes,
+)
 from n6lib.const import CLIENT_ORGANIZATION_MAX_LENGTH
 from n6sdk.data_spec.fields import (
     Field,
@@ -42,6 +49,7 @@ from n6sdk.data_spec.fields import (
     URLField,
     URLSubstringField,
 )
+from n6sdk.exceptions import FieldValueError
 
 
 
@@ -236,7 +244,8 @@ class _ClientOrgIdFieldForN6(UnicodeLimitedFieldForN6):
     ###disallow_empty = True  ### XXX: to be uncommented???...
     max_length = CLIENT_ORGANIZATION_MAX_LENGTH
 
-class _InsideCritURLFieldForN6(UnicodeFieldForN6):  # consciously *not* related to URLFieldForN6
+class _InsideCritURLFieldForN6(UnicodeFieldForN6):
+    # consciously *not* related to URLFieldForN6
     encoding = 'utf-8'
     decode_error_handling = 'surrogateescape'
 
@@ -246,6 +255,69 @@ class _ListOfInsideCritURLsFieldForN6(ResultListFieldMixin, _InsideCritURLFieldF
 
 class ClientFieldForN6(ResultListFieldMixin, _ClientOrgIdFieldForN6):
     sort_result_list = True
+
+
+class URLBase64FieldForN6(UnicodeField, FieldForN6):
+
+    # *EXPERIMENTAL* (likely to be changed or removed in the future
+    # without any warning/deprecation/etc.)
+
+    # consciously *not* directly related to URLFieldForN6 (as we don't
+    # want the length limit; probably, in the future, the limit will
+    # be removed also from URLFieldForN6)
+
+    encoding = 'utf-8'
+    decode_error_handling = 'surrogateescape'
+
+    _URLSAFE_B64_VALID_CHARACTERS = frozenset(string.ascii_letters + '0123456789' + '-_=')
+    assert len(_URLSAFE_B64_VALID_CHARACTERS) == 65  # 64 encoding chars and padding char '='
+
+    def _fix_value(self, value):
+        value = self._stubbornly_unquote(value)
+        value = self._urlsafe_b64decode(value)
+        value = super(URLBase64FieldForN6, self)._fix_value(value)
+        return value
+
+    def _stubbornly_unquote(self, value):
+        # Note: we can assume that the value has been unquoted (from
+        # %-encoding) by the Pyramid stuff, but the following stubborn
+        # unquoting is added for cases when data have been quoted by
+        # the client "too many times"; we try to be "liberal in what we
+        # accept" because, indeed, it is quite easy to get lost in all
+        # this encoding stuff :-).  But, on the other hand, we would
+        # not like to allow for any ambiguities, so we accept *only*
+        # URL-safe-Base64-encoding, not standard-Base64-encoding (as
+        # the latter involves '+' whose meaning would not be clear:
+        # it could be interpreted as a plus sign or as a space which,
+        # then, could be interpreted just as an "ignorable filler"...).
+        # Note, therefore, that it becomes *not* crucial whether we use
+        # `urllib.unquote()` or `urllib.unquote_plus()` here -- because
+        # URL-safe-Base64-encoding does *not* allow plus signs (and we
+        # also *forbid* spaces, even as "ignorable fillers").
+        for _ in xrange(10):
+            # ^ limited number of steps because we do not like allowing
+            #   API clients to make us go into an infinite loop... :-]
+            value = urllib.unquote_plus(value)
+            if '%' not in value and '+' not in value:
+                break
+        return value
+
+    def _urlsafe_b64decode(self, value):
+        value = value.rstrip('\r\n')  # some encoders like to append a newline...
+        try:
+            # `base64.urlsafe_b64decode()` just ignores illegal
+            # characters *but* we want to be *more strict*
+            if not self._URLSAFE_B64_VALID_CHARACTERS.issuperset(value):
+                raise ValueError
+            # `base64.urlsafe_b64decode()` (contrary to `base64.standard_b64decode()`)
+            # does *not* accept unicode strings (even not pure-ASCII ones) :-/
+            value = string_as_bytes(value)
+            value = base64.urlsafe_b64decode(value)
+        except (ValueError, TypeError):  # (TypeError is raised on incorrect Base64 padding)
+            raise FieldValueError(public_message=(
+                '"{}" is not a valid URL-safe-Base64-encoded string '
+                '[see: RFC 4648, section 5]'.format(ascii_str(value))))
+        return value
 
 
 class URLsMatchedFieldForN6(DictResultFieldForN6):

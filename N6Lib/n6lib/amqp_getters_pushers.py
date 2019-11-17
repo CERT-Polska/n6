@@ -12,10 +12,8 @@ import pika.credentials
 import pika.exceptions
 
 from n6lib.amqp_helpers import get_amqp_connection_params_dict
-from n6lib.common_helpers import (
-    NonBlockingLockWrapper,
-    dump_condensed_debug_msg,
-)
+from n6lib.common_helpers import dump_condensed_debug_msg
+from n6lib.concurrency_helpers import NonBlockingLockWrapper
 
 
 

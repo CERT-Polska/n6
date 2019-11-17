@@ -41,10 +41,12 @@ from n6lib.manage_api._ca_env import (
 from n6lib.x509_helpers import (
     UnexpectedCertificateDataError,
     FORMAT_PEM,
+    get_cert_authority_key_identifier,
     get_cert_not_after,
     get_cert_not_before,
     get_cert_serial_number_as_hex,
     get_cert_subject_dict,
+    get_cert_subject_key_identifier,
     get_subject_as_x509_name_obj,
     is_ca_cert,
     is_client_cert,
@@ -197,9 +199,11 @@ class ManageAPIAuthDBConnector(SimpleSQLAuthDBConnector):
 
         [{config_section_session_variables}]
 
-        # all MySQL variables specified within this section will be set
-        # by executing "SET SESSION <variable> = <value>, ..."
+        # all MySQL variables specified within this section will be set by
+        # executing "SET SESSION <var1> = <val1>, SESSION <var2> = <val2>, ..."
+        # (without any escaping!)
 
+        # should be significantly greater than `pool_recycle` defined below
         wait_timeout = 7200
         ...
 
@@ -349,19 +353,30 @@ class ManageAPI(ConfigMixin):
     def _verify_and_get_managing_entity(self, context):
         return ManagingEntity(context, self._internal_o_regex)
 
-    def iter_all_ca_label_profile_pairs(self):
+    def iter_all_ca_data(self):
 
         """
-        Get pairs of label values and profiles of all CA certificates
-        stored in Auth DB.
+        Get an iterator through CA certificates' details.
 
         Returns:
-            An iterator through CA certificates' details.
+            An iterator that for each of CA certificates stored in the
+            Auth DB yields an opaque object that provides at least the
+            following attributes:
+            * `ca_label`
+              -- the CA's label (i.e., the identifier in the Auth DB),
+            * `profile`
+              -- the CA's profile ('client' or 'service') or None,
+            * `subject_key_identifier`
+              -- the CA's Subject Key Identifier (X509v3 extension) or None,
+            * `authority_key_identifier`
+              -- the CA's Authority Key Identifier (X509v3 extension) or None.
         """
 
         with self._auth_db_connector as context:
             self._verify_and_get_managing_entity(context)
-            return CACertificate.iter_all_ca_label_profile_pairs(context)
+            return CACertificate.iter_all(context,
+                                          self._manage_api_config_section,
+                                          self._settings)
 
     def add_given_cert(self, ca_label, cert_pem, created_on, creator_hostname,
                        adding_owner=False,
@@ -395,7 +410,8 @@ class ManageAPI(ConfigMixin):
             ca_cert = CACertificate(context,
                                     ca_label,
                                     self._manage_api_config_section,
-                                    self._settings)
+                                    self._settings,
+                                    must_have_profile=True)
             cert = CertificateCreated(context,
                                       ca_repr_obj=ca_cert,
                                       created_on=created_on,
@@ -447,7 +463,8 @@ class ManageAPI(ConfigMixin):
             ca_cert = CACertificate(context,
                                     ca_label,
                                     self._manage_api_config_section,
-                                    self._settings)
+                                    self._settings,
+                                    must_have_profile=True)
             cert = CertificateCreated(context,
                                       ca_repr_obj=ca_cert,
                                       created_on=datetime.datetime.utcnow(),
@@ -483,12 +500,17 @@ class ManageAPI(ConfigMixin):
             the PEM format.
         """
 
+        if revocation_comment is None:
+            raise ManageAPIError('When revoking a certificate '
+                                 '`revocation_comment` must not be None')
+
         with self._auth_db_connector as context:
             managing_entity = self._verify_and_get_managing_entity(context)
             ca_cert = CACertificate(context,
                                     ca_label,
                                     self._manage_api_config_section,
-                                    self._settings)
+                                    self._settings,
+                                    must_have_profile=True)
             cert = CertificateFromDatabase.from_serial_number(context, ca_cert, serial_number)
             if cert.is_revoked:
                 raise ManageAPIError(
@@ -524,7 +546,8 @@ class ManageAPI(ConfigMixin):
             ca_cert = CACertificate(context,
                                     ca_label,
                                     self._manage_api_config_section,
-                                    self._settings)
+                                    self._settings,
+                                    must_have_profile=True)
             cert = CertificateFromDatabase.from_serial_number(context, ca_cert, serial_number)
             return cert.certificate, cert.slug
 
@@ -546,7 +569,8 @@ class ManageAPI(ConfigMixin):
             ca_cert = CACertificate(context,
                                     ca_label,
                                     self._manage_api_config_section,
-                                    self._settings)
+                                    self._settings,
+                                    must_have_profile=True)
             crl_pem = ca_cert.generate_crl_pem()
             return crl_pem
 
@@ -608,6 +632,12 @@ class _BaseCertFile(object):
     def get_expires_on(self):
         return get_cert_not_after(self.parsed_cert_file)
 
+    def get_subject_key_identifier(self):
+        return get_cert_subject_key_identifier(self.parsed_cert_file)
+
+    def get_authority_key_identifier(self):
+        return get_cert_authority_key_identifier(self.parsed_cert_file)
+
 
 class CACertFile(_BaseCertFile):
 
@@ -634,8 +664,8 @@ class ManagingEntityCertFile(_BaseCertFile):
     def __init__(self, cert_pem, helper_id='Managing entity\'s certificate'):
         super(ManagingEntityCertFile, self).__init__(cert_pem, helper_id)
         if is_ca_cert(self.parsed_cert_file):
-            raise TypeError("A CA certificate has been used by the "
-                            "{!r} class".format(self.__class__.__name__))
+            raise TypeError("The {!r} class has to be used for regular (not CA) "
+                            "certificates only".format(self.__class__.__name__))
         self.serial_number = self.get_serial_number()
         self.subject_dict = self.get_subject_dict()
 
@@ -855,10 +885,12 @@ class CACertificate(ConfigMixin, _AuthDBInterfaceMixin):
             See `ManageAPIAuthDBConnector` and `ConnectionContext`
             (a class withing `ManageAPIAuthDBConnector`) docstrings
             for more details.
-        `ca_label` (str):
-            Label of a represented CA certificate.
+        `ca_label_or_db_obj` (str or object representing db record):
+            Either a string being the label of the represented CA
+            certificate or an ORM model instance that represents the CA
+            certificate.
         `manage_api_config_section` (str):
-            Name of a config section, which specifies paths to CA
+            The name of the config section, which specifies paths to CA
             keys PEM files.
         `settings` (None or dict; default: None):
             A Pyramid-style settings dict.
@@ -872,31 +904,51 @@ class CACertificate(ConfigMixin, _AuthDBInterfaceMixin):
         ...                          ; <- but probably there are also keys specified for other CAs
     '''
 
-    def __init__(self, connection_context, ca_label, manage_api_config_section, settings=None):
+    def __init__(self, connection_context, ca_label_or_db_obj, manage_api_config_section,
+                 settings=None,
+                 must_have_profile=False):
         self._connection_context = connection_context
         self._settings = settings
         self._manage_api_config_section = manage_api_config_section
-        self.ca_db_obj = self._get_ca_cert_from_db(ca_label)
-        self.ca_file_obj = CACertFile(self.ca_db_obj.certificate,
-                                      helper_id='CA: {!r}'.format(ca_label))
-        if self.profile is None:
-            raise TypeError(
-                '{} instances can represent only certificates with '
-                'some profile (either {!r} or {!r})'.format(
-                    self.__class__.__name__,
-                    CLIENT_CA_PROFILE_NAME,
-                    SERVICE_CA_PROFILE_NAME))
+        self.ca_db_obj = self._get_ca_db_obj(ca_label_or_db_obj)
+        self.ca_file_obj = CACertFile(self.certificate,
+                                      helper_id='CA: {!r}'.format(self.ca_label))
+        if must_have_profile and self.profile is None:
+            raise ValueError(
+                '`must_have_profile` set to True but CA {!r} '
+                'does not have a profile'.format(self.ca_label))
+
+    def _get_ca_db_obj(self, ca_label_or_db_obj):
+        if isinstance(ca_label_or_db_obj, self.ca_db_model):
+            return ca_label_or_db_obj
+        elif isinstance(ca_label_or_db_obj, basestring):
+            ca_label = ca_label_or_db_obj
+            try:
+                return self.ca_db_model.from_db(self._connection_context, 'ca_label', ca_label)
+            except self.not_found_exception:
+                raise ManageAPIError('Could not find CA certificate with '
+                                     'label: {!r}.'.format(ca_label))
+        else:
+            raise TypeError('unexpected class {0.__class__!r} of '
+                            'the `ca_label_or_db_obj` argument '
+                            '({0!r})'.format(ca_label_or_db_obj))
+
+    @classmethod
+    def iter_all(cls, connection_context, manage_api_config_section,
+                 settings=None,
+                 must_have_profile=False):
+        for ca_db_obj in list(cls.ca_db_model.get_all_records(connection_context)):
+            yield cls(connection_context,
+                      ca_db_obj,
+                      manage_api_config_section,
+                      settings,
+                      must_have_profile)
 
     def get_env_configuration(self):
         ca_key_path = self._get_ca_key_path(
             self._manage_api_config_section,
             self._settings)
         return get_ca_env_configuration(self, ca_key_path)
-
-    @classmethod
-    def iter_all_ca_label_profile_pairs(cls, connection_context):
-        for ca_db_obj in cls.ca_db_model.get_all_records(connection_context):
-            yield ca_db_obj.ca_label, ca_db_obj.profile
 
     def generate_crl_pem(self):
         return generate_crl_pem(self.get_env_configuration())
@@ -921,13 +973,6 @@ class CACertificate(ConfigMixin, _AuthDBInterfaceMixin):
                 'Problem with getting the CA key path '
                 'from the config: {}'.format(ascii_str(exc)))
 
-    def _get_ca_cert_from_db(self, ca_label):
-        try:
-            return self.ca_db_model.from_db(self._connection_context, 'ca_label', ca_label)
-        except self.not_found_exception:
-            raise ManageAPIError('Could not find CA certificate with '
-                                 'label: {!r}.'.format(ca_label))
-
     @property
     def ca_label(self):
         return self.ca_db_obj.ca_label
@@ -939,6 +984,14 @@ class CACertificate(ConfigMixin, _AuthDBInterfaceMixin):
     @property
     def profile(self):
         return self.ca_db_obj.profile
+
+    @property
+    def subject_key_identifier(self):
+        return self.ca_file_obj.get_subject_key_identifier()
+
+    @property
+    def authority_key_identifier(self):
+        return self.ca_file_obj.get_authority_key_identifier()
 
     @property
     def ssl_config(self):
@@ -983,6 +1036,15 @@ class _CertificateBase(_AuthDBInterfaceMixin):
 
     def set_revocation_fields(self, revoked_on, revoked_by_user, revoked_by_component,
                               revocation_comment):
+        assert revoked_on is not None, (
+            '`revoked_on` should be specified (got None)')
+        assert revocation_comment is not None, (
+            '`revocation_comment` should be specified (got None)')
+        assert ((revoked_by_user is not None and revoked_by_component is None) or
+                (revoked_by_user is None and revoked_by_component is not None)), (
+            'exactly one of {{`revoked_by_user`, `revoked_by_component`}} should be '
+            'specified (got: {!r} and {!r})'.format(revoked_by_user,
+                                                    revoked_by_component))
         self.cert_db_obj.revoked_on = revoked_on
         self.cert_db_obj.revoked_by = revoked_by_user
         self.cert_db_obj.revoked_by_component = revoked_by_component

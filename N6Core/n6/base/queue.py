@@ -14,6 +14,7 @@ import functools
 import pprint
 import re
 import sys
+import time
 import types
 
 try:
@@ -25,8 +26,12 @@ except ImportError:
 from n6lib.amqp_helpers import get_amqp_connection_params_dict
 from n6lib.argument_parser import N6ArgumentParser
 from n6lib.auth_api import AuthAPICommunicationError
-from n6lib.common_helpers import exiting_on_exception
+from n6lib.common_helpers import (
+    ascii_str,
+    exiting_on_exception,
+)
 from n6lib.log_helpers import get_logger
+from n6lib.timeout_callback_manager import TimeoutCallbackManager
 
 
 LOGGER = get_logger(__name__)
@@ -83,9 +88,9 @@ class QueuedBase(object):
     #
     # Basic attributes
 
-    CONNECTION_ATTEMPTS = 600
-    CONNECTION_RETRY_DELAY = 10
     SOCKET_TIMEOUT = 3.0
+    STOP_TIMEOUT = 180
+    AMQP_SETUP_TIMEOUT = 60
 
     # the name of the config section the RabbitMQ settings shall be taken from
     rabbitmq_config_section = 'rabbitmq'
@@ -117,9 +122,6 @@ class QueuedBase(object):
 
     # basic kwargs for pika.BasicProperties (message-publishing-related)
     basic_prop_kwargs = {'delivery_mode': 2}
-
-    # (in seconds)
-    reconnect_delay = 5
 
 
     #
@@ -229,18 +231,35 @@ class QueuedBase(object):
         can be *extended* (overridden + called with super()).
 
         The default implementation of this method adds to the created
-        argument parser the possibility to run (from the command line)
-        parsers/collectors/other components that inherit from the
-        QueuedBase class -- with the "--n6recovery" parameter; it will
-        cause that the standard implementation of the preinit_hook()
-        method will add the '_recovery' suffix to all AMQP exchange
-        and queue names.
+        argument parser:
 
-        To prevent this method from providing the "--n6recovery"
-        parameter, set the `supports_n6recovery` class attribute to
-        False.
+        * the possibility to run (from the command line)
+          parsers/collectors/other components that inherit from the
+          QueuedBase class -- with the "--n6input-suffix ..." and/or
+          "--n6output-suffix ..." command line options; that will cause
+          that the standard implementation of the preinit_hook() method
+          will add an appropriate suffix to all input and/or output
+          (respectively) AMQP exchange names and queue names;
+
+        * the possibility to run (from the command line)
+          parsers/collectors/other components that inherit from the
+          QueuedBase class -- with the "--n6recovery" command line
+          option; that will cause that the standard implementation of
+          the preinit_hook() method will add the '_recovery' suffix to
+          *all* (input and output) AMQP exchange names and queue names
+          (that is needed to perform data recovery from MongoDB...); to
+          prevent this method from providing the "--n6recovery" option,
+          set the `supports_n6recovery` class attribute to False.
         """
         arg_parser = N6ArgumentParser()
+        arg_parser.add_argument('--n6input-suffix',
+                                metavar='SUFFIX',
+                                help=('add the specified suffix to all '
+                                      'input AMQP exchange/queue names'))
+        arg_parser.add_argument('--n6output-suffix',
+                                metavar='SUFFIX',
+                                help=('add the specified suffix to all '
+                                      'output AMQP exchange/queue names'))
         if self.supports_n6recovery:  # <- True by default
             arg_parser.add_argument('--n6recovery',
                                     action='store_true',
@@ -258,17 +277,40 @@ class QueuedBase(object):
         This method *should not* be overridden completely; instead,
         it can be *extended* (overridden + called with super()).
 
-        The default implementation of this method checks whether
-        self.cmdline_args.n6recovery is set to true; if it is then the
-        '_recovery' suffix is added to AMQP exchange and queue names
-        in the `input_queue` and `output_queue` instance attributes
-        (it is needed to perform data recovery from MongoDB...).
+        The default implementation of this method modifies, if needed,
+        the contents of the `input_queue` and/or `output_queue`
+        instance attributes accordingly to the "--n6input-suffix",
+        "--n6output-suffix" and "--n6recovery" command line options
+        (see: get_arg_parser()).
+
+        Note: if both the "--n6input-suffix ..." and "--n6recovery"
+        options or both the "--n6output-suffix ..." and "--n6recovery"
+        options are given then the "_recovery" suffix is added as the
+        rightmost one.
         """
-        if not self.supports_n6recovery or not self.cmdline_args.n6recovery:
-            return
-        suffix = '_recovery'
+        def add_suffix_to_queue_conf(queue_conf, suffix):
+            if queue_conf is None or suffix is None:
+                return
+            assert isinstance(queue_conf, (dict, list))
+            queue_conf_dicts = ([queue_conf] if isinstance(queue_conf, dict)
+                                else queue_conf)
+            for conf_dict in queue_conf_dicts:
+                for key in ('exchange', 'queue_name'):
+                    if key in conf_dict:
+                        conf_dict[key] += suffix
+
         assert ('input_queue' in vars(self) and   # __new__() ensures
                 'output_queue' in vars(self))     # that this is true
+
+        add_suffix_to_queue_conf(self.input_queue,
+                                 suffix=self.cmdline_args.n6input_suffix)
+
+        add_suffix_to_queue_conf(self.output_queue,
+                                 suffix=self.cmdline_args.n6output_suffix)
+
+        if not self.supports_n6recovery or not self.cmdline_args.n6recovery:
+            return
+
         queue_conf_dicts = []
         if self.input_queue is not None:
             assert isinstance(self.input_queue, dict)   # it's dict
@@ -276,10 +318,7 @@ class QueuedBase(object):
         if self.output_queue is not None:
             assert isinstance(self.output_queue, list)  # it's list of dicts
             queue_conf_dicts.extend(self.output_queue)  # so using .extend
-        for conf_dict in queue_conf_dicts:
-            for key in ('exchange', 'queue_name'):
-                if key in conf_dict:
-                    conf_dict[key] += suffix
+        add_suffix_to_queue_conf(queue_conf_dicts, suffix='_recovery')
 
 
     #
@@ -291,16 +330,21 @@ class QueuedBase(object):
         LOGGER.debug('input_queue: %r', self.input_queue)
         LOGGER.debug('output_queue: %r', self.output_queue)
 
+        self.clear_amqp_communication_state_attributes()
+        self._conn_params_dict = self.get_connection_params_dict()
+        self._amqp_setup_timeout_callback_manager = \
+            self._make_timeout_callback_manager('AMQP_SETUP_TIMEOUT')
+
+    def clear_amqp_communication_state_attributes(self):
         self._connection = None
         self._channel_in = None
         self._channel_out = None
         self._num_queues_bound = 0
         self._declared_output_exchanges = set()
         self.output_ready = False
-        self.waiting_for_reconnect = False
         self._closing = False
         self._consumer_tag = None
-        self._conn_params_dict = self.get_connection_params_dict()
+        LOGGER.debug('AMQP communication state attributes cleared')
 
 
     #
@@ -311,16 +355,13 @@ class QueuedBase(object):
         """
         Get the AMQP connection parameters (as a dict)
         using n6lib.amqp_helpers.get_amqp_connection_params_dict()
-        and the `CONNECTION_ATTEMPTS`, `CONNECTION_RETRY_DELAY` and
-        `SOCKET_TIMEOUT` class constants.
+        and the `SOCKET_TIMEOUT` class constant.
 
         Returns:
             A dict that can be used as **kwargs for pika.ConnectionParameters.
         """
         conn_params_dict = get_amqp_connection_params_dict(cls.rabbitmq_config_section)
         conn_params_dict.update(
-                connection_attempts=cls.CONNECTION_ATTEMPTS,
-                retry_delay=cls.CONNECTION_RETRY_DELAY,
                 socket_timeout=cls.SOCKET_TIMEOUT,
         )
         return conn_params_dict
@@ -335,14 +376,17 @@ class QueuedBase(object):
         """Connecting to RabbitMQ and start the IOLoop (blocking on it)."""
         self.update_connection_params_dict_before_run(self._conn_params_dict)
         try:
-            self._connection = self.connect()
-            self._connection.ioloop.start()
+            try:
+                self._connection = self.connect()
+                self._connection.ioloop.start()
+            finally:
+                self._amqp_setup_timeout_callback_manager.deactivate()
         finally:
             # note: in case of SIGINT/KeyboardInterrupt it is important
             # that `self._publishing_generator` is closed *before* the
-            # pika IO loop is re-started with `stop()` [sic] -- to
-            # avoid the risk described in the last-but-one paragraph
-            # of `publish_output_and_iter_until_sent()`s docstring
+            # pika IO loop is re-started by `stop()` [sic] -- to avoid
+            # the risk described in the last-but-one paragraph of the
+            # `publish_iteratively()`s docstring
             self._ensure_publishing_generator_closed()
 
     def update_connection_params_dict_before_run(self, params_dict):
@@ -373,7 +417,8 @@ class QueuedBase(object):
         """
         LOGGER.debug('Stopping')
         self.inner_stop()
-        self._connection.ioloop.start()
+        with self._make_timeout_callback_manager('STOP_TIMEOUT'):
+            self._connection.ioloop.start()
         LOGGER.info('Stopped')
 
     ### XXX... (TODO: analyze whether it is correct...)
@@ -381,6 +426,22 @@ class QueuedBase(object):
         self._closing = True
         self.stop_consuming()
         self.close_channels()
+
+    def _make_timeout_callback_manager(self, timeout_attribute_name):
+        timeout = getattr(self, timeout_attribute_name)
+        timeout_expiry_msg = '{}.{}={!r} expired!'.format(self.__class__.__name__,
+                                                          timeout_attribute_name,
+                                                          timeout)
+        return TimeoutCallbackManager(timeout, sys.exit, timeout_expiry_msg)
+
+    def _is_input_ready_or_none(self):
+        return (self._consumer_tag is not None or
+                self.input_queue is None)
+
+    def _is_output_ready_or_none(self):
+        return (self.output_ready or
+                self.output_queue is None)
+
 
     # Connection-related stuff:
 
@@ -395,22 +456,27 @@ class QueuedBase(object):
         Returns:
             pika.SelectConnection
         """
-        LOGGER.info('Connecting to %s', self._conn_params_dict['host'])
-
+        LOGGER.info('Connecting to %s', ascii_str(self._conn_params_dict['host']))
+        if self.input_queue is not None or self.output_queue is not None:
+            self._amqp_setup_timeout_callback_manager.deactivate()
+            self._amqp_setup_timeout_callback_manager.activate()
         return pika.SelectConnection(
                 pika.ConnectionParameters(**self._conn_params_dict),
                 self.on_connection_open,
                 self.on_connection_error_open,
-                stop_ioloop_on_close=False,
+                stop_ioloop_on_close=True,
         )
 
     def close_connection(self):
         LOGGER.info('Closing connection...')
         self._connection.close()
 
-    def on_connection_error_open(self, connection):
-        LOGGER.critical('Could not connect to RabbitMQ after %d attempts',
-                        connection.params.connection_attempts)
+    def on_connection_error_open(self, connection, error_message='<not given>'):
+        error_message = ascii_str(error_message)
+        # in case logging via AMQP does not work...
+        print >>sys.stderr, ('Could not connect to RabbitMQ. '
+                             'Reason: {}.'.format(error_message))
+        LOGGER.critical('Could not connect to RabbitMQ. Reason: %s', error_message)
         sys.exit(1)
 
     def on_connection_open(self, connection):
@@ -427,56 +493,36 @@ class QueuedBase(object):
         self._connection.add_on_close_callback(self.on_connection_closed)
         self.open_channels()
 
-    # WARNING: probably due to some bug in some libraries, this callback
-    # may be called more than once per one connection breakage -- so this
-    # callback should be idempotent (that's why the `waiting_for_reconnect`
-    # flag has been introduced)
     def on_connection_closed(self, connection, reply_code, reply_text):
         """
         From pika docs:
 
         This method is invoked by pika when the connection to RabbitMQ is
-        closed unexpectedly. Since it is unexpected, we will reconnect to
-        RabbitMQ if it disconnects.
+        closed unexpectedly. [...]
 
         Args:
             `connection`: The closed connection obj
             `reply_code`: The server-provided reply_code if given
             `reply_text`: The server-provided reply_text if given
         """
+        reply_text = ascii_str(reply_text)
+        self._closing = True
         self._channel_in = None
         self._channel_out = None
+        self._consumer_tag = None
         self.output_ready = False
-        if self._closing:
-            self._connection.ioloop.stop()
+        if reply_code in (0, 200):
+            LOGGER.info('AMQP connection has been closed with code: %s. Reason: %s',
+                        reply_code, reply_text)
         else:
-            if self.waiting_for_reconnect:
-                # it may happen as, probably due to some bug, pika may
-                # call the on_connection_closed() callback twice
-                # (see: some comments in the ticket #2566)
-                LOGGER.warning(
-                      'Connection closed (not scheduling reopening as '
-                      'it has already been scheduled!): (%s) %s',
-                      reply_code, reply_text)
-            else:
-                LOGGER.warning(
-                      'Connection closed (reopening in %s seconds): (%s) %s',
-                      self.reconnect_delay, reply_code, reply_text)
-                self.waiting_for_reconnect = True
-                self._connection.add_timeout(self.reconnect_delay, self.reconnect)
+            # in case logging via AMQP does not work, let's additionally
+            # print this error message to the standard error output
+            print >>sys.stderr, ('Error: AMQP connection has been closed with code: {}. '
+                                 'Reason: {}.'.format(reply_code, reply_text))
+            LOGGER.error('AMQP connection has been closed with code: %s. Reason: %s',
+                         reply_code, reply_text)
+            sys.exit(1)
 
-    def reconnect(self):
-        """
-        From pika docs:
-
-        Will be invoked by the IOLoop timer if the connection is
-        closed. See the on_connection_closed method.
-        """
-        self.waiting_for_reconnect = False
-        self._connection.ioloop.stop()
-        if not self._closing:
-            self._connection = self.connect()
-            self._connection.ioloop.start()
 
     # Channel-related stuff:
 
@@ -561,14 +607,16 @@ class QueuedBase(object):
             `reply_code`: The numeric reason the channel was closed
             `reply_text`: The text reason the channel was closed
         """
+        channel_str = ascii_str(channel)
+        reply_text = ascii_str(reply_text)
         log = (LOGGER.debug if reply_code in (0, 200)
                else LOGGER.warning)
-        log('Channel %i has been closed: (%s) %s',
-            channel, reply_code, reply_text)
+        log('Channel %s has been closed: (%s) %s',
+            channel_str, reply_code, reply_text)
         self._connection.close(
             reply_code=reply_code,
             reply_text='Because channel {0} has been closed: "{1}"'
-                       .format(channel, reply_text))
+                       .format(channel_str, reply_text))
 
     # Input-exchange/queue-related stuff:
 
@@ -629,7 +677,7 @@ class QueuedBase(object):
         on_input_exchange_declared method will be invoked by pika.
         """
         params = self.input_queue
-        LOGGER.debug('Declaring exchange %s', params["exchange"])
+        LOGGER.debug('Declaring exchange %r', params["exchange"])
         self._channel_in.exchange_declare(
             self.on_input_exchange_declared,
             params["exchange"],
@@ -665,7 +713,7 @@ class QueuedBase(object):
         Args:
             `queue_name`: The name of the queue to declare.
         """
-        LOGGER.debug('Declaring queue %s', queue_name)
+        LOGGER.debug('Declaring queue %r', queue_name)
         self._channel_in.queue_declare(
             self.on_queue_declared,
             queue_name,
@@ -715,6 +763,7 @@ class QueuedBase(object):
             LOGGER.debug('Setting prefetch count')
             self._channel_in.basic_qos(prefetch_count=self.prefetch_count)
             self.start_consuming()
+            self.complete_input_setup()
 
     def start_consuming(self):
         """
@@ -735,6 +784,10 @@ class QueuedBase(object):
                 self.on_message,
                 self.input_queue["queue_name"],
                 exclusive=self.single_instance)
+
+    def complete_input_setup(self):
+        if self._is_output_ready_or_none():
+            self._amqp_setup_timeout_callback_manager.deactivate()
 
     def stop_consuming(self):
         """
@@ -979,10 +1032,15 @@ class QueuedBase(object):
             if len(self._declared_output_exchanges) == len(self.output_queue):
                 LOGGER.debug('All output exchanges declared')
                 self.output_ready = True
+                self.complete_output_setup()
                 self.start_publishing()
         else:
             LOGGER.error('Cannot set up publishing because output channel is None')
             ## XXX: restart or what?
+
+    def complete_output_setup(self):
+        if self._is_input_ready_or_none():
+            self._amqp_setup_timeout_callback_manager.deactivate()
 
     def start_publishing(self):
         """
@@ -1057,28 +1115,94 @@ class QueuedBase(object):
                      'Properties: %s\nBody: %r',
                      exchange,
                      routing_key,
-                     pprint.pformat(properties),
+                     ascii_str(pprint.pformat(properties)),
                      body)
         self._channel_out.basic_publish(exchange=exchange,
                                         routing_key=routing_key,
                                         body=body,
                                         properties=properties)
 
-    @exiting_on_exception
+
+    #
+    # *Iterative publishing* mechanism
+
+    # To learn about this mechanism, first read the docstrings of
+    # the `start_iterative_publishing()` and `publish_iteratively()`
+    # methods (see below)...
+
+    # A marker to be yielded (instead of `None`) by `publish_iteratively()`
+    # to signal that we want to flush unconditionally the pika connection's
+    # outbound buffer.
+    FLUSH_OUT = 'FLUSH_OUT'
+
+    # When the size (in bytes) of the pika connection's outbound buffer
+    # reaches the value of this attribute then a full flush of the
+    # buffer is to be performed automatically on the next yield from
+    # `publish_iteratively()` (even if `FLUSH_OUT` was not yielded).
+    # This attribute can be overridden in subclasses, however the
+    # default value (10 000 000 bytes == 10 MB) should be appropriate
+    # in most cases.
+    iterative_publishing_outbound_buffer_size_threshold = 10 ** 7
+
+    # When a `yield` causes that the control is given to the pika
+    # connection's IO loop for a moment -- this value defines the
+    # scheduled duration of that "moment"; the default value (one
+    # tenth of a second) should be appropriate in most cases.
+    iterative_publishing_schedule_next_delay = 0.1
+
+    # These two attributes can be used in subclasses to customize
+    # exception handling by the *iterative publishing* machinery
+    # -- see:
+    # * `publish_iteratively()` (below);
+    # * `n6lib.common_helpers.exiting_on_exception()`.
+    iterative_publishing_exc_factory = SystemExit
+    iterative_publishing_exc_message_pattern = ('ERROR during iterative publishing: '
+                                                '{exc_info[0].__name__!r}: {exc_info[1]!r} '
+                                                '(DEBUG INFO: {condensed_debug_msg})')
+
     def start_iterative_publishing(self):
         """
-        A tool to perform many *publish* actions in such a way that
-        after each of them (or each not-too-long sequence of them) we
-        give control back to the pika IO loop to let it perform its
-        normal activities (especially dispatching the data in the pika
-        connection's outbound buffer). When all of these *publish*
-        actions are completed the IO loop will be shut down
-        automatically.
+        *Iterative publishing* is a mechanism of performing *publish*
+        actions (i.e., `publish_output()` calls) -- possibly many of
+        them -- in such a way that after each not-too-long sequence of
+        those actions the control can be given to the pika connection's
+        IO loop to let it perform its normal activities (in particular,
+        dispatching the data remaining in the connection's outbound
+        buffer).
 
-        To use this method you typically need to:
+        Thanks to the *iterative publishing* mechanism it is possible:
+
+        * to avoid excessive memory consumption when data are produced
+          faster than the pika connection's outbound buffer is flushed
+          (see the comment above the `QueuedBase`'s attribute
+          `iterative_publishing_outbound_buffer_size_threshold`);
+
+        * to avoid "starving" the pika connection's IO loop (and,
+          consequently, to avoid exceeding the pika connection's
+          `heartbeat_interval` timeout; the value of the actual
+          `heartbeat_interval` is automatically taken into
+          consideration);
+
+        * if needed -- to manually force flushing out the pika
+          connection's outbound buffer; it is important to do it
+          *before* "ticking off" some input data as properly handled,
+          e.g., *before* saving state that confirms that some data has
+          been processed and published successfully (to learn more --
+          read the paragraphs of the `publish_iteratively()` docstring
+          about yielding `self.FLUSH_OUT` and flushing the outbound
+          buffer...).
+
+
+        Note: the *iterative publishing* mechanism cannot be used with
+        `QueuedBase` classes that have `input_queue` set to anything
+        but `None` -- therefore it can be used mostly with collectors
+        (at least for now; this limitation may be lifted in the future).
+
+
+        To use the *iterative publishing* mechanism you need to:
 
         * implement the `start_publishing()` method so that it calls
-          this method, and
+          this (`start_iterative_publishing()`) method, *and*
 
         * implement the `publish_iteratively()` abstract method (as a
           generator) -- see its docstring...
@@ -1091,45 +1215,193 @@ class QueuedBase(object):
             def publish_iteratively(self):
                 # here: a custom implementation -- see the
                 # docstring of `publish_iteratively()`...
-
         """
-        self._publishing_generator = self.publish_iteratively()
-        self._next_publishing_iteration()
+        if self.input_queue is not None:
+            # (the mechanism implemented by `_iter_until_buffer_flushed()`
+            # is, most probably, *not* compatible with async input handling
+            # -- because obtaining such a state that the pika connection's
+            # outbound buffer is empty may become hard to achieve when
+            # input traffic is high...)
+            raise NotImplementedError('*iterative publishing* cannot be used '
+                                      'when `input_queue` is not None')
+        self._publishing_generator = self._do_publish_iteratively()
+        self._schedule_next(self._next_publishing_iteration)
 
     def publish_iteratively(self):
         """
-        When the `start_iterative_publishing()` method is used, this
-        method should be implemented as a generator that publishes
-        consecutive output messages. Each time after a message was (or
-        a few messages were) published -- the generator should yield.
-        Yielded values does not matter; a yield point itself is
-        important because it is a place when we give control back to
-        the pika IO loop.
+        An abstract method: the generator that implements the concrete
+        (subclass-customizable) part of *iterative publishing*.
 
-        Any exception other than `StopIteration` propagated outside the
-        generator will be transformed automatically into a `SystemExit`
-        with a fatal-error-signaling status.
+        If the *iterative publishing* mechanism is used (i.e., if the
+        `start_iterative_publishing()` method is called in
+        `start_publishing()`), the `publish_iteratively()` method
+        should be implemented as a generator that executes a `yield`
+        statement after each `publish_output()` call (or after a small
+        number of such calls).  The `yield` statement defines the
+        moment when the control *may* be given back (by the underlying
+        machinery of *iterative publishing*) to the pika connection's
+        IO loop.
 
-        When implementing this method you may want to use the
-        `publish_output_and_iter_until_sent()` method -- so that you
-        can have some control on when the data are actually sent.
-        Especially, it can help you to: * avoid excessive memory
-        consumption when data are being produced faster than the
-        outbound buffer is flushed; * reduce the likelihood of
-        unnoticed data loss (note, however, that even if we are sure
-        that the pika connection's outbound buffer has been fully
-        flushed, it does *not* guarantee that the data have really
-        arrived at the broker -- for more information see the docstring
-        of `publish_output_and_iter_until_sent()`...).
+        The `yield` statement should have one of the following forms:
 
-        Example implementation:
+        * `yield` (or `yield None` which is equivalent),
+        * `yield self.FLUSH_OUT` (see below...).
+
+        Any exception propagated beyond the generator's `next()` (other
+        than `StopIteration`, `SystemExit` or `KeyboardInterrupt`) will
+        be transformed automatically into an exception constructed with
+        the callable specified as the `iterative_publishing_exc_factory`
+        attribute (whose default value is `SystemExit`), with a message
+        whose content is based on the formattable pattern specified as
+        the `iterative_publishing_exc_message_pattern` attribute (whose
+        default value should be sufficient in nearly all cases).
+
+        Example implementation of `publish_iteratively()`:
 
             def publish_iteratively(self):
-                for rk, body, prop_kwargs in <some sequence or iterator...>:
-                    for _ in self.publish_output_and_iter_until_sent(rk, body, prop_kwargs):
-                        yield  # <- to give control back to the pika IO loop
+                for foo in self._generate_many_foo():
+                    output_components = self.get_output_components(foo=foo)
+                    self.publish_output(*output_components)
+                    yield
+
+        Note that there is *no* explicit call of `inner_stop()` (under
+        the hood, it is called by the *iterative publishing* machinery,
+        when needed).
+
+        There is also a possibility to manually force flushing out the
+        pika connection's outbound buffer -- by yielding the special
+        marker: `self.FLUSH_OUT`; when it is yielded then the machinery
+        of *iterative publishing* not only gives the control to the
+        connection's IO loop for a moment, but also continues "pinging"
+        the IO loop until its outbound buffer is fully flushed; so
+        that, when the control is -- at last -- given back to our
+        `publish_iteratively()` generator (at the point directly after
+        our `yield self.FLUSH_OUT` statement), we can assume that all
+        output data have been sent (from the point of view of the AMQP
+        connection's output socket), *provided that* the control has
+        been given back normally, i.e., *not* by throwing an exception
+        (such as `GeneratorExit` -- which is thrown into the generator
+        when the `close()` generator method is called from outside;
+        that may be caused by connection breakage, receiving a SIGINT
+        [ctrl+c], or some other exceptional condition...).
+
+            def publish_iteratively(self):
+                for foo in self._generate_many_foo():
+                    output_components = self.get_output_components(foo=foo)
+                    self.publish_output(*output_components)
+                    yield self.FLUSH_OUT
+                    # we can assume that *output_components* have been sent
+                    self.some_action_to_be_done_after_successful_publish()
+
+        Note that yielding `self.FLUSH_OUT` at the end of the body of
+        the `publish_iteratively()` implementation is *not necessary*
+        because the connection's outbound buffer is automatically
+        flushed after the `publish_iteratively()` generator exits
+        (of course, provided there is no connection error or other
+        exceptional condition).
+
+        *Beware* that invasive asynchronous events, such as handling a
+        SIGINT by the standard handler that raises `KeyboardInterrupt`,
+        can break pika IO loop's data dispatch, i.e., it is possible
+        that the pika connection's outbound buffer appears to be fully
+        flushed but some data have *not* been actually sent via the
+        connection's output socket -- because `KeyboardInterrupt` (or
+        some other asynchronously raised exception) interfered...
+        Therefore, in case of IO loop interruption caused by
+        `KeyboardInterrupt` (or by another invasive asynchronous event)
+        you should *not* ack or tick off your data as handled properly.
+
+        Also, *note* that even the assumption that all data have been
+        sent (from the point of view of the output socket) does *not*
+        necessarily mean that all data have arrived at the AMQP broker
+        and been safely stored/handled there.  (To ensure that,
+        RabbitMQ delivery confirmations would have to be used...
+        Maybe we will implement their support in the future, but for
+        now we must cope without them).
         """
         raise NotImplementedError
+
+
+    def _ensure_publishing_generator_closed(self):
+        publishing_generator = getattr(self, '_publishing_generator', None)
+        if publishing_generator is not None:
+            publishing_generator.close()
+
+    def _do_publish_iteratively(self):
+        outbound_buffer = self._connection.outbound_buffer
+        assert isinstance(outbound_buffer, collections.deque)
+        outbound_buffer_size_threshold = self.iterative_publishing_outbound_buffer_size_threshold
+        yield_time_interval_threshold = self._get_yield_time_interval_threshold()
+        concrete_publishing_generator = self.publish_iteratively()
+        try:
+            yield_time = time.time()
+            for marker in concrete_publishing_generator:
+                if marker not in (self.FLUSH_OUT, None):
+                    raise ValueError('marker should be either {!r} or None '
+                                     '(got: {!r})'.format(self.FLUSH_OUT, marker))
+                if (marker == self.FLUSH_OUT or
+                      len(outbound_buffer) >= outbound_buffer_size_threshold):
+                    for _ in self._iter_until_buffer_flushed(outbound_buffer):
+                        yield
+                    # once the buffer is empty, let's *yield* one more time
+                    # unconditionally -- to make it slightly more probable
+                    # that the sent data have actually left the machine
+                    yield
+                    yield_time = time.time()
+                elif time.time() - yield_time >= yield_time_interval_threshold:
+                    yield
+                    yield_time = time.time()
+        finally:
+            try:
+                concrete_publishing_generator.close()
+            finally:
+                for _ in self._iter_until_buffer_flushed(outbound_buffer):
+                    yield
+                # once the buffer is empty, let's *yield* one more time
+                # unconditionally -- to make it slightly more probable
+                # that the sent data have actually left the machine
+                yield
+
+    def _get_yield_time_interval_threshold(self):
+        """
+        When the time elapsed since the latest activity of the pika
+        connection's IO loop reaches the value (in seconds) returned by
+        this method then the next yield from `publish_iteratively()`
+        will make the pika connection's IO loop get the control for a
+        moment...
+        """
+        # * factor of 0.2 (in relation to `heartbeat_interval`)
+        #   seems to be reasonably safe
+        # * but also, let's better try *not* to continue starving
+        #   the IO loop longer than 10 seconds anyway (trying, in
+        #   particular, not to be close to typical TCP timeouts
+        #   and such stuff...)
+        return min(0.2 * self._conn_params_dict['heartbeat_interval'],
+                   10.0)
+
+    def _iter_until_buffer_flushed(self, outbound_buffer):
+        while True:
+            if self._connection.outbound_buffer is not outbound_buffer:
+                raise n6AMQPCommunicationError(
+                    "it has just been detected that the current pika "
+                    "connection's outbound buffer object is *not* the "
+                    "same as the one that was in use when *iterative "
+                    "publishing* was being initialized; that means we "
+                    "are not 100% sure what connection objects were "
+                    "used to perform some number of *publish* actions "
+                    "(if any) and -- therefore -- we cannot reliably "
+                    "check whether their outbound buffers have been "
+                    "actually flushed; so we must assume that it is "
+                    "possible that some data that were to be published "
+                    "have not been (and will never be) actually sent; "
+                    "so now -- to avoid pretending that we are sure "
+                    "that all data have been sent successfully -- we "
+                    "stop publishing and raise this error")
+            if not outbound_buffer:
+                LOGGER.debug("OK, pika's outbound buffer is empty")
+                break
+            LOGGER.debug("pika's outbound buffer is not empty yet...")
+            yield
 
     def _next_publishing_iteration(self):
         if self._closing:
@@ -1138,70 +1410,21 @@ class QueuedBase(object):
         try:
             next(self._publishing_generator)
         except StopIteration:
-            self._schedule_after_publishing_iteration(self.inner_stop)
+            self._schedule_next(self.inner_stop)
         else:
-            self._schedule_after_publishing_iteration(self._next_publishing_iteration)
+            self._schedule_next(self._next_publishing_iteration)
 
-    def _schedule_after_publishing_iteration(self, callback, delay=0.1):
+    def _schedule_next(self, callback):
         if self._closing:
             LOGGER.warning('%r is being closed so %r will *not* be scheduled', self, callback)
             return
-        self._connection.add_timeout(delay, exiting_on_exception(callback))
 
-    def _ensure_publishing_generator_closed(self):
-        publishing_generator = getattr(self, '_publishing_generator', None)
-        if publishing_generator is not None:
-            publishing_generator.close()
+        @exiting_on_exception(
+            exc_factory=self.iterative_publishing_exc_factory,
+            exc_message_pattern=self.iterative_publishing_exc_message_pattern)
+        @functools.wraps(callback)
+        def callback_with_error_handling():
+            callback()
 
-    def publish_output_and_iter_until_sent(self, *args, **kwargs):
-        """
-        Call the `publish_output()` method with the given arguments,
-        then return an iterator that will continue yielding `None`
-        values until the pika connection's outbound buffer is fully
-        flushed (so that, when the iterator at last is exhausted we can
-        assume that all output data have been sent from the point of
-        view of the AMQP connection's output socket). Moreover, once
-        the outbound buffer is flushed, the iterator yields one more
-        time unconditionally.
-
-        To make it possible that the iterator will finish -- you must
-        *after each its step* somehow give control back to the pika IO
-        loop (so that it can progressively flush the outbound buffer by
-        sending the pending data).
-
-        Usage:
-
-            for _ in self.publish_output_and_iter_until_sent(
-                  output_routing_key, output_body, output_prop_kwargs):
-                # [...] here we must, somehow, give
-                # control back to the pika IO loop
-            # here we are sure that the pika connection's
-            # outbound buffer has been fully flushed
-
-        Beware that invasive asynchronous events, such as the standard
-        SIGINT handler that raises `KeyboardInterrupt`, can break pika
-        IO loop's data dispatch, i.e., it is possible that the pika
-        connection's outbound buffer is fully flushed but some data
-        have not been actually sent via the connection's output socket
-        because `KeyboardInterrupt` (or some other asynchronously
-        raised exception) interfered... Therefore you should *not*
-        rely on this method *if* `KeyboardInterrupt` (or some other
-        asynchronously raised exception) has interrupted the IO loop.
-
-        Also, *note* that even the assumption that all data have been
-        sent (from the point of view of the output socket) does *not*
-        necessarily mean that all data have arrived at the AMQP broker
-        or been safely stored/handled there. (To ensure that, RabbitMQ
-        delivery confirmations would have to be used...)
-        """
-        outbound_buffer = self._connection.outbound_buffer
-        assert isinstance(outbound_buffer, collections.deque)
-        self.publish_output(*args, **kwargs)
-        return self._iter_until_buffer_flushed(outbound_buffer)
-
-    @staticmethod
-    def _iter_until_buffer_flushed(outbound_buffer):
-        while outbound_buffer:
-            yield
-        # once the buffer is emptied, let's yield one more time unconditionally
-        yield
+        self._connection.add_timeout(self.iterative_publishing_schedule_next_delay,
+                                     callback_with_error_handling)

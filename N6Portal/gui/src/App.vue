@@ -50,6 +50,7 @@ export default {
 /* Unfortunately needs to be global, cause the plugin is a directive and doesn't
  * have it's scoped styles. */
 @import '~@styles/tooltip.scss';
+@import '~@styles/flash-message.scss'
 </style>
 
 
@@ -105,6 +106,7 @@ export default {
   position: fixed;
   top: $margin-extra-small;
   width: 100%;
+  pointer-events: none;
 }
 
 .App-Page {

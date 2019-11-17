@@ -15,6 +15,7 @@ import types
 import mock
 from mock import Mock, MagicMock
 
+from n6lib.class_helpers import ORDINARY_MAGIC_METHOD_NAMES
 from n6sdk.tests._generic_helpers import TestCaseMixin as SDKTestCaseMixin
 
 
@@ -349,6 +350,18 @@ class TestCaseMixin(SDKTestCaseMixin):
         'patch_multiple',
         mock.patch.multiple)
 
+    def patch_with_plug(self,
+                        target,
+                        exc_factory=NotImplementedError,
+                        exc_msg_pattern=('{target}() calls are unsupported when running '
+                                         'tests from {self.__class__.__name__}'),
+                        **patch_kwargs):
+        exc_msg = exc_msg_pattern.format(
+            self=self,
+            target=target)
+        plug = ExceptionRaisingPlug(exc_factory, exc_msg)
+        self.patch(target, plug, **patch_kwargs)
+
     # The following attribute can be defined (in your test case class or
     # instance) to enable patch target auto-completion (i.e., adding the
     # defined prefix automatically to the given target if the target is
@@ -358,6 +371,21 @@ class TestCaseMixin(SDKTestCaseMixin):
     # * Note #2: *no* target auto-completion will be done if the value
     #   is None.
     default_patch_prefix = None
+
+
+class ExceptionRaisingPlug(object):
+
+    def __init__(self, exc_factory, *exc_args):
+        self.__exc_factory = exc_factory
+        self.__exc_args = exc_args
+
+    def __raise_exc(*args, **_):
+        self = args[0]
+        exc = self.__exc_factory(*self.__exc_args)
+        raise exc
+
+    for __meth_name in ORDINARY_MAGIC_METHOD_NAMES:
+        locals()[__meth_name] = __raise_exc
 
 
 class _ExpectedObjectPlaceholder(object):
@@ -488,6 +516,58 @@ class AnyFunctionNamed(_ExpectedObjectPlaceholder):
         return (
             isinstance(other, types.FunctionType) and
             other.__name__ == self._name)
+
+
+class AnyDictIncluding(_ExpectedObjectPlaceholder):
+
+    """
+    A class that implements a placeholder (somewhat similar to mock.ANY)
+    that compares equal only to `dict` instances that contain *at least*
+    (among others) all specified items.
+
+    >>> any_dict_including_foobar = AnyDictIncluding(foo='bar')
+    >>> any_dict_including_foobar
+    AnyDictIncluding(foo='bar')
+
+    >>> d1 = {'foo': 'bar', 'spam': 'ham'}
+    >>> any_dict_including_foobar == d1
+    True
+    >>> d1 == any_dict_including_foobar
+    True
+    >>> any_dict_including_foobar != d1
+    False
+    >>> d1 != any_dict_including_foobar
+    False
+
+    >>> d2 = {'bar': 'foo', 'spam': 'ham'}
+    >>> any_dict_including_foobar == d2
+    False
+    >>> d2 == any_dict_including_foobar
+    False
+    >>> any_dict_including_foobar != d2
+    True
+    >>> d2 != any_dict_including_foobar
+    True
+
+    >>> li = list(d1.items())
+    >>> any_dict_including_foobar == li
+    False
+    >>> li == any_dict_including_foobar
+    False
+    >>> any_dict_including_foobar != li
+    True
+    >>> li != any_dict_including_foobar
+    True
+    """
+
+    def __init__(self, **required_items):
+        self._required_items = required_items
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, dict) and
+            all(key in other and other[key] == value
+                for key, value in self._required_items.iteritems()))
 
 
 # TODO: document it -- because it's a nice helper :-)

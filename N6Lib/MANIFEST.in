@@ -1,4 +1,4 @@
-include *.txt *.rst requirements
+include *.txt *.rst requirements requirements-*
 recursive-include n6lib *--data *.conf
 recursive-include n6lib/utils/iodeflib *.xsd *.html *.txt
 recursive-include n6lib/utils/profiling-result-manager-external-lib *

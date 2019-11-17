@@ -1,30 +1,92 @@
-*.pyc
+# python byte-compiled / optimized / DLL files
+__pycache__/
 *.py~
+*.py[cod]
+*$py.class
+
+# js backups
 *.js~
-*.egg
-*.sqlite
-*_flymake.py
+server/*.spec.js
 
-.coverage
-nosetests.xml
+# C extensions
+*.so
 
-.project
-.idea
-.pydevproject
-.ropeproject
-.settings
+# IDEs and editors
+*.launch
+.classpath
 .dir-locals.el
 .emacs.desktop
 .emacs.desktop.lock
+.lock-wscript
+.idea
+.project
+.pydevproject
+.settings
+.vscode
 
+# distribution / packaging / virtualenvs
+*.egg
+.eggs/
+.grunt
+bower_components
+eggs
+build/Release
+node_modules
+
+# installer logs
+pip-log.txt
+
+# flask stuff:
+instance/
+.webassets-cache
+
+# Jupyter Notebook
+.ipynb_checkpoints
+notebooks
+
+# tests / coverage reports
+*.cover
+.cache
+.coverage
+.coverage.*
+.hypothesis/
+.eslintcache
+.noseids
+.nox/
+.npm
+.pytest_cache/
+.python-version
+.tox/
+coverage.xml
+log.md
+htmlcov/
+nosetests.xml
+test-reports
+
+# environments
+.env
+.venv
+env/
+venv/
+ENV/
+n6-env/
+env.bak/
+venv.bak/
+
+# logs, runtime data
+*.log
+*.pid
+*.seed
+*.sqlite
+logs
+pids
+
+# n6 stuff
 [Nn]6*.egg-info/
-
 /N6Portal/*.ini~
 /N6Portal/*_local.ini
 /N6RestApi/*.ini~
 /N6RestApi/*_local.ini
-
 /N6*/build/
 /N6*/dist/
 /N6*/docs/build/
-

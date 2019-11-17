@@ -12,6 +12,7 @@ from cStringIO import StringIO
 from n6.parsers.generic import (
     BaseParser,
     BlackListTabDataParser,
+    SkipParseExceptionsMixin,
     TabDataParser,
     entry_point_factory,
 )
@@ -260,6 +261,32 @@ class AbuseChFeodoTrackerParser(BaseParser):
         return {x[0].lower(): x[1] for x in keys_values}
 
 
+class AbuseChFeodoTracker201908Parser(BaseParser):
+
+    default_binding_key = "abuse-ch.feodotracker.201908"
+
+    constant_items = {
+            "restriction": "public",
+            "confidence": "medium",
+            "category": "cnc",
+    }
+
+    def parse(self, data):
+        rows = csv.reader(StringIO(data['raw']), delimiter=',', quotechar='"')
+        for row in rows:
+            # SOURCE FIELDS FORMAT:
+            # Firstseen,DstIP,DstPort,LastOnline,Malware
+            t, ip, dport, _, name = row
+            with self.new_record_dict(data) as parsed:
+                parsed.update({
+                    'time': t,
+                    'address': {'ip': ip},
+                    'dport': dport,
+                    'name': name,
+                })
+                yield parsed
+
+
 class AbuseChRansomwareTrackerParser(BaseParser):
 
     default_binding_key = 'abuse-ch.ransomware'
@@ -291,7 +318,6 @@ class AbuseChRansomwareTrackerParser(BaseParser):
                 yield parsed
 
 
-# Abuse.ch SSL Blacklist
 class _AbuseChSSLBlacklistBaseParser(BaseParser):
 
     """
@@ -421,17 +447,20 @@ class _AbuseChSSLBlacklistBaseParser(BaseParser):
         parsed.update(parsed_base)
 
 
-class AbuseChSSLBlacklistParser(_AbuseChSSLBlacklistBaseParser):
-
-    default_binding_key = "abuse-ch.ssl-blacklist"
-
-
 class AbuseChSSLBlacklistDyreParser(_AbuseChSSLBlacklistBaseParser):
+    # Note that, contrary to its name, it is an *event-based* source.
 
     default_binding_key = "abuse-ch.ssl-blacklist-dyre"
 
 
-class AbuseChSSLBlacklistParser201902(TabDataParser):
+class AbuseChSSLBlacklistParser(_AbuseChSSLBlacklistBaseParser):
+    # Note that, contrary to its name, it is an *event-based* source.
+
+    default_binding_key = "abuse-ch.ssl-blacklist"
+
+
+class AbuseChSSLBlacklist201902Parser(BaseParser):
+    # Note that, contrary to its name, it is an *event-based* source.
 
     default_binding_key = "abuse-ch.ssl-blacklist.201902"
 
@@ -441,22 +470,22 @@ class AbuseChSSLBlacklistParser201902(TabDataParser):
             "category": "cnc",
     }
 
-    field_sep = ','
-    ignored_row_prefixes = '#'
+    def parse(self, data):
+        rows = csv.reader(StringIO(data['raw']), delimiter=',', quotechar='"')
+        for row in rows:
+            # SOURCE FIELDS FORMAT:
+            # Listingdate,SHA1,Listingreason
+            t, x509fp_sha1, name = row
+            with self.new_record_dict(data) as parsed:
+                parsed.update({
+                    'time': t,
+                    'x509fp_sha1': x509fp_sha1,
+                    'name': name,
+                })
+                yield parsed
 
-    def process_row_fields(self, data, parsed, *fields):
-        # SOURCE FIELDS FORMAT:
-        # Listingdate,SHA1,Listingreason
-        listingdate = fields[0].strip('"')
-        sha1 = fields[1].strip('"')
-        listingreason = fields[2].strip('"')
 
-        parsed['time'] = listingdate
-        parsed['x509fp_sha1'] = sha1
-        parsed['name'] = listingreason
-
-
-class AbuseChUrlhausUrlsParser(TabDataParser):
+class AbuseChUrlhausUrlsParser(BaseParser):
 
     default_binding_key = 'abuse-ch.urlhaus-urls'
 
@@ -466,14 +495,15 @@ class AbuseChUrlhausUrlsParser(TabDataParser):
         "category": "malurl",
     }
 
-    field_sep = ','
-
-    def process_row_fields(self, data, parsed, *fields):
-        # SOURCE FIELDS FORMAT:
-        # id,dateadded,url,url_status,threat,tags,urlhaus_link
-        dateadded, url = fields[1].strip('"'), fields[2].strip('"')
-        parsed['time'] = dateadded
-        parsed['url'] = url
+    def parse(self, data):
+        rows = csv.reader(StringIO(data['raw']), delimiter=',', quotechar='"')
+        for row in rows:
+            # SOURCE FIELDS FORMAT:
+            # id,dateadded,url,url_status,threat,tags,urlhaus_link, reporter
+            with self.new_record_dict(data) as parsed:
+                parsed['time'] = row[1]
+                parsed['url'] = row[2]
+                yield parsed
 
 
 entry_point_factory(sys.modules[__name__])

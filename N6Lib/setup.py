@@ -64,10 +64,11 @@ setup(
     dependency_links=dep_links,
     install_requires=requirements,
     entry_points={
-        'console_scripts': [
-            'n6initialize_auth_db = n6lib.auth_db.initialize_auth_db:main',
-            'n6populate_auth_db = n6lib.auth_db.populate_auth_db:main',
-        ],
+      'console_scripts': [
+        'n6create_and_initialize_auth_db = n6lib.auth_db.scripts:create_and_initialize_auth_db',
+        'n6drop_auth_db = n6lib.auth_db.scripts:drop_auth_db',
+        'n6populate_auth_db = n6lib.auth_db.scripts:populate_auth_db',
+      ],
     },
 
     description='The library of common *n6* modules',

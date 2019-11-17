@@ -2,11 +2,11 @@
 
 set -ex
 
-# default config n6 files
+# default n6 config files
 rm -rf /etc/n6/*
 yes | n6config
 
-# overwrite data config n6 files
+# overwrite n6 config files
 cp -f docker/work/test_data/integration_tests.conf /etc/n6/integration_tests.conf
 cp -f docker/work/test_data/test-logging.conf /etc/n6/logging.conf
 cp -f docker/work/test_data/test-00_global.conf /etc/n6/00_global.conf
@@ -20,12 +20,14 @@ cp -f docker/work/test_data/test-23_filter.conf /etc/n6/23_filter.conf
 cp -f docker/work/test_data/test-70_abuse_ch.conf /etc/n6/70_abuse_ch.conf
 cp -f docker/work/test_data/test-70_misp.conf /etc/n6/70_misp.conf
 cp -f docker/work/test_data/test-70_zone_h.conf /etc/n6/70_zone_h.conf
-wget -qO - http://geolite.maxmind.com/download/geoip/database/asnum/GeoIPASNum.dat.gz | gunzip -c > /usr/share/GeoIP/GeoIPASNum.dat
 
-# pickle configuration module
+# pickle module configuration
 mkdir -p /var/cache/n6
 chmod 777 /var/cache/n6
-/wait-for-services.sh -- echo "All docker containers UP!"
+
+/wait-for-services.sh
+n6create_and_initialize_auth_db -D
+mysql -h mysql -u root -ppassword --default-character-set utf8mb4 < docker/mysql/test_data/test-auth_db_data.sql  # XXX: it seems that there is not such file
 
 service rsyslog start
 service cron start

@@ -35,7 +35,7 @@ from n6lib.db_filtering_abstractions import (
 )
 from n6lib.log_helpers import get_logger
 try:
-    if os.getenv('N6_FORCE_LDAP_API_REPLACEMENT') is not None:
+    if os.getenv('N6_FORCE_LDAP_API_REPLACEMENT'):
         raise ImportError
     import n6lib.ldap_api
 except ImportError:
@@ -797,7 +797,7 @@ class AuthAPI(object):
         included = set()
         excluded = set()
         for (org_id, subsource_refint, access_zone, is_excluding
-             ) in self._iter_org_subsource_az_ex_tuples(root_node, org_id_to_node):
+             ) in self._iter_org_subsource_az_off_tuples(root_node, org_id_to_node):
             if is_excluding:
                 excluded.add((org_id, subsource_refint, access_zone))
             else:
@@ -805,20 +805,20 @@ class AuthAPI(object):
         included -= excluded
         return included
 
-    def _iter_org_subsource_az_ex_tuples(self, root_node, org_id_to_node):
+    def _iter_org_subsource_az_off_tuples(self, root_node, org_id_to_node):
         # yields (<org id>, <subsource DN>, <access zone>, <is excluding?>) tuples
         for org_id, org in org_id_to_node.iteritems():
             self._check_org_length(org_id)
             org_props = org.get('cn')
             if org_props:
                 for access_zone in ACCESS_ZONES:
-                    for ex_suffix in ('', '-ex'):
-                        channel = org_props.get(access_zone + ex_suffix)
+                    for off_suffix in ('', '-ex'):
+                        channel = org_props.get(access_zone + off_suffix)
                         for subsource_refint in (
                                 self._iter_channel_subsource_refints(root_node, channel)):
                             # for org <-> subsource
                             # and org <-> subsource group <-> subsource
-                            yield org_id, subsource_refint, access_zone, bool(ex_suffix)
+                            yield org_id, subsource_refint, access_zone, bool(off_suffix)
 
             for org_group_refint in get_attr_value_list(org, 'n6org-group-refint'):
                 org_group = get_node(root_node, org_group_refint)

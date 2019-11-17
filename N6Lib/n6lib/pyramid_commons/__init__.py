@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
-# this package provides the actual n6 versions (beyond the SDK)
-# of the Pyramid-related n6 stuff
+# (note: this package provides the actual n6-specific versions of the
+# Pyramid-related n6 stuff -- based on the `n6sdk` stuff, but richer/
+# /more sophisticated...)
 
 
 from n6lib.pyramid_commons._pyramid_commons import (
@@ -13,8 +14,6 @@ from n6lib.pyramid_commons._pyramid_commons import (
     N6InfoView,
     N6LimitedStreamView,
     N6PortalRootFactory,
-    DeviceRequestGetViewBase,
-    DeviceRequestPostViewBase,
 
     auth_api_context_tween_factory,
     transact_tween_factory,
@@ -37,8 +36,6 @@ __all__ = [
     'N6InfoView',
     'N6LimitedStreamView',
     'N6PortalRootFactory',
-    'DeviceRequestGetViewBase',
-    'DeviceRequestPostViewBase',
 
     'auth_api_context_tween_factory',
     'transact_tween_factory',

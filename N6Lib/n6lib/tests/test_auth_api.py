@@ -737,6 +737,21 @@ class TestAuthAPI__get_org_ids_to_notification_configs(_AuthAPILdapDataBasedMeth
             ),
         ]
 
+    # let the last case contain the data from all previous cases
+    # (needed by `auth_api_with_ldap_api_replacement_quicktest`)
+    accumulated_search_flat_return_value = []
+    accumulated_expected_result = {}
+    for (search_flat_return_value,
+         expected_result) in search_flat_return_values__and__expected_results:
+        assert (isinstance(search_flat_return_value, list) and
+                isinstance(expected_result, dict))
+        accumulated_search_flat_return_value.extend(search_flat_return_value)
+        accumulated_expected_result.update(expected_result)
+    search_flat_return_values__and__expected_results.append((
+        accumulated_search_flat_return_value,
+        accumulated_expected_result,
+    ))
+
     def test(self):
         for (search_flat_return_value,
              expected_result) in self.search_flat_return_values__and__expected_results:

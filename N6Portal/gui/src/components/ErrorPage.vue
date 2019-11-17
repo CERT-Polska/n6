@@ -6,6 +6,52 @@ export default {
   components: {
     Icon,
   },
+
+  props: {
+    errorCode: {
+      type: Number,
+    },
+  },
+
+  data() {
+    return {
+      errorMessages: {
+        500: {
+          heading: 'Sorry, the server is down',
+          description: 'There was an unexpected problem on the server side.',
+        },
+        404: {
+          heading: 'Page not found',
+          description: 'It seems that the page you tried to access doesn\'t exist.',
+        },
+        default: {
+          heading: 'Unexpected error',
+          description: 'Some unexpected error occured',
+        },
+      },
+    };
+  },
+
+  computed: {
+    errorHeading: function() {
+      return this.errorData(this.errorCode).heading;
+    },
+    errorDescription: function() {
+      return this.errorData(this.errorCode).description;
+    },
+  },
+
+  methods: {
+    errorData: function(errorCode) {
+      // We could cache the result and compute again if the errorCode changed
+      if (errorCode === undefined ||
+        !this.$data.errorMessages.hasOwnProperty(errorCode.toString())) {
+        return this.$data.errorMessages.default;
+      }
+      return this.$data.errorMessages[errorCode];
+    },
+  },
+
 };
 </script>
 
@@ -17,13 +63,10 @@ export default {
       class="Error-Icon"
     />
     <h2 class="Error-Heading">
-      Sorry, the server is down.
+      {{ errorHeading }}
     </h2>
     <p class='Error-Paragraph'>
-      This is a temporary error page.
-    </p>
-    <p class='Error-Paragraph'>
-      Different error pages, adjusted to specific errors, will be implemented soon...
+      {{ errorDescription }}
     </p>
   </div>
 </template>

@@ -1,13 +1,23 @@
-FROM rabbitmq:3.6.9-management
+FROM rabbitmq:3.8-management
 
 # interactive mode
 ENV TERM xterm
-ENV RABBITMQ_USER login@example.com
-ENV RABBITMQ_PASSWORD n6component
+ENV DEBIAN_FRONTEND noninteractive
 
-ADD docker/rabbit/conf/rabbitmq.config /etc/rabbitmq/rabbitmq.config
+RUN rabbitmq-plugins enable --offline \
+    rabbitmq_management \
+    rabbitmq_management_agent \
+    rabbitmq_auth_mechanism_ssl \
+    rabbitmq_federation \
+    rabbitmq_federation_management \
+    rabbitmq_shovel \
+    rabbitmq_shovel_management
+
 ADD docker/rabbit/entrypoint.sh /entrypoint.sh
 RUN chmod a+x /entrypoint.sh
 
-EXPOSE 5671 15671
+EXPOSE 5671 15671 15672
 CMD ["/entrypoint.sh"]
+
+HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=5 \
+CMD rabbitmq-diagnostics ping -q || exit 1

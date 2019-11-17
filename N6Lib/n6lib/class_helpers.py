@@ -3,6 +3,7 @@
 # Copyright (c) 2013-2018 NASK. All rights reserved.
 
 import functools
+import sys
 import types
 
 # for backward-compatibility and/or for convenience, the `AsciiMixIn`
@@ -14,6 +15,100 @@ from n6sdk.class_helpers import (
     singleton,
     attr_required,
 )
+
+
+
+ORDINARY_MAGIC_METHOD_NAMES = frozenset({
+    '__call__',
+    '__getattr__',
+    '__lt__', '__le__', '__gt__', '__ge__', '__eq__', '__ne__', '__hash__',
+    '__getitem__', '__setitem__', '__delitem__', '__contains__', '__missing__',
+    '__iter__', '__len__', '__reversed__',
+    '__str__', '__format__',
+    '__enter__', '__exit__',
+    '__complex__', '__int__', '__float__', '__index__',
+    '__trunc__', '__divmod__', '__rdivmod__', '__neg__', '__pos__', '__abs__',
+    '__invert__',
+    '__and__', '__xor__', '__or__',
+    '__add__', '__sub__', '__mul__', '__floordiv__', '__truediv__', '__pow__',
+    '__mod__', '__lshift__', '__rshift__',
+    '__iand__', '__ixor__', '__ior__',
+    '__iadd__', '__isub__', '__imul__', '__ifloordiv__', '__itruediv__', '__ipow__',
+    '__imod__', '__ilshift__', '__irshift__',
+    '__rand__', '__rxor__', '__ror__',
+    '__radd__', '__rsub__', '__rmul__', '__rfloordiv__', '__rtruediv__', '__rpow__',
+    '__rmod__', '__rlshift__', '__rrshift__',
+    '__reduce__', '__reduce_ex__',
+    '__getnewargs__', '__getstate__', '__setstate__',
+} | (
+        {
+            '__bool__', '__next__',
+            '__length_hint__',
+            '__bytes__', '__fspath__',
+            '__round__', '__floor__', '__ceil__',
+            '__matmul__', '__imatmul__', '__rmatmul__',
+            '__getnewargs_ex__',
+        } if sys.version_info[0] >= 3
+        else {
+            '__nonzero__', 'next',
+            '__cmp__', '__coerce__',
+            '__getslice__', '__setslice__',
+            '__unicode__', '__long__',
+            '__oct__', '__hex__',
+            '__div__', '__idiv__', '__rdiv__',
+            '__getinitargs__',
+        }
+    )
+)
+DIAGNOSTIC_MAGIC_METHOD_NAMES = frozenset({
+    '__repr__', '__dir__', '__sizeof__',
+})
+ATTR_ACCESS_SHADOWING_MAGIC_METHOD_NAMES = frozenset({
+    # (note: '__getattr__' is not here because it is a non-intrusive
+    # fallback method, not attribute access *shadowing* method like
+    # the following ones)
+    '__getattribute__', '__setattr__', '__delattr__',
+})
+ATTR_DESCRIPTOR_MAGIC_METHOD_NAMES = frozenset({
+    '__get__', '__set__', '__delete__',
+} | (
+        {'__set_name__'} if sys.version_info[0] >= 3
+        else frozenset()
+    )
+)
+INSTANCE_LIFECYCLE_MAGIC_METHOD_NAMES = frozenset({
+    '__new__', '__init__', '__del__',
+})
+OBSCURE_FLOAT_SPECIFIC_MAGIC_METHOD_NAMES = frozenset({
+    '__getformat__', '__setformat__',
+})
+ASYNC_STUFF_MAGIC_METHOD_NAMES = (
+    frozenset({
+        '__await__',
+        '__aiter__', '__anext__',
+        '__aenter__', '__aexit__',
+    }) if sys.version_info[0] >= 3
+    else frozenset()
+)
+CLASS_AND_METACLASS_MAGIC_METHOD_NAMES = frozenset({
+    '__instancecheck__', '__subclasscheck__',
+} | (
+        {
+            '__init_subclass__', '__subclasses__',
+            '__mro_entries__', '__class_getitem__',
+            '__prepare__',
+        } if sys.version_info[0] >= 3
+        else frozenset()
+    )
+)
+ALL_MAGIC_METHOD_NAMES = (ORDINARY_MAGIC_METHOD_NAMES |
+                          DIAGNOSTIC_MAGIC_METHOD_NAMES |
+                          ATTR_ACCESS_SHADOWING_MAGIC_METHOD_NAMES |
+                          ATTR_DESCRIPTOR_MAGIC_METHOD_NAMES |
+                          INSTANCE_LIFECYCLE_MAGIC_METHOD_NAMES |
+                          OBSCURE_FLOAT_SPECIFIC_MAGIC_METHOD_NAMES |
+                          ASYNC_STUFF_MAGIC_METHOD_NAMES |
+                          CLASS_AND_METACLASS_MAGIC_METHOD_NAMES)
 
 
 
@@ -166,6 +261,7 @@ def __initialized_with(*constructor_args, **constructor_kwargs):
         constructor_kwargs=constructor_kwargs)
 
 instance.initialized_with = __initialized_with
+
 
 
 if __name__ == "__main__":

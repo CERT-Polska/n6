@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 """
 Collector: dns-bh.malwaredomainscom
@@ -19,7 +19,7 @@ LOGGER = get_logger(__name__)
 
 class DnsBhMalwaredomainscomCollector(BaseUrlDownloaderCollector, BaseOneShotCollector):
 
-    raw_format_version_tag = '201412'
+    raw_format_version_tag = '201906'
 
     type = 'blacklist'
     config_group = "malwaredomainscom"

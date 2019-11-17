@@ -405,7 +405,52 @@ class Test___LOGGER(unittest.TestCase):
         self.assertIs(_LOGGER, logging.getLogger('n6lib.log_helpers'))
 
 
-class TestAMQPHandler_cooperation_with_real_logger(TestCaseMixin, unittest.TestCase):
+class _AMQPHandlerTestCaseMixin(TestCaseMixin):
+
+    @staticmethod
+    def make_serializer(msg_count_window=10, msg_count_max=3):
+        class AMQPHandler_(AMQPHandler):
+            _msg_count_window = msg_count_window
+            _msg_count_max = msg_count_max
+        return AMQPHandler_.__new__(AMQPHandler_)._make_record_serializer()
+
+    @classmethod
+    def get_constant_log_record_items(cls, custom_items):
+        items = {
+            u'name': ANY,
+            u'pathname': ANY,
+            u'filename': ANY,
+            u'module': ANY,
+            u'lineno': ANY,
+            u'funcName': ANY,
+            u'created': ANY,
+            u'msecs': ANY,
+            u'asctime': ANY,
+            u'relativeCreated': ANY,
+            u'thread': threading.current_thread().ident,
+            u'threadName': unicode(threading.current_thread().name),
+            u'processName': ANY,
+            u'process': os.getpid(),
+            u'py_ver': u'.'.join(map(str, sys.version_info)),
+            u'py_64bits': (sys.maxsize > 2 ** 32),
+            u'py_ucs4': (sys.maxunicode > 0xffff),
+            u'py_platform': unicode(sys.platform),
+            u'hostname': unicode(cls.get_hostname()),
+            u'script_basename': unicode(cls.get_script_basename()),
+        }
+        items.update(custom_items)
+        return items
+
+    @staticmethod
+    def get_hostname():
+        return socket.gethostname().split('.', 1)[0]
+
+    @staticmethod
+    def get_script_basename():
+        return os.path.basename(sys.argv[0]).split('.', 1)[0]
+
+
+class TestAMQPHandler_cooperation_with_real_logger(_AMQPHandlerTestCaseMixin, unittest.TestCase):
 
     def setUp(self):
         self._pika_patcher = patch('n6lib.amqp_getters_pushers.pika')
@@ -429,36 +474,17 @@ class TestAMQPHandler_cooperation_with_real_logger(TestCaseMixin, unittest.TestC
         self.logger.addHandler(self.handler)
         self.addCleanup(self.logger.removeHandler, self.handler)
 
-        hostname = socket.gethostname().split('.', 1)[0]
-        script_basename = os.path.basename(sys.argv[0]).split('.', 1)[0]
-
         self.rk_template = '{hostname}.{script_basename}.{{levelname}}.{loggername}'.format(
-            hostname=hostname,
-            script_basename=script_basename,
+            hostname=self.get_hostname(),
+            script_basename=self.get_script_basename(),
             loggername='TestAMQPHandler_logger')
 
-        self.constant_log_record_items = dict(
-            name='TestAMQPHandler_logger',
-            pathname=ANY,
-            filename='test_log_helpers.py',
-            module='test_log_helpers',
-            lineno=ANY,
-            funcName='test',
-            created=ANY,
-            msecs=ANY,
-            asctime=ANY,
-            relativeCreated=ANY,
-            thread=threading.current_thread().ident,
-            threadName=threading.current_thread().name,
-            processName=ANY,
-            process=os.getpid(),
-            py_ver='.'.join(map(str, sys.version_info)),
-            py_64bits=(sys.maxsize > 2 ** 32),
-            py_ucs4=(sys.maxunicode > 0xffff),
-            py_platform=sys.platform,
-            hostname=hostname,
-            script_basename=script_basename,
-        )
+        self.constant_log_record_items = self.get_constant_log_record_items(dict(
+                name='TestAMQPHandler_logger',
+                filename='test_log_helpers.py',
+                funcName='test',
+                module='test_log_helpers',
+            ))
 
         class UnRepr(object):
             def __repr__(self):
@@ -558,13 +584,66 @@ class TestAMQPHandler_cooperation_with_real_logger(TestCaseMixin, unittest.TestC
             self.error_logger._log.mock_calls[1][1][2][0])
 
 
-class TestAMQPHandler_serializer_skips_records(TestCaseMixin, unittest.TestCase):
+class TestAMQPHandler_serializer_adjusts_record_keys(_AMQPHandlerTestCaseMixin, unittest.TestCase):
+
+    def test(self):
+        KEY_MAX_LENGTH = AMQPHandler.LOGRECORD_KEY_MAX_LENGTH
+        example_big_length = 4 * KEY_MAX_LENGTH
+        assert example_big_length > KEY_MAX_LENGTH
+
+        serializer = self.make_serializer()
+        rec = logging.makeLogRecord({
+            'msg': 'foo %d',
+            'args': (42,),
+
+            # * non-ascii
+            u'ą': u'ę',
+
+            # * non-str
+            ('foo',): ('bar',),
+
+            # * too long
+            'x_' * example_big_length: 'x_' * example_big_length,
+
+            # * non-str and too long
+            10 ** example_big_length: 43,
+        })
+        expected_deserialized_rec = self.get_constant_log_record_items({
+            u'exc_text': ANY,
+            u'levelname': ANY,
+            u'levelno': ANY,
+
+            u'msg': u'foo %d',
+            u'args': [42],
+            u'message': u'foo 42',
+
+            # * non-ascii escaped
+            u'\\u0105': u'ę',
+
+            # * non-str coerced to str
+            u"('foo',)": [u'bar'],
+
+            # * too long trimmed
+            #   (note: here `(KEY_MAX_LENGTH - 6) // 2` is used because
+            #          len(u'x[...]') == 6 and len(u'x_') == 2)
+            u'{}x[...]'.format(u'x_' * ((KEY_MAX_LENGTH - 6) // 2)): u'x_' * example_big_length,
+
+            # * non-str coerced to str + too long trimmed
+            #   (note: here `KEY_MAX_LENGTH - 6` is used because
+            #          len(u'1') + len(u'[...]') == 6)
+            u'1{}[...]'.format(u'0' * (KEY_MAX_LENGTH - 6)): 43,
+        })
+
+        serialized_rec = serializer(rec)
+
+        deserialized_rec = json.loads(serialized_rec)
+        self.assertEqualIncludingTypes(deserialized_rec, expected_deserialized_rec)
+
+
+class TestAMQPHandler_serializer_skips_records(_AMQPHandlerTestCaseMixin, unittest.TestCase):
 
     def setUp(self):
-        class AMQPHandler_(AMQPHandler):
-            _msg_count_window = 10
-            _msg_count_max = 3
-        self.serializer = AMQPHandler_.__new__(AMQPHandler_)._make_record_serializer()
+        self.serializer = self.make_serializer(msg_count_window=10, msg_count_max=3)
 
     def _rec(self, msg, *args, **kwargs):
         assert 'msg' not in kwargs
@@ -672,7 +751,6 @@ class TestAMQPHandler_serializer_skips_records(TestCaseMixin, unittest.TestCase)
                 if 'msg_skipped_to_count' in deserialized:
                     extracted['msg_skipped_to_count'] = deserialized['msg_skipped_to_count']
             res.append(extracted)
-        self.maxDiff = None
         self.assertEqual(res, [
             {
                 'message': u'tralala 1',

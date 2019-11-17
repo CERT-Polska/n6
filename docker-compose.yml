@@ -1,10 +1,9 @@
 # docker-compose for public n6
-version: '2'
 
+version: "3.7"
 services:
   work:
-# build image with custom tag
-    image: "n6-pub-work"
+    image: n6-pub-work
     build:
       context: .
       dockerfile: ./docker/work/Dockerfile
@@ -13,81 +12,99 @@ services:
     environment:
       N6_FORCE_LDAP_API_REPLACEMENT: 1
     volumes:
-      - n6_logs:/var/log/n6/
-      - certs:/root/certs/
-    command: ["supervisord", "-c", "etc/supervisord/supervisord.conf"]
+    - ./etc/ssl/generated_certs:/root/certs/:ro
+    - n6_logs:/var/log/n6/
+    command: >
+      bash -c "/wait-for-services.sh
+      && supervisord -c etc/supervisord/supervisord.conf"
     networks:
-      - n6-pub-net
+    - n6-pub-net
   web:
-    image: "n6-pub-web"
+    image: n6-pub-web
     build:
       context: .
       dockerfile: ./docker/web/Dockerfile
-    depends_on:
-      - work
+      args:
+        username: dataman
+        password: password
     hostname: apache
+    environment:
+      N6_FORCE_LDAP_API_REPLACEMENT: 1
     restart: always
     container_name: web
     ports:
-      - "80:80" # redirect permanently to 443
-      - "443:443" # n6 Portal
-      - "4443:4443" # n6 REST API
-      - "4444:4444" # n6 Admin Panel
+    - 80:80 # redirect permanently to 443
+    - 443:443 # N6 Portal
+    - 4443:4443 # N6 API
+    - 4444:4444 # N6 Admin Panel
     volumes:
-    - certs:/home/dataman/certs/
+    - ./etc/ssl/generated_certs:/home/dataman/certs/
     networks:
-      - n6-pub-net
+    - n6-pub-net
   rabbit:
-    image: "n6-pub-rabbit"
+    image: n6-pub-rabbit
     build:
       context: .
       dockerfile: ./docker/rabbit/Dockerfile
-    depends_on:
-      - work
     hostname: rabbit
     restart: always
     container_name: rabbit
+    environment:
+    - RABBITMQ_CONFIG_FILE=/volume/rabbitmq/conf/rabbitmq.conf
+    - RABBITMQ_USER=login@example.com
+    - RABBITMQ_PASSWORD=n6component
     ports:
-      - "15671:15671" # rabbitmq web management
+    - 5671:5671 #  TLS connections
+    - 15671:15671 # WEB management
+    - 15672:15672 # HTTP API
     volumes:
-    - certs:/root/certs/
+    - ./etc/ssl/generated_certs:/volume/rabbitmq/certs/:ro
+    - ./etc/rabbitmq/conf:/volume/rabbitmq/conf/:ro
     networks:
-      - n6-pub-net
+    - n6-pub-net
   mongo:
-    image: "n6-pub-mongo"
-    build:
-      context: .
-      dockerfile: ./docker/mongo/Dockerfile
+    image: mongo:4.2
     hostname: mongo
     restart: always
     environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
       MONGO_INITDB_DATABASE: n6
     container_name: mongo
     ports:
-      - "27017:27017" # used by MongoDB
-    command: --smallfiles --auth
+      - 27017:27017
+    command: --auth
+    healthcheck:
+      test: ["CMD", "docker-healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
     networks:
       - n6-pub-net
+    volumes:
+      - ./volume/mongo/db:/data/db
+      - ./etc/mongo/initdb:/docker-entrypoint-initdb.d
   mysql:
-    image: "n6-pub-mysql"
+    image: n6-pub-mysql
     build:
       context: .
       dockerfile: ./docker/mysql/Dockerfile
     hostname: mysql
     restart: always
-    container_name: mysql
     environment:
-      - MYSQL_ROOT_PASSWORD=password
+    - MYSQL_USERNAME=root
+    - MYSQL_ROOT_PASSWORD=password
+    container_name: mysql
     ports:
-      - "3306:3306"
+    - 3306:3306
+    volumes:
+    - ./volume/mysql:/var/lib/mysql
+    - ./etc/mysql/conf.d:/etc/mysql/conf.d
+    - ./etc/mysql/initdb:/docker-entrypoint-initdb.d
     networks:
-      - n6-pub-net
+    - n6-pub-net
 
 volumes:
-  certs: {}
-  n6_logs: {}
+  n6_logs:
 
 networks:
   n6-pub-net:

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 """
 This is a -- somewhat quick and dirty but still useful -- standalone
@@ -8,7 +8,10 @@ script that tests the n6lib.auth_api.AuthAPI stuff integrated with the
 n6lib.ldap_api_replacement module (SQL-auth-db-based) instead of the
 legacy n6lib.ldap_api.
 
-To run this script you need to have run mariadb docker container of name mariadb-n6-auth-test on same network.
+By default, to run this script you need a running mariadb docker
+container whose externally visible hostname is `mariadb-n6-auth-test`
+(however, see the comment placed at the beginning of the code of
+`locally_running_db_context()`...).
 
 Note: don't worry about *many* skipped tests and only a few
 actually run; all the tests are "borrowed" from our main AuthAPI
@@ -19,32 +22,55 @@ are no test failures or errors -- everything is OK. :-)
 """
 
 import contextlib
+import datetime as dt
 import logging
 import os
 import sys
-import time
 import unittest
+from time import sleep
+from subprocess import (
+    call,
+    check_call,
+    check_output,
+)
 
-import sqlalchemy
-import sqlalchemy.orm
+import ldap
 from mock import ANY, MagicMock, patch
 
 import n6lib.config
 from n6lib.auth_db import models
+from n6lib.auth_db.config import SimpleSQLAuthDBConnector
+from n6lib.auth_db.scripts import (
+    CreateAndInitializeAuthDB,
+    DropAuthDB,
+)
 from n6lib.auth_api import (
     LDAP_API_REPLACEMENT,
     AuthAPI,
 )
+from n6lib.class_helpers import (
+    all_subclasses,
+    attr_required,
+)
 from n6lib.common_helpers import (
     SimpleNamespace,
+    ascii_str,
+    make_exc_ascii_str,
+    make_hex_id,
 )
-from n6lib.auth_db.config import SimpleSQLAuthDBConnector
+from n6lib.ldap_api_replacement import LdapAPI
 from n6lib.tests import test_auth_api
 
 
-MARIADB_DOCKER_NAME = 'mariadb-n6-auth-test'
+#
+# Constants
+#
+
+MARIADB_STANDARD_HOSTNAME = 'mariadb-n6-auth-test'
 MARIADB_NAME = 'n6authtest'
 MARIADB_PASSWORD = 'n654321'
+MARIADB_ACCESSIBILITY_TIMEOUT = 300
+
 IRRELEVANT_TEST_NAMES = {
     'TestAuthAPI__context_manager',
     'TestAuthAPI__authenticate',
@@ -59,26 +85,31 @@ IRRELEVANT_TEST_NAME_PREFIXES = (
 )
 
 
-db_host = None
+#
+# The main script
+#
 
-def main():
-    global db_host
-
+def main(db_context):
     if not LDAP_API_REPLACEMENT:
         sys.exit('LDAP_API_REPLACEMENT is not true!  Try setting the '
-                 'N6_FORCE_LDAP_API_REPLACEMENT environment variable.')
-
+                 'N6_FORCE_LDAP_API_REPLACEMENT environment variable '
+                 '(to a non-empty value).')
     monkey_patching()
     logging.basicConfig()
+    with db_context:
+        exit_code = run_tests()
+    sys.exit(exit_code)
 
-    db_host = MARIADB_DOCKER_NAME
-    unittest.main(test_auth_api, verbosity=1)
 
+#
+# Monkey patching stuff
+#
 
 def monkey_patching():
     _skip_irrelevant_tests()
     _set_expected_rest_api_resource_limits_to_defaults()
     _patch_AuthAPILdapDataBasedMethodTestMixIn()
+    _patch_TestAuthAPI__get_org_ids_to_notification_configs()
     test_auth_api.LOGGER_error_mock_factory = lambda: SimpleNamespace(call_count=ANY)
     n6lib.config.LOGGER = MagicMock()
 
@@ -104,16 +135,11 @@ def _set_expected_rest_api_resource_limits_to_defaults():
 def _patch_AuthAPILdapDataBasedMethodTestMixIn():
     @contextlib.contextmanager
     def monkey_patched_standard_context(self, search_flat_return_value):
-        create_db()
+        create_and_init_db(timeout=20)
         try:
-            populate_db(test_class_name=self.__class__.__name__)
+            populate_db_with_test_data(self.__class__.__name__)
             with self._singleton_off():
-                self.auth_api = AuthAPI(settings={
-                    'auth_db.url': 'mysql+mysqldb://root:{passwd}@{host}/{name}'.format(
-                        passwd=MARIADB_PASSWORD,
-                        host=db_host,
-                        name=MARIADB_NAME)
-                })
+                self.auth_api = AuthAPI(settings=prepare_auth_db_settings())
                 try:
                     with patch.object(AuthAPI, '_get_root_node',
                                       AuthAPI._get_root_node.func):  # unmemoized (not cached)
@@ -131,60 +157,193 @@ def _patch_AuthAPILdapDataBasedMethodTestMixIn():
     test_auth_api._AuthAPILdapDataBasedMethodTestMixIn.assert_problematic_orgs_logged = \
         monkey_patched_assert_problematic_orgs_logged
 
+def _patch_TestAuthAPI__get_org_ids_to_notification_configs():
+    # (let's delete all cases but the last one; note that
+    # it contains the data from all previous cases)
+    del (test_auth_api.TestAuthAPI__get_org_ids_to_notification_configs
+         ).search_flat_return_values__and__expected_results[:-1]
+
+
+#
+# Tools to collect and execute tests
+#
+
+def run_tests():
+    loader = unittest.defaultTestLoader
+    suite = _make_test_suite(loader)
+    exit_code = _run_test_suite(suite)
+    return exit_code
+
+def _make_test_suite(loader):
+    suite = unittest.TestSuite()
+    suite.addTest(loader.loadTestsFromModule(test_auth_api))
+    suite.addTests(
+        loader.loadTestsFromTestCase(case)
+        for case in mixin_for_tests_of__ldap_api_replacement__LdapAPI.iter_test_case_classes())
+    return suite
+
+def _run_test_suite(suite):
+    # noinspection PyUnresolvedReferences
+    result = unittest.TextTestRunner(verbosity=1).run(suite)
+    exit_code = int(not result.wasSuccessful())
+    return exit_code
+
+
+#
+# Database-related stuff
+#
 
 @contextlib.contextmanager
-def _devnull():
-    f = os.open(os.devnull, os.O_RDWR)
+def external_db_context():
+    global db_host
+
+    db_host = MARIADB_STANDARD_HOSTNAME
     try:
-        yield f
-    finally:
-        os.close(f)
+        # waiting for db (expected to be run externally...)
+        create_and_init_db(timeout=MARIADB_ACCESSIBILITY_TIMEOUT)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            'MARIADB_ACCESSIBILITY_TIMEOUT={} passed and '
+            'still cannot connect to database! ({})'.format(
+                MARIADB_ACCESSIBILITY_TIMEOUT,
+                ascii_str(exc)))
+    else:
+        drop_db()
+        yield
 
 
-def create_db():
-    for i in xrange(20):
+@contextlib.contextmanager
+def locally_running_db_context():
+    # To make this script run the database docker container
+    # automatically (locally, by itself) -- you need to:
+    #
+    # 1) have Docker installed as the '/usr/bin/docker' executable;
+    # 2) place in your sudoers file (see: the `sudoers` and `visudo`
+    #    man pages) the line:
+    #    <your Linux user name>  ALL = NOPASSWD: /usr/bin/docker
+    #    (where `<your Linux user name>` is your Linux user name --
+    #    who would have thought?);
+    # 3) below the `if __name__ == "__main__"` line (near the end of
+    #    this file) -- replace the `main(external_db_context())` call
+    #    with the `main(locally_running_db_context())` call.
+
+    DOCKER_EXECUTABLE = '/usr/bin/docker'
+    MARIADB_DOCKER_NAME = '{}-{}'.format(MARIADB_STANDARD_HOSTNAME,
+                                         make_hex_id(16))
+    MARIADB_RUN_COMMAND = [
+        DOCKER_EXECUTABLE,
+        'run',
+        '--name', MARIADB_DOCKER_NAME,
+        '-e', 'MYSQL_ROOT_PASSWORD=' + MARIADB_PASSWORD,
+        '-d',
+        'mariadb:10',
+    ]
+    MARIADB_GET_IP_COMMAND = [
+        DOCKER_EXECUTABLE,
+        'inspect',
+        '--format', '{{ .NetworkSettings.IPAddress }}',
+        MARIADB_DOCKER_NAME,
+    ]
+    MARIADB_STOP_COMMAND = [
+        DOCKER_EXECUTABLE,
+        'stop',
+        MARIADB_DOCKER_NAME,
+    ]
+    MARIADB_REMOVE_COMMAND = [
+        DOCKER_EXECUTABLE,
+        'rm', '-f', '-v',
+        MARIADB_DOCKER_NAME,
+    ]
+
+    @contextlib.contextmanager
+    def make_devnull():
+        f = os.open(os.devnull, os.O_RDWR)
         try:
-            engine = sqlalchemy.create_engine('mysql+mysqldb://root:{passwd}@{host}'.format(
-                passwd=MARIADB_PASSWORD,
-                host=db_host))
-            try:
-                engine.execute('CREATE DATABASE {}'.format(MARIADB_NAME))
-            finally:
-                engine.dispose()
-        except Exception:
-            time.sleep(1)
+            yield f
+        finally:
+            os.close(f)
+
+    def run_db():
+        shutdown_db()
+        with make_devnull() as devnull:
+            check_call(MARIADB_RUN_COMMAND, stdout=devnull)
+            mariadb_host = check_output(MARIADB_GET_IP_COMMAND).strip()
+        return mariadb_host
+
+    def shutdown_db():
+        with make_devnull() as devnull:
+            call(MARIADB_STOP_COMMAND, stdout=devnull, stderr=devnull)
+            call(MARIADB_REMOVE_COMMAND, stdout=devnull, stderr=devnull)
+
+    global db_host
+
+    db_host = run_db()
+    try:
+        yield
+    finally:
+        shutdown_db()
+
+
+def prepare_auth_db_settings():
+    return {
+        'auth_db.url': 'mysql+mysqldb://root:{passwd}@{host}/{name}'.format(
+            passwd=MARIADB_PASSWORD,
+            host=db_host,
+            name=MARIADB_NAME)
+    }
+
+
+def create_and_init_db(timeout):
+    error_msg = 'no connection attempt made'
+    for i in xrange(int(timeout)):
+        try:
+            CreateAndInitializeAuthDB(
+                    settings=prepare_auth_db_settings(),
+                    drop_db_if_exists=True,
+                    quiet=True,
+                ).run()
+        except Exception as exc:
+            error_msg = make_exc_ascii_str(exc)
+            sleep(1)
         else:
             break
     else:
-        raise RuntimeError('Cannot connect to database...')
-    time.sleep(1)
+        raise RuntimeError('Cannot connect to database... ({})'.format(error_msg))
+    sleep(1)
 
 def drop_db():
-    engine = sqlalchemy.create_engine('mysql+mysqldb://root:{passwd}@{host}'.format(
-        passwd=MARIADB_PASSWORD,
-        host=db_host))
-    try:
-        engine.execute('DROP DATABASE {}'.format(MARIADB_NAME))
-    finally:
-        engine.dispose()
-    time.sleep(1)
+    DropAuthDB(
+            settings=prepare_auth_db_settings(),
+            quiet=True,
+        ).run()
+    sleep(1)
 
-def populate_db(test_class_name):
+def populate_db_with_test_data(auth_api_test_class_name__or__data_maker):
     db = SimpleSQLAuthDBConnector(db_host, MARIADB_NAME, 'root', MARIADB_PASSWORD)
     try:
-        models.Base.metadata.create_all(db.engine)
-        data_maker = _get_data_maker(test_class_name)
+        data_maker = _get_data_maker(auth_api_test_class_name__or__data_maker)
         with db as session:
-            session.add_all(data_maker())
+            session.add_all(data_maker(session))
     finally:
         db.engine.dispose()
-    time.sleep(1)
+    sleep(1)
 
-def _get_data_maker(test_class_name):
-    return globals()['data_maker_for____{}'.format(test_class_name)]
+def _get_data_maker(auth_api_test_class_name__or__data_maker):
+    if isinstance(auth_api_test_class_name__or__data_maker, basestring):
+        auth_api_test_class_name = auth_api_test_class_name__or__data_maker
+        data_maker_name = 'data_maker_for____{}'.format(auth_api_test_class_name)
+        data_maker = globals()[data_maker_name]
+    else:
+        data_maker = auth_api_test_class_name__or__data_maker
+    assert callable(data_maker)
+    return data_maker
 
 
-def data_maker_for____TestAuthAPI__get_user_ids_to_org_ids():
+#
+# Data related to AuthAPI test cases
+#
+
+def data_maker_for____TestAuthAPI__get_user_ids_to_org_ids(session):
     yield models.Org(org_id='o1',
                      users=[models.User(login='login1@foo.bar'),
                             models.User(login='login5@foo.bar')])
@@ -197,46 +356,129 @@ def data_maker_for____TestAuthAPI__get_user_ids_to_org_ids():
                             models.User(login='login6@foo.bar')])
     yield models.Org(org_id='o42')
 
-def data_maker_for____TestAuthAPI__get_org_ids():
+def data_maker_for____TestAuthAPI__get_org_ids(session):
     yield models.Org(org_id='o1')
     yield models.Org(org_id='o2')
     yield models.Org(org_id='o3')
     yield models.Org(org_id='o4')
 
-def data_maker_for____TestAuthAPI__get_anonymized_source_mapping():
+def data_maker_for____TestAuthAPI__get_anonymized_source_mapping(session):
     yield models.Source(source_id='s1.foo', anonymized_source_id='a1.bar')
     yield models.Source(source_id='s2.foo', anonymized_source_id='a2.bar')
     yield models.Source(source_id='s6.foo', anonymized_source_id='a6.bar')
 
-def data_maker_for____TestAuthAPI__get_dip_anonymization_disabled_source_ids():
-    yield models.Source(source_id='s1.foo', dip_anonymization_enabled=True)
-    yield models.Source(source_id='s2.foo', dip_anonymization_enabled=False)
-    yield models.Source(source_id='s3.foo', dip_anonymization_enabled=True)
-    yield models.Source(source_id='s4.foo', dip_anonymization_enabled=False)
-    yield models.Source(source_id='s5.foo')   # omitted -> True                 [sic!]
-    yield models.Source(source_id='s6.foo', dip_anonymization_enabled=False)
-    yield models.Source(source_id='s7.foo', dip_anonymization_enabled=False)  # [sic!]
-    yield models.Source(source_id='s8.foo', dip_anonymization_enabled=True)
+def data_maker_for____TestAuthAPI__get_dip_anonymization_disabled_source_ids(session):
+    yield models.Source(source_id='s1.foo',
+                        anonymized_source_id='a1.bar',
+                        dip_anonymization_enabled=True)
+    yield models.Source(source_id='s2.foo',
+                        anonymized_source_id='a2.bar',
+                        dip_anonymization_enabled=False)
+    yield models.Source(source_id='s3.foo',
+                        anonymized_source_id='a3.bar',
+                        dip_anonymization_enabled=True)
+    yield models.Source(source_id='s4.foo',
+                        anonymized_source_id='a4.bar',
+                        dip_anonymization_enabled=False)
+    yield models.Source(source_id='s5.foo',
+                        anonymized_source_id='a5.bar',
+                        )  # `dip_anonymization_enabled` not set explicitly -> True
+    yield models.Source(source_id='s6.foo',
+                        anonymized_source_id='a6.bar',
+                        dip_anonymization_enabled=False)
+    yield models.Source(source_id='s7.foo',
+                        anonymized_source_id='a7.bar',
+                        dip_anonymization_enabled=False)
+    yield models.Source(source_id='s8.foo',
+                        anonymized_source_id='a8.bar',
+                        dip_anonymization_enabled=True)
 
-def data_maker_for____TestAuthAPI__get_org_ids_to_access_infos():
-    return _data_matching_those_from_auth_related_test_helpers()
+def data_maker_for____TestAuthAPI__get_org_ids_to_access_infos(session):
+    return _data_matching_those_from_auth_related_test_helpers(session)
 
-def data_maker_for____TestAuthAPI__get_source_ids_to_subs_to_stream_api_access_infos():
-    return _data_matching_those_from_auth_related_test_helpers()
+def data_maker_for____TestAuthAPI__get_source_ids_to_subs_to_stream_api_access_infos(session):
+    return _data_matching_those_from_auth_related_test_helpers(session)
 
-def data_maker_for____TestAuthAPI__get_stream_api_enabled_org_ids():
-    raise unittest.SkipTest('test not implemented yet')  # TODO later...
+def data_maker_for____TestAuthAPI__get_stream_api_enabled_org_ids(session):
+    yield models.Org(org_id='o1', stream_api_enabled=True)
+    yield models.Org(org_id='o2', stream_api_enabled=False)
+    yield models.Org(org_id='o3')
+    yield models.Org(org_id='o4', stream_api_enabled=False)
+    yield models.Org(org_id='o5', stream_api_enabled=True)
+    yield models.Org(org_id='o6')
 
-def data_maker_for____TestAuthAPI__get_stream_api_disabled_org_ids():
-    raise unittest.SkipTest('test not implemented yet')  # TODO later...
+def data_maker_for____TestAuthAPI__get_stream_api_disabled_org_ids(session):
+    yield models.Org(org_id='o1', stream_api_enabled=True)
+    yield models.Org(org_id='o2', stream_api_enabled=False)
+    yield models.Org(org_id='o3')
+    yield models.Org(org_id='o4', stream_api_enabled=False)
+    yield models.Org(org_id='o5', stream_api_enabled=True)
+    yield models.Org(org_id='o6')
 
-def data_maker_for____TestAuthAPI__get_source_ids_to_notification_access_info_mappings():
-    return _data_matching_those_from_auth_related_test_helpers()
+def data_maker_for____TestAuthAPI__get_source_ids_to_notification_access_info_mappings(session):
+    return _data_matching_those_from_auth_related_test_helpers(session)
 
-def data_maker_for____TestAuthAPI__get_org_ids_to_notification_configs():
-    raise unittest.SkipTest('test not implemented yet')  # TODO later...
+def data_maker_for____TestAuthAPI__get_org_ids_to_notification_configs(session):
+    yield models.Org(org_id='o1',
+                     email_notification_enabled=True,
+                     email_notification_addresses=[
+                         models.EMailNotificationAddress(email='address@dn.pl'),
+                         models.EMailNotificationAddress(email='address@x.cn'),
+                     ],
+                     email_notification_times=[
+                         models.EMailNotificationTime(notification_time=dt.time(12)),
+                         models.EMailNotificationTime(notification_time=dt.time(9, 15)),
+                     ],
+                     stream_api_enabled=False)
+    yield models.Org(org_id='o2',
+                     actual_name='testname2',
+                     email_notification_enabled=True,
+                     email_notification_addresses=[
+                         models.EMailNotificationAddress(email='address@dn2.pl'),
+                     ],
+                     email_notification_times=[
+                         models.EMailNotificationTime(notification_time=dt.time(9, 15)),
+                         models.EMailNotificationTime(notification_time=dt.time(12)),
+                     ],
+                     email_notification_language='PL',
+                     email_notification_business_days_only=False,
+                     )
+    yield models.Org(org_id='o3',
+                     actual_name='testname3',
+                     email_notification_enabled=True,
+                     email_notification_addresses=[
+                         models.EMailNotificationAddress(email='address@dn32.pl'),
+                         models.EMailNotificationAddress(email='address@dn31.pl'),
+                     ],
+                     email_notification_times=[
+                         models.EMailNotificationTime(notification_time=dt.time(10, 15)),
+                         models.EMailNotificationTime(notification_time=dt.time(13)),
+                     ],
+                     email_notification_language='en',
+                     email_notification_business_days_only=True,
+                     stream_api_enabled=True)
+    yield models.Org(org_id='o4',
+                     email_notification_enabled=False,
+                     email_notification_times=[
+                         models.EMailNotificationTime(notification_time=dt.time(9, 15)),
+                         models.EMailNotificationTime(notification_time=dt.time(12)),
+                     ],
+                     email_notification_addresses=[
+                         models.EMailNotificationAddress(email='address@dn4.pl'),
+                     ])
+    yield models.Org(org_id='o5',
+                     actual_name='testname5',
+                     email_notification_enabled=True,
+                     email_notification_addresses=[
+                         models.EMailNotificationAddress(email='address@dn5.pl'),
+                     ],
+                     email_notification_times=[
+                         models.EMailNotificationTime(notification_time=dt.time(12)),
+                         models.EMailNotificationTime(notification_time=dt.time(9, 15)),
+                     ],
+                     stream_api_enabled=True)
 
-def data_maker_for____TestAuthAPI___get_inside_criteria():
+def data_maker_for____TestAuthAPI___get_inside_criteria(session):
     yield models.Org(org_id='o1',
                      inside_filter_asns=[
                          models.InsideFilterASN(asn=12),
@@ -256,31 +498,32 @@ def data_maker_for____TestAuthAPI___get_inside_criteria():
                          models.InsideFilterURL(url=u'Łódź')])
     yield models.Org(org_id='o2',
                      inside_filter_asns=[models.InsideFilterASN(asn=1234567)])
-    fqdn_example_org = models.InsideFilterFQDN(fqdn='example.org')
     yield models.Org(org_id='o3',
-                     inside_filter_fqdns=[fqdn_example_org])
+                     inside_filter_fqdns=[models.InsideFilterFQDN(fqdn='example.org')])
     yield models.Org(org_id='o4')
     yield models.Org(org_id='abcdefghijklmnoabcdefghijklmno12',
-                     inside_filter_fqdns=[fqdn_example_org])
+                     inside_filter_fqdns=[models.InsideFilterFQDN(fqdn='example.org')])
 
-
-def _data_matching_those_from_auth_related_test_helpers():
+def _data_matching_those_from_auth_related_test_helpers(session):
     ### (see: n6lib.auth_related_test_helpers)
     # criteria containers
-    ASN3 = models.CriteriaASN(asn=3)
+    criteria_category_bots = session.query(models.CriteriaCategory).filter(
+        models.CriteriaCategory.category == 'bots').one()
+    criteria_category_cnc = session.query(models.CriteriaCategory).filter(
+        models.CriteriaCategory.category == 'cnc').one()
     cri1 = models.CriteriaContainer(
         label='cri1',
         criteria_asns=[
             models.CriteriaASN(asn=1),
             models.CriteriaASN(asn=2),
-            ASN3],
+            models.CriteriaASN(asn=3)],
         criteria_ip_networks=[
             models.CriteriaIPNetwork(ip_network='10.0.0.0/8'),
             models.CriteriaIPNetwork(ip_network='192.168.0.0/24')])
     cri2 = models.CriteriaContainer(
         label='cri2',
         criteria_asns=[
-            ASN3,
+            models.CriteriaASN(asn=3),
             models.CriteriaASN(asn=4),
             models.CriteriaASN(asn=5)])
     cri3 = models.CriteriaContainer(
@@ -289,8 +532,8 @@ def _data_matching_those_from_auth_related_test_helpers():
     cri4 = models.CriteriaContainer(
         label='cri4',
         criteria_categories=[
-            models.CriteriaCategory(category='bots'),
-            models.CriteriaCategory(category='cnc')])
+            criteria_category_bots,
+            criteria_category_cnc])
     cri5 = models.CriteriaContainer(
         label='cri5',
         criteria_names=[models.CriteriaName(name='foo')])
@@ -397,48 +640,48 @@ def _data_matching_those_from_auth_related_test_helpers():
     o1 = models.Org(
         org_id='o1',
         org_groups=[go1],
-        full_access=True, stream_api_enabled=True, email_notifications_enabled=True,
+        full_access=True, stream_api_enabled=True, email_notification_enabled=True,
 
         access_to_inside=True,
         inside_subsources=[],
         inside_subsource_groups=[gp1, gp3, gp7],
-        inside_ex_subsources=[],
-        inside_ex_subsource_groups=[],
+        inside_off_subsources=[],
+        inside_off_subsource_groups=[],
 
         access_to_search=True,
         search_subsources=[p2],
-        search_ex_subsources=[p2],
-        search_ex_subsource_groups=[gp2, gp6],
+        search_off_subsources=[p2],
+        search_off_subsource_groups=[gp2, gp6],
 
         access_to_threats=True,
         threats_subsources=[],
         threats_subsource_groups=[gp1, gp3, gp7],
-        threats_ex_subsources=[],
-        threats_ex_subsource_groups=[gp2],
+        threats_off_subsources=[],
+        threats_off_subsource_groups=[gp2],
     )
     o2 = models.Org(
         org_id='o2',
         org_groups=[go1, go3],
-        full_access=False, stream_api_enabled=True, email_notifications_enabled=True,
+        full_access=False, stream_api_enabled=True, email_notification_enabled=True,
 
         access_to_inside=False,
         inside_subsources=[p7, p9],
         inside_subsource_groups=[],
 
         access_to_search=True,
-        search_ex_subsources=[p5, p8],
-        search_ex_subsource_groups=[gp3],
+        search_off_subsources=[p5, p8],
+        search_off_subsource_groups=[gp3],
 
         access_to_threats=True,
         threats_subsources=[p7, p9],
         threats_subsource_groups=[],
-        threats_ex_subsources=[p5],
-        threats_ex_subsource_groups=[gp3],
+        threats_off_subsources=[p5],
+        threats_off_subsource_groups=[gp3],
     )
     o3 = models.Org(
         org_id='o3',
         org_groups=[go2, go3],
-        full_access=False, stream_api_enabled=True, email_notifications_enabled=True,
+        full_access=False, stream_api_enabled=True, email_notification_enabled=True,
 
         access_to_inside=True,
         inside_subsources=[p2],
@@ -447,100 +690,100 @@ def _data_matching_those_from_auth_related_test_helpers():
 
         access_to_threats=True,
         threats_subsources=[p2],
-        threats_ex_subsource_groups=[gp1],
+        threats_off_subsource_groups=[gp1],
     )
     o4 = models.Org(
         org_id='o4',
         org_groups=[go2],
-        full_access=False, stream_api_enabled=True, email_notifications_enabled=True,
+        full_access=False, stream_api_enabled=True, email_notification_enabled=True,
 
         access_to_inside=True,
         inside_subsources=[p5],
-        inside_ex_subsource_groups=[gp8],
+        inside_off_subsource_groups=[gp8],
 
         access_to_search=True,
         search_subsources=[p2, p6, p8],
         search_subsource_groups=[gp4, gp5, gp8],
-        search_ex_subsources=[p6],
-        search_ex_subsource_groups=[gp5, gp6, gp8],
+        search_off_subsources=[p6],
+        search_off_subsource_groups=[gp5, gp6, gp8],
 
         access_to_threats=True,
         threats_subsources=[p5],
-        threats_ex_subsources=[p6],
-        threats_ex_subsource_groups=[gp5],
+        threats_off_subsources=[p6],
+        threats_off_subsource_groups=[gp5],
     )
     o5 = models.Org(
         org_id='o5',
         org_groups=[],
-        stream_api_enabled=True, email_notifications_enabled=True,
+        stream_api_enabled=True, email_notification_enabled=True,
 
         access_to_inside=True,
         inside_subsources=[p4],
         inside_subsource_groups=[gp1, gp5, gp8],
-        inside_ex_subsource_groups=[gp8],
+        inside_off_subsource_groups=[gp8],
 
         access_to_search=True,
         search_subsources=[],
         search_subsource_groups=[],
-        search_ex_subsources=[],
-        search_ex_subsource_groups=[],
+        search_off_subsources=[],
+        search_off_subsource_groups=[],
 
         access_to_threats=True,
         threats_subsources=[p4],
         threats_subsource_groups=[gp1, gp5, gp8],
-        threats_ex_subsources=[p2, p6],
-        threats_ex_subsource_groups=[gp4, gp5],
+        threats_off_subsources=[p2, p6],
+        threats_off_subsource_groups=[gp4, gp5],
     )
     o6 = models.Org(
         org_id='o6',
         org_groups=[go4],
-        full_access=True, stream_api_enabled=True, email_notifications_enabled=True,
+        full_access=True, stream_api_enabled=True, email_notification_enabled=True,
 
         access_to_inside=True,
 
         access_to_search=False,
         search_subsources=[p2, p4, p6],
         search_subsource_groups=[gp4, gp5, gp6, gp8],
-        search_ex_subsource_groups=[gp2, gp6],
+        search_off_subsource_groups=[gp2, gp6],
 
         access_to_threats=False,
     )
     o7 = models.Org(
         org_id='o7',
-        full_access=False, stream_api_enabled=False, email_notifications_enabled=False,
+        full_access=False, stream_api_enabled=False, email_notification_enabled=False,
 
         access_to_inside=True,
         inside_subsources=[p5, p6],
         inside_subsource_groups=[gp1, gp5, gp8],
-        inside_ex_subsources=[p9],
+        inside_off_subsources=[p9],
 
         access_to_search=True,
         search_subsources=[p5, p6],
         search_subsource_groups=[gp1, gp5, gp6, gp8],
-        search_ex_subsource_groups=[gp6],
+        search_off_subsource_groups=[gp6],
 
         access_to_threats=True,
         threats_subsources=[p5, p6],
         threats_subsource_groups=[gp1, gp5, gp8],
-        threats_ex_subsources=[p1, p7],
-        threats_ex_subsource_groups=[gp4],
+        threats_off_subsources=[p1, p7],
+        threats_off_subsource_groups=[gp4],
     )
     o8 = models.Org(
         org_id='o8',
-        stream_api_enabled=False, email_notifications_enabled=False,
+        stream_api_enabled=False, email_notification_enabled=False,
 
         access_to_inside=True,
         inside_subsources=[p4],
         inside_subsource_groups=[gp1, gp5, gp8],
-        inside_ex_subsource_groups=[gp8],
+        inside_off_subsource_groups=[gp8],
 
         access_to_search=False,
 
         access_to_threats=True,
         threats_subsources=[p4],
         threats_subsource_groups=[gp1, gp5, gp8],
-        threats_ex_subsources=[p2, p6],
-        threats_ex_subsource_groups=[gp4, gp5],
+        threats_off_subsources=[p2, p6],
+        threats_off_subsource_groups=[gp4, gp5],
     )
     o9 = models.Org(
         org_id='o9',
@@ -549,13 +792,13 @@ def _data_matching_those_from_auth_related_test_helpers():
         access_to_inside=True,
         inside_subsources=[p4],
         inside_subsource_groups=[gp1, gp5, gp8],
-        inside_ex_subsource_groups=[gp8],
+        inside_off_subsource_groups=[gp8],
 
         access_to_threats=True,
         threats_subsources=[p4],
         threats_subsource_groups=[gp1, gp5, gp8],
-        threats_ex_subsources=[p2, p6],
-        threats_ex_subsource_groups=[gp4, gp5],
+        threats_off_subsources=[p2, p6],
+        threats_off_subsource_groups=[gp4, gp5],
     )
     o10 = models.Org(
         org_id='o10',
@@ -563,13 +806,13 @@ def _data_matching_those_from_auth_related_test_helpers():
         access_to_inside=True,
         inside_subsources=[p4],
         inside_subsource_groups=[gp1, gp5, gp8],
-        inside_ex_subsource_groups=[gp8],
+        inside_off_subsource_groups=[gp8],
 
         access_to_threats=True,
         threats_subsources=[p4],
         threats_subsource_groups=[gp1, gp5, gp8],
-        threats_ex_subsources=[p2, p6],
-        threats_ex_subsource_groups=[gp4, gp5],
+        threats_off_subsources=[p2, p6],
+        threats_off_subsource_groups=[gp4, gp5],
     )
     o11 = models.Org(
         org_id='o11',
@@ -581,13 +824,13 @@ def _data_matching_those_from_auth_related_test_helpers():
     o12 = models.Org(
         org_id='o12',
         org_groups=[go1],
-        full_access=False, stream_api_enabled=True, email_notifications_enabled=True,
+        full_access=False, stream_api_enabled=True, email_notification_enabled=True,
 
         inside_subsources=[p1],
 
         search_subsources=[p1],
-        search_ex_subsources=[p8],
-        search_ex_subsource_groups=[gp6],
+        search_off_subsources=[p8],
+        search_off_subsource_groups=[gp6],
 
         threats_subsources=[p1],
     )
@@ -601,5 +844,313 @@ def _data_matching_those_from_auth_related_test_helpers():
     ]
 
 
+#
+# Some direct tests of n6lib.ldap_api_replacement.LdapAPI
+#
+
+class mixin_for_tests_of__ldap_api_replacement__LdapAPI(object):
+
+    @classmethod
+    def iter_test_case_classes(cls):
+        for subclass in all_subclasses(cls):
+            if isinstance(subclass, type) and issubclass(subclass, unittest.TestCase):
+                yield subclass
+
+    # noinspection PyUnresolvedReferences
+    def setUp(self):
+        self.INVALID_CREDENTIALS = ldap.INVALID_CREDENTIALS
+
+        self.addCleanup(drop_db)
+        create_and_init_db(timeout=20)
+        populate_db_with_test_data(self.data_maker)
+
+        self.ldap_api = LdapAPI(settings=prepare_auth_db_settings())
+
+    @staticmethod
+    def data_maker(session):
+        raise NotImplementedError
+
+
+class _test_of__ldap_api_replacement__LdapAPI__authenticate_with_password(
+        mixin_for_tests_of__ldap_api_replacement__LdapAPI,
+        unittest.TestCase):
+
+    @staticmethod
+    def data_maker(session):
+        o1 = models.Org(org_id='o1')
+        o2 = models.Org(org_id='o2')
+        o3 = models.Org(org_id='o3')
+        u1 = models.User(
+            login='some@example.com',
+            password=models.User.get_password_hash_or_none('qwe123'),
+            org=o1,
+        )
+        u2 = models.User(
+            login='withnull@example.com',
+            # `password` omitted -> NULL
+            org=o1,
+        )
+        u3 = models.User(
+            login='withnullagain@example.com',
+            password=None,  # `password` explicitly specified as NULL
+            org=o1,
+        )
+        u4 = models.User(
+            login='withempty@example.com',
+            password='',      # `password` empty!
+            org=o1,
+        )
+        u5 = models.User(
+            login='withunhashed@example.com',
+            password='qwe123',  # `password` unhashed!
+            org=o1,
+        )
+        u6 = models.User(
+            login='another@example.com',
+            password=models.User.get_password_hash_or_none('qwe123'),
+            org=o1,
+        )
+        u7 = models.User(
+            login='yetanother@example.com',
+            password=models.User.get_password_hash_or_none('qwe123'),
+            org=o2,
+        )
+        u8 = models.User(
+            login='andyetanother@example.com',
+            password=models.User.get_password_hash_or_none('kukuRyQu'),
+            org=o2,
+        )
+        return [
+            o1, o2, o3,
+            u1, u2, u3, u4, u5, u6, u7, u8,
+        ]
+
+    def test__success_1(self):
+        self.ldap_api.authenticate_with_password('o1', 'some@example.com', 'qwe123')
+
+    def test__success_2(self):
+        self.ldap_api.authenticate_with_password(u'o1', 'another@example.com', u'qwe123')
+
+    def test__success_3(self):
+        self.ldap_api.authenticate_with_password(u'o2', u'yetanother@example.com', 'qwe123')
+
+    def test__success_4(self):
+        self.ldap_api.authenticate_with_password('o2', u'andyetanother@example.com', u'kukuRyQu')
+
+    def test__password_wrong_1(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password(u'o1', u'some@example.com', u'kukuRyQu')
+
+    def test__password_wrong_2(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o2', 'andyetanother@example.com', 'qwe123')
+
+    def test__password_empty(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o1', 'some@example.com', '')
+
+    def test__password_nonempty_against_null_1(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o1', 'withnull@example.com', 'qwe123')
+
+    def test__password_nonempty_against_null_2(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o1', 'withnullagain@example.com', u'qwe123')
+
+    def test__password_empty_against_null_1(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o1', 'withnull@example.com', '')
+
+    def test__password_empty_against_null_2(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password(u'o1', u'withnullagain@example.com', u'')
+
+    def test__password_nonempty_against_empty(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o1', 'withempty@example.com', 'qwe123')
+
+    def test__password_empty_against_empty(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o1', 'withempty@example.com', '')
+
+    def test__user_not_matching_org_1(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password(u'o1', u'yetanother@example.com', u'qwe123')
+
+    def test__user_not_matching_org_2(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o2', 'some@example.com', 'qwe123')
+
+    def test__user_not_matching_org_3(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o2', 'some@example.com', 'qwe123')
+
+    def test__nonexistent_user_1(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o1', 'nonext@example.com', u'qwe123')
+
+    def test__nonexistent_user_2(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('o3', 'nonext@example.com', 'qwe123')
+
+    def test__nonexistent_org(self):
+        with self.assertRaises(self.INVALID_CREDENTIALS):
+            self.ldap_api.authenticate_with_password('nonext', 'some@example.com', 'qwe123')
+
+    # the following 3 tests concern cases related to
+    # invalid data in the Auth DB: unhashed `password`
+
+    def test__password_against_unhashed(self):
+        with self.assertRaises(ValueError):
+            self.ldap_api.authenticate_with_password('o1', 'withunhashed@example.com', 'qwe123')
+
+    def test__password_wrong_against_unhashed(self):
+        with self.assertRaises(ValueError):
+            self.ldap_api.authenticate_with_password('o1', u'withunhashed@example.com', 'kukuRyQu')
+
+    def test__password_empty_against_unhashed(self):
+        with self.assertRaises(ValueError):
+            self.ldap_api.authenticate_with_password(u'o1', 'withunhashed@example.com', '')
+
+
+class _mixin_for_tests_of__ldap_api_replacement__LdapAPI__search_structured(
+        mixin_for_tests_of__ldap_api_replacement__LdapAPI):
+
+    expected_result = None
+
+    @attr_required('expected_result')
+    def test(self):
+        with self.ldap_api:
+            actual_result = self.ldap_api.search_structured()
+        # noinspection PyUnresolvedReferences
+        self.assertEqual(self.expected_result, actual_result)
+
+
+class _test_of__ldap_api_replacement__LdapAPI__search_structured__empty_db(
+        _mixin_for_tests_of__ldap_api_replacement__LdapAPI__search_structured,
+        unittest.TestCase):
+
+    @staticmethod
+    def data_maker(session):
+        return []
+
+    expected_result = {
+        'ou': {
+            'orgs': {'attrs': {'ou': [u'orgs']}},
+            'org-groups': {'attrs': {'ou': [u'org-groups']}},
+            'subsource-groups': {'attrs': {'ou': [u'subsource-groups']}},
+            'sources': {'attrs': {'ou': [u'sources']}},
+            'criteria': {'attrs': {'ou': [u'criteria']}},
+            'components': {'attrs': {'ou': [u'components']}},
+            'system-groups': {'attrs': {'ou': [u'system-groups']}},
+        },
+        'attrs': {},
+    }
+
+
+class _test_of__ldap_api_replacement__LdapAPI__search_structured__example_nonempty_db(
+        _mixin_for_tests_of__ldap_api_replacement__LdapAPI__search_structured,
+        unittest.TestCase):
+
+    @staticmethod
+    def data_maker(session):
+        criteria_category_bots = session.query(models.CriteriaCategory).filter(
+            models.CriteriaCategory.category == 'bots').one()
+        yield models.CriteriaContainer(
+                         label='crit1',
+                         criteria_categories=[criteria_category_bots])
+        yield models.Org(org_id='o1',
+                         email_notification_enabled=True,
+                         email_notification_addresses=[
+                             models.EMailNotificationAddress(email='address@x.foo'),
+                         ],
+                         org_groups=[
+                             models.OrgGroup(org_group_id='og1', comment=u'Oh! Zażółć \U0001f340'),
+                         ],
+                         users=[
+                             models.User(login='foo@example.org'),
+                             models.User(login='spam@example.org', password='spam'),
+                         ])
+
+    expected_result = {
+        'ou': {
+            'orgs': {
+                'attrs': {'ou': [u'orgs']},
+                'o': {
+                    'o1': {
+                        'attrs': {
+                            'o': [u'o1'],
+                            'n6rest-api-full-access': ['FALSE'],
+                            'n6stream-api-enabled': ['FALSE'],
+                            'n6email-notifications-enabled': ['TRUE'],
+                            'n6email-notifications-address': [
+                                u'address@x.foo',
+                            ],
+                            'n6email-notifications-business-days-only': ['FALSE'],
+                            'n6org-group-refint': [
+                                u'cn=og1,ou=org-groups,dc=n6,dc=cert,dc=pl',
+                            ]
+                        },
+                        'n6login': {
+                            'foo@example.org': {
+                                'attrs': {
+                                    'n6login': [u'foo@example.org'],
+                                }
+                            },
+                            'spam@example.org': {
+                                'attrs': {
+                                    'n6login': [u'spam@example.org'],
+                                    # note: password is consciously omitted
+                                }
+                            },
+                        },
+                        'cn': {
+                            'inside': {'attrs': {'cn': [u'inside']}},
+                            'inside-ex': {'attrs': {'cn': [u'inside-ex']}},
+                            'search': {'attrs': {'cn': [u'search']}},
+                            'search-ex': {'attrs': {'cn': [u'search-ex']}},
+                            'threats': {'attrs': {'cn': [u'threats']}},
+                            'threats-ex': {'attrs': {'cn': [u'threats-ex']}},
+                        },
+                    },
+                },
+            },
+            'org-groups': {
+                'attrs': {'ou': [u'org-groups']},
+                'cn': {
+                    'og1': {
+                        'attrs': {
+                            'cn': [u'og1'],
+                            'description': [u'Oh! Zażółć \U0001f340'],
+                        },
+                        'cn': {
+                            'inside': {'attrs': {'cn': [u'inside']}},
+                            'search': {'attrs': {'cn': [u'search']}},
+                            'threats': {'attrs': {'cn': [u'threats']}},
+                        },
+                    },
+                }
+            },
+            'subsource-groups': {'attrs': {'ou': [u'subsource-groups']}},
+            'sources': {'attrs': {'ou': [u'sources']}},
+            'criteria': {
+                'attrs': {'ou': [u'criteria']},
+                'cn': {
+                    'crit1': {
+                        'attrs': {
+                            'cn': [u'crit1'],
+                            'n6category': [u'bots'],
+                        }
+                    }
+                }
+            },
+            'components': {'attrs': {'ou': [u'components']}},
+            'system-groups': {'attrs': {'ou': [u'system-groups']}},
+        },
+        'attrs': {},
+    }
+
+
 if __name__ == "__main__":
-    main()
+    main(external_db_context())
+    #main(locally_running_db_context())

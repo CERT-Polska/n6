@@ -4,20 +4,28 @@ import datetime
 import hashlib
 import unittest
 
-from mock import Mock, call, patch, sentinel
+from mock import ANY, Mock, call, patch, sentinel
 from unittest_expander import expand, foreach, param
 
-from n6lib.common_helpers import SimpleNamespace
+from n6lib.common_helpers import (
+    SimpleNamespace,
+    reduce_indent,
+)
 from n6lib.config import ConfigError, ConfigSection
 from n6lib.email_message import EmailMessage
-from n6lib.unit_test_helpers import patch_always
+from n6lib.unit_test_helpers import (
+    AnyDictIncluding,
+    patch_always,
+)
 from n6.base.queue import QueuedBase
 from n6.collectors.generic import (
     BaseCollector,
     BaseOneShotCollector,
     BaseEmailSourceCollector,
+    BaseTimeOrderedRowsCollector,
     BaseUrlDownloaderCollector,
 )
+from n6.tests.collectors._collectors_test_helpers import _BaseCollectorTestCase
 
 
 SAMPLE_ARG_A = sentinel.a
@@ -583,3 +591,100 @@ class TestBaseUrlDownloaderCollector___try_to_set_http_last_modified(unittest.Te
         self.instance._try_to_set_http_last_modified(headers)
         self.assertEqual(self.instance._http_last_modified,
                          expected__http_last_modified)
+
+
+class TestXXX(_BaseCollectorTestCase):
+
+    class ExampleTimeOrderedRowsCollector(BaseTimeOrderedRowsCollector):
+
+        config_spec = '''
+            [xyz_my_channel]
+            source :: str
+            cache_dir :: str
+        '''
+
+        example_orig_data = None  # to be set on instance by test code...
+
+        def obtain_orig_data(self):
+            return self.example_orig_data
+
+        def extract_row_time(self, row):
+            fields = row.split(',')
+            time_field = fields[1]
+            row_time = time_field.strip().strip('"')
+            return row_time
+
+        def get_source_channel(self, **kwargs):
+            return 'my-channel'
+
+        # XXX: to be removed (rather...)
+        def get_output_prop_kwargs(self, **kwargs):
+            output_prop_kwargs = super(TestXXX.ExampleTimeOrderedRowsCollector,
+                                       self).get_output_prop_kwargs(**kwargs)
+            output_prop_kwargs['headers'].setdefault('meta', {})['proba'] = '123'
+            return output_prop_kwargs
+
+
+    def test(self):
+        config_content = '''
+            [xyz_my_channel]
+            source = xyz
+            cache_dir = /who/cares
+        '''
+        initial_state = {
+            'newest_row_time': '2019-07-02',
+            'newest_rows': {'"sss", "2019-07-02"'},
+        }
+        orig_data = (
+            '# halo, mówię...\n'
+            '"ham", "2019-07-11"\n'
+            '"spam", "2019-07-11"\n'
+            '\t\n'
+            '"zzz", "2019-07-10"\n'
+            '"egg", "2019-07-02"\n'
+            '"sss", "2019-07-02"\n'
+            '\n'
+            '"bar", "2019-07-01"\n'
+            '"foo", "2019-06-30"\n'
+        )
+        expected_publish_output_calls = [
+            call(
+                # routing_key
+                'xyz.my-channel',
+
+                # body
+                (
+                    '"ham", "2019-07-11"\n'
+                    '"spam", "2019-07-11"\n'
+                    '"zzz", "2019-07-10"\n'
+                    '"egg", "2019-07-02"'
+                ),
+
+                # prop_kwargs
+                {
+                    'timestamp': ANY,
+                    'message_id': ANY,
+                    'type': 'file',
+                    'content_type': 'text/csv',
+                    'headers': AnyDictIncluding(**{
+                        'meta': {
+                            'proba': '123',
+                        }
+                    }),
+                },
+            ),
+        ]
+        expected_saved_state = {
+            'newest_row_time': '2019-07-11',
+            'newest_rows': {'"ham", "2019-07-11"', '"spam", "2019-07-11"'},
+        }
+
+        collector = self.prepare_collector(self.ExampleTimeOrderedRowsCollector,
+                                           config_content=config_content,
+                                           initial_state=initial_state)
+        collector.example_orig_data = orig_data
+
+        collector.run_handling()
+
+        self.assertEqual(self.publish_output_mock.mock_calls, expected_publish_output_calls)
+        self.assertEqual(self.saved_state, expected_saved_state)

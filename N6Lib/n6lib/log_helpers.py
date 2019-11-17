@@ -23,6 +23,7 @@ from n6lib.amqp_getters_pushers import AMQPThreadedPusher, DoNotPublish
 from n6lib.common_helpers import (
     ascii_str,
     dump_condensed_debug_msg,
+    limit_string,
     make_condensed_debug_msg,
     safe_eval,
 )
@@ -196,6 +197,7 @@ class AMQPHandler(logging.Handler):
         'hostname': HOSTNAME,
         'script_basename': SCRIPT_BASENAME,
     }
+    LOGRECORD_KEY_MAX_LENGTH = 256
 
     DEFAULT_MSG_COUNT_WINDOW = 300
     DEFAULT_MSG_COUNT_MAX = 100
@@ -287,6 +289,7 @@ class AMQPHandler(logging.Handler):
         formatter = logging.Formatter()
         json_encode = json.JSONEncoder(default=reprlib.repr).encode
         record_attrs_proto = self.LOGRECORD_EXTRA_ATTRS
+        record_key_max_length = self.LOGRECORD_KEY_MAX_LENGTH
         match_useless_stack_item_regex = re.compile(
                 r'  File "[ \S]*/python[0-9.]+/logging/__init__\.py\w?"'
             ).match
@@ -340,7 +343,10 @@ class AMQPHandler(logging.Handler):
             if not _should_publish(record):
                 return DoNotPublish
             record_attrs = record_attrs_proto.copy()
-            record_attrs.update(vars(record))
+            record_attrs.update((limit_string(ascii_str(key),
+                                              char_limit=record_key_max_length),
+                                 value)
+                                for key, value in vars(record).items())
             record_attrs['message'] = record.getMessage()
             record_attrs['asctime'] = formatter.formatTime(record)
             exc_info = record_attrs.pop('exc_info', None)

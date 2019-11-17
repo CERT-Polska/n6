@@ -18,16 +18,12 @@ from n6lib.data_spec import (
 from n6lib.pyramid_commons import (
     N6ConfigHelper,
     N6DefaultStreamViewBase,
-    DeviceRequestPostViewBase,
-    DeviceRequestGetViewBase,
     SSLUserAuthenticationPolicy,
 )
 from n6lib.pyramid_commons.renderers import StreamRenderer_iodef
 from n6sdk.pyramid_commons import (
     HttpResource,
 )
-
-ManageAPI = None  # TODO: remove whole request-case-related stuff
 
 
 
@@ -182,22 +178,6 @@ DATA_RESOURCES = [
     ),
 ]
 
-REQUEST_CASE_RESOURCES = []
-if DeviceRequestPostViewBase is not None:
-    REQUEST_CASE_RESOURCES.append(
-        HttpResource(
-            resource_id='/device/request',
-            url_pattern='/device/request',
-            view_base=DeviceRequestPostViewBase,
-        ))
-if DeviceRequestGetViewBase is not None:
-    REQUEST_CASE_RESOURCES.append(
-        HttpResource(
-            resource_id='/device/request/id',
-            url_pattern='/device/request/{request_id}',
-            view_base=DeviceRequestGetViewBase,
-        ))
-
 
 
 def main(global_config, **settings):
@@ -206,7 +186,7 @@ def main(global_config, **settings):
         data_backend_api_class=N6DataBackendAPI,
         auth_api_class=AuthAPI,
         authentication_policy=SSLUserAuthenticationPolicy(settings),
-        resources=DATA_RESOURCES + REQUEST_CASE_RESOURCES,
+        resources=DATA_RESOURCES,
     ).make_wsgi_app()
 
 

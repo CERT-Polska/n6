@@ -4,32 +4,47 @@
 Collectors: abuse-ch.spyeye-doms, abuse-ch.spyeye-ips,
 abuse-ch.zeus-doms, abuse-ch.zeus-ips, abuse-ch.zeustracker,
 abuse-ch.palevo-doms, abuse-ch.palevo-ips, abuse-ch.feodotracker,
-abuse-ch.ransomware, abuse-ch.ssl-blacklist,
-abuse-ch.ssl-blacklist-dyre, abuse-ch.urlhaus-urls
+abuse-ch.ransomware, abuse-ch.ssl-blacklist, abuse-ch.ssl-blacklist-dyre,
+abuse-ch.urlhaus-urls
 """
 
-import csv
 import json
+import operator
+import os
 import re
+import shutil
 import sys
-from collections import MutableMapping
-from cStringIO import StringIO
-from datetime import datetime
+import tempfile
+import zipfile
 
+from bs4 import BeautifulSoup
 from lxml import html
-from lxml.etree import ParserError, XMLSyntaxError
+from lxml.etree import (
+    ParserError,
+    XMLSyntaxError,
+)
 
 from n6.collectors.generic import (
-    BaseRSSCollector,
-    BaseUrlDownloaderCollector,
+    BaseCollector,
+    BaseDownloadingTimeOrderedRowsCollector,
     BaseOneShotCollector,
+    BaseUrlDownloaderCollector,
+    BaseRSSCollector,
     CollectorWithStateMixin,
     entry_point_factory,
 )
+from n6lib.common_helpers import (
+    make_exc_ascii_str,
+    read_file,
+)
+from n6lib.datetime_helpers import parse_iso_datetime_to_utc
+from n6lib.http_helpers import RequestPerformer
 from n6lib.log_helpers import get_logger
 
 
+
 LOGGER = get_logger(__name__)
+
 
 
 class NoNewDataException(Exception):
@@ -39,7 +54,8 @@ class NoNewDataException(Exception):
     """
 
 
-class _BaseAbuseChMixin(object):
+
+class _BaseAbuseChRealBlacklist201406Mixin(object):
 
     raw_format_version_tag = '201406'
     type = 'blacklist'
@@ -48,7 +64,9 @@ class _BaseAbuseChMixin(object):
         return data
 
 
-class AbuseChSpyeyeDomsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, BaseOneShotCollector):
+class AbuseChSpyeyeDomsCollector(_BaseAbuseChRealBlacklist201406Mixin,
+                                 BaseUrlDownloaderCollector,
+                                 BaseOneShotCollector):
 
     config_group = "abusech_spyeye_doms"
     content_type = 'text/plain'
@@ -57,7 +75,9 @@ class AbuseChSpyeyeDomsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, 
         return "spyeye-doms"
 
 
-class AbuseChSpyeyeIpsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, BaseOneShotCollector):
+class AbuseChSpyeyeIpsCollector(_BaseAbuseChRealBlacklist201406Mixin,
+                                BaseUrlDownloaderCollector,
+                                BaseOneShotCollector):
 
     config_group = "abusech_spyeye_ips"
     content_type = 'text/plain'
@@ -66,7 +86,9 @@ class AbuseChSpyeyeIpsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, B
         return "spyeye-ips"
 
 
-class AbuseChZeusDomsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, BaseOneShotCollector):
+class AbuseChZeusDomsCollector(_BaseAbuseChRealBlacklist201406Mixin,
+                               BaseUrlDownloaderCollector,
+                               BaseOneShotCollector):
 
     config_group = "abusech_zeus_doms"
     content_type = 'text/plain'
@@ -75,7 +97,9 @@ class AbuseChZeusDomsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, Ba
         return "zeus-doms"
 
 
-class AbuseChZeusIpsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, BaseOneShotCollector):
+class AbuseChZeusIpsCollector(_BaseAbuseChRealBlacklist201406Mixin,
+                              BaseUrlDownloaderCollector,
+                              BaseOneShotCollector):
 
     config_group = "abusech_zeus_ips"
     content_type = 'text/plain'
@@ -84,7 +108,9 @@ class AbuseChZeusIpsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, Bas
         return "zeus-ips"
 
 
-class AbuseChPalevoDomsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, BaseOneShotCollector):
+class AbuseChPalevoDomsCollector(_BaseAbuseChRealBlacklist201406Mixin,
+                                 BaseUrlDownloaderCollector,
+                                 BaseOneShotCollector):
 
     config_group = "abusech_palevo_doms"
     content_type = 'text/plain'
@@ -93,13 +119,16 @@ class AbuseChPalevoDomsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, 
         return "palevo-doms"
 
 
-class AbuseChPalevoIpsCollector(_BaseAbuseChMixin, BaseUrlDownloaderCollector, BaseOneShotCollector):
+class AbuseChPalevoIpsCollector(_BaseAbuseChRealBlacklist201406Mixin,
+                                BaseUrlDownloaderCollector,
+                                BaseOneShotCollector):
 
     config_group = "abusech_palevo_ips"
     content_type = 'text/plain'
 
     def get_source_channel(self, **kwargs):
         return "palevo-ips"
+
 
 
 class AbuseChZeusTrackerCollector(BaseRSSCollector):
@@ -119,80 +148,20 @@ class AbuseChZeusTrackerCollector(BaseRSSCollector):
         return (title, description)
 
 
-class AbuseChFeodoTrackerCollector(BaseRSSCollector):
 
-    config_group = "abusech_feodotracker"
+class AbuseChSSLBlacklistDyreCollector(CollectorWithStateMixin, BaseRSSCollector):
+    # Note that, contrary to its name, it is an *event-based* source
 
-    def get_source_channel(self, **kwargs):
-        return 'feodotracker'
-
-    def rss_item_to_relevant_data(self, item):
-        description = None
-        for i in item:
-            if i.tag == 'description':
-                description = i.text
-        return (description)
-
-
-class AbuseChRansomwareTrackerCollector(CollectorWithStateMixin,
-                                        BaseUrlDownloaderCollector,
-                                        BaseOneShotCollector):
-
-    type = 'file'
-    config_group = "abusech_ransomware"
-    content_type = 'text/csv'
-    timestamp_pattern = '%Y-%m-%d %H:%M:%S'
-
-    def __init__(self, *args, **kwargs):
-        super(AbuseChRansomwareTrackerCollector, self).__init__(*args, **kwargs)
-        self._state = self.load_state()
-        if not isinstance(self._state, MutableMapping):
-            self._state = {
-                'timestamp': None,
-            }
-        if not self._state['timestamp']:  # first run of collector
-            self.timestamp = '1970-01-01 00:00:00'
-        else:
-            self.timestamp = self._state['timestamp']
-
-    def get_source_channel(self, **kwargs):
-        return "ransomware"
-
-    def process_data(self, data):
-        output = StringIO()
-        writer = csv.writer(output, delimiter=',', quotechar='"')
-        rows = csv.reader(StringIO(data), delimiter=',', quotechar='"')
-        newest_entry = None
-        for row in rows:
-            if not row or row[0].startswith('#'):
-                continue
-            timestamp = datetime.strptime(row[0], self.timestamp_pattern)
-            if not newest_entry:
-                newest_entry = row[0]
-            if timestamp > datetime.strptime(self.timestamp, self.timestamp_pattern):
-                writer.writerow(row)
-            else:
-                break
-        if newest_entry:
-            self._state['timestamp'] = newest_entry
-        return output.getvalue()
-
-    def start_publishing(self):
-        """
-        Extend the method to save the date of the latest entry.
-        """
-        super(AbuseChRansomwareTrackerCollector, self).start_publishing()
-        self.save_state(self._state)
-
-
-class _AbuseChSSLBlacklistBaseCollector(CollectorWithStateMixin, BaseRSSCollector):
-
-    """
-    Base collector class for 'SSL Blacklist' and 'SSL Blacklist Dyre'
-    sources.
-
-    Note that, contrary to their names, they are *event-based* sources.
-    """
+    config_spec = '''
+        [abusech_ssl_blacklist_dyre]
+        source :: str
+        url :: str
+        cache_dir :: str
+        download_timeout :: int
+        retry_timeout :: int
+        details_download_timeout = 12 :: int
+        details_retry_timeout = 4 :: int
+    '''
 
     # XPath to main table's records.
     details_xpath = "//table[@class='tlstable']//th[text()='{field}']/following-sibling::td"
@@ -226,11 +195,11 @@ class _AbuseChSSLBlacklistBaseCollector(CollectorWithStateMixin, BaseRSSCollecto
 
 
     def __init__(self, *args, **kwargs):
-        super(_AbuseChSSLBlacklistBaseCollector, self).__init__(*args, **kwargs)
+        super(AbuseChSSLBlacklistDyreCollector, self).__init__(*args, **kwargs)
         self._rss_feed_url = self.config['url']
         # separate timeouts for downloading detail pages
-        self._details_download_timeout = int(self.config.get('details_download_timeout', 12))
-        self._details_retry_timeout = int(self.config.get('details_retry_timeout', 4))
+        self._details_download_timeout = self.config['details_download_timeout']
+        self._details_retry_timeout = self.config['details_retry_timeout']
         # attribute to store data created from
         # detail pages, before deduplication
         self._complete_data = None
@@ -239,11 +208,14 @@ class _AbuseChSSLBlacklistBaseCollector(CollectorWithStateMixin, BaseRSSCollecto
         try:
             self._output_components = self.get_output_components(**self.input_data)
         except NoNewDataException:
-            LOGGER.info('No new data from the %s source.', self.source_name)
+            LOGGER.info('No new data from the Abuse.CH SSL Blacklist Dyre source.')
         else:
             self.run()
         self.save_state(self._complete_data)
         LOGGER.info('Stopped')
+
+    def get_source_channel(self, **kwargs):
+        return "ssl-blacklist-dyre"
 
     def get_output_data_body(self, **kwargs):
         """
@@ -407,296 +379,82 @@ class _AbuseChSSLBlacklistBaseCollector(CollectorWithStateMixin, BaseRSSCollecto
                     new_data_body.pop(url)
 
 
-class AbuseChSSLBlacklistCollector(CollectorWithStateMixin,
-                                   BaseUrlDownloaderCollector,
-                                   BaseOneShotCollector):
 
-    config_spec = '''
-        [abusech_ssl_blacklist]
-        source :: str
-        cache_dir :: str
-        url :: str
-        download_timeout :: int
-        retry_timeout :: int
-    '''
-    raw_format_version_tag = '201902'
-    type = 'file'
-    content_type = 'text/csv'
+class _BaseAbuseChDownloadingTimeOrderedRowsCollector(BaseDownloadingTimeOrderedRowsCollector):
 
+    row_time_legacy_state_key = None
+    time_field_index = None
 
-    def run_handling(self):
-        self._state = self._load_state_or_get_default_state()
-        # see BaseUrlDownloaderCollector.run_handling()
-        super(AbuseChSSLBlacklistCollector, self).run_handling()
+    @property
+    def source_config_section(self):
+        return 'abusech_{}'.format(self.get_source_channel().replace('-', '_'))
 
-
-    def _load_state_or_get_default_state(self):
-        state = self.load_state()
-        if state is None:
-            state = {'time': '', 'sha1s': set()}
-        return state
-
-
-    def process_data(self, data):
-        all_rows = data.split('\n')
-        fresh_rows = self._get_fresh_rows_only(all_rows)
-        if fresh_rows:
-            return '\n'.join(fresh_rows)
-        return None
-
-
-    def _get_fresh_rows_only(self, all_rows):
-        # the *previously newest* abuse time
-        prev_newest_time = self._state['time']
-
-        # abuse IDs from the rows with the *previously newest* abuse time
-        # that have already been collected
-        prev_newest_time_sha1s = self._state['sha1s']
-
-        newest_time = None
-        newest_time_sha1s = set()
-        fresh_rows = []
-
-        preceding_row_time = None  # (for asserts only)
-
-        for row in all_rows:
-            if row.startswith('#') or not row.strip():
-                # row is commented or blank -> skip it
-                continue
-
-            # each row (if not commented or blank) consists of (possibly
-            # quoted, comma-separated):
-            # 1) listing date (abuse time in some *sortable* format (ISO-8601-like)),
-            # 2) abuse SHA1,
-            # 3) listing reason (irrelevant here)
-            (row_time,
-             row_sha1,
-             _) = [column for column in row.split(',', 2)]
-
-            if __debug__:
-                # we assume that time values in consecutive rows are monotonic
-                # (non-increasing, possibly repeating)
-                assert (preceding_row_time is None
-                        or row_time <= preceding_row_time)
-                preceding_row_time = row_time
-
-            if row_time < prev_newest_time:
-                # stop collecting when reached rows which are old enough
-                # that we are sure they must have already been collected
-                break
-
-            if newest_time is None:
-                # this is the first (newest) actual (not blank/commented)
-                # row in the downloaded file -- so here we have the *newest*
-                # abuse time
-                newest_time = row_time
-
-            if row_time == newest_time:
-                # this row is amongst those with the *newest* abuse time
-                newest_time_sha1s.add(row_sha1)
-
-            if row_sha1 in prev_newest_time_sha1s:
-                # this row is amongst those with the *previously newest*
-                # abuse time, *and* we know that it has already been
-                # collected -> so we *skip* it
-                assert row_time == prev_newest_time
-                continue
-
-            # this row have *not* been collected yet -> let's collect it
-            # now (in its original form, i.e., without any modifications)
-            fresh_rows.append(row)
-
-        if fresh_rows:
-            self._state = {
-                # the *newest* abuse time
-                'time': newest_time,
-                # abuse SHA1s from all rows with the *newest* abuse time
-                'sha1s': newest_time_sha1s,
+    def load_state(self):
+        state = super(_BaseAbuseChDownloadingTimeOrderedRowsCollector, self).load_state()
+        if self.row_time_legacy_state_key and self.row_time_legacy_state_key in state:
+            # got `state` is a legacy form
+            row_time = self._normalize_row_time(state[self.row_time_legacy_state_key])
+            state = {
+                # note: one or a few rows (those containing this "boundary"
+                # time value) will be duplicated, but we can live with that
+                self._NEWEST_ROW_TIME_STATE_KEY: row_time,
+                self._NEWEST_ROWS_STATE_KEY: set(),
             }
-        return fresh_rows
-
-
-    def get_output_prop_kwargs(self, source, output_data_body, **processed_data):
-        if output_data_body is None:
-            # process_data() [see above...] returned None (nothing to be published)
-            return None
-        # see BaseUrlDownloaderCollector.get_output_prop_kwargs()
-        return super(AbuseChSSLBlacklistCollector, self).get_output_prop_kwargs(source,
-                                                                                output_data_body,
-                                                                                **processed_data)
-
-
-    # note: this method is called *only*
-    # [see BaseUrlDownloaderCollector.run_handling()]
-    # if process_data() [see above...] returned some data (not None)
-    def start_publishing(self):
-        # see BaseOneShotCollector.start_publishing()
-        super(AbuseChSSLBlacklistCollector, self).start_publishing()
-        self.save_state(self._state)
-
-
-    @property
-    def source_name(self):
-        return "Abuse.ch SSL Blacklist Collector"
-
-    def get_source_channel(self, **kwargs):
-        return "ssl-blacklist"
-
-
-class AbuseChSSLBlacklistDyreCollector(_AbuseChSSLBlacklistBaseCollector):
-
-    config_group = "abuse_ch_ssl_blacklist_dyre"
-
-    @property
-    def source_name(self):
-        return "Abuse.ch SSL Blacklist Collector - Dyre"
-
-    def get_source_channel(self, **kwargs):
-        return "ssl-blacklist-dyre"
-
-
-
-class AbuseChUrlhausUrls(CollectorWithStateMixin,
-                         BaseUrlDownloaderCollector,
-                         BaseOneShotCollector):
-
-    config_spec = '''
-        [abusech_urlhaus_urls]
-        source :: str
-        cache_dir :: str
-        url :: str
-        download_timeout :: int
-        retry_timeout :: int
-    '''
-
-    type = 'file'
-    content_type = 'text/csv'
-
-
-    def __init__(self, *args, **kwargs):
-        super(AbuseChUrlhausUrls, self).__init__(*args, **kwargs)
-        self.url = self.config['url']
-        self._state = None  # to be set in run_handling()
-
-
-    def run_handling(self):
-        self._state = self._load_state_or_get_default_state()
-        super(AbuseChUrlhausUrls,
-              self).run_handling()  # see BaseUrlDownloaderCollector.run_handling()
-
-
-    def _load_state_or_get_default_state(self):
-        state = self.load_state()
-        if state is None:
-            state = {'time': '', 'ids': set()}
         return state
 
+    def extract_row_time(self, row):
+        row_time = self._extract_time_from_row(row)
+        return self._normalize_row_time(row_time)
 
-    def get_source_channel(self, **kwargs):
+    def _extract_time_from_row(self, row):
+        fields = row.split(',')
+        time_field = fields[self.time_field_index]
+        row_time = time_field.strip().strip('"')
+        return row_time
+
+    def _normalize_row_time(self, row_time):
+        return str(parse_iso_datetime_to_utc(row_time))
+
+
+class AbuseChRansomwareTrackerCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollector):
+
+    row_time_legacy_state_key = 'timestamp'
+    time_field_index = 0
+
+    def get_source_channel(self, **processed_data):
+        return 'ransomware'
+
+
+class AbuseChFeodoTrackerCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollector):
+
+    raw_format_version_tag = '201908'
+
+    time_field_index = 0
+
+    def get_source_channel(self, **processed_data):
+        return 'feodotracker'
+
+
+class AbuseChSSLBlacklistCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollector):
+    # Note that, contrary to its name, it is an *event-based* source
+
+    raw_format_version_tag = '201902'
+
+    row_time_legacy_state_key = 'time'
+    time_field_index = 0
+
+    def get_source_channel(self, **processed_data):
+        return 'ssl-blacklist'
+
+
+class AbuseChUrlhausUrlsCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollector):
+
+    row_time_legacy_state_key = 'time'
+    time_field_index = 1
+
+    def get_source_channel(self, **processed_data):
         return 'urlhaus-urls'
 
-
-    # see BaseUrlDownloaderCollector.get_output_data_body()
-    def process_data(self, data):
-        all_rows = data.split('\n')
-        fresh_rows = self._get_fresh_rows_only(all_rows)
-        if fresh_rows:
-            return '\n'.join(fresh_rows)
-        return None
-
-
-    def _get_fresh_rows_only(self, all_rows):
-        # the *previously newest* abuse time
-        prev_newest_time = self._state['time']
-
-        # abuse IDs from the rows with the *previously newest* abuse time
-        # that have already been collected
-        prev_newest_time_ids = self._state['ids']
-
-        newest_time = None
-        newest_time_ids = set()
-        fresh_rows = []
-
-        preceding_row_time = None  # (for asserts only)
-
-        for row in all_rows:
-            if row.startswith('#') or not row.strip():
-                # row is commented or blank -> skip it
-                continue
-
-            # each row (if not commented or blank) consists of (possibly
-            # quoted, comma-separated):
-            # 1) *unique* abuse ID (its format is irrelevant),
-            # 2) abuse time in some *sortable* format (ISO-8601-like),
-            # 3) other fields (irrelevant here)
-            (abuse_id,
-             row_time,
-             _) = [column.strip().strip('"') for column in row.split(',', 2)]
-
-            if __debug__:
-                # we assume that time values in consecutive rows are monotonic
-                # (non-increasing, possibly repeating)
-                assert (preceding_row_time is None
-                        or row_time <= preceding_row_time)
-                preceding_row_time = row_time
-
-            if row_time < prev_newest_time:
-                # stop collecting when reached rows which are old enough
-                # that we are sure they must have already been collected
-                break
-
-            if newest_time is None:
-                # this is the first (newest) actual (not blank/commented)
-                # row in the downloaded file -- so here we have the *newest*
-                # abuse time
-                newest_time = row_time
-
-            if row_time == newest_time:
-                # this row is amongst those with the *newest* abuse time
-                newest_time_ids.add(abuse_id)
-
-            if abuse_id in prev_newest_time_ids:
-                # this row is amongst those with the *previously newest*
-                # abuse time, *and* we know that it has already been
-                # collected -> so we *skip* it
-                assert row_time == prev_newest_time
-                continue
-
-            # this row have *not* been collected yet -> let's collect it
-            # now (in its original form, i.e., without any modifications)
-            fresh_rows.append(row)
-
-        if fresh_rows:
-            fresh_newest_time_ids = newest_time_ids - prev_newest_time_ids
-            assert newest_time and fresh_newest_time_ids
-        else:
-            assert (newest_time is None and not newest_time_ids
-                    or
-                    newest_time == prev_newest_time and newest_time_ids == prev_newest_time_ids)
-
-        self._state = {
-            'time': newest_time,     # the *newest* abuse time
-            'ids': newest_time_ids,  # abuse IDs from all rows with the *newest* abuse time
-        }
-        return fresh_rows
-
-
-    def get_output_prop_kwargs(self, source, output_data_body, **processed_data):
-        if output_data_body is None:
-            # process_data() [see above...] returned None (nothing to be published)
-            return None
-        # see BaseUrlDownloaderCollector.get_output_prop_kwargs()
-        return super(AbuseChUrlhausUrls, self).get_output_prop_kwargs(source,
-                                                                      output_data_body,
-                                                                      **processed_data)
-
-
-    # note: this method is called *only* [see BaseUrlDownloaderCollector.run_handling()]
-    # if process_data() [see above...] returned some data (not None)
-    def start_publishing(self):
-        # see BaseOneShotCollector.start_publishing()
-        super(AbuseChUrlhausUrls, self).start_publishing()
-        self.save_state(self._state)
 
 
 entry_point_factory(sys.modules[__name__])

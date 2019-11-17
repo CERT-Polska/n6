@@ -307,46 +307,103 @@ class Test__exiting_on_exception(unittest.TestCase):
 
     @foreach(
         param(
+            decorator_kwargs=None,
+            expected_exc_class=SystemExit,
+            expected_regex_pattern_prefix=r'^FATAL ERROR!.*',
+        ),
+        param(
+            decorator_kwargs=dict(),
+            expected_exc_class=SystemExit,
+            expected_regex_pattern_prefix=r'^FATAL ERROR!.*',
+        ),
+        param(
+            decorator_kwargs=dict(
+                exc_message_pattern='custom text, {traceback_msg}'
+            ),
+            expected_exc_class=SystemExit,
+            expected_regex_pattern_prefix=r'^custom text.*',
+        ),
+        param(
+            decorator_kwargs=dict(
+                exc_factory=RuntimeError,
+            ),
+            expected_exc_class=RuntimeError,
+            expected_regex_pattern_prefix=r'^FATAL ERROR!.*',
+        ),
+        param(
+            decorator_kwargs=dict(
+                exc_factory=RuntimeError,
+                exc_message_pattern='custom text, {traceback_msg}',
+            ),
+            expected_exc_class=RuntimeError,
+            expected_regex_pattern_prefix=r'^custom text.*',
+        ),
+    )
+    @foreach(
+        param(
             raised_exc=ValueError,
-            expected_regex_pattern=r'^FATAL ERROR!.*\bValueError\b',
+            expected_regex_pattern_suffix=r'\bValueError\b',
         ),
         param(
             raised_exc=ValueError('foobar'),
-            expected_regex_pattern=r'^FATAL ERROR!.*\bValueError\b.*\bfoobar\b',
+            expected_regex_pattern_suffix=r'\bValueError\b.*\bfoobar\b',
         ),
         param(
             raised_exc=Exception,
-            expected_regex_pattern=r'^FATAL ERROR!.*\bException\b',
+            expected_regex_pattern_suffix=r'\bException\b',
         ),
         param(
             raised_exc=Exception('foobar'),
-            expected_regex_pattern=r'^FATAL ERROR!.*\bException\b.*\bfoobar\b',
+            expected_regex_pattern_suffix=r'\bException\b.*\bfoobar\b',
         ),
         param(
             raised_exc=BaseException,
-            expected_regex_pattern=r'^FATAL ERROR!.*\bBaseException\b',
+            expected_regex_pattern_suffix=r'\bBaseException\b',
         ),
         param(
             raised_exc=BaseException('foobar'),
-            expected_regex_pattern=r'^FATAL ERROR!.*\bBaseException\b.*\bfoobar\b',
+            expected_regex_pattern_suffix=r'\bBaseException\b.*\bfoobar\b',
         ),
     )
-    def test_with_various_exceptions(self, raised_exc, expected_regex_pattern):
+    def test_with_various_exceptions(self,
+                                     decorator_kwargs,
+                                     raised_exc,
+                                     expected_exc_class,
+                                     expected_regex_pattern_prefix,
+                                     expected_regex_pattern_suffix):
         m = MagicMock()
+        expected_regex_pattern = expected_regex_pattern_prefix + expected_regex_pattern_suffix
         expected_regex = re.compile(expected_regex_pattern, re.DOTALL)
 
-        @exiting_on_exception
-        def some_callable(*args, **kwargs):
-            m(*args, **kwargs)
-            raise raised_exc
+        if decorator_kwargs is None:
+            @exiting_on_exception
+            def some_callable(*args, **kwargs):
+                m(*args, **kwargs)
+                raise raised_exc
+        else:
+            @exiting_on_exception(**decorator_kwargs)
+            def some_callable(*args, **kwargs):
+                m(*args, **kwargs)
+                raise raised_exc
 
-        with self.assertRaisesRegexp(SystemExit, expected_regex) as cm:
+        with self.assertRaisesRegexp(expected_exc_class, expected_regex) as cm:
             some_callable(42, b='spam')
 
         self.assertEqual(m.mock_calls, [call(42, b='spam')])
-        assert 'FATAL ERROR' in str(cm.exception), 'bug in the test'
+        assert ('FATAL ERROR' in str(cm.exception) or
+                'custom text' in str(cm.exception)), 'bug in the test'
 
 
+    @foreach(
+        param(decorator_kwargs=None),
+        param(decorator_kwargs=dict()),
+        param(decorator_kwargs=dict(exc_message_pattern='custom text, {traceback_msg}')),
+        param(decorator_kwargs=dict(exc_factory=RuntimeError)),
+        param(decorator_kwargs=dict(
+            exc_factory=RuntimeError,
+            exc_message_pattern='custom text, {traceback_msg}',
+        )),
+    )
     @foreach(
         param(
             raised_exc=SystemExit,
@@ -386,16 +443,23 @@ class Test__exiting_on_exception(unittest.TestCase):
         ),
     )
     def test_with_SystemExit_or_KeyboardInterrupt(self,
+                                                  decorator_kwargs,
                                                   raised_exc,
                                                   expected_exc_class,
                                                   expected_exc_args,
                                                   is_expected_the_same_exc):
         m = MagicMock()
 
-        @exiting_on_exception
-        def some_callable(*args, **kwargs):
-            m(*args, **kwargs)
-            raise raised_exc
+        if decorator_kwargs is None:
+            @exiting_on_exception
+            def some_callable(*args, **kwargs):
+                m(*args, **kwargs)
+                raise raised_exc
+        else:
+            @exiting_on_exception(**decorator_kwargs)
+            def some_callable(*args, **kwargs):
+                m(*args, **kwargs)
+                raise raised_exc
 
         with self.assertRaises(expected_exc_class) as cm:
             some_callable(42, b='spam')
@@ -407,15 +471,32 @@ class Test__exiting_on_exception(unittest.TestCase):
         else:
             self.assertIsNot(cm.exception, raised_exc)
         self.assertNotIn('FATAL ERROR', str(cm.exception))
+        self.assertNotIn('custom text', str(cm.exception))
 
 
-    def test_without_any_exception(self):
+    @foreach(
+        param(decorator_kwargs=None),
+        param(decorator_kwargs=dict()),
+        param(decorator_kwargs=dict(exc_message_pattern='custom text, {traceback_msg}')),
+        param(decorator_kwargs=dict(exc_factory=RuntimeError)),
+        param(decorator_kwargs=dict(
+            exc_factory=RuntimeError,
+            exc_message_pattern='custom text, {traceback_msg}',
+        )),
+    )
+    def test_without_any_exception(self, decorator_kwargs):
         m = MagicMock()
 
-        @exiting_on_exception
-        def some_callable(*args, **kwargs):
-            m(*args, **kwargs)
-            return sentinel.result
+        if decorator_kwargs is None:
+            @exiting_on_exception
+            def some_callable(*args, **kwargs):
+                m(*args, **kwargs)
+                return sentinel.result
+        else:
+            @exiting_on_exception(**decorator_kwargs)
+            def some_callable(*args, **kwargs):
+                m(*args, **kwargs)
+                return sentinel.result
 
         result = some_callable(42, b='spam')
 

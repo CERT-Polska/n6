@@ -6,6 +6,7 @@
 # TODO: more comments + docs
 #
 
+import base64
 import collections
 import copy
 import functools
@@ -20,11 +21,11 @@ except ImportError:
 
 from n6lib.class_helpers import AsciiMixIn, attr_repr
 from n6lib.common_helpers import (
-    URL_SIMPLE_REGEX,
     LimitedDict,
     ascii_str,
     ipv4_to_str,
     provide_surrogateescape,
+    string_as_bytes,
 )
 from n6lib.const import (
     CATEGORY_TO_NORMALIZED_NAME,
@@ -35,6 +36,10 @@ from n6lib.data_spec import (
     FieldValueTooLongError,
 )
 from n6lib.log_helpers import get_logger
+from n6lib.url_helpers import (
+    URL_SCHEME_AND_REST_LEGACY_REGEX,
+    make_provisional_url_search_key,
+)
 
 
 LOGGER = get_logger(__name__)
@@ -168,6 +173,20 @@ def ensure_validates_by_regexp(self, value, regexp):
     return value
 
 
+# TODO: tests
+@adjuster_factory
+def ensure_not_longer_than(self, value, max_length):
+    try:
+        length = len(value)
+    except (TypeError, AttributeError):
+        raise TypeError('{!r} (type: {!r}) does not support `len()`'
+                        .format(value, type(value)))
+    if length > max_length:
+        raise ValueError('value length ({}) is greater than the maximum ({})'
+                         .format(length, max_length))
+    return value
+
+
 @adjuster_factory
 def make_adjuster_using_data_spec(self, value, spec_field_name,
                                   on_too_long=None):
@@ -234,6 +253,13 @@ def rd_adjuster(self, value):
 
 
 @preceded_by(ensure_isinstance(basestring))
+def urlsafe_b64encode_bytes_adjuster(self, value):
+    value = string_as_bytes(value)
+    value = base64.urlsafe_b64encode(value)
+    return string_as_bytes(value)
+
+
+@preceded_by(ensure_isinstance(basestring))
 def unicode_adjuster(self, value):
     if isinstance(value, unicode):
         return value
@@ -264,7 +290,7 @@ ipv4_preadjuster = chained(
 
 @preceded_by(unicode_surrogateescape_adjuster)
 def url_preadjuster(self, value):
-    match = URL_SIMPLE_REGEX.match(value)
+    match = URL_SCHEME_AND_REST_LEGACY_REGEX.match(value)
     if match is None:
         raise ValueError('{!r} does not seem to be a valid URL'
                          .format(value))
@@ -360,6 +386,11 @@ class RecordDict(collections.MutableMapping):
         '_do_not_resolve_fqdn_to_ip',  # flag for enricher
         '_parsed_old',
 
+        # *EXPERIMENTAL* (likely to be changed or removed in the future
+        # without any warning/deprecation/etc.)
+        '_url_data',
+        '_url_data_ready',
+
         # internal keys of aggregated items
         '_group',
         '_first_time',
@@ -372,6 +403,13 @@ class RecordDict(collections.MutableMapping):
         '_bl-series-id',
         '_bl-time',
         '_bl-current-time',
+    }
+
+    # *EXPERIMENTAL* (likely to be changed or removed in the future
+    # without any warning/deprecation/etc.)
+    setitem_key_to_target_key = {
+        # (trick for non-idempotent adjusters...)
+        '_url_data': '_url_data_ready',
     }
 
     # for the following keys, if the given value is invalid,
@@ -460,6 +498,7 @@ class RecordDict(collections.MutableMapping):
         custom_items = {key: item_prototype.pop(key)
                         for key in all_custom_keys
                         if key in item_prototype}
+        self._prepare_url_data_items(item_prototype, custom_items)
         if custom_items:
             item_prototype['custom'] = custom_items
 
@@ -483,6 +522,17 @@ class RecordDict(collections.MutableMapping):
             # -> only one db item *without* `address`, `ip` etc.
             yield item_prototype
 
+    # *EXPERIMENTAL* (likely to be changed or removed in the future
+    # without any warning/deprecation/etc.)
+    def _prepare_url_data_items(self, item_prototype, custom_items):
+        url_data = self.get('_url_data_ready')
+        if url_data is not None:
+            assert 'url_data' not in custom_items
+            assert isinstance(url_data.get('url_orig'), str)
+            url_orig = base64.urlsafe_b64decode(url_data['url_orig'])
+            item_prototype['url'] = make_provisional_url_search_key(url_orig)  # [sic]
+            custom_items['url_data'] = url_data
+
     __repr__ = attr_repr('_dict')
 
     #
@@ -504,8 +554,9 @@ class RecordDict(collections.MutableMapping):
         ######## silently ignore the legacy item
         if key == '__preserved_custom_keys__': return
         ######## ^^^ (to be removed later)
+        target_key = self.setitem_key_to_target_key.get(key, key)
         try:
-            self._dict[key] = self._get_adjusted_value(key, value)
+            self._dict[target_key] = self._get_adjusted_value(key, value)
         except AdjusterError as exc:
             if key in self.without_adjuster_error:
                 LOGGER.warning('Invalid value not stored (%s)', exc)
@@ -650,6 +701,24 @@ class RecordDict(collections.MutableMapping):
     # generic internal field adjusters
     adjust__do_not_resolve_fqdn_to_ip = ensure_isinstance(bool)
     adjust__parsed_old = rd_adjuster
+
+    # *EXPERIMENTAL* internal field adjusters
+    # (likely to be changed or removed in the future
+    # without any warning/deprecation/etc.)
+    adjust__url_data = make_dict_adjuster(
+        url_orig=chained(
+            unicode_surrogateescape_adjuster,
+            urlsafe_b64encode_bytes_adjuster,
+            ensure_validates_by_regexp(r'\A[0-9a-zA-Z\-_=]+\Z'),
+            ensure_not_longer_than(2 ** 17)),
+        url_norm_opts=make_dict_adjuster())
+    adjust__url_data_ready = make_dict_adjuster(
+        url_orig=chained(
+            ensure_isinstance(basestring),
+            make_adjuster_applying_callable(string_as_bytes),
+            ensure_validates_by_regexp(r'\A[0-9a-zA-Z\-_=]+\Z'),
+            ensure_not_longer_than(2 ** 17)),
+        url_norm_opts=make_dict_adjuster())
 
     # hi-freq-only internal field adjusters
     adjust__group = unicode_adjuster
@@ -807,6 +876,9 @@ class RecordDict(collections.MutableMapping):
         make_adjuster_using_data_spec(
             'tags',
             on_too_long=trim_seq))
+
+    adjust_filename = make_adjuster_using_data_spec(
+        'filename', on_too_long=trim)
 
     # the `name` adjuster is a bit more complex...
     @preceded_by(unicode_adjuster)

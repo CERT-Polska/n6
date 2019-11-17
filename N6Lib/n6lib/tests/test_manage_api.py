@@ -1266,8 +1266,9 @@ class _RevokeCertTestBase(_BaseAPIActionTest):
         self._test(second_serial_hex, 'Other cert has been revoked')
 
     def test_no_comment(self):
-        # revocation comment cannot be None
-        with self.assertRaises(FieldValueError):
+        with self.assertRaisesRegexp(ManageAPIError,
+                                     r'When revoking a certificate '
+                                     r'`revocation_comment` must not be None'):
             self._test(self.default_tested_cert_serial_nr, None)
 
     def test_already_revoked(self):

@@ -294,17 +294,6 @@ class _SysGr(_AbstractSearchRawItem):
 
 
 
-class _ReqCase(_AbstractSearchRawItem):
-
-    """
-    For remote certificate request cases.
-    """
-
-    dn_pattern = 'cn={0},ou=cert-request-cases,dc=n6,dc=cert,dc=pl'
-    obj_classes = ['n6CertRequestCase']
-
-
-
 class _OU(_AbstractSearchRawItem):
 
     """

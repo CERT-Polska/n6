@@ -37,7 +37,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'time.min', 'time.max', 'time.until',
         'origin', 'name', 'target',
         'ip', 'ip.net', 'asn', 'cc',
-        'url', 'url.sub', 'fqdn', 'fqdn.sub',
+        'url', 'url.sub', 'url.b64', 'fqdn', 'fqdn.sub',
         'proto', 'sport', 'dport', 'dip',
         'md5', 'sha1',
         'active.min', 'active.max', 'active.until',
@@ -119,6 +119,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'x509subject',
         'action',
         'tags',
+        'filename',
     }
 
     RESULT_KEYS = NONCUSTOM_RESULT_KEYS | CUSTOM_RESULT_KEYS
@@ -191,9 +192,10 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'ip.net': ['100.101.102.103/32', '1.2.3.4/7'],
         'time.min': ['2014-04-01 01:07:42+02:00'],
         'active.min': ['2015-05-02T24:00'],
-        'url': ['http://www.ołówek.EXAMPLĘ.com/\xdd-TRALALą.html'],
-        'fqdn': ['www.test.org', u'www.ołówek.EXAMPLĘ.com'],
+        'url': ['http://www.ołówek.EXAMPLĘ.com/\xddπœ\xffę\xed\xb3\xbf³¢ą.py'],
         'url.sub': [('xx' + 682 * '\xcc')],
+        'url.b64': ['aHR0cDovL3d3dy5vxYLDs3dlay5FWEFNUEzEmC5jb20v3c-AxZP_xJnts7_Cs8KixIUucHk='],
+        'fqdn': ['www.test.org', u'www.ołówek.EXAMPLĘ.com'],
         'fqdn.sub': ['ołówek'],
         'opt.primary': [''],
     }
@@ -209,8 +211,9 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'ip.net': [('100.101.102.103', 32), ('1.2.3.4', 7)],
         'time.min': [datetime.datetime(2014, 3, 31, 23, 7, 42)],
         'active.min': [datetime.datetime(2015, 5, 3)],
-        'url': [u'http://www.ołówek.EXAMPLĘ.com/\udcdd-TRALALą.html'],
+        'url': [u'http://www.ołówek.EXAMPLĘ.com/\udcddπœ\udcffę\udcff³¢ą.py'],
         'url.sub': [u'xx' + 682 * u'\udccc'],
+        'url.b64': [u'http://www.ołówek.EXAMPLĘ.com/\udcddπœ\udcffę\udcff³¢ą.py'],
         'fqdn': ['www.test.org', 'www.xn--owek-qqa78b.xn--exampl-14a.com'],
         'fqdn.sub': ['xn--owek-qqa78b'],
         'opt.primary': [True],
@@ -232,6 +235,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'url': False,
         'fqdn': False,
         'url.sub': False,
+        'url.b64': False,
         'fqdn.sub': False,
         'opt.primary': False,
         # not in raw_param_dict_base/cleaned_param_dict_base:

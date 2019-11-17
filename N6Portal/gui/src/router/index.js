@@ -48,6 +48,13 @@ const router = new Router({
       name: 'error',
       component: ErrorPage,
     },
+
+    {
+      path: '*',
+      name: 'unknown',
+      component: ErrorPage,
+      props: { errorCode: 404 },
+    },
   ],
 });
 

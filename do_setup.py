@@ -140,7 +140,7 @@ def configure_logging(arguments):
 
 
 def command(cmd):
-    if venv_dir is not None:
+    if venv_dir:
         cmd = '{}/bin/{}'.format(venv_dir, cmd)
     LOGGER.info('executing: %r in %r', cmd, os.getcwd())
     error = bool(os.system(cmd))

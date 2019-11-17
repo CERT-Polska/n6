@@ -47,7 +47,7 @@ COMMAND_PARSER_SPECS.extend([
     (
         Spec(
             'list-ca',
-            help='get a list of available CA certificates',
+            help='get a list of CA certificates stored in the Auth DB',
         ),
         [],
     )
@@ -56,21 +56,21 @@ COMMAND_PARSER_SPECS.extend([
     (
         Spec(
             'add-cert',
-            help='add the given, externally created, certificate',
+            help='add the given (externally created) certificate to the Auth DB',
         ),
         [
             Spec(
                 'ca_label',
                 metavar='CA-LABEL',
-                help='label of one of CA certificates stored in the Auth DB',
+                help='the label of one of CA certificates stored in the Auth DB',
             ),
             Spec(
                 'cert_file',
                 type=argparse.FileType(),
                 metavar='CERT-FILE',
                 help=(
-                    "ready certificate file name "
-                    "(or '-' to read it from the standard input)"),
+                    "the name of the file containing the certificate to be "
+                    "added (or '-' to read it from the standard input)"),
             ),
             Spec(
                 'created_on',
@@ -83,17 +83,15 @@ COMMAND_PARSER_SPECS.extend([
             Spec(
                 '-a', '--adding-owner',
                 action='store_true',
-                help=(
-                    'add also the certificate owner (user or component) '
-                    'to the Auth DB'),
+                help='add also the owner (user or component) of the certificate',
             ),
             Spec(
                 '-s', '--server-component-login',
                 metavar='LOGIN',
                 help=(
-                    'login *explicitly* specified (instead of being taken '
-                    'from the certificate) -- allowed (and required) *only* '
-                    'for a server-component'),
+                    'the login of the owner, *explicitly* specified (instead '
+                    'of being taken from the certificate) -- allowed (and '
+                    'required) *only* for a server-component'),
             ),
         ],
     ),
@@ -102,44 +100,43 @@ COMMAND_PARSER_SPECS.extend([
     (
         Spec(
             'make-cert',
-            help='create a new certificate and add it ',
+            help='create a new certificate and add it to the Auth DB',
         ),
         [
             Spec(
                 'ca_label',
                 metavar='CA-LABEL',
-                help='label of one of CA certificates stored in the Auth DB',
+                help='the label of one of CA certificates stored in the Auth DB',
             ),
             Spec(
                 'csr_file',
                 type=argparse.FileType(),
                 metavar='CSR-FILE',
                 help=(
-                    "certificate signing request (CSR) file name "
-                    "(or '-' to read it from the standard input)"),
+                    "the name of the file containing a CSR [certificate "
+                    "signing request] (or '-' to read it from the standard "
+                    "input)"),
             ),
             Spec(
                 '-a', '--adding-owner',
                 action='store_true',
-                help=(
-                    'add also the certificate owner (user or component) '
-                    'to the Auth DB'),
+                help='add also the owner (user or component) of the certificate',
             ),
             Spec(
                 '-d', '--dump-into',
                 type=osp.abspath,
                 metavar='DIRECTORY',
                 help=(
-                    'if specified: dump the generated '
-                    'certificate to a file in DIRECTORY'),
+                    'if specified: dump the generated certificate to a file '
+                    'in the DIRECTORY'),
             ),
             Spec(
                 '-s', '--server-component-login',
                 metavar='LOGIN',
                 help=(
-                    'login *explicitly* specified (instead of being taken '
-                    'from the certificate) -- allowed (and required) *only* '
-                    'for a server-component'),
+                    'the login of the owner, *explicitly* specified (instead '
+                    'of being taken from the certificate) -- allowed (and '
+                    'required) *only* for a server-component'),
             ),
         ],
     ),
@@ -148,18 +145,21 @@ COMMAND_PARSER_SPECS.extend([
     (
         Spec(
             'revoke-cert',
-            help='revoke the specified certificate',
+            help=(
+                'mark the specified certificate as revoked in the Auth DB '
+                'and dump the current CRL [certificate revocation list] '
+                'for the specified CA (to the standard output, by default)'),
         ),
         [
             Spec(
                 'ca_label',
                 metavar='CA-LABEL',
-                help='label of one of CA certificates stored in the Auth DB',
+                help='the label of one of CA certificates stored in the Auth DB',
             ),
             Spec(
                 'cert_serial',
                 metavar='CERT-SERIAL',
-                help='certificate serial number as a hexadecimal integer',
+                help='the certificate serial number as a hexadecimal integer',
             ),
             Spec(
                 'revocation_comment',
@@ -173,8 +173,9 @@ COMMAND_PARSER_SPECS.extend([
                 type=osp.abspath,
                 metavar='DIRECTORY',
                 help=(
-                    'if specified: dump the revocation list (CRL) of '
-                    'the specified CA to a file in DIRECTORY'),
+                    'if specified: a file in the DIRECTORY will be used '
+                    '(the CRL will be dumped to it) instead of the standard '
+                    'output'),
             ),
         ],
     ),
@@ -190,20 +191,21 @@ COMMAND_PARSER_SPECS.extend([
             Spec(
                 'ca_label',
                 metavar='CA-LABEL',
-                help='label of one of CA certificates stored in the Auth DB',
+                help='the label of one of CA certificates stored in the Auth DB',
             ),
             Spec(
                 'cert_serial',
                 metavar='CERT-SERIAL',
-                help='certificate serial number as a hexadecimal integer',
+                help='the certificate serial number as a hexadecimal integer',
             ),
             Spec(
                 '-d', '--dump-into',
                 type=osp.abspath,
                 metavar='DIRECTORY',
                 help=(
-                    'if specified: a file in the DIRECTORY will '
-                    'be used instead of the standard output'),
+                    'if specified: a file in the DIRECTORY will be used '
+                    '(the certificate be dumped to it) instead of the '
+                    'standard output'),
             ),
         ],
     ),
@@ -213,22 +215,23 @@ COMMAND_PARSER_SPECS.extend([
         Spec(
             'dump-crl',
             help=(
-                'dump the revocation list (CRL) of the specified CA '
-                '(to the standard output, by default)'),
+                'dump the current CRL [certificate revocation list] for the '
+                'specified CA (to the standard output, by default)'),
         ),
         [
             Spec(
                 'ca_label',
                 metavar='CA-LABEL',
-                help='label of one of CA certificates stored in the Auth DB',
+                help='the label of one of CA certificates stored in the Auth DB',
             ),
             Spec(
                 '-d', '--dump-into',
                 type=osp.abspath,
                 metavar='DIRECTORY',
                 help=(
-                    'if specified: a file in the DIRECTORY will '
-                    'be used instead of the standard output'),
+                    'if specified: a file in the DIRECTORY will be used '
+                    '(the CRL will be dumped to it) instead of the standard '
+                    'output'),
             ),
         ],
     ),
@@ -314,10 +317,15 @@ def _command_not_implemented(manage_api, arguments):
 
 
 def list_ca(manage_api, arguments):
-    print 'CA Label | CA Profile'
-    for ca_label, ca_profile in manage_api.iter_all_ca_label_profile_pairs():
-        ca_profile = ca_profile if ca_profile else '-'
-        print '[*] {} | {}'.format(ca_label, ca_profile)
+    print 'CA label | CA profile | CA subject key identifier | CA authority key identifier'
+    for ca in manage_api.iter_all_ca_data():
+        profile = ca.profile or '-'
+        subject_key_identifier = ascii_str(ca.subject_key_identifier or '-').strip()
+        authority_key_identifier = ascii_str(ca.authority_key_identifier or '-').strip()
+        print '{} | {} | {} | {}'.format(ca.ca_label,
+                                         profile,
+                                         subject_key_identifier,
+                                         authority_key_identifier)
 
 
 def add_cert(manage_api, arguments):

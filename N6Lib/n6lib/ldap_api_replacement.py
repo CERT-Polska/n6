@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 # NOTE: this module is a drop-in replacement for the legacy
 # n6lib.ldap_api stuff (at least for the needs of AuthAPI). The plan
@@ -72,12 +72,9 @@ _N6ORG_ID_OFFICIAL_ATTR_REGEX = re.compile(
     ''', re.VERBOSE | re.IGNORECASE)
 
 
-
 class LdapAPIConnectionError(RuntimeError):
     """Raised on auth db connection failure."""
 
-
-## XXX: upewnić się, że daty w nowej bazie są UTC
 
 class LdapAPI(SQLAuthDBConfigMixin):
 
@@ -243,16 +240,16 @@ class LdapAPI(SQLAuthDBConfigMixin):
                 'n6rest-api-full-access': org.full_access,
                 'n6stream-api-enabled': org.stream_api_enabled,
 
-                'n6email-notifications-enabled': org.email_notifications_enabled,
+                'n6email-notifications-enabled': org.email_notification_enabled,
                 'n6email-notifications-address': [
                     inst.email
-                    for inst in org.email_notifications_addresses],
+                    for inst in org.email_notification_addresses],
                 'n6email-notifications-times': [
-                    inst.notifications_time
-                    for inst in org.email_notifications_times],
-                'n6email-notifications-language': org.email_notifications_language,
+                    inst.notification_time
+                    for inst in org.email_notification_times],
+                'n6email-notifications-language': org.email_notification_language,
                 'n6email-notifications-business-days-only':
-                    org.email_notifications_business_days_only,
+                    org.email_notification_business_days_only,
 
                 'n6asn': [inst.asn for inst in org.inside_filter_asns],
                 'n6cc': [inst.cc for inst in org.inside_filter_ccs],
@@ -280,18 +277,17 @@ class LdapAPI(SQLAuthDBConfigMixin):
         assert access_zone in {'inside', 'search', 'threats'}
         access_to = getattr(org, 'access_to_'+access_zone)
         if access_to:
-            # maybe TODO later: request_parameters, max_days_old etc.
             yield self._make_dn_and_coerced_attrs('cn', org_dn, cn='res-'+access_zone)
-        for ex in [False, True]:
-            yield self.__make_search_result_for_org_az_channel(org_dn, org, access_zone, ex)
+        for off in [False, True]:
+            yield self.__make_search_result_for_org_az_channel(org_dn, org, access_zone, off)
 
-    def __make_search_result_for_org_az_channel(self, org_dn, org, access_zone, ex):
+    def __make_search_result_for_org_az_channel(self, org_dn, org, access_zone, off):
         assert access_zone in {'inside', 'search', 'threats'}
-        assert isinstance(ex, bool)
-        if ex:
+        assert isinstance(off, bool)
+        if off:
             channel_cn = access_zone + '-ex'
-            subsources = getattr(org, access_zone + '_ex_subsources')
-            subsource_groups = getattr(org, access_zone + '_ex_subsource_groups')
+            subsources = getattr(org, access_zone + '_off_subsources')
+            subsource_groups = getattr(org, access_zone + '_off_subsource_groups')
         else:
             channel_cn = access_zone
             subsources = getattr(org, access_zone + '_subsources')
@@ -405,7 +401,7 @@ class LdapAPI(SQLAuthDBConfigMixin):
             yield self._make_dn_and_coerced_attrs('cn', ou_system_groups_dn, **{
                 'cn': system_group.name,
                 'n6refint': [
-                    self._make_dn('n6login', inst.n6login,
+                    self._make_dn('n6login', inst.login,
                                   parent=self._make_dn('o', inst.org_id, parent='ou=orgs'))
                     for inst in system_group.users],
             })
@@ -977,7 +973,6 @@ class _LdapAttrNormalizer(object):
     _normalize_n6request_parameters = _ascii_only_to_unicode_stripped
     _normalize_n6request_required_parameters = _ascii_only_to_unicode_stripped
     _normalize_n6login = _ascii_only_to_unicode_stripped
-    _normalize_n6cert_reqcase_status = _ascii_only_to_unicode_stripped
     _normalize_n6email_notifications_times = _ascii_only_to_unicode_stripped
 
     _normalize_n6cert_revocation_comment = _to_unicode_stripped
@@ -1003,7 +998,6 @@ class _LdapAttrNormalizer(object):
     _normalize_n6cert_valid_from = _pass_unmodified
     _normalize_n6cert_expires_on = _pass_unmodified
     _normalize_n6cert_revoked_on = _pass_unmodified
-    _normalize_n6cert_reqcase_status_changed_on = _pass_unmodified
 
     def _normalize_n6asn(self, val):
         asn_as_int = self._asn_field_spec.clean_result_value(val)
@@ -1053,8 +1047,11 @@ class _LdapAttrNormalizer(object):
         return val
 
 
-    # XXX: for additional LDAP attributes for whom there are no counterparts
-    # in n6lib.ldap_api_replacement.LdapAPI (at least for now)
+    # (for additional LDAP attributes related to formal
+    # properties/status of organizations and users...)
+    # [note: the methods of this class omit these attributes
+    # -- at least for now -- because AuthAPI does not make
+    # use of them]
 
     _normalize_n6org_location = _to_unicode_stripped
     _normalize_n6org_location_coords = _to_unicode_stripped

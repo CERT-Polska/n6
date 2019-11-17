@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import cStringIO
 import gzip
@@ -42,16 +42,16 @@ def iter_unzip_from_string(zipped, password=None, filenames=None,
         `password` (optional):
             The password to extract encrypted files.
         `filenames` (optional):
-            A sequence of file names we are interested in.
-            If specified -- only the specified files will be extracted.
-            Non-existent files are ignored.
+            A container (e.g., sequence or set) of filenames (without dir
+            parts) we are interested in; if given -- only the specified files
+            will be extracted (ignoring non-existent ones).
         `yielding_with_dirs` (default: False):
             If False -- dir names will be stripped off from yielded file names.
             If True -- file names will be yielded as found in the archive
             (including dir parts).
 
     Yields:
-        Pairs: (<file fullname>, <file content>).
+        Pairs: (<file name>, <file content>).
 
     Raises:
         zipfile.BadZipfile:
@@ -62,6 +62,6 @@ def iter_unzip_from_string(zipped, password=None, filenames=None,
     zfile = zipfile.ZipFile(cStringIO.StringIO(zipped))
     for fullname in zfile.namelist():
         basename = (os.path.basename(fullname) if fullname else fullname)
-        if not filenames or basename in filenames:
+        if filenames is None or basename in filenames:
             content = zfile.read(fullname, pwd=password)
             yield (fullname if yielding_with_dirs else basename), content

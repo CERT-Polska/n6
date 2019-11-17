@@ -1,0 +1,93 @@
+[mysqld_safe]
+socket      = /var/run/mysqld/mysqld.sock
+nice        = 0
+
+[client]
+port        = 3306
+socket      = /var/run/mysqld/mysqld.sock
+
+
+[mysqld]
+user        = mysql
+pid-file    = /var/run/mysqld/mysqld.pid
+socket      = /var/run/mysqld/mysqld.sock
+port        = 3306
+basedir     = /usr
+datadir     = /var/lib/mysql
+tmpdir      = /tmp
+lc_messages_dir  = /usr/share/mysql
+lc_messages      = en_US
+
+skip-external-locking
+bind-address             = 0.0.0.0
+connect_timeout          = 5
+max_allowed_packet       = 16M
+max_connections          = 100
+wait_timeout             = 600
+
+bulk_insert_buffer_size  = 16M
+max_heap_table_size      = 32M
+myisam_recover_options   = BACKUP
+myisam_sort_buffer_size  = 512M
+concurrent_insert        = 2
+key_buffer_size          = 128M
+read_buffer_size         = 2M
+read_rnd_buffer_size     = 1M
+sort_buffer_size         = 4M
+table_open_cache         = 400
+thread_cache_size        = 128
+tmp_table_size           = 32M
+
+query_cache_limit       = 128K
+query_cache_size        = 64M
+# for more write intensive setups, set to DEMAND or OFF
+query_cache_type        = DEMAND
+
+#
+# * Logging and Replication
+#
+# Both location gets rotated by the cronjob.
+# Be aware that this log type is a performance killer.
+# As of 5.1 you can enable the log at runtime!
+#general_log_file        = /var/log/mysql/mysql.log
+#general_log             = 1
+#
+# Error logging goes to syslog due to /etc/mysql/conf.d/mysqld_safe_syslog.cnf.
+#
+# we do want to know about network errors and such
+log_warnings        = 2
+#
+
+# The following can be used as easy to replay backup logs or for replication.
+# note: if you are setting up a replication slave, see README.Debian about
+#       other settings you may need to change.
+log_bin             = /var/lib/mysql/mariadb-bin
+log_bin_index       = /var/lib/mysql/mariadb-bin.index
+expire_logs_days    = 10
+max_binlog_size     = 100M
+
+#
+# * InnoDB
+#
+# InnoDB is enabled by default with a 10MB datafile in /var/lib/mysql/.
+# Read the manual for more InnoDB related options. There are many!
+default_storage_engine    = InnoDB
+# you can't just change log file size, requires special procedure
+#innodb_log_file_size    = 50M
+innodb_buffer_pool_size  = 256M
+innodb_log_buffer_size   = 8M
+innodb_file_per_table    = 1
+innodb_open_files        = 400
+innodb_io_capacity       = 400
+innodb_flush_method      = O_DIRECT
+
+[mysqldump]
+quick
+quote-names
+max_allowed_packet = 16M
+
+[isamchk]
+key_buffer = 16M
+
+#!includedir /etc/mysql/conf.d/
+#!includedir /etc/mysql/mariadb.conf.d/

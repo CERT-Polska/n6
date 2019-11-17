@@ -4,7 +4,7 @@ FROM debian:stretch-slim
 ENV TERM xterm
 ENV DEBIAN_FRONTEND noninteractive
 
-# additional apt settings
+# APT settings
 RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/99AcquireRetries
 
 # building environments
@@ -46,16 +46,14 @@ COPY N6SDK/requirements N6SDK/requirements
 RUN pip install -r N6Lib/requirements; \
     pip install -r N6SDK/requirements
 
-# cloning repository
+# source repository
 ADD . /root/n6/
 
-# installation app
+# installation n6 components
 RUN set -ex; \
     ./do_setup.py N6Lib N6Core
 
-# generate rabbit and web ssl certs
-ADD docker/work/test_data/test-generate_certs.sh /root/certs/generate_certs.sh
-RUN /root/certs/generate_certs.sh
+# rabbitmqadmin client
 ADD docker/rabbit/conf/rabbitmqadmin /usr/local/bin
 RUN chmod a+x /usr/local/bin/rabbitmqadmin
 
@@ -69,11 +67,12 @@ ADD docker/work/test_data/test-n6enrich.conf etc/supervisord/programs/n6enrich.c
 ADD docker/work/test_data/test-n6filter.conf etc/supervisord/programs/n6filter.conf
 ADD docker/work/test_data/test-n6recorder.conf etc/supervisord/programs/n6recorder.conf
 RUN mkdir -p /root/supervisor/log /root/supervisor/programs
-WORKDIR etc/supervisord
+
+WORKDIR /root/n6/etc/supervisord
 RUN python get_parsers_conf.py && \
     cp programs/*.conf /root/supervisor/programs/
 
-# Rest tools
+# tools
 WORKDIR /root/n6
 ADD docker/work/test_data/test-run_collectors /etc/cron.d/run_collectors
 ADD docker/work/wait-for-services-inside.sh /wait-for-services.sh
@@ -82,4 +81,3 @@ ADD docker/work/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["supervisord", "-c", "etc/supervisord/supervisord.conf"]

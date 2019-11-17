@@ -1219,13 +1219,14 @@ class ConfigMixin(object):
     most cases you are interested in a particular (only one) config
     section.
 
-    Additionally, there is one public helper method:
+    Additionally, there are two public helper methods
 
     * is_config_spec_or_group_declared() -- which informs whether
       at least one of the following attributes is present and set
       to some non-None value: `config_spec`, `config_spec_pattern`,
       `config_group`.
-
+    * make_list_converter() -- a static method being an alias of
+      Config.make_list_converter() (just for convenience).
 
     Let the examples speak...
 
@@ -2047,6 +2048,9 @@ class ConfigMixin(object):
                 self.__get_config_group() is not None)
 
 
+    make_list_converter = staticmethod(Config.make_list_converter)
+
+
     def __get_args_kwargs(self, settings, **format_kwargs):
         config_spec = self.__get_config_spec(**format_kwargs)
         return (config_spec,), dict(
@@ -2557,11 +2561,11 @@ class ConfigString(str):
     splitting lines originating from an input string; on the other hand,
     all resultant contents contain '\n'-only (Unix-style) newlines.
 
-    Note #2: In constrast to other (ConfigParser-related) classes in
+    Note #2: In contrast to other (ConfigParser-related) classes in
     this module, this class does not accept duplicate section names or
     duplicate option names (in a particular section).
 
-    Note #3: In constrast to other (ConfigParser-related) classes in
+    Note #3: In contrast to other (ConfigParser-related) classes in
     this module, this class (as it is in the case of, e.g., the OpenSSL
     configuration format) ignores whitespace characters between a
     section name and the enclosing square brackets.

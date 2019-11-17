@@ -53,7 +53,7 @@ init = 0
 
 
 #
-# Functions used by the n6lib.manage_api stuff
+# Functions used by the n6lib.manage_api._manage_api stuff
 #
 
 def get_ca_env_configuration(ca, ca_key_path):
@@ -158,7 +158,7 @@ def revoke_certificate_and_generate_crl_pem(ca_env_configuration, cert_data):
             others, it specifies also the concerned CA).
         `cert_data`:
             The certificate that is being revoked as an instance of
-            a subclass of n6lib.manage_api._CertificateBase.
+            a subclass of n6lib.manage_api._manage_api._CertificateBase.
 
     Returns:
         The generated CRL in the PEM format (as a string).

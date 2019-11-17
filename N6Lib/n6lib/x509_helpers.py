@@ -159,6 +159,22 @@ def get_cert_not_before(cert):
     return datetime_utc_normalize(cert.get_not_before().get_datetime())
 
 
+def get_cert_subject_key_identifier(cert):
+    return get_cert_ext_value(cert, 'subjectKeyIdentifier')
+
+
+def get_cert_authority_key_identifier(cert):
+    return get_cert_ext_value(cert, 'authorityKeyIdentifier')
+
+
+def get_cert_ext_value(cert, ext_name):
+    try:
+        ext = cert.get_ext(ext_name)
+    except LookupError:
+        return None
+    return ext.get_value()
+
+
 def get_cert_subject_dict(cert_or_request, include_ou=False):
     """
     Get a dict of n6-relevant certificate subject components (RDN values).

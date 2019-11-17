@@ -2,6 +2,9 @@
 
 from collections import MutableSequence
 
+from flask_admin._compat import iteritems
+from flask_admin.contrib.sqla import form
+from flask_admin.model.fields import InlineModelFormField
 from sqlalchemy import inspect
 from sqlalchemy.sql.sqltypes import String
 
@@ -9,6 +12,39 @@ from n6adminpanel.tools import (
     get_exception_message,
     unescape_html_attr,
 )
+
+
+class _PatchedInlineModelFormField(InlineModelFormField):
+
+    """
+    The subclass overrides Flask-Admin's behavior, when populating
+    fields of inline models, that omits all types of Primary Key
+    fields. It is modified to ignore only 'HiddenField' type of fields.
+    """
+
+    hidden_field_type = 'HiddenField'
+
+    def populate_obj(self, obj, name):
+        for name, field in iteritems(self.form._fields):
+            if field.type != self.hidden_field_type:
+                field.populate_obj(obj, name)
+
+
+class _PatchedInlineFieldListType(form.InlineModelFormList):
+
+    form_field_type = _PatchedInlineModelFormField
+
+
+class PatchedInlineModelConverter(form.InlineModelConverter):
+
+    """
+    The subclass of the `InlineModelConverter` should be used as
+    an `inline_model_form_converter` in model views, that have
+    some of their fields displayed as "inline models" with
+    non-integer Primary Keys, that need  to be filled.
+    """
+
+    inline_field_list_type = _PatchedInlineFieldListType
 
 
 def get_patched_get_form(original_func):
@@ -34,24 +70,39 @@ def get_patched_get_form(original_func):
 
 def patched_populate_obj(self, obj, name):
     """
-    Patch original method, in order to:
-        * Prevent Flask-admin from populating fields with NoneType.
-        * Append a list of validation errors, if a models' validator
-          raised an exception (not Flask-Admin's validator), to
-          highlight invalid field in application's view.
+    A patched version of flask_admin's Field.populate_obj().
+
+    This patch is needed to:
+
+    * treat an empty or whitespace-only string value as NULL (for
+      pragmatic reasons: in many cases accepting such a string,
+      typically being a result of a GUI user's mistake, would be just
+      confusing; at the same time, we do not see any cases when
+      accepting such strings could be useful);
+
+    * append a list of validation errors -- if an n6-specific model's
+      validator (not a Flask-Admin validator) raised an exception -- to
+      highlight invalid fields values in the GUI view.
+
     """
-    if self.data is not None:
-        try:
-            setattr(obj, name, self.data)
-        except Exception as exc:
-            invalid_field = getattr(exc, 'invalid_field', None)
-            if invalid_field and isinstance(self.errors, MutableSequence):
-                exc_message = get_exception_message(exc)
-                if exc_message is not None:
-                    self.errors.append(exc_message)
-                else:
-                    self.errors.append(u'Failed to create record.')
-            raise
+
+    # treating empty or whitespace-only text as NULL
+    to_be_set = (None if (isinstance(self.data, basestring)
+                          and not self.data.strip())
+                 else self.data)
+
+    # handling n6-specific model-level validation errors
+    try:
+        setattr(obj, name, to_be_set)
+    except Exception as exc:
+        invalid_field = getattr(exc, 'invalid_field', None)
+        if invalid_field and isinstance(self.errors, MutableSequence):
+            exc_message = get_exception_message(exc)
+            if exc_message is not None:
+                self.errors.append(exc_message)
+            else:
+                self.errors.append(u'Failed to create/update record.')
+        raise
 
 
 def _get_action_meth_wrapper(original_meth):

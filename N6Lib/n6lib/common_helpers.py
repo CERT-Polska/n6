@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 #
 # For some code in this module:
 # Copyright (c) 2001-2013 Python Software Foundation. All rights reserved.
@@ -61,11 +61,6 @@ from n6lib.const import (
     SCRIPT_BASENAME,
 )
 
-
-# extremely simplified URL match()-only regex
-# (among others, n6lib.record_dict.url_preadjuster() makes use of it)
-URL_SIMPLE_REGEX = re.compile(r'(?P<scheme>[\-+.0-9a-zA-Z]+)'
-                              r'(?P<rest>:.*)')
 
 # more restrictive than actual e-mail address syntax but sensible in most cases
 EMAIL_OVERRESTRICTED_SIMPLE_REGEX = re.compile(r'''
@@ -158,50 +153,6 @@ class RsyncFileContextManager(object):
             finally:
                 self._dir_name = None
                 self._file = None
-
-
-class NonBlockingLockWrapper(object):
-
-    """
-    A lock wrapper to acquire a lock in non-blocking manner.
-
-    Constructor args/kwargs:
-        `lock`: a threading.Lock or threading.RLock instance.
-        `lock_description` (optional): a description for debug purposes.
-
-    Instance interface includes:
-        * the context manager (`with` statement) interface,
-        * explicit `acquire()` (argumentless, always non-blocking),
-        * explicit `release()`.
-
-    If `lock` cannot be acquired, `RuntimeError` is raised (with
-    `lock_description`, if provided, used in the error message).
-
-    Example use:
-        my_lock = threading.Lock()  # or threading.RLock()
-        ...
-        with NonBlockingLockWrapper(my_lock, 'my very important lock')
-            ...
-    """
-
-    def __init__(self, lock, lock_description=None):
-        self.lock = lock
-        self._lock_description_ascii = ascii_str(lock_description or repr(lock))
-
-    def __enter__(self):
-        self.acquire()
-        return self.lock
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.release()
-
-    def acquire(self):
-        if self.lock.acquire(False):
-            return True
-        raise RuntimeError('could not acquire {}'.format(self._lock_description_ascii))
-
-    def release(self):
-        self.lock.release()
 
 
 class SimpleNamespace(object):
@@ -2156,12 +2107,56 @@ def deep_copying_result(func):
     return wrapper
 
 
-def exiting_on_exception(func):
+def exiting_on_exception(func=None,
+                         exc_factory=SystemExit,
+                         exc_message_pattern=(
+                             'FATAL ERROR!\n'
+                             '{traceback_msg}\n'
+                             'CONDENSED DEBUG INFO:'
+                             ' [thread {thread_name!r}'
+                             ' (#{thread_ident})]'
+                             ' {condensed_debug_msg}'
+                         )):
     """
     A decorator which ensures that any exception not being SystemExit or
-    KeyboardInterrupt will be transformed to SystemExit (instantiated
-    with appropriate debug information as the argument).
+    KeyboardInterrupt will be transformed to SystemExit (the default) or
+    an exception made with the custom `exc_factory`.
+
+    By default, the exception is made with a 'FATAL ERROR...' message
+    as the argument, containing appropriate debug information. You can
+    customize that message by specifying `exc_message_pattern`, in
+    which you can use any of the following `str.format()`-able fields:
+    `{traceback_msg}` (already nicely formatted traceback), `{exc_info}`
+    (`sys.exc_info()` call result), `{thread_name}`, `{thread_ident}`,
+    `{condensed_debug_msg}` (from a `make_condensed_debug_msg()` call).
+
+    Simple usage (using the defaults: SystemExit and the default message):
+
+        @exiting_on_exception
+        def some(...):
+            ...
+
+    Usage with keyword arguments:
+
+        @exiting_on_exception(exc_factory=RuntimeError)
+        def some(...):
+            ...
+
+        @exiting_on_exception(
+            exc_message_pattern='Exiting with error! {condensed_debug_msg}')
+        def another(...):
+            ...
+
+        @exiting_on_exception(
+            exc_factory=n6CollectorException,
+            exc_message_pattern='Could not collect data! {condensed_debug_msg}')
+        def yet_another(...):
+            ...
     """
+    if func is None:
+        return functools.partial(exiting_on_exception,
+                                 exc_factory=exc_factory,
+                                 exc_message_pattern=exc_message_pattern)
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -2172,22 +2167,21 @@ def exiting_on_exception(func):
         except:
             exc_info = sys.exc_info()
             try:
-                debug_msg = make_condensed_debug_msg(
+                condensed_debug_msg = make_condensed_debug_msg(
                     exc_info,
                     total_limit=None,
                     exc_str_limit=1000,
                     tb_str_limit=None,
                     stack_str_limit=None)
-                tb_msg = ''.join(traceback.format_exception(*exc_info)).strip()
+                traceback_msg = ''.join(traceback.format_exception(*exc_info)).strip()
                 cur_thread = threading.current_thread()
-                sys.exit(
-                    'FATAL ERROR!\n'
-                    '{0}\n'
-                    'CONDENSED DEBUG INFO: [thread {1!r} (#{2})] {3}'.format(
-                        tb_msg,
-                        ascii_str(cur_thread.name),
-                        cur_thread.ident,
-                        debug_msg))
+                raised_exc = exc_factory(exc_message_pattern.format(
+                    traceback_msg=traceback_msg,
+                    exc_info=exc_info,
+                    thread_name=ascii_str(cur_thread.name),
+                    thread_ident=cur_thread.ident,
+                    condensed_debug_msg=condensed_debug_msg))
+                raise raised_exc
             finally:
                 # (to break any traceback-related reference cycles)
                 del exc_info
@@ -2612,8 +2606,16 @@ def limit_string(s, char_limit, cut_indicator='[...]', middle_cut=False):
     the middle of the string can be requested by specifying `middle_cut`
     as True.
 
+    If `s` is a str string and `cut_indicator` is not a str string
+    (then it is supposed to be a unicode string), or `s` is a unicode
+    string and `cut_indicator` is not a unicode string (then it is
+    supposed to be a str string), `cut_indicator` is automatically
+    coerced (appropriately: to str or unicode, using the UTF-8
+    encoding).
+
     The `char_limit` number must be greater than or equal to the length
-    of the `cut_indicator` string; otherwise ValueError will be raised.
+    of the (already coerced, if needed -- see above) `cut_indicator`
+    string; otherwise ValueError is raised.
 
     >>> limit_string('Ala ma kota', 10)
     'Ala m[...]'
@@ -2633,7 +2635,7 @@ def limit_string(s, char_limit, cut_indicator='[...]', middle_cut=False):
     'A[...]'
     >>> limit_string('Ala ma kota', 5)
     '[...]'
-    >>> limit_string('Ala ma kota', 4)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_string('Ala ma kota', 4)                          # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
@@ -2656,31 +2658,117 @@ def limit_string(s, char_limit, cut_indicator='[...]', middle_cut=False):
     'A[...]'
     >>> limit_string('Ala ma kota', 5, middle_cut=True)
     '[...]'
-    >>> limit_string('Ala ma kota', 4, middle_cut=True)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_string('Ala ma kota', 4, middle_cut=True)         # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
 
+    >>> limit_string('Ala ma kota', 12, cut_indicator='****')
+    'Ala ma kota'
+    >>> limit_string(u'Alą mą ĸóŧą', 12, cut_indicator='****', middle_cut=True)
+    u'Al\\u0105 m\\u0105 \\u0138\\xf3\\u0167\\u0105'
+    >>> limit_string(u'Alą mą ĸóŧą', 11, cut_indicator='****')
+    u'Al\\u0105 m\\u0105 \\u0138\\xf3\\u0167\\u0105'
+    >>> limit_string('Ala ma kota', 11, cut_indicator='****', middle_cut=True)
+    'Ala ma kota'
+    >>> limit_string('Ala ma kota', 11, cut_indicator=u'****')
+    'Ala ma kota'
     >>> limit_string('Ala ma kota', 10, cut_indicator='****', middle_cut=True)
     'Ala****ota'
     >>> limit_string(u'Alą mą ĸóŧą', 10, cut_indicator='****')
     u'Al\\u0105 m\\u0105****'
+    >>> limit_string('Ala ma kota', 10, cut_indicator=u'****', middle_cut=True)
+    'Ala****ota'
+    >>> limit_string(u'Alą mą ĸóŧą', 10, cut_indicator=u'****')
+    u'Al\\u0105 m\\u0105****'
     >>> limit_string('Ala ma kota', 6, cut_indicator='****', middle_cut=True)
+    'A****a'
+    >>> limit_string('Ala ma kota', 6, cut_indicator=u'****')
+    'Al****'
+    >>> limit_string('Ala ma kota', 6, cut_indicator=u'****', middle_cut=True)
     'A****a'
     >>> limit_string('Ala ma kota', 5, cut_indicator='****')
     'A****'
+    >>> limit_string('Ala ma kota', 5, cut_indicator=u'****', middle_cut=True)
+    'A****'
+    >>> limit_string('Ala ma kota', 4, cut_indicator=u'****')
+    '****'
     >>> limit_string('Ala ma kota', 4, cut_indicator='****', middle_cut=True)
     '****'
-    >>> limit_string('Ala ma kota', 3, cut_indicator='****')  # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator='****')
+    u'****'
+    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator=u'****', middle_cut=True)
+    u'****'
+    >>> limit_string('Ala ma kota', 4, cut_indicator='**ą*')    # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_string('Ala ma kota', 4, cut_indicator=u'**ą*',
+    ...              middle_cut=True)                           # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator='**ą*')
+    u'**\\u0105*'
+    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator='**ą*', middle_cut=True)
+    u'**\\u0105*'
+    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator=u'**ą*')
+    u'**\\u0105*'
+    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator=u'**ą*', middle_cut=True)
+    u'**\\u0105*'
+    >>> limit_string('Ala ma kota', 3, cut_indicator='****')    # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_string(u'Alą mą ĸóŧą', 3, cut_indicator='****',
+    ...              middle_cut=True)                           # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_string('Ala ma kota', 3, cut_indicator=u'****')   # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_string(u'Alą mą ĸóŧą', 3, cut_indicator=u'****',
+    ...              middle_cut=True)                           # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
 
-    >>> limit_string(u'Ala ma kota', 0, cut_indicator='')
+    >>> limit_string(u'Ala', 4, cut_indicator='')
+    u'Ala'
+    >>> limit_string('Ala', 4, cut_indicator='', middle_cut=True)
+    'Ala'
+    >>> limit_string('Ala', 3, cut_indicator=u'')
+    'Ala'
+    >>> limit_string(u'Ala', 3, cut_indicator=u'', middle_cut=True)
+    u'Ala'
+    >>> limit_string(u'Ala', 2, cut_indicator='')
+    u'Al'
+    >>> limit_string('Ala', 2, cut_indicator=u'', middle_cut=True)
+    'Aa'
+    >>> limit_string(u'Ala', 2, cut_indicator=u'')
+    u'Al'
+    >>> limit_string('Ala', 2, cut_indicator='', middle_cut=True)
+    'Aa'
+    >>> limit_string('Ala', 2, cut_indicator=u'')
+    'Al'
+    >>> limit_string(u'Ala', 2, cut_indicator='', middle_cut=True)
+    u'Aa'
+    >>> limit_string('Ala', 1, cut_indicator='')
+    'A'
+    >>> limit_string('Ala', 1, cut_indicator='', middle_cut=True)
+    'A'
+    >>> limit_string(u'Ala', 0, cut_indicator='')
     u''
-    >>> limit_string('Ala ma kota', 0, cut_indicator='', middle_cut=True)
+    >>> limit_string('Ala', 0, cut_indicator='', middle_cut=True)
     ''
-    >>> limit_string(u'Ala ma kota', 0, cut_indicator='*')  # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_string(u'Ala', 0, cut_indicator='*')              # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_string('Ala', 0, cut_indicator='*',
+    ...              middle_cut=True)                           # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
@@ -2693,26 +2781,138 @@ def limit_string(s, char_limit, cut_indicator='[...]', middle_cut=False):
     ''
     >>> limit_string(u'', 0, cut_indicator='')
     u''
-    >>> limit_string('', 0, cut_indicator='*')  # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_string('', 0, cut_indicator='*')                  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_string('', 0, cut_indicator=u'')
+    ''
+    >>> limit_string(u'', 0, cut_indicator=u'', middle_cut=True)
+    u''
+    >>> limit_string('', 0, cut_indicator=u'*')                 # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
     """
-    real_limit = char_limit - len(cut_indicator)
-    if real_limit < 0:
+    if isinstance(s, str) and not isinstance(cut_indicator, str):
+        cut_indicator = cut_indicator.encode('utf-8')
+    elif isinstance(s, unicode) and not isinstance(cut_indicator, unicode):
+        cut_indicator = cut_indicator.decode('utf-8')
+    effective_limit = char_limit - len(cut_indicator)
+    if effective_limit < 0:
         raise ValueError(
             '`char_limit` is too small: {0}, i.e., smaller than '
             'the length of `cut_indicator` ({1!r})'.format(
                 char_limit,
                 cut_indicator))
     if len(s) > char_limit:
-        right_limit, odd = divmod(real_limit, 2)
+        right_limit, odd = divmod(effective_limit, 2)
         if middle_cut and right_limit:
             left_limit = right_limit + odd
             s = s[:left_limit] + cut_indicator + s[-right_limit:]
         else:
-            s = s[:real_limit] + cut_indicator
+            s = s[:effective_limit] + cut_indicator
+    assert len(s) <= char_limit
     return s
+
+
+# TODO: docs + tests
+def is_pure_ascii(s):
+    if isinstance(s, unicode):
+        return s == s.encode('ascii', 'ignore').decode('ascii', 'ignore')
+    elif isinstance(s, str):
+        return s == s.decode('ascii', 'ignore').encode('ascii', 'ignore')
+    else:
+        raise TypeError('{!r} is neither `str` nor `unicode`'.format(s))
+
+
+# TODO: docs + tests
+def lower_if_pure_ascii(s):
+    if is_pure_ascii(s):
+        return s.lower()
+    return s
+
+
+def string_as_bytes(s):
+    r"""
+    Coerce the given string to `str`.
+
+    If the given argument is --
+        * a `str`: return it unchanged;
+        * a `unicode`: return its content encoded as an UTF-8 `str`;
+        * anything else: raise `TypeError`.
+
+    >>> string_as_bytes('zażółć\xdd') == 'zażółć\xdd'
+    True
+    >>> string_as_bytes(u'za\u017c\xf3\u0142\u0107\udcdd') == 'zażółć\xed\xb3\x9d'
+    True
+    >>> string_as_bytes(123)               # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    """
+    if not isinstance(s, str):
+        if isinstance(s, unicode):
+            s = s.encode('utf-8')
+        else:
+            raise TypeError('{!r} is neither `str` nor `unicode`'.format(s))
+    assert isinstance(s, str)
+    return s
+
+
+def formattable_as_str(s):
+    r"""
+    If a `unicode` is given then coerce it to a UTF-8-encoded `str`;
+    otherwise just return the argument intact.
+
+    To be used in `__str()__` implementations to coerce in a sensible
+    way `unicode` strings that, e.g., are to be used with `str.format()`.
+
+    This function should not be needed in Python 3.x.
+
+    >>> formattable_as_str(u'Tralala')
+    'Tralala'
+    >>> formattable_as_str(u'foo \u0105 \udccc')
+    'foo \xc4\x85 \xed\xb3\x8c'
+
+    >>> formattable_as_str('foo \xc4\x85 \xed\xb3\x8c')
+    'foo \xc4\x85 \xed\xb3\x8c'
+    >>> formattable_as_str('foo \xc4\x85 \xcc')
+    'foo \xc4\x85 \xcc'
+    >>> formattable_as_str(42)
+    42
+    """
+    if isinstance(s, unicode):
+        return s.encode('utf-8')
+    return s
+
+
+def with_dunder_unicode_from_str(cls):
+    r"""
+    A class decorator that adds an implementation of `__unicode__` that
+    uses `str()` on the instance and decodes the result using the UTF-8
+    encoding.
+
+    This decorator should not be needed in Python 3.x.
+
+    >>> @with_dunder_unicode_from_str
+    ... class Foo(object):
+    ...     def __str__(self):
+    ...         return 'zażółć gęślą jaźń'
+    ...
+    >>> str(Foo())
+    'za\xc5\xbc\xc3\xb3\xc5\x82\xc4\x87 g\xc4\x99\xc5\x9bl\xc4\x85 ja\xc5\xba\xc5\x84'
+    >>> unicode(Foo())
+    u'za\u017c\xf3\u0142\u0107 g\u0119\u015bl\u0105 ja\u017a\u0144'
+    """
+
+    def to_str_then_utf8_decode(self):
+        return str(self).decode('utf-8')
+
+    to_str_then_utf8_decode.__module__ = cls.__module__
+    to_str_then_utf8_decode.__name__ = '__unicode__'
+    cls.__unicode__ = to_str_then_utf8_decode
+    return cls
 
 
 # TODO: doc, tests
@@ -2919,31 +3119,6 @@ def is_ipv4(value):
         if intvalue > 255 or intvalue < 0:
             return False
     return True
-
-
-def does_look_like_url(s):
-    """
-    Check (very roughly) whether the given string looks like an URL.
-
-    It only checks whether the given string startswith some
-    letter|digit|dot|plus|minus characters separated with
-    a colon from the rest of its contents.
-
-    >>> does_look_like_url('https://www.example.com')
-    True
-    >>> does_look_like_url('mailto:www.example.com')
-    True
-    >>> does_look_like_url('foo.bar+spam-you:www.example.com')
-    True
-
-    >>> does_look_like_url('www.example.com')
-    False
-    >>> does_look_like_url('www.example.com/http://foo.bar.pl')
-    False
-    >>> does_look_like_url('http//www.example.com')
-    False
-    """
-    return (URL_SIMPLE_REGEX.match(s) is not None)
 
 
 # TODO: more tests
@@ -3249,17 +3424,29 @@ def cleanup_src():
 
 
 def make_exc_ascii_str(exc):
-    """
-    Generate a short ASCII string representing the given exception.
+    ur"""
+    Generate an ASCII string representing the given exception.
 
     Args:
         `exc`:
-            Instance of the exception.
+            The given exception instance.
 
     Returns:
-        Representation of the exception as an ASCII string.
+        A textual representation of `exc`, containing both the name
+        of its class and its normal `str()`-representation, as an
+        ASCII-only `str` instance.
+
+    >>> make_exc_ascii_str(RuntimeError('whoops!'))
+    'RuntimeError: whoops!'
+    >>> make_exc_ascii_str(RuntimeError(u'whoops!'))
+    'RuntimeError: whoops!'
+
+    >>> make_exc_ascii_str(ValueError('Zażółć jaźń!\xcc'))
+    'ValueError: Za\\u017c\\xf3\\u0142\\u0107 ja\\u017a\\u0144!\\udccc'
+    >>> make_exc_ascii_str(ValueError(u'Zażółć jaźń!\\udccc'))
+    'ValueError: Za\\u017c\\xf3\\u0142\\u0107 ja\\u017a\\u0144!\\udccc'
     """
-    return '{}: {}'.format(exc.__class__.__name__, ascii_str(exc))
+    return '{}: {}'.format(ascii_str(exc.__class__.__name__), ascii_str(exc))
 
 
 def make_condensed_debug_msg(exc_info=None,

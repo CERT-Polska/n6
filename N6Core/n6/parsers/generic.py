@@ -16,7 +16,12 @@ from lxml import etree
 
 from n6.base.queue import QueuedBase
 from n6lib.class_helpers import all_subclasses, attr_required
-from n6lib.common_helpers import FilePagedSequence, ascii_str, picklable
+from n6lib.common_helpers import (
+    FilePagedSequence,
+    ascii_str,
+    make_exc_ascii_str,
+    picklable,
+)
 from n6lib.config import Config, ConfigMixin
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.log_helpers import get_logger, logging_configured
@@ -517,7 +522,7 @@ class BaseParser(ConfigMixin, QueuedBase):
         dict constructor.  Then this function is called if and when an
         error occurs within the record dict's `with` block (see: parse()).
 
-        It is recommented that this function, before returning True, first
+        It is recommended that this function, before returning True, first
         logs a warning.
 
         The default implementation of this function:
@@ -528,6 +533,7 @@ class BaseParser(ConfigMixin, QueuedBase):
         * returns False otherwise.
 
         (But see the implementation in the BlackListParser class...).
+        (See also: SkipParseExceptionsMixin).
         """
         if isinstance(context_manager_error, AdjusterError):
             LOGGER.warning('Event could not be generated due to '
@@ -689,6 +695,29 @@ class BaseParser(ConfigMixin, QueuedBase):
         except KeyError:
             LOGGER.warning('Unrecognized proto symbol number: %r',
                            proto_symbol_number)
+
+
+
+class SkipParseExceptionsMixin(object):
+
+    """
+    A mixin that provides such an implementation of handle_parse_error()
+    that skips any Exception instances, not only AdjusterError instances
+    (see BaseParser.handle_parse_error()...).
+
+    Note: exceptions such as SystemExit or KeyboardInterrupt, i.e.,
+    *not* being instances of Exception (direct or indirect), will
+    *not* be skipped.
+    """
+
+    @staticmethod
+    @picklable
+    def handle_parse_error(context_manager_error):
+        if isinstance(context_manager_error, Exception):
+            LOGGER.warning('Event could not be generated due to %s',
+                           make_exc_ascii_str(context_manager_error))
+            return True
+        return False
 
 
 

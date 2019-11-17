@@ -2,6 +2,7 @@
 
 # Copyright (c) 2013-2018 NASK. All rights reserved.
 
+import base64
 import collections
 import datetime
 import functools
@@ -28,6 +29,7 @@ from n6lib.class_helpers import singleton
 from n6lib.common_helpers import (
     ascii_str,
     memoized,
+    string_as_bytes,
     with_flipped_args,
 )
 from n6lib.db_events import (
@@ -40,6 +42,10 @@ from n6lib.generate_test_events import RandomEvent
 from n6lib.log_helpers import get_logger
 from n6lib.pyramid_commons import get_certificate_credentials
 from n6lib.transaction_helpers import autotransact
+from n6lib.url_helpers import (
+    PROVISIONAL_URL_SEARCH_KEY_PREFIX,
+    normalize_url,
+)
 
 from n6sdk.exceptions import (
     DataAPIError,
@@ -475,6 +481,8 @@ class _QueryProcessor(object):
             time_min, time_max, time_until, day_step)
         client_ids = self.pop_client_ids(params)
         base_query = self.build_query(params, client_ids)
+        preprocess_raw_result_dict = self.preprocess_raw_result_dict
+        url_normalization_data_cache = {}
 
         processed_items = 0
         for compare_to_time_lower, compare_to_time_upper in time_cmp_generator:
@@ -503,8 +511,14 @@ class _QueryProcessor(object):
                     event_id = result.id
                     if event_id not in seen:
                         seen.add(event_id)
-                        yield result.to_raw_result_dict()
-                        per_query_yielded_items += 1
+                        raw_result_dict = result.to_raw_result_dict()
+                        preprocessed = preprocess_raw_result_dict(
+                            params,
+                            url_normalization_data_cache,
+                            raw_result_dict)
+                        if preprocessed is not None:
+                            yield preprocessed
+                            per_query_yielded_items += 1
                     processed_items += 1
             except DBAPIError:
                 LOGGER.error(
@@ -709,6 +723,75 @@ class _QueryProcessor(object):
         if limit is not None:
             query = query.limit(limit)
         return query
+
+    # *EXPERIMENTAL* (likely to be changed or removed in the future
+    # without any warning/deprecation/etc.)
+    @classmethod
+    def preprocess_raw_result_dict(cls, params, url_normalization_data_cache, result):
+        event_tag = cls._get_event_tag_for_logging(result)
+        custom = result.get('custom')
+        url_data = (custom.pop('url_data', None) if custom is not None
+                    else None)
+        url = result.get('url')
+        if url_data is None:
+            if url is not None and url.startswith(PROVISIONAL_URL_SEARCH_KEY_PREFIX):
+                LOGGER.warning(
+                    '`url` (%r) starts with %r but no `url_data`! '
+                    '(skipping this result dict)\n%s',
+                    url,
+                    PROVISIONAL_URL_SEARCH_KEY_PREFIX,
+                    event_tag)
+                return None
+            # normal case: no `url_data` and: "traditional" `url` or no `url`
+            return result
+        if url is None or not url.startswith(PROVISIONAL_URL_SEARCH_KEY_PREFIX):
+            LOGGER.error(
+                '`url_data` present (%r) but `url` (%r) does not '
+                'start with %r! (skipping this result dict)\n%s',
+                url_data,
+                url,
+                PROVISIONAL_URL_SEARCH_KEY_PREFIX,
+                event_tag)
+            return None
+        if (not isinstance(url_data, dict) or
+              url_data.viewkeys() != {'url_orig', 'url_norm_opts'}):
+            LOGGER.error(
+                '`url_data` (%r) is not valid! '
+                '(skipping this result dict)\n%s',
+                url_data,
+                event_tag)
+            return None
+        # case of `url_data`-based matching
+        url_orig = base64.urlsafe_b64decode(string_as_bytes(url_data['url_orig']))
+        url_norm_opts = url_data['url_norm_opts']
+        url_norm_cache_key = tuple(sorted(url_norm_opts.iteritems()))
+        try:
+            normalizer, param_urls_norm = url_normalization_data_cache[url_norm_cache_key]
+        except KeyError:
+            normalizer = functools.partial(normalize_url, **url_norm_opts)
+            _param_urls = params.get('url.b64')
+            param_urls_norm = (frozenset(map(normalizer, _param_urls))
+                               if _param_urls is not None
+                               else None)
+            url_normalization_data_cache[url_norm_cache_key] = normalizer, param_urls_norm
+        result_url_norm = normalizer(url_orig)
+        if (param_urls_norm is not None and
+              result_url_norm not in param_urls_norm):
+            # application-level filtering
+            return None
+        result['url'] = result_url_norm
+        return result
+
+    @staticmethod
+    def _get_event_tag_for_logging(result):
+        try:
+            return (
+                '(@event whose id is {}, time is {}, modified is {})'.format(
+                    result.get('id', 'not set'),
+                    result.get('time', 'not set'),
+                    result.get('modified', 'not set')))
+        except (AttributeError, ValueError, TypeError):  # a bit of paranoia :)
+            return '(@unknown event)'
 
 
 class N6TestDataBackendAPI(N6DataBackendAPI):

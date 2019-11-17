@@ -2,6 +2,7 @@
 
 # Copyright (c) 2013-2018 NASK. All rights reserved.
 
+import copy
 import unittest
 from datetime import datetime as dt
 
@@ -11,12 +12,20 @@ from mock import (
     sentinel as sen,
 )
 from sqlalchemy import and_
-from unittest_expander import expand, foreach, param
+from unittest_expander import (
+    expand,
+    foreach,
+    param,
+    paramseq,
+)
 
 from n6lib.data_backend_api import _QueryProcessor
 from n6lib.data_spec import N6DataSpec, N6InsideDataSpec
 from n6lib.sqlalchemy_related_test_helpers import sqlalchemy_expr_to_str
-from n6lib.unit_test_helpers import MethodProxy
+from n6lib.unit_test_helpers import (
+    MethodProxy,
+    TestCaseMixin,
+)
 
 
 ## TODO: N6DataBackendAPI tests
@@ -69,6 +78,7 @@ class Test_QueryProcessor___get_key_to_query_func(unittest.TestCase):
             'target': key_query,
             'url': key_query,
             'url.sub': qmc_mock.like_query,
+            'url.b64': qmc_mock.url_b64_experimental_query,
         })
 
 
@@ -437,3 +447,355 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
 
 
     ## TODO: test other aspects of the generate_query_results() method...
+
+
+@expand
+class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.TestCase):
+
+    @paramseq
+    def cases(cls):
+        yield param(
+            raw_result_dict={
+                # 'SY:'-prefixed `url`, no `custom`/`url_data`
+                # -> nothing
+                'url': u'SY:cośtam',
+                'foo': u'bar',
+            },
+            expected_result=None,
+        )
+        yield param(
+            raw_result_dict={
+                # 'SY:'-prefixed `url`, `custom` without `url_data`
+                # -> nothing
+                'custom': {},
+                'url': 'SY:cośtam',
+                'foo': 'bar',
+            },
+            expected_result=None,
+        )
+        yield param(
+            # `custom`+`url_data`, no 'url'
+            # -> nothing
+            raw_result_dict={
+               'custom': {
+                   'url_data': {
+                       'url_orig': 'x',
+                       'url_norm_opts': {'x': 'y'},
+                   },
+               },
+            },
+            expected_result=None,
+        )
+        yield param(
+            # `custom`+`url_data`, some data, no 'url'
+            # -> nothing
+            raw_result_dict={
+               'custom': {
+                   'url_data': {
+                       'url_orig': u'x',
+                       'url_norm_opts': {'x': u'y'},
+                   },
+               },
+               'foo': u'bar',
+            },
+            expected_result=None,
+        )
+        yield param(
+            # `url` without 'SY:' prefix, `custom`+`url_data`
+            # -> nothing
+            raw_result_dict={
+               'custom': {
+                   'url_data': {
+                       'url_orig': u'x',
+                       'url_norm_opts': {'x': u'y'},
+                   },
+               },
+               'url': u'foo:bar',
+            },
+            expected_result=None,
+        )
+        yield param(
+            # `url` without 'SY:' prefix, `custom`+`url_data`, some data
+            # -> nothing
+            raw_result_dict={
+               'custom': {
+                   'url_data': {
+                       'url_orig': 'x',
+                       'url_norm_opts': {'x': 'y'},
+                   },
+               },
+               'foo': 'bar',
+            },
+            expected_result=None,
+        )
+        yield param(
+            # `custom`+`url_data` but the latter is not valid (not a dict)
+            # -> nothing
+            raw_result_dict={
+               'custom': {
+                   'url_data': [u'something'],
+               },
+               'url': u'SY:foo:bar',
+            },
+            expected_result=None,
+        )
+        yield param(
+            # `custom`+`url_data` but the latter is not valid (missing keys)
+            # -> nothing
+            raw_result_dict={
+               'custom': {
+                   'url_data': {
+                       'url_norm_opts': {'x': 'y'},
+                   },
+               },
+               'foo': 'bar',
+            },
+            expected_result=None,
+        )
+        yield param(
+            # `custom`+`url_data` but the latter is not valid (illegal keys)
+            # -> nothing
+            raw_result_dict={
+               'custom': {
+                   'url_data': {
+                       'url_orig': u'x',
+                       'url_norm_opts': {'x': 'y'},
+                       'spam': 'ham',
+                   },
+               },
+               'foo': 'bar',
+            },
+            expected_result=None,
+        )
+        yield param(
+            # some data. no `url`, no `url_data`
+            # -> some data
+            raw_result_dict={
+               'foo': 'bar',
+            },
+            expected_result={
+               'foo': 'bar',
+            },
+        )
+        yield param(
+            # some data, no `url`, `custom` without `url_data`
+            # -> some data, `custom`
+            raw_result_dict={
+               'custom': {'spam': u'ham'},
+               'foo': u'bar',
+            },
+            expected_result={
+                'custom': {'spam': u'ham'},
+               'foo': u'bar',
+            },
+        )
+        yield param(
+            # `url` without 'SY:' prefix, some data, no `custom`/`url_data`
+            # -> `url`, some data
+            raw_result_dict={
+               'url': u'something-else',
+               'foo': u'bar',
+            },
+            expected_result={
+               'url': u'something-else',
+               'foo': u'bar',
+            },
+        )
+        yield param(
+            # `url` without 'SY:' prefix, some data, `custom` without `url_data`
+            # -> `url`, some data, `custom`
+            raw_result_dict={
+               'custom': {'spam': 'ham'},
+               'url': 'something-else',
+               'foo': 'bar',
+            },
+            expected_result={
+               'custom': {'spam': 'ham'},
+               'url': 'something-else',
+               'foo': 'bar',
+            },
+        )
+        yield param(
+            # `url`, `custom`+`url_data`+other, some data
+            # *and* `url.b64` in params (some matching!)
+            # -- so: app-level matching: normalized `url_orig` matched some of `url.b64`
+            # -> `url` being normalized `url_orig`, some data, custom without `url_data`
+            params={
+                'url.b64': [
+                    u'https://example.com/',
+                    u'HTTP://Ćma.EXAMPLE.cOM:80/\udcdd\ud800Ala-ma-kota\udbff\udfff\udccc',
+                    u'http://example.ORG:8080/?x=y&ą=ę',
+                ],
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'url_orig': (u'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     u'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                    'spam': 123,
+                },
+                'url': u'SY:foo:bar/not-important',
+                'some-data': u'FOO BAR !@#$%^&*()',
+            },
+            expected_result={
+                'custom': {
+                    'spam': 123,
+                },
+                'url': u'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
+                'some-data': u'FOO BAR !@#$%^&*()',
+            },
+        )
+        yield param(
+            # `url`, `custom`+`url_data`+other, some data
+            # *and* *no* `url.b64` in params (so it does not constraints us...)
+            # -- so: *no* app-level matching
+            # -> `url` being normalized `url_orig`, some data, custom without `url_data`
+            params={
+                'foobar': [
+                    u'https://example.com/',
+                    u'http://example.ORG:8080/?x=y&ą=ę',
+                ],
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'url_orig': ('aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                    'spam': 123,
+                },
+                'url': 'SY:foo:bar/not-important',
+                'some-data': 'FOO BAR !@#$%^&*()',
+            },
+            expected_result={
+                'custom': {
+                    'spam': 123,
+                },
+                'url': u'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
+                'some-data': 'FOO BAR !@#$%^&*()',
+            },
+        )
+        yield param(
+            # `url`, `custom`+`url_data`+other, some data
+            # *and* `url.b64` in params (but none matching!)
+            # -- so: app-level matching: normalized `url_orig` did *not* matched any of `url.b64`
+            # -> nothing
+            params={
+                'url.b64': [
+                    u'https://example.com/',
+                    u'http://example.ORG:8080/?x=y&ą=ę',
+                ],
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'url_orig': (u'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     u'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                    'spam': 123,
+                },
+                'url': u'SY:foo:bar/not-important',
+                'some-data': u'FOO BAR !@#$%^&*()',
+            },
+            expected_result=None,
+        )
+        yield param(
+            # `url`, `custom`+`url_data`+other, some data
+            # *and* (although none of `url.b64` matches in params) *url_normalization_data_cache*
+            # containing some matching (fake) stuff...
+            # -- so: app-level matching: fake-normalizer-processed `url_orig` matched something...
+            # -> `url` being fake-normalizer-processed `url_orig`, etc. ...
+            params={
+                'url.b64': [
+                    u'https://example.com/',
+                    u'http://example.ORG:8080/?x=y&ą=ę',
+                ],
+            },
+            url_normalization_data_cache={
+                (('epslash', True), ('rmzone', True), ('transcode1st', True)): (
+                    # "cached" normalizer (here it is fake, of course):
+                    str.upper,
+
+                    # "cached" normalized `url.b64` param values (here fake, of course):
+                    [
+                        'HTTP://\xc4\x86MA.EXAMPLE.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        'ALA-MA-KOTA\xf4\x8f\xbf\xbf\xed\xb3\x8c',
+                    ]
+                ),
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'url_orig': (u'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     u'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                    'spam': 123,
+                },
+                'url': u'SY:foo:bar/not-important',
+                'some-data': u'FOO BAR !@#$%^&*()',
+            },
+            expected_result={
+                'custom': {
+                    'spam': 123,
+                },
+                'url': ('HTTP://\xc4\x86MA.EXAMPLE.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        'ALA-MA-KOTA\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                'some-data': u'FOO BAR !@#$%^&*()',
+            },
+        )
+        yield param(
+            # similar situation but even *without* the `url.b64` params (but
+            # that does not matter, as what is important is the cache!)
+            url_normalization_data_cache={
+                (('epslash', True), ('rmzone', True), ('transcode1st', True)): (
+                    # "cached" normalizer (here it is fake, of course):
+                    lambda s: unicode(s.upper()),
+                    # "cached" normalized `url.b64` param values (here fake, of course):
+                    [
+                        'HTTPS://EXAMPLE.COM:',
+                    ]
+                ),
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'url_orig': ('aHR0cHM6Ly9leGFtcGxlLmNvbTo='),
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                    'spam': 123,
+                },
+                'url': 'SY:foo:bar/not-important',
+                'some-data': 'FOO BAR !@#$%^&*()',
+            },
+            expected_result={
+                'custom': {
+                    'spam': 123,
+                },
+                'url': u'HTTPS://EXAMPLE.COM:',  # note: unicode because of this fake normalizer...
+                'some-data': 'FOO BAR !@#$%^&*()',
+            },
+        )
+
+    @foreach(cases)
+    def test(self, raw_result_dict, expected_result,
+             params=None,
+             url_normalization_data_cache=None):
+        params = (
+            copy.deepcopy(params)
+            if params is not None
+            else {})
+        url_normalization_data_cache = (
+            url_normalization_data_cache
+            if url_normalization_data_cache is not None
+            else {})
+        raw_result_dict = copy.deepcopy(raw_result_dict)
+        actual_result = _QueryProcessor.preprocess_raw_result_dict(
+            params,
+            url_normalization_data_cache,
+            raw_result_dict)
+        self.assertEqualIncludingTypes(actual_result, expected_result)

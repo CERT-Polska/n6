@@ -32,15 +32,17 @@ RESTRICTION_LEVEL = {
     'public': 1,
 }
 
+TO_IDS_DEPENDENT_CATEGORY_MARKER = 'cnc-OR-other'
+
 MISP_MAP_KEYS = {
     'Network activity': {
-        'hostname': {'category': 'cnc', 'fqdn': 'value', 'dport': 'comment'},
-        'domain': {'category': 'cnc', 'fqdn': 'value', 'dport': 'comment'},
-        'ip-dst': {'category': 'cnc', 'ip': 'value', 'dport': 'comment'},
+        'hostname': {'category': TO_IDS_DEPENDENT_CATEGORY_MARKER, 'fqdn': 'value', 'dport': 'comment'},
+        'domain': {'category': TO_IDS_DEPENDENT_CATEGORY_MARKER, 'fqdn': 'value', 'dport': 'comment'},
+        'ip-dst': {'category': TO_IDS_DEPENDENT_CATEGORY_MARKER, 'ip': 'value', 'dport': 'comment'},
         'ip-src': {'category': 'bots', 'ip': 'value'},
-        'email-dst': {'category': 'cnc', 'email': 'value'},
-        'email-src': {'category': 'cnc', 'email': 'value'},
-        'url': {'category': 'cnc', 'url': 'value'},
+        'email-dst': {'category': TO_IDS_DEPENDENT_CATEGORY_MARKER, 'email': 'value'},
+        'email-src': {'category': TO_IDS_DEPENDENT_CATEGORY_MARKER, 'email': 'value'},
+        'url': {'category': TO_IDS_DEPENDENT_CATEGORY_MARKER, 'url': 'value'},
         'domain|ip': {'category': 'malurl', 'fqdn': 'value', 'ip': 'value'},
     },
     'Payload delivery': {
@@ -49,7 +51,7 @@ MISP_MAP_KEYS = {
         'ip-dst': {'category': 'malurl', 'ip': 'value'},
         'ip-src': {'category': 'malurl', 'ip': 'value'},
         'hostname': {'category': 'malurl', 'fqdn': 'value'},
-    }
+    },
 }
 
 
@@ -92,6 +94,15 @@ class MispParser(BaseParser):
         misp_map_dict = copy.deepcopy(MISP_MAP_KEYS[misp_category])
         event_params = misp_map_dict[misp_event_type]
         n6_category = event_params.pop('category')
+
+        # avoiding false positives for misp_category == 'Network activity' & n6_category == 'cnc'
+        if n6_category == TO_IDS_DEPENDENT_CATEGORY_MARKER:
+            to_ids = misp_attribute.get('to_ids')
+            if to_ids and str(to_ids).lower() != 'false':
+                n6_category = 'cnc'
+            else:
+                n6_category = 'other'
+
         for n6_key, misp_key in event_params.viewitems():
             event_param = misp_attribute.get(misp_key)
             if event_param:

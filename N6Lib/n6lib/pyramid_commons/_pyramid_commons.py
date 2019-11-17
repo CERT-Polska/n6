@@ -2,19 +2,13 @@
 
 # Copyright (c) 2013-2019 NASK. All rights reserved.
 
-import datetime
-import json
 from collections import MutableSequence
 
 from pyramid.httpexceptions import (
-    HTTPBadRequest,
     HTTPForbidden,
-    HTTPGone,
-    HTTPNotFound,
     HTTPServerError,
 )
 from pyramid.authentication import AuthTktAuthenticationPolicy
-from pyramid.response import Response
 from pyramid.security import (
     Allow,
     Authenticated,
@@ -27,7 +21,6 @@ from n6lib.auth_api import (
     RESOURCE_ID_TO_ACCESS_ZONE,
     AuthAPIUnauthenticatedError,
 )
-from n6lib.class_helpers import attr_required
 from n6lib.common_helpers import (
     make_condensed_debug_msg,
     make_hex_id,
@@ -57,8 +50,6 @@ from n6sdk.pyramid_commons import (
     registered_stream_renderers,
 )
 
-
-_MANAGE_API = False  # TODO: remove whole request-case-related stuff
 
 LOGGER = get_logger(__name__)
 
@@ -285,126 +276,6 @@ class N6AuthView(_AbstractInfoView):
         return api_method(self.request, self.auth_api)
 
 
-class _AbstractDeviceRequestViewBase(AbstractViewBase):
-
-    view_config_spec = '''
-        [device_request_resource]
-        finalized_request_case_expiry_days = 30 :: int
-    '''
-
-    @classmethod
-    def concrete_view_class(cls, config, **kwargs):
-        # note: here the `config` argument is a pyramid.config.Configurator
-        # instance (*not* a n6lib.config.Config instance!)
-        view_class = super(_AbstractDeviceRequestViewBase,
-                           cls).concrete_view_class(config=config, **kwargs)
-        view_class.view_config_section = n6lib.config.Config.section(
-            view_class.view_config_spec,
-            settings=config.registry.settings)
-        return view_class
-
-    @attr_required('view_config_section')
-    def __init__(self, *args, **kwargs):
-        super(_AbstractDeviceRequestViewBase, self).__init__(*args, **kwargs)
-        self.manage_api = self.request.registry.manage_api
-
-    def prepare_params(self):
-        return {}
-
-
-if _MANAGE_API:
-    class DeviceRequestPostViewBase(_AbstractDeviceRequestViewBase):
-
-        @classmethod
-        def get_default_http_methods(cls):
-            return 'POST'
-
-        def make_response(self):
-            request_case = self._new_request_case(
-                csr_pem=self.request.body,
-                auth_data=self.request.auth_data)
-            body = json.dumps({'request_id': request_case.request_id})
-            return Response(
-                body,
-                content_type='application/json')
-
-        def _new_request_case(self, csr_pem, auth_data):
-            try:
-                return self.manage_api.make_new_request_case(csr_pem, auth_data)
-            except ManageAPIClientError as exc:
-                if exc.remote_user_error_label == 'not-a-csr':
-                    raise HTTPBadRequest(exc.remote_user_error_descr)
-                if exc.remote_user_error_label in (
-                        'csr-non-compliance', 'csr-for-different-user'):
-                    raise HTTPForbidden(exc.remote_user_error_descr)
-                raise
-else:
-    DeviceRequestPostViewBase = None
-
-
-if _MANAGE_API:
-    class DeviceRequestGetViewBase(_AbstractDeviceRequestViewBase):
-
-        @classmethod
-        def validate_url_pattern(cls, url_pattern):
-            if not url_pattern.endswith('/{request_id}'):
-                LOGGER.error("url_pattern must contain '/{request_id}' suffix")
-                raise HTTPServerError
-
-        @classmethod
-        def get_default_http_methods(cls):
-            return 'GET'
-
-        def make_response(self):
-            request_id = self.request.matchdict['request_id']
-            with self.manage_api as manage_api:
-                request_case = self._get_request_case(manage_api, request_id)
-                if request_case.status in ('new', 'registered'):
-                    body = ''
-                    status_code = 202
-                elif request_case.status == 'finalized':
-                    self._check_request_case_expiry(request_case)
-                    cert_data = self._get_valid_cert_data(manage_api, request_case)
-                    body = cert_data.cert_pem
-                    status_code = 200
-                else:
-                    assert request_case.status == 'cancelled'
-                    raise HTTPGone('The specified remote certificate request case is cancelled.')
-            return Response(
-                body,
-                status_code=status_code,
-                content_type='text/plain')
-
-        def _get_request_case(self, manage_api, request_id):
-            try:
-                return manage_api.get_request_case(request_id)
-            except ManageAPIClientError as exc:
-                if exc.remote_user_error_label == 'request-id-not-found':
-                    raise HTTPNotFound(exc.remote_user_error_descr)
-                raise
-
-        def _check_request_case_expiry(self, request_case):
-            assert request_case.status == 'finalized'
-            request_case_expiry_days = self.view_config_section['finalized_request_case_expiry_days']
-            if request_case_expiry_days > 0 and (
-                  datetime.datetime.utcnow() - request_case.status_changed_on >
-                    datetime.timedelta(days=request_case_expiry_days)):
-                raise HTTPGone('The specified remote certificate request case expired.')
-
-        def _get_valid_cert_data(self, manage_api, request_case):
-            cert_data = manage_api.get_cert(
-                request_case.cert_ca_label,
-                request_case.cert_serial_number)
-            cert_data.ensure_cert_verified()
-            if cert_data.revoked_on is not None:
-                raise HTTPGone('The requested certificate has been revoked.')
-            if cert_data.expires_on < datetime.datetime.utcnow():
-                raise HTTPGone('The requested certificate already expired.')
-            return cert_data
-else:
-    DeviceRequestGetViewBase = None
-
-
 #
 # Custom tweens (see: http://docs.pylonsproject.org/projects/pyramid/en/newest/narr/hooks.html#registering-tweens)
 
@@ -474,9 +345,8 @@ class N6ConfigHelper(ConfigHelper):
 
     # note: all constructor arguments (including `auth_api_class`)
     # should be specified as keyword arguments
-    def __init__(self, auth_api_class, manage_api_class=None, **kwargs):
+    def __init__(self, auth_api_class, **kwargs):
         self.auth_api_class = auth_api_class
-        self.manage_api_class = manage_api_class
         super(N6ConfigHelper, self).__init__(**kwargs)
 
     def prepare_config(self, config):
@@ -490,8 +360,6 @@ class N6ConfigHelper(ConfigHelper):
             'n6lib.pyramid_commons.auth_api_context_tween_factory',
             under=EXCVIEW)
         config.registry.auth_api = self.auth_api_class(settings=self.settings)
-        if self.manage_api_class is not None:
-            config.registry.manage_api = self.manage_api_class(settings=self.settings)
         return super(N6ConfigHelper, self).prepare_config(config)
 
     @classmethod
