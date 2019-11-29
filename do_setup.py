@@ -88,6 +88,9 @@ def parse_arguments():
                         help=('a Python dict literal specifying logging config in the '
                               'logging.config.dictConfig format (default: {!r})'
                               .format(repr(DEFAULT_LOG_CONFIG).replace('%', '%%'))))
+    parser.add_argument('--gen-docs',
+                        action='store_true',
+                        help='generates documentation for the project')
 
     arguments = parser.parse_args()
 
@@ -116,6 +119,9 @@ def parse_arguments():
     else:
         arguments.additional_packages = list(
                 iter_nonfalse_unique(arguments.additional_packages))
+
+    if arguments.gen_docs:
+        arguments.additional_packages.append('mkdocs')
 
     try:
         arguments.log_config = ast.literal_eval(arguments.log_config)
@@ -173,6 +179,10 @@ def main():
         for pkgname in arguments.additional_packages:
             command('pip install {}'.format(pkgname))
             LOGGER.info("%r installed", pkgname)
+        
+        if arguments.gen_docs:
+            command('mkdocs build')
+            LOGGER.info("documentation generated")
 
     except SystemExit as exc:
         status = exc.args[0] if exc.args else 0

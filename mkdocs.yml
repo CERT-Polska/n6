@@ -1,0 +1,16 @@
+site_name: N6 Documentation
+nav:
+    - Home: index.md
+    - Implementing new source:
+      - Introduction: guides/new_source/index.md
+      - Collectors: guides/new_source/collectors/index.md
+      - Collectors' Command: guides/new_source/collectors/command.md
+      - Collectors' base classes: guides/new_source/collectors/classes.md
+      - High frequency data sources: guides/new_source/collectors/hifreq.md
+      - Collectors with state: guides/new_source/collectors/state.md
+      - Testing Collectors: guides/new_source/collectors/testing.md
+      - Parsers: guides/new_source/parsers/index.md
+      - Parsers' Command: guides/new_source/parsers/command.md
+      - Parsers' base classes: guides/new_source/parsers/baseclasses.md
+      - Testing parsers: guides/new_source/parsers/testing.md
+theme: readthedocs    
