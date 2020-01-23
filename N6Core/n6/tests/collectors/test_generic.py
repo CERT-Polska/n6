@@ -1,17 +1,30 @@
 # -*- coding: utf-8 -*-
 
+# Copyright (c) 2013-2019 NASK. All rights reserved.
+
 import datetime
 import hashlib
 import unittest
 
-from mock import ANY, Mock, call, patch, sentinel
-from unittest_expander import expand, foreach, param
-
-from n6lib.common_helpers import (
-    SimpleNamespace,
-    reduce_indent,
+from mock import (
+    ANY,
+    call,
+    Mock,
+    patch,
+    sentinel,
 )
-from n6lib.config import ConfigError, ConfigSection
+from unittest_expander import (
+    expand,
+    foreach,
+    param,
+)
+
+from n6lib.common_helpers import SimpleNamespace
+from n6lib.config import (
+    ConfigError,
+    ConfigSection,
+)
+from n6lib.csv_helpers import split_csv_row
 from n6lib.email_message import EmailMessage
 from n6lib.unit_test_helpers import (
     AnyDictIncluding,
@@ -608,11 +621,12 @@ class TestXXX(_BaseCollectorTestCase):
         def obtain_orig_data(self):
             return self.example_orig_data
 
-        def extract_row_time(self, row):
-            fields = row.split(',')
-            time_field = fields[1]
-            row_time = time_field.strip().strip('"')
-            return row_time
+        def clean_row_time(self, raw_row_time):
+            return raw_row_time.strip().strip('"')
+
+        def extract_raw_row_time(self, row):
+            fields = split_csv_row(row)
+            return fields[1].strip()
 
         def get_source_channel(self, **kwargs):
             return 'my-channel'

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import datetime
 import json
@@ -24,24 +24,43 @@ from unittest_expander import (
     expand,
     foreach,
     param,
+    paramseq,
 )
 
-from n6lib.pyramid_commons._pyramid_commons import (
-    SSL_ORG_ID_FIELD,
-    SSL_USER_ID_FIELD,
-)
+import n6lib.auth_db.models as models
 from n6lib.auth_api import AuthAPIUnauthenticatedError
+from n6lib.auth_db import REGISTRATION_REQUEST_STATUS_NEW
+from n6lib.auth_db.api import (
+    AuthDatabaseAPIClientError,
+    AuthQueryAPI,
+    AuthManageAPI,
+)
 from n6lib.config import ConfigError
+from n6lib.const import (
+    WSGI_SSL_ORG_ID_FIELD,
+    WSGI_SSL_USER_ID_FIELD,
+)
 from n6lib.data_backend_api import N6DataBackendAPI
 from n6lib.pyramid_commons import (
     N6InfoView,
+    N6RegistrationView,
     BaseUserAuthenticationPolicy,
     SSLUserAuthenticationPolicy,
     LoginOrSSLUserAuthenticationPolicy,
     DevFakeUserAuthenticationPolicy,
 )
-from n6lib.unit_test_helpers import MethodProxy
-
+from n6lib.unit_test_helpers import (
+    AnyInstanceOf,
+    AnyInstanceOfWhoseVarsInclude,
+    DBConnectionPatchMixin,
+    MethodProxy,
+    RequestHelperMixin,
+)
+from n6sdk.exceptions import (
+    DataAPIError,
+    ParamKeyCleaningError,
+    ParamValueCleaningError,
+)
 
 
 sample_access_info_items = {
@@ -51,7 +70,6 @@ sample_access_info_items = {
     'max_days_old': 100,
     'results_limit': None,
 }
-
 
 access_info_to_response = [
     param(
@@ -145,7 +163,6 @@ access_info_to_response = [
     ),
 ]
 
-
 access_info_to_exc = [
     param(
         res_limits={
@@ -194,8 +211,8 @@ class TestN6InfoView(unittest.TestCase):
                 self.auth_data['org_id'] = sen.org_id
                 self.auth_data['user_id'] = sen.user_id
             if is_cert_available:
-                self.environ[SSL_ORG_ID_FIELD] = sen.ssl_org_id
-                self.environ[SSL_USER_ID_FIELD] = sen.ssl_user_id
+                self.environ[WSGI_SSL_ORG_ID_FIELD] = sen.ssl_org_id
+                self.environ[WSGI_SSL_USER_ID_FIELD] = sen.ssl_user_id
 
     def _get_mocked_request(self,
                             res_limits,
@@ -238,6 +255,291 @@ class TestN6InfoView(unittest.TestCase):
 
     def test_get_default_http_methods(self):
         self.assertEqual(self.http_method, N6InfoView.get_default_http_methods())
+
+
+@expand
+class TestN6RegistrationView(RequestHelperMixin, DBConnectionPatchMixin, unittest.TestCase):
+
+    def setUp(self):
+        self.added_to_session = []
+        self.session_mock = MagicMock()
+        self.session_mock.add.side_effect = self.added_to_session.append
+        self.auth_db_connector_mock = MagicMock()
+        self.auth_db_connector_mock.get_current_session.return_value = self.session_mock
+        self.pyramid_config = self.prepare_pyramid_testing()
+        self._set_up_auth_apis()
+
+    def _set_up_auth_apis(self):
+        self.patch('n6lib.auth_db.api.SQLAuthDBConnector',
+                   return_value=self.auth_db_connector_mock)
+        self.pyramid_config.registry.auth_query_api = AuthQueryAPI(sen.settings)
+        self.pyramid_config.registry.auth_manage_api = AuthManageAPI(sen.settings)
+
+    @staticmethod
+    def basic_cases():
+        request_params_base = dict(
+            org_id=[u'example.com'],
+            email=[u'foo@example.info'],
+            actual_name=[u'Śome Ńąmę'],
+            submitter_title=[u'CEO'],
+            submitter_firstname_and_surname=[u'Marian Examplówski'],
+            csr=[u'-----BEGIN CERTIFICATE REQUEST-----\nabc\n-----END CERTIFICATE REQUEST-----'],
+        )
+        expected_db_obj_attributes_base = dict(
+            submitted_on=AnyInstanceOf(datetime.datetime),
+            modified_on=AnyInstanceOf(datetime.datetime),
+            status=REGISTRATION_REQUEST_STATUS_NEW,
+            org_id=u'example.com',
+            email=u'foo@example.info',
+            actual_name=u'Śome Ńąmę',
+            submitter_title=u'CEO',
+            submitter_firstname_and_surname=u'Marian Examplówski',
+            csr=u'-----BEGIN CERTIFICATE REQUEST-----\nabc\n-----END CERTIFICATE REQUEST-----',
+        )
+        yield (
+            dict(request_params_base),
+            AnyInstanceOfWhoseVarsInclude(models.RegistrationRequest, **dict(
+                expected_db_obj_attributes_base,
+            )),
+        )
+        yield (
+            dict(
+                request_params_base,
+                notification_language=[u'EN'],
+            ),
+            AnyInstanceOfWhoseVarsInclude(models.RegistrationRequest, **dict(
+                expected_db_obj_attributes_base,
+                email_notification_language=u'EN',
+            )),
+        )
+        yield (
+            dict(
+                request_params_base,
+                notification_emails=[u'foo@bar'],
+            ),
+            AnyInstanceOfWhoseVarsInclude(models.RegistrationRequest, **dict(
+                expected_db_obj_attributes_base,
+                email_notification_addresses=[AnyInstanceOfWhoseVarsInclude(
+                    models.RegistrationRequestEMailNotificationAddress,
+                    email=u'foo@bar'),
+                ],
+            )),
+        )
+        yield (
+            dict(
+                request_params_base,
+                notification_emails=[u'spam@ham', u'foo@bar'],
+            ),
+            AnyInstanceOfWhoseVarsInclude(models.RegistrationRequest, **dict(
+                expected_db_obj_attributes_base,
+                email_notification_addresses=[
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestEMailNotificationAddress,
+                        email=u'foo@bar',
+                    ),
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestEMailNotificationAddress,
+                        email=u'spam@ham',
+                    ),
+                ],
+            )),
+        )
+        yield (
+            dict(
+                request_params_base,
+                notification_language=[u'EN'],
+                notification_emails=[u'foo@bar'],
+                asns=[u'42'],
+                fqdns=[u'foo.example.org'],
+                ip_networks=[u'1.2.3.4/24'],
+            ),
+            AnyInstanceOfWhoseVarsInclude(models.RegistrationRequest, **dict(
+                expected_db_obj_attributes_base,
+                email_notification_language=u'EN',
+                email_notification_addresses=[
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestEMailNotificationAddress,
+                        email=u'foo@bar',
+                    ),
+                ],
+                asns=[
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestASN,
+                        asn=42,
+                    ),
+                ],
+                fqdns=[
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestFQDN,
+                        fqdn=u'foo.example.org',
+                    ),
+                ],
+                ip_networks=[
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestIPNetwork,
+                        ip_network=u'1.2.3.4/24',
+                    ),
+                ],
+            )),
+        )
+        yield (
+            dict(
+                request_params_base,
+                notification_language=[u'EN'],
+                notification_emails=[u'spam@ham', u'foo@bar'],
+                asns=[u'1.1', u'42', u'65537'],  # note: `1.1` and `65537` means the same
+                fqdns=[u'foo.example.org', u'baz.ham', u'example.net'],
+                ip_networks=[u'10.20.30.40/24', u'192.168.0.3/32'],
+            ),
+            AnyInstanceOfWhoseVarsInclude(models.RegistrationRequest, **dict(
+                expected_db_obj_attributes_base,
+                email_notification_language=u'EN',
+                email_notification_addresses=[
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestEMailNotificationAddress,
+                        email=u'foo@bar',
+                    ),
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestEMailNotificationAddress,
+                        email=u'spam@ham',
+                    ),
+                ],
+                asns=[
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestASN,
+                        asn=42,
+                    ),
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestASN,
+                        asn=65537,
+                    ),
+                ],
+                fqdns=[
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestFQDN,
+                        fqdn=u'baz.ham',
+                    ),
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestFQDN,
+                        fqdn=u'example.net',
+                    ),
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestFQDN,
+                        fqdn=u'foo.example.org',
+                    ),
+                ],
+                ip_networks=[
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestIPNetwork,
+                        ip_network=u'10.20.30.40/24',
+                    ),
+                    AnyInstanceOfWhoseVarsInclude(
+                        models.RegistrationRequestIPNetwork,
+                        ip_network=u'192.168.0.3/32',
+                    ),
+                ],
+            )),
+        )
+
+    @paramseq
+    def ok_cases(cls):
+        for str_values in (True, False):
+            for whitespace_surrounded_values in (True, False):
+                for unpacked_single_values in (True, False):
+                    for request_params, expected_db_obj in cls.basic_cases():
+                        if whitespace_surrounded_values:
+                            request_params = {
+                                key: [u' \t {} \n '.format(v) for v in val]
+                                for key, val in request_params.iteritems()}
+                        if str_values:
+                            request_params = {
+                                key: [v.encode('utf-8') for v in val]
+                                for key, val in request_params.iteritems()}
+                        if unpacked_single_values:
+                            request_params = {
+                                key: (val[0] if len(val) == 1
+                                      else val)
+                                for key, val in request_params.iteritems()}
+                        yield param(
+                                request_params=request_params,
+                                expected_db_obj=expected_db_obj,
+                            ).label('ok:{}{}{}/{}'.format(
+                                's' if str_values else '-',
+                                'u' if unpacked_single_values else '-',
+                                'w' if whitespace_surrounded_values else '-',
+                                len(request_params)))
+
+    @foreach(ok_cases)
+    def test_ok(self, request_params, expected_db_obj):
+        req = self.create_request(N6RegistrationView, **request_params)
+        response = req.perform()
+        self._assert_response_ok(response)
+        self._assert_db_operations_as_expected(expected_db_obj=expected_db_obj)
+
+    # TODO: more cleaning error cases...
+    @foreach(
+        param(
+            with_set={'org_id': u'blabla@not-valid'},
+            with_deleted=(),
+            expected_exc_type=ParamValueCleaningError,
+        ),
+        param(
+            with_set={},
+            with_deleted={'org_id'},
+            expected_exc_type=ParamKeyCleaningError,
+        ),
+    )
+    def test_kwargs_cleaning_error(self, with_set, with_deleted, expected_exc_type):
+        request_params, _ = next(self.basic_cases())
+        request_params.update(with_set)
+        for key in with_deleted:
+            del request_params[key]
+        req = self.create_request(N6RegistrationView, **request_params)
+        with self.assertRaises(expected_exc_type):
+            req.perform()
+        self._assert_db_not_touched()
+
+    # TODO: more cleaning error cases...
+    @foreach(
+        param(
+            exc_type_from_add=DataAPIError,
+            expected_exc_type=AuthDatabaseAPIClientError,
+        ).label('client data error'),
+        param(
+            exc_type_from_add=ZeroDivisionError,
+            expected_exc_type=ZeroDivisionError,
+        ).label('internal error'),
+    )
+    def test_later_error(self, exc_type_from_add, expected_exc_type):
+        self.session_mock.add.side_effect = exc_type_from_add
+        valid_request_params, _ = next(self.basic_cases())
+        req = self.create_request(N6RegistrationView, **valid_request_params)
+        with self.assertRaises(expected_exc_type):
+            req.perform()
+        self._assert_db_operations_as_expected(expected_exc_type=exc_type_from_add)
+
+    def _assert_response_ok(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.body, 'ok')
+        self.assertEqual(response.content_type, 'text/plain')
+        self.assertEqual(response.charset, 'UTF-8')
+
+    def _assert_db_operations_as_expected(self, expected_db_obj=None, expected_exc_type=None):
+        self.assertEqual(self.auth_db_connector_mock.mock_calls, [
+            call.__enter__(),
+            call.get_current_session(),
+            call.get_current_session().add(ANY),
+            call.__exit__(expected_exc_type, ANY, ANY),
+        ])
+        if expected_db_obj is None:
+            self.assertEqual(self.added_to_session, [])
+        else:
+            self.assertEqual(len(self.added_to_session), 1)
+            self.assertEqual(self.added_to_session[0], expected_db_obj)
+
+    def _assert_db_not_touched(self):
+        self.assertEqual(self.auth_db_connector_mock.mock_calls, [])
+        self.assertEqual(self.added_to_session, [])
 
 
 @expand

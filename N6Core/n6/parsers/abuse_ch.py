@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
 import csv
 import datetime
@@ -12,10 +12,9 @@ from cStringIO import StringIO
 from n6.parsers.generic import (
     BaseParser,
     BlackListTabDataParser,
-    SkipParseExceptionsMixin,
-    TabDataParser,
     entry_point_factory,
 )
+from n6lib.common_helpers import ascii_str
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.log_helpers import get_logger
 from n6lib.record_dict import AdjusterError
@@ -352,8 +351,8 @@ class _AbuseChSSLBlacklistBaseParser(BaseParser):
         `parsed_base` dict. Target RecordDict is then updated by
         its content.
 
-        In case none of lists containing informations about associated
-        binaries is valid, parse only general informations.
+        In case none of lists containing information about associated
+        binaries is valid, parse only general information.
         """
         raw_events = json.loads(data['raw'])
         for url, items in raw_events.iteritems():
@@ -503,6 +502,69 @@ class AbuseChUrlhausUrlsParser(BaseParser):
             with self.new_record_dict(data) as parsed:
                 parsed['time'] = row[1]
                 parsed['url'] = row[2]
+                yield parsed
+
+
+class AbuseChUrlhausUrls202001Parser(BaseParser):
+
+    default_binding_key = 'abuse-ch.urlhaus-urls.202001'
+
+    constant_items = {
+        "restriction": "public",
+        "confidence": "low",
+        "category": "malurl",
+    }
+
+    def parse(self, data):
+        raw_events = json.loads(data['raw'])
+        for event in raw_events:
+            if event['url_info_from_api'].get('payloads'):
+                for payload in event['url_info_from_api']['payloads']:
+                    with self.new_record_dict(data) as parsed:
+                        parsed['time'] = event['dateadded']
+                        parsed['url'] = event['url']
+                        parsed['md5'] = payload['response_md5']
+                        parsed['sha256'] = payload['response_sha256']
+                        if payload.get('signature'):
+                            parsed['name'] = payload['signature'].lower()
+                        if payload.get('filename'):
+                            parsed['filename'] = payload['filename']
+                        yield parsed
+            else:
+                with self.new_record_dict(data) as parsed:
+                    parsed['time'] = event['dateadded']
+                    parsed['url'] = event['url']
+                    if event['url_info_from_api']['query_status'] == "no_results":
+                        LOGGER.warning('No results in API response for '
+                                       'url: %r, url_id: %r.',
+                                       event['url'],
+                                       event['url_id'])
+                    yield parsed
+
+
+class AbuseChUrlhausPayloadsUrlsParser(BaseParser):
+
+    default_binding_key = 'abuse-ch.urlhaus-payloads-urls'
+
+    constant_items = {
+        "restriction": "public",
+        "confidence": "low",
+        "category": "malurl",
+    }
+
+    def parse(self, data):
+        rows = csv.reader(StringIO(data['raw']), delimiter=',', quotechar='"')
+        for row in rows:
+            # SOURCE FIELDS FORMAT:
+            # firstseen,url,filetype,md5,sha256,signature
+            with self.new_record_dict(data) as parsed:
+                parsed['time'] = row[0]
+                parsed['url'] = row[1]
+                parsed['md5'] = row[3]
+                parsed['sha256'] = row[4]
+                name = ascii_str(row[5]).strip().lower()
+                if name not in ('', 'none', 'null'):
+                    parsed['name'] = name
                 yield parsed
 
 

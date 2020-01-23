@@ -30,25 +30,25 @@ TEST_CRITERIA = (
         {'org_id': 'afbc',
          'cc_seq': ['AL'],
          'asn_seq': [43756],
-         'fqdn_seq': [u'mycertbrutalonetalamakotawpmikmoknask.org',
+         'fqdn_seq': [u'mycertbridgeonetalamakotawpmikmoknask.org',
                       u'alamakota.biz',
                       u'mikmokcertmakabimynask.net'],
          'ip_min_max_seq': [(2334252224, 2334252227)]},
         {'org_id': 'fdc',
          'cc_seq': ['SU', 'RU'],
          'asn_seq': [45975, 13799],
-         'fqdn_seq': [u'onetbrutalmikmokcert.eu', u'mikmokcertalamakota.org', u'mikmoknaskwp.info'],
+         'fqdn_seq': [u'onetbridgemikmokcert.eu', u'mikmokcertalamakota.org', u'mikmoknaskwp.info'],
          'ip_min_max_seq': [(2589577040, 2589577041)]},
         {'org_id': 'edca',
          'cc_seq': ['DD', 'DD'],
          'asn_seq': [8262, 4079],
-         'fqdn_seq': [u'virut.eu', u'brutalalamakotawpvirut.eu', u'brutal.biz'],
+         'fqdn_seq': [u'virut.eu', u'bridgealamakotawpvirut.eu', u'bridge.biz'],
          'ip_min_max_seq': [(653221832, 653221835)]},
         {'org_id': 'bdc',
          'cc_seq': ['GU', 'GU'],
          'asn_seq': [10546, 63520],
-         'fqdn_seq': [u'certmikmokonetnaskvirutmakabiforcewpmybrutalalamakota.org',
-                      u'forcemyonetvirutbrutalmikmokwpnaskmakabi.info',
+         'fqdn_seq': [u'certmikmokonetnaskvirutmakabiforcewpmybridgealamakota.org',
+                      u'forcemyonetvirutbridgemikmokwpnaskmakabi.info',
                       u'virut.net'],
          'ip_min_max_seq': [(494991530, 494991530)]},
         {'org_id': 'befa',
@@ -64,16 +64,16 @@ TEST_CRITERIA = (
         {'org_id': 'cfa',
          'cc_seq': ['DD', 'AI'],
          'asn_seq': [59009, 39165, 43185],
-         'fqdn_seq': [u'alamakotabrutal.pl',
-                      u'makabibrutalvirutmycertnaskonetalamakotawpforcemikmok.biz',
+         'fqdn_seq': [u'alamakotabridge.pl',
+                      u'makabibridgevirutmycertnaskonetalamakotawpforcemikmok.biz',
                       u'naskmikmok.eu'],
          'ip_min_max_seq': [(1378497104, 1378497107)]},
         {'org_id': 'eabf',
          'cc_seq': ['AL'],
          'asn_seq': [33151, 61490, 57963],
-         'fqdn_seq': [u'wpbrutalmakabialamakota.pl',
-                      u'brutalmakabialamakotamikmokonetforcenaskmywpvirutcert.org',
-                      u'onetmikmokwpbrutalcert.ru'],
+         'fqdn_seq': [u'wpbridgemakabialamakota.pl',
+                      u'bridgemakabialamakotamikmokonetforcenaskmywpvirutcert.org',
+                      u'onetmikmokwpbridgecert.ru'],
          'ip_min_max_seq': [(1007811092, 1007811093), (1007811094, 1007811095)]},
         {'org_id': 'caebf',
          'cc_seq': ['DD'],
@@ -163,7 +163,7 @@ class TestFilter(unittest.TestCase):
         input_data = {'ip': ['139.33.220.192', ['afbc']],
                       'cc': ['AL', ['afbc', 'eabf']],
                       'asn': ['43756', ['afbc']],
-                      'fqdn': ['mycertbrutalonetalamakotawpmikmoknask.org', ['afbc']]}
+                      'fqdn': ['mycertbridgeonetalamakotawpmikmoknask.org', ['afbc']]}
 
         self.auth_api_mock._get_inside_criteria.return_value = TEST_CRITERIA
 
@@ -194,7 +194,7 @@ class TestFilter(unittest.TestCase):
         input_data = {'ip': ['154.89.207.81', ['fdc']],
                       'cc': ['SU', ['decfba', 'fdc']],
                       'asn': ['45975', ['fdc']],
-                      'fqdn': ['onetbrutalmikmokcert.eu', ['fdc']]}
+                      'fqdn': ['onetbridgemikmokcert.eu', ['fdc']]}
 
         self.auth_api_mock._get_inside_criteria.return_value = TEST_CRITERIA
 

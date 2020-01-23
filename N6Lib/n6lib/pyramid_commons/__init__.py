@@ -14,8 +14,10 @@ from n6lib.pyramid_commons._pyramid_commons import (
     N6InfoView,
     N6LimitedStreamView,
     N6PortalRootFactory,
+    N6RegistrationView,
 
     auth_api_context_tween_factory,
+    auth_db_apis_maintenance_tween_factory,
     transact_tween_factory,
 
     N6ConfigHelper,
@@ -36,8 +38,10 @@ __all__ = [
     'N6InfoView',
     'N6LimitedStreamView',
     'N6PortalRootFactory',
+    'N6RegistrationView',
 
     'auth_api_context_tween_factory',
+    'auth_db_apis_maintenance_tween_factory',
     'transact_tween_factory',
 
     'N6ConfigHelper',

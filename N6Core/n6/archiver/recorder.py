@@ -27,7 +27,10 @@ from n6lib.db_events import n6ClientToEvent, n6NormalizedData
 from n6lib.log_helpers import get_logger, logging_configured
 from n6lib.record_dict import RecordDict, BLRecordDict
 from n6lib.transaction_helpers import transact
-from n6lib.common_helpers import replace_segment
+from n6lib.common_helpers import (
+    make_exc_ascii_str,
+    replace_segment,
+)
 
 
 ### MySQLdb warnings monkey-patching:
@@ -206,7 +209,8 @@ class Recorder(QueuedBase):
             else:
                 self.session_db.add_all(items)
         except IntegrityError as exc:
-            LOGGER.warning("IntegrityError %r", exc)
+            str_exc = make_exc_ascii_str(exc)
+            LOGGER.warning(str_exc)
         else:
             if recorded and not self.cmdline_args.n6recovery:
                 rk = replace_segment(self.routing_key, 1, 'recorded')

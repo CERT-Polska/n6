@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
 from collections import MutableSequence
 
@@ -25,6 +25,11 @@ from n6lib.common_helpers import (
     make_condensed_debug_msg,
     make_hex_id,
 )
+from n6lib.const import (
+    WSGI_SSL_ORG_ID_FIELD,
+    WSGI_SSL_USER_ID_FIELD,
+)
+from n6lib.context_helpers import force_exit_on_any_remaining_entered_contexts
 from n6lib.log_helpers import get_logger
 from n6lib.pyramid_commons.renderers import (
     # by importing that submodule we ensure that
@@ -49,6 +54,10 @@ from n6sdk.pyramid_commons import (
     DefaultStreamViewBase,
     registered_stream_renderers,
 )
+from n6sdk.pyramid_commons._pyramid_commons import (
+    CommaSeparatedParamValuesViewMixin,
+    OmittingEmptyParamsViewMixin,
+)
 
 
 LOGGER = get_logger(__name__)
@@ -68,15 +77,10 @@ def log_debug_info_on_http_exc(http_exc):
 #
 # Basic helpers
 
-# SSL_CLIENT_S_DN_O is assumed to be organization id
-SSL_ORG_ID_FIELD = 'SSL_CLIENT_S_DN_O'
-# SSL_CLIENT_S_DN_CN is assumed to be user id
-SSL_USER_ID_FIELD = 'SSL_CLIENT_S_DN_CN'
-
 
 def get_certificate_credentials(request):
-    org_id = request.environ.get(SSL_ORG_ID_FIELD)
-    user_id = request.environ.get(SSL_USER_ID_FIELD)
+    org_id = request.environ.get(WSGI_SSL_ORG_ID_FIELD)
+    user_id = request.environ.get(WSGI_SSL_USER_ID_FIELD)
     if org_id is not None and user_id is not None:
         if ',' in org_id:
             LOGGER.warning('Comma in org_id %r.', org_id)
@@ -106,7 +110,25 @@ class N6PortalRootFactory(object):
         self.request = request
 
 
-class N6DefaultStreamViewBase(DefaultStreamViewBase):
+class _N6ViewMixin(object):
+
+    @property
+    def auth_query_api(self):
+        # noinspection PyUnresolvedReferences
+        return self.request.registry.auth_query_api
+
+    @property
+    def auth_manage_api(self):
+        # noinspection PyUnresolvedReferences
+        auth_manage_api = self.request.registry.auth_manage_api
+        if auth_manage_api is None:
+            raise RuntimeError(
+                'the auth manage api was not specified when configuring the web '
+                'app object so it cannot be used by the {!r} view'.format(self))
+        return auth_manage_api
+
+
+class N6DefaultStreamViewBase(_N6ViewMixin, DefaultStreamViewBase):
 
     IODEF_ITEM_NUMBER_LIMIT = 1000
 
@@ -200,7 +222,7 @@ class N6LimitedStreamView(N6CorsSupportStreamView):
         return params
 
 
-class _AbstractInfoView(AbstractViewBase):
+class _AbstractInfoView(_N6ViewMixin, CommaSeparatedParamValuesViewMixin, AbstractViewBase):
 
     """
     An abstract class for creating views that return some simple info,
@@ -230,7 +252,8 @@ class _AbstractInfoView(AbstractViewBase):
 
     @staticmethod
     def _check_for_certificate(request):
-        if request.environ.get(SSL_ORG_ID_FIELD) and request.environ.get(SSL_USER_ID_FIELD):
+        if (request.environ.get(WSGI_SSL_ORG_ID_FIELD)
+                and request.environ.get(WSGI_SSL_USER_ID_FIELD)):
             return True
         return False
 
@@ -276,10 +299,59 @@ class N6AuthView(_AbstractInfoView):
         return api_method(self.request, self.auth_api)
 
 
+class N6RegistrationView(_N6ViewMixin,
+                         OmittingEmptyParamsViewMixin,
+                         CommaSeparatedParamValuesViewMixin,
+                         AbstractViewBase):
+
+    def make_response(self):
+        self.auth_manage_api.create_registration_request(**self.params)
+        return self.plain_text_response('ok')
+
+
 #
 # Custom tweens (see: http://docs.pylonsproject.org/projects/pyramid/en/newest/narr/hooks.html#registering-tweens)
 
-### XXX: [ticket #3312] Is this tween effective with stream renderers???
+def auth_db_apis_maintenance_tween_factory(handler, registry):
+
+    """
+    The `AuthQueryAPI`-and-`AuthManageAPI`-maintenance tween factory.
+
+    See also: `n6lib.auth_db.api`.
+    """
+
+    def auth_db_apis_maintenance_tween(request):
+        assert request.registry.auth_query_api is not None
+        _do_maintenance_of_auth_db_api(request.registry.auth_query_api, request)
+        _do_maintenance_of_auth_db_api(request.registry.auth_manage_api, request)
+        return handler(request)
+
+    def _do_maintenance_of_auth_db_api(api, request):
+        if api is None:
+            return
+        force_exit_on_any_remaining_entered_contexts(api)
+        org_id, user_id = _get_org_id_and_user_id(request)
+        api.set_audit_log_external_meta_items(**{
+            key: value for key, value in [
+                ('n6_module', request.registry.component_module_name),
+                ('request_client_addr', request.client_addr),
+                ('request_org_id', org_id),
+                ('request_user_id', user_id),
+            ]
+            if value is not None})
+
+    def _get_org_id_and_user_id(request):
+        if request.auth_data:
+            org_id = request.auth_data.get('org_id')
+            user_id = request.auth_data.get('user_id')
+        else:
+            org_id = user_id = None
+        return org_id, user_id
+
+    return auth_db_apis_maintenance_tween
+
+
+### XXX: [ticket #3312] Is the `with` part of this tween effective with stream renderers???
 def auth_api_context_tween_factory(handler, registry):
 
     """
@@ -294,6 +366,7 @@ def auth_api_context_tween_factory(handler, registry):
     auth_api = registry.auth_api
 
     def auth_api_context_tween(request):
+        force_exit_on_any_remaining_entered_contexts(auth_api)
         with auth_api:
             return handler(request)
 
@@ -345,8 +418,16 @@ class N6ConfigHelper(ConfigHelper):
 
     # note: all constructor arguments (including `auth_api_class`)
     # should be specified as keyword arguments
-    def __init__(self, auth_api_class, **kwargs):
+    def __init__(self,
+                 auth_api_class,  # (<- deprecated, will be removed)
+                 component_module_name,
+                 auth_query_api,
+                 auth_manage_api=None,
+                 **kwargs):
+        self.component_module_name = component_module_name
         self.auth_api_class = auth_api_class
+        self.auth_query_api = auth_query_api
+        self.auth_manage_api = auth_manage_api
         super(N6ConfigHelper, self).__init__(**kwargs)
 
     def prepare_config(self, config):
@@ -359,7 +440,13 @@ class N6ConfigHelper(ConfigHelper):
         config.add_tween(
             'n6lib.pyramid_commons.auth_api_context_tween_factory',
             under=EXCVIEW)
+        config.add_tween(
+            'n6lib.pyramid_commons.auth_db_apis_maintenance_tween_factory',
+            under=EXCVIEW)
+        config.registry.component_module_name = self.component_module_name
         config.registry.auth_api = self.auth_api_class(settings=self.settings)
+        config.registry.auth_query_api = self.auth_query_api
+        config.registry.auth_manage_api = self.auth_manage_api
         return super(N6ConfigHelper, self).prepare_config(config)
 
     @classmethod

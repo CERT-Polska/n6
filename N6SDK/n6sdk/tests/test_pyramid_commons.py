@@ -134,12 +134,15 @@ class TestDefaultStreamViewBase__iter_deduplicated_params(unittest.TestCase):
         func = DefaultStreamViewBase.iter_deduplicated_params.__func__
         self.assertIs(func, AbstractViewBase.iter_deduplicated_params.__func__)
         obj = MagicMock()
+        obj.__class__ = DefaultStreamViewBase
         obj.request.params.__iter__.return_value = iter(['foo', 'bar', 'spam'])
         obj.request.params.getall.side_effect = [
             ['f1'],
             ['b1,b2,b3'],
             ['s1', 's2,s3'],
         ]
+        _iter_val = DefaultStreamViewBase.iter_values_from_param_value.__func__
+        obj.iter_values_from_param_value.side_effect = lambda val: _iter_val(obj, val)
         result = list(func(obj))
         self.assertEqual(obj.request.params.__iter__.mock_calls, [
             call(),
@@ -148,6 +151,12 @@ class TestDefaultStreamViewBase__iter_deduplicated_params(unittest.TestCase):
             call('foo'),
             call('bar'),
             call('spam'),
+        ])
+        self.assertEqual(obj.iter_values_from_param_value.mock_calls, [
+            call('f1'),
+            call('b1,b2,b3'),
+            call('s1'),
+            call('s2,s3'),
         ])
         self.assertEqual(result, [
             ('foo', ['f1']),

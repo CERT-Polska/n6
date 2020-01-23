@@ -1,11 +1,13 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
 import datetime
+import urllib
 utcnow = datetime.datetime.utcnow  # for easier mocking in unit tests
 
 from pyramid.httpexceptions import HTTPTemporaryRedirect
 
 from n6lib.auth_api import AuthAPI
+from n6lib.auth_db.api import AuthQueryAPI
 from n6lib.common_helpers import provide_surrogateescape
 from n6lib.data_backend_api import (
     N6DataBackendAPI,
@@ -121,6 +123,7 @@ class RestAPIViewBase(N6DefaultStreamViewBase):
                 cleaned_param_dict.get('time.until', [None]))
             assert isinstance(time_max_until, datetime.datetime)
             time_min = min(time_min, time_max_until - default_delta)
+
         redir_params['time_min'] = time_min
         redir_template_parts.append('time.min={time_min}')
 
@@ -129,7 +132,10 @@ class RestAPIViewBase(N6DefaultStreamViewBase):
 
     def _get_redirect_url(self, template_parts, params):
         template = '&'.join(template_parts)
-        query_str = template.format(**params)
+        quoted_params = {
+            param: urllib.quote_plus(str(value))
+            for param, value in params.items()}
+        query_str = template.format(**quoted_params)
         return "{}?{}".format(self.request.path_url, query_str)
 
 
@@ -184,7 +190,9 @@ def main(global_config, **settings):
     return N6ConfigHelper(
         settings=settings,
         data_backend_api_class=N6DataBackendAPI,
-        auth_api_class=AuthAPI,
+        component_module_name='n6web',
+        auth_api_class=AuthAPI,                 # <- XXX: legacy stuff, to be removed in the future
+        auth_query_api=AuthQueryAPI(settings),  # <- XXX: dummy stuff yet; to be used in the future
         authentication_policy=SSLUserAuthenticationPolicy(settings),
         resources=DATA_RESOURCES,
     ).make_wsgi_app()
@@ -194,7 +202,9 @@ def main_test_api(global_config, **settings):
     return N6ConfigHelper(
         settings=settings,
         data_backend_api_class=N6TestDataBackendAPI,
-        auth_api_class=AuthAPI,
+        component_module_name='n6web',
+        auth_api_class=AuthAPI,                 # <- XXX: legacy stuff, to be removed in the future
+        auth_query_api=AuthQueryAPI(settings),  # <- XXX: dummy stuff yet; to be used in the future
         authentication_policy=SSLUserAuthenticationPolicy(settings),
         resources=DATA_RESOURCES,
     ).make_wsgi_app()

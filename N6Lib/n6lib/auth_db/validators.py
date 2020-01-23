@@ -15,6 +15,7 @@ from n6lib.auth_db.fields import (
     EmailCustomizedField,
     ExtraIdField,
     OrgIdField,
+    RegistrationRequestEmailField,
     TimeHourMinuteField,
     TypeLabelField,
     URLSimpleField,
@@ -40,8 +41,6 @@ from n6sdk.data_spec import BaseDataSpec
 #
 # Private stuff
 #
-
-_ILLEGAL_CHARACTERS_FOR_LDAP = frozenset({'\\', ',', '+', '"', '<', '>', ';', '=', '\x00'})
 
 _HEXDIGITS_LOWERCASE = frozenset(string.hexdigits.lower())
 
@@ -80,12 +79,13 @@ def _ascii_only_to_unicode(val):
 
 
 def _ascii_only_ldap_safe_to_unicode_stripped(val):
+    # XXX: forbidding "LDAP-unsafe" chars is needed only temporarily (until LDAP stuff is dropped)
     val = _ascii_only_to_unicode(val)
     val = val.strip()
     if val.startswith('#'):
         raise FieldValueError(
             public_message='Value {value!r} starts with illegal "#" prefix.'.format(value=val))
-    illegal_characters = _ILLEGAL_CHARACTERS_FOR_LDAP.intersection(val)
+    illegal_characters = LDAP_UNSAFE_CHARACTERS.intersection(val)
     if illegal_characters:
         raise FieldValueError(
             public_message='Value {value!r} contains illegal character(s): {chars}.'.format(
@@ -200,11 +200,16 @@ class _AuthDBValidatorsDataSpec(BaseDataSpec):
     time_hour_minute = TimeHourMinuteField()
     url = URLSimpleField()
 
+    registration_request_email = RegistrationRequestEmailField()
+
 
 
 #
 # Public stuff
 #
+
+LDAP_UNSAFE_CHARACTERS = frozenset('\\,+"<>;=\x00')
+
 
 def is_cert_serial_number_valid(serial_number):
     return (_HEXDIGITS_LOWERCASE.issuperset(serial_number) and
@@ -248,6 +253,17 @@ class AuthDBValidators(object):
 
     validator_for__extra_id__value = (
         make_adjuster_using_data_spec('extra_id'))
+
+    validator_for__registration_request__submitted_on = _adjust_time
+    validator_for__registration_request__modified_on = _adjust_time
+    validator_for__registration_request__email = chained(
+        _adjust_ascii_only_ldap_safe_to_unicode_stripped,
+        make_adjuster_using_data_spec('registration_request_email'))
+
+    validator_for__registration_request_email_notification_address__email = chained(
+        _adjust_ascii_only_to_unicode,
+        make_adjuster_applying_callable(unicode.strip),
+        make_adjuster_using_data_spec('registration_request_email'))
 
     validator_for__user__login = chained(
         _adjust_ascii_only_ldap_safe_to_unicode_stripped,

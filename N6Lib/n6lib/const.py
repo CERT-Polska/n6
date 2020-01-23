@@ -46,6 +46,19 @@ USER_DIR = osp.expanduser('~/.n6')
 CERTIFICATE_SERIAL_NUMBER_HEXDIGIT_NUM = 20
 
 
+# the name of the administrator group in the Auth DB
+ADMINS_SYSTEM_GROUP_NAME = 'admins'
+
+
+# names of HTTP server's environment variables providing SSL information
+# - values of client's certificate subject's items
+
+# SSL_CLIENT_S_DN_O - assumed to be organization id (Apache-specific)
+WSGI_SSL_ORG_ID_FIELD = 'SSL_CLIENT_S_DN_O'
+# SSL_CLIENT_S_DN_CN - assumed to be user id (Apache-specific)
+WSGI_SSL_USER_ID_FIELD = 'SSL_CLIENT_S_DN_CN'
+
+
 # possible values of RecordDict's 'type' item
 TYPE_ENUMS = (
     'suppressed', 'event', 'bl', 'bl-new', 'bl-update',

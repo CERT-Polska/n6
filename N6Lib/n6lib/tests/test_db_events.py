@@ -14,9 +14,16 @@ from mock import (
     patch,
     sentinel as sen,
 )
-from unittest_expander import expand, foreach, param
+from unittest_expander import (
+    expand,
+    foreach,
+    param,
+)
 
-from n6lib.db_events import IPAddress, n6NormalizedData
+from n6lib.db_events import (
+    IPAddress,
+    n6NormalizedData,
+)
 from n6lib.unit_test_helpers import MethodProxy
 
 
@@ -79,6 +86,7 @@ class Test__n6NormalizedData(unittest.TestCase):
                 'restriction',
                 'rid',
                 'sha1',
+                'sha256',
                 'source',
                 'sport',
                 'status',
@@ -134,6 +142,7 @@ class Test__n6NormalizedData(unittest.TestCase):
                 'restriction': "restriction ENUM('public','need-to-know','internal') NOT NULL",
                 'rid': 'rid BINARY(16) NOT NULL',
                 'sha1': 'sha1 BINARY(20)',
+                'sha256': 'sha256 BINARY(32)',
                 'source': 'source VARCHAR(32) NOT NULL',
                 'sport': 'sport INTEGER',
                 'status': "status ENUM('active','delisted','expired','replaced')",

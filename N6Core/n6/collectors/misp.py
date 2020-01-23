@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 """
 Generic MISP collector.
@@ -9,8 +9,14 @@ Generic MISP collector.
 import json
 import sys
 import time
-from collections import deque, MutableMapping
-from datetime import timedelta, datetime
+from collections import (
+    deque,
+    MutableMapping,
+)
+from datetime import (
+    timedelta,
+    datetime,
+)
 from urlparse import urljoin
 
 from pymisp import (
@@ -76,10 +82,12 @@ class MispCollector(CollectorWithStateMixin, BaseCollector):
     # part of the MISP URL to the attributes' files
     default_sample_path = '/attributes/downloadAttachment/download/'
 
-    allowed_tlp_vals = ('red',
-                        'amber',
-                        'green',
-                        'white')
+    allowed_tlp_vals = (
+        'red',
+        'amber',
+        'green',
+        'white',
+    )
     min_tlp_key_name = 'minimum_tlp'
 
     def __new__(cls, **kwargs):

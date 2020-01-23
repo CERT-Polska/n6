@@ -1,13 +1,24 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import hashlib
 import json
 import unittest
 
-from mock import ANY, Mock, MagicMock, call, patch, sentinel
-from unittest_expander import expand, foreach, param
+from mock import (
+    ANY,
+    Mock,
+    MagicMock,
+    call,
+    patch,
+    sentinel,
+)
+from unittest_expander import (
+    expand,
+    foreach,
+    param,
+)
 
 from n6lib.common_helpers import (
     FilePagedSequence,
@@ -33,8 +44,6 @@ from n6.parsers.generic import (
     BaseParser,
     AggregatedEventParser,
     BlackListParser,
-    #TabDataParser,
-    #BlackListTabDataParser,
 )
 
 

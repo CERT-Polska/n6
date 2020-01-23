@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2016 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 """
 .. note::
@@ -19,9 +19,13 @@ from n6sdk.pyramid_commons._pyramid_commons import (
     StreamResponse,
 
     AbstractViewBase,
+    CommaSeparatedParamValuesViewMixin,
+    OmittingEmptyParamsViewMixin,
+    SingleParamValuesViewMixin,
     DefaultStreamViewBase,
 
     HttpResource,
+    BasicConfigHelper,
     ConfigHelper,
 
     register_stream_renderer,
@@ -40,9 +44,13 @@ __all__ = [
     'StreamResponse',
 
     'AbstractViewBase',
+    'CommaSeparatedParamValuesViewMixin',
+    'OmittingEmptyParamsViewMixin',
+    'SingleParamValuesViewMixin',
     'DefaultStreamViewBase',
 
     'HttpResource',
+    'BasicConfigHelper',
     'ConfigHelper',
 
     'register_stream_renderer',

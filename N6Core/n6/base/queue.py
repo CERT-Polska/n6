@@ -15,6 +15,7 @@ import pprint
 import re
 import sys
 import time
+import traceback
 import types
 
 try:
@@ -29,6 +30,7 @@ from n6lib.auth_api import AuthAPICommunicationError
 from n6lib.common_helpers import (
     ascii_str,
     exiting_on_exception,
+    make_exc_ascii_str,
 )
 from n6lib.log_helpers import get_logger
 from n6lib.timeout_callback_manager import TimeoutCallbackManager
@@ -1322,45 +1324,207 @@ class QueuedBase(object):
         raise NotImplementedError
 
 
+    class __PublishingGeneratorCleanExit(BaseException): pass
+    class __PublishingGeneratorDirtyExit(BaseException): pass
+
+    # noinspection PyBroadException
     def _ensure_publishing_generator_closed(self):
         publishing_generator = getattr(self, '_publishing_generator', None)
-        if publishing_generator is not None:
-            publishing_generator.close()
+        if publishing_generator is None:
+            return
+
+        CleanExit = self.__PublishingGeneratorCleanExit
+        DirtyExit = self.__PublishingGeneratorDirtyExit
+
+        def close_publishing_generator():
+            pub_gen_exit_exc_type = (DirtyExit if is_present(to_be_raised_exc_info)
+                                     else CleanExit)
+            try:
+                publishing_generator.throw(pub_gen_exit_exc_type)
+            except (StopIteration, pub_gen_exit_exc_type):
+                LOGGER.debug('OK, the publishing generator exited.')
+            else:
+                raise AssertionError(
+                    'this should never happen: although {} was thrown into '
+                    'the publishing generator, it (even then!) did *not* '
+                    'exited!'.format(pub_gen_exit_exc_type.__name__))
+
+        def is_heavier_than_one_to_be_raised(exc_info):
+            if is_keyb_interrupt(exc_info) and not is_keyb_interrupt(to_be_raised_exc_info):
+                return True
+            if is_heavy(exc_info) and not is_heavy(to_be_raised_exc_info):
+                return True
+            if is_present(exc_info) and not is_present(to_be_raised_exc_info):
+                return True
+            return False
+
+        def is_keyb_interrupt(exc_info):
+            return (is_present(exc_info)
+                    and issubclass(exc_info[0], KeyboardInterrupt))
+
+        def is_heavy(exc_info):
+            return (is_present(exc_info)
+                    and issubclass(exc_info[0], BaseException)
+                    and not issubclass(exc_info[0], Exception))
+
+        def is_present(exc_info):
+            return exc_info[0] is not None
+
+        def is_to_be_raised(exc_info):
+            return (exc_info[0] is to_be_raised_exc_info[0] and
+                    exc_info[1] is to_be_raised_exc_info[1])
+
+        def log_inner_exc():
+            assert is_present(inner_exc_info)
+            if is_present(outer_exc_info):
+                if is_to_be_raised(inner_exc_info):
+                    LOGGER.error(
+                        'This exception occurred when trying to close the '
+                        'publishing generator: %s -- it will supersede the '
+                        'exception that has already been being handled: %s. '
+                        'Traceback of the superseded exception:',
+                        make_exc_ascii_str(inner_exc_info),
+                        make_exc_ascii_str(outer_exc_info),
+                        exc_info=outer_exc_info)
+                else:
+                    assert is_to_be_raised(outer_exc_info)
+                    LOGGER.error(
+                        'This exception occurred when trying to close the '
+                        'publishing generator: %s -- to be superseded by the '
+                        'exception that has already been being handled: %s. '
+                        'Traceback of the superseded exception:',
+                        make_exc_ascii_str(inner_exc_info),
+                        make_exc_ascii_str(outer_exc_info),
+                        exc_info=inner_exc_info)
+            else:
+                assert is_to_be_raised(inner_exc_info)
+                LOGGER.error(
+                    'This exception occurred when trying to close the '
+                    'publishing generator: %s -- to be propagated...',
+                    make_exc_ascii_str(inner_exc_info))
+
+        def log_unlikely_exception_from_insisted_close(exc_info):
+            assert is_present(disruptive_exc_info)
+            LOGGER.critical(
+                'Yet another (unexpected) exception occurred, while handling '
+                'the previous disruptive exception, when trying to close the '
+                'publishing generator: %s -- to be superseded by that '
+                'previous disruptive exception: %s. Traceback of the '
+                'superseded exception:',
+                make_exc_ascii_str(exc_info),
+                make_exc_ascii_str(disruptive_exc_info),
+                exc_info=exc_info)
+
+        def log_disruptive_exc():
+            assert is_present(disruptive_exc_info)
+            if is_to_be_raised(disruptive_exc_info):
+                LOGGER.error(
+                    'This disruptive exception occurred while trying to deal '
+                    'with (probably not clean) shutdown of the publishing '
+                    'generator: %s -- to be propagated...',
+                    make_exc_ascii_str(disruptive_exc_info))
+            else:
+                assert is_present(to_be_raised_exc_info)
+                LOGGER.error(
+                    'This disruptive exception occurred while trying to deal '
+                    'with (not clean) shutdown of the publishing generator: '
+                    '%s -- to be superseded by the exception that has already '
+                    'been being handled: %s. Traceback of the superseded '
+                    'exception:',
+                    make_exc_ascii_str(disruptive_exc_info),
+                    make_exc_ascii_str(to_be_raised_exc_info),
+                    exc_info=disruptive_exc_info)
+
+        try:
+            to_be_raised_exc_info = outer_exc_info = sys.exc_info()
+            try:
+                try:
+                    close_publishing_generator()
+                except:
+                    inner_exc_info = sys.exc_info()
+                    if is_heavier_than_one_to_be_raised(inner_exc_info):
+                        to_be_raised_exc_info = inner_exc_info
+                    log_inner_exc()
+            except:
+                # As a result of a bug or some asynchronous event (SIGINT?)
+                # an exception has been raised within the above `try` block
+                # but *not* within the inner `try` block (most probably, it
+                # happened within the inner `except` block).
+                disruptive_exc_info = sys.exc_info()
+                try:
+                    # Let's insistently try to ensure that the publishing
+                    # generator is closed!
+                    close_publishing_generator()
+                except:
+                    # This case is very unlikely, but if it happens let's
+                    # at least log it.
+                    log_unlikely_exception_from_insisted_close(sys.exc_info())
+                finally:
+                    if is_heavier_than_one_to_be_raised(disruptive_exc_info):
+                        to_be_raised_exc_info = disruptive_exc_info
+                    log_disruptive_exc()
+            finally:
+                if is_present(to_be_raised_exc_info):
+                    exc_type, exc_value, tb = to_be_raised_exc_info
+                    raise exc_type, exc_value, tb
+        finally:
+            # (breaking traceback-related reference cycles, if any)
+            # noinspection PyUnusedLocal
+            to_be_raised_exc_info = outer_exc_info = inner_exc_info = \
+                disruptive_exc_info = exc_value = tb = None
 
     def _do_publish_iteratively(self):
         outbound_buffer = self._connection.outbound_buffer
         assert isinstance(outbound_buffer, collections.deque)
         outbound_buffer_size_threshold = self.iterative_publishing_outbound_buffer_size_threshold
         yield_time_interval_threshold = self._get_yield_time_interval_threshold()
+        yielding_allowed = True
         concrete_publishing_generator = self.publish_iteratively()
         try:
-            yield_time = time.time()
-            for marker in concrete_publishing_generator:
-                if marker not in (self.FLUSH_OUT, None):
-                    raise ValueError('marker should be either {!r} or None '
-                                     '(got: {!r})'.format(self.FLUSH_OUT, marker))
-                if (marker == self.FLUSH_OUT or
-                      len(outbound_buffer) >= outbound_buffer_size_threshold):
-                    for _ in self._iter_until_buffer_flushed(outbound_buffer):
-                        yield
-                    # once the buffer is empty, let's *yield* one more time
-                    # unconditionally -- to make it slightly more probable
-                    # that the sent data have actually left the machine
-                    yield
-                    yield_time = time.time()
-                elif time.time() - yield_time >= yield_time_interval_threshold:
-                    yield
-                    yield_time = time.time()
-        finally:
             try:
-                concrete_publishing_generator.close()
+                yield_time = time.time()
+                for marker in concrete_publishing_generator:
+                    if marker not in (self.FLUSH_OUT, None):
+                        raise ValueError('marker should be either {!r} or None '
+                                         '(got: {!r})'.format(self.FLUSH_OUT, marker))
+                    if (marker == self.FLUSH_OUT or
+                          len(outbound_buffer) >= outbound_buffer_size_threshold):
+                        for _ in self._iter_until_buffer_flushed(outbound_buffer):
+                            yield
+                        # Once the buffer is empty, let's *yield* one more time
+                        # unconditionally -- to make it slightly more probable
+                        # that the sent data have actually left the machine.
+                        yield
+                        yield_time = time.time()
+                    elif time.time() - yield_time >= yield_time_interval_threshold:
+                        yield
+                        yield_time = time.time()
+            except (self.__PublishingGeneratorCleanExit,
+                    self.__PublishingGeneratorDirtyExit):
+                yielding_allowed = False
+                raise
             finally:
-                for _ in self._iter_until_buffer_flushed(outbound_buffer):
-                    yield
-                # once the buffer is empty, let's *yield* one more time
-                # unconditionally -- to make it slightly more probable
-                # that the sent data have actually left the machine
-                yield
+                try:
+                    concrete_publishing_generator.close()
+                finally:
+                    if yielding_allowed:
+                        for _ in self._iter_until_buffer_flushed(outbound_buffer):
+                            yield
+                        # Once the buffer is empty, let's *yield* one more time
+                        # unconditionally -- to make it slightly more probable
+                        # that the sent data have actually left the machine.
+                        yield
+        except self.__PublishingGeneratorCleanExit:
+            pass
+        if not self._is_buffer_empty(outbound_buffer):
+            raise n6AMQPCommunicationError(
+                "the publishing generator (the main internal component "
+                "of the *iterative publishing* machinery) was just to "
+                "be closed cleanly (i.e., while no exception was being "
+                "handled) *but* the pika connection's outbound buffer "
+                "is still *not* empty (i.e., has not been flushed) -- "
+                "that means some data which were to be published have "
+                "not been (and, probably, will not be) actually sent!")
 
     def _get_yield_time_interval_threshold(self):
         """
@@ -1381,27 +1545,27 @@ class QueuedBase(object):
 
     def _iter_until_buffer_flushed(self, outbound_buffer):
         while True:
-            if self._connection.outbound_buffer is not outbound_buffer:
-                raise n6AMQPCommunicationError(
-                    "it has just been detected that the current pika "
-                    "connection's outbound buffer object is *not* the "
-                    "same as the one that was in use when *iterative "
-                    "publishing* was being initialized; that means we "
-                    "are not 100% sure what connection objects were "
-                    "used to perform some number of *publish* actions "
-                    "(if any) and -- therefore -- we cannot reliably "
-                    "check whether their outbound buffers have been "
-                    "actually flushed; so we must assume that it is "
-                    "possible that some data that were to be published "
-                    "have not been (and will never be) actually sent; "
-                    "so now -- to avoid pretending that we are sure "
-                    "that all data have been sent successfully -- we "
-                    "stop publishing and raise this error")
-            if not outbound_buffer:
+            if self._is_buffer_empty(outbound_buffer):
                 LOGGER.debug("OK, pika's outbound buffer is empty")
                 break
             LOGGER.debug("pika's outbound buffer is not empty yet...")
             yield
+
+    def _is_buffer_empty(self, outbound_buffer):
+        if self._connection.outbound_buffer is not outbound_buffer:
+            raise n6AMQPCommunicationError(
+                "it has just been detected that the current pika "
+                "connection's outbound buffer object is *not* the "
+                "same as the one that was in use when *iterative "
+                "publishing* was being initialized; that means we "
+                "are not 100% sure what connection objects were "
+                "used to perform some number of *publish* actions "
+                "(if any) and -- therefore -- we cannot reliably "
+                "check whether their outbound buffers have been "
+                "actually flushed; so we must assume that it is "
+                "possible that some data that were to be published "
+                "have not been (and will not be) actually sent!")
+        return not outbound_buffer
 
     def _next_publishing_iteration(self):
         if self._closing:

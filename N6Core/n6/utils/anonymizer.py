@@ -13,6 +13,7 @@ import json
 from n6.base.queue import QueuedBase
 from n6lib.auth_api import AuthAPI
 from n6lib.const import TYPE_ENUMS
+from n6lib.context_helpers import force_exit_on_any_remaining_entered_contexts
 from n6lib.data_spec import N6DataSpec
 from n6lib.db_filtering_abstractions import RecordFacadeForPredicates
 from n6lib.log_helpers import get_logger, logging_configured
@@ -71,6 +72,7 @@ class Anonymizer(QueuedBase):
 
     def _process_input(self, event_type, event_data):
         self._check_event_type(event_type, event_data)
+        force_exit_on_any_remaining_entered_contexts(self.auth_api)
         with self.auth_api:
             resource_to_org_ids = self._get_resource_to_org_ids(event_type, event_data)
             if any(org_ids for org_ids in resource_to_org_ids.itervalues()):

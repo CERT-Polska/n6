@@ -10,7 +10,7 @@ OPENSSL_CNF=openssl.cnf
 mkdir -p n6-CA/certs n6-CA/private
 touch n6-CA/index.txt
 touch n6-CA/index.txt.attr
-echo 10 > n6-CA/serial
+echo 12 > n6-CA/serial
 
 openssl req -x509 -config $OPENSSL_CNF -newkey rsa:2048 -days $DAYS -out n6-CA/cacert.pem -outform PEM -subj /CN=n6-CA/ -nodes
 

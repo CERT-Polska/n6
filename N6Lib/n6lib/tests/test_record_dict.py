@@ -837,6 +837,8 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             self._test_setitem_adjuster_error(key, (
                 '0123456789ABCDEF' * 2 + '0',    # too long
                 (u'0123456789ABCDEF' * 2)[:-1],  # too short
+                u'0123456789abcdef' * 4,         # too long (sha256-like value)
+                u'0123456789abcdef0123' * 2,     # too long (sha1-like value)
                 u'0123456789abcdeX' * 2,         # illegal chars
                 123,                             # wrong type
                 None,
@@ -856,9 +858,31 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         self._test_setitem_adjuster_error('sha1', (
             u'0123456789ABCDEF0123' * 2 + '0',  # too long
             ('0123456789ABCDEF0123' * 2)[:-1],  # too short
-            u'0123456789abcdef' * 2,
+            u'0123456789abcdef' * 2,            # too short (md5-like value)
+            u'0123456789abcdef' * 4,            # too long (sha256-like value)
             '0123456789abcdeX0123' * 2,         # illegal chars
             0x123456789abcdef,                  # bad type
+            None,
+        ))
+
+    def test__setitem__sha256(self):
+        self._test_setitem_valid('sha256', (
+            S(u'0123456789abcdef' * 4, (
+                '0123456789abcdef' * 4,
+                '0123456789aBCDEF' * 4,
+            )),
+            S(u'0123456789abcdef' * 4, (
+                u'0123456789abcdef' * 4,
+                u'0123456789aBCDEF' * 4,
+            )),
+        ))
+        self._test_setitem_adjuster_error('sha256', (
+            u'0123456789ABCDEF' * 4 + '0',  # too long
+            ('0123456789ABCDEF' * 4)[:-1],  # too short
+            u'0123456789abcdef' * 2,        # too short (md5-like value)
+            u'0123456789abcdef0123' * 2,    # too short (sha1-like value)
+            '0123456789abcdeX' * 4,         # illegal chars
+            0x123456789abcdef,              # bad type
             None,
         ))
 

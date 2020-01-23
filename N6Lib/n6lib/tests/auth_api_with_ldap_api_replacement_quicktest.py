@@ -8,17 +8,19 @@ script that tests the n6lib.auth_api.AuthAPI stuff integrated with the
 n6lib.ldap_api_replacement module (SQL-auth-db-based) instead of the
 legacy n6lib.ldap_api.
 
-By default, to run this script you need a running mariadb docker
-container whose externally visible hostname is `mariadb-n6-auth-test`
-(however, see the comment placed at the beginning of the code of
-`locally_running_db_context()`...).
+By default, to run this script you need a running MariaDB server (e.g.,
+within a docker container) whose `root` password is equal to the value
+of the MARIADB_PASSWORD constant and whose externally visible hostname
+is equal to the value of the MARIADB_STANDARD_HOSTNAME constant (both
+constants are defined in this module).  However, see the comment placed
+at the beginning of the code of the `own_db_context()` function...
 
-Note: don't worry about *many* skipped tests and only a few
-actually run; all the tests are "borrowed" from our main AuthAPI
-test suite (namely: from n6lib.tests.test_auth_api); here we
-skip most of them because they are irrelevant when testing
-n6lib.ldap_api_replacement-related stuff.  As long as there
-are no test failures or errors -- everything is OK. :-)
+Note: don't worry about *many* skipped tests and only a dozen (or
+something) of them actually run; many of the tests are "borrowed" from
+our main AuthAPI test suite (namely: from n6lib.tests.test_auth_api);
+here we skip most of them because they are irrelevant when testing
+n6lib.ldap_api_replacement-related stuff.  As long as there are no test
+failures or errors -- everything is OK.
 """
 
 import contextlib
@@ -39,7 +41,7 @@ from mock import ANY, MagicMock, patch
 
 import n6lib.config
 from n6lib.auth_db import models
-from n6lib.auth_db.config import SimpleSQLAuthDBConnector
+from n6lib.auth_db.config import SQLAuthDBConnector
 from n6lib.auth_db.scripts import (
     CreateAndInitializeAuthDB,
     DropAuthDB,
@@ -213,7 +215,7 @@ def external_db_context():
 
 
 @contextlib.contextmanager
-def locally_running_db_context():
+def own_db_context():
     # To make this script run the database docker container
     # automatically (locally, by itself) -- you need to:
     #
@@ -223,9 +225,7 @@ def locally_running_db_context():
     #    <your Linux user name>  ALL = NOPASSWD: /usr/bin/docker
     #    (where `<your Linux user name>` is your Linux user name --
     #    who would have thought?);
-    # 3) below the `if __name__ == "__main__"` line (near the end of
-    #    this file) -- replace the `main(external_db_context())` call
-    #    with the `main(locally_running_db_context())` call.
+    # 3) run this script with the `--own-db` command-line option.
 
     DOCKER_EXECUTABLE = '/usr/bin/docker'
     MARIADB_DOCKER_NAME = '{}-{}'.format(MARIADB_STANDARD_HOSTNAME,
@@ -319,7 +319,7 @@ def drop_db():
     sleep(1)
 
 def populate_db_with_test_data(auth_api_test_class_name__or__data_maker):
-    db = SimpleSQLAuthDBConnector(db_host, MARIADB_NAME, 'root', MARIADB_PASSWORD)
+    db = SQLAuthDBConnector(db_host, MARIADB_NAME, 'root', MARIADB_PASSWORD)
     try:
         data_maker = _get_data_maker(auth_api_test_class_name__or__data_maker)
         with db as session:
@@ -1151,6 +1151,12 @@ class _test_of__ldap_api_replacement__LdapAPI__search_structured__example_nonemp
     }
 
 
+#
+# The actual invocation of the main script
+#
+
 if __name__ == "__main__":
-    main(external_db_context())
-    #main(locally_running_db_context())
+    if '--own-db' in sys.argv[1:]:
+        main(own_db_context())
+    else:
+        main(external_db_context())

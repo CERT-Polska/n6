@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import sys
-from datetime import datetime, timedelta
+from datetime import timedelta
 
-from n6.parsers.generic import BlackListTabDataParser, entry_point_factory
+from n6.parsers.generic import (
+    BlackListTabDataParser,
+    entry_point_factory,
+)
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 
 

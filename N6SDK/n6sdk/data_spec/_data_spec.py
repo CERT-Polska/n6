@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2016 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 
 import collections
@@ -27,6 +27,7 @@ from n6sdk.data_spec.fields import (
     MD5Field,
     PortField,
     SHA1Field,
+    SHA256Field,
     SourceField,
     UnicodeEnumField,
     UnicodeLimitedField,
@@ -245,8 +246,14 @@ class BaseDataSpec(object):
            any of its values).  It should always return a new
            dictionary.
         """
+        empty_value_list_keys = frozenset(
+            key for key, param_values in params.iteritems()
+            # (this superficial check is enough here; note that later
+            # -- in _iter_clean_param_items() -- it is supplemented
+            # with some more precise checks...)
+            if isinstance(param_values, list) and not param_values)
         keys = self._clean_keys(
-            params.viewkeys() - frozenset(ignored_keys),
+            params.viewkeys() - (empty_value_list_keys | frozenset(ignored_keys)),
             self._all_param_fields.viewkeys() - frozenset(forbidden_keys),
             self._required_param_fields.viewkeys() | frozenset(extra_required_keys),
             frozenset(discarded_keys),
@@ -520,7 +527,11 @@ class BaseDataSpec(object):
             assert key in params
             field = self._all_param_fields[key]
             param_values = params[key]
-            assert param_values and type(param_values) is list
+            if not (isinstance(param_values, list) and
+                    all(isinstance(val, basestring) for val in param_values)):
+                raise TypeError('{}={!r}, not being a list of strings'
+                                .format(key, param_values))
+            assert param_values
             assert hasattr(field, 'single_param')
             if field.single_param and len(param_values) > 1:
                 error_info_seq.append((
@@ -833,6 +844,10 @@ class DataSpec(BaseDataSpec):
         in_result='optional',
     )
 
+    sha256 = SHA256Field(
+        in_result='optional',
+    )
+
     sport = PortField(
         in_result='optional',
     )
@@ -1032,6 +1047,8 @@ class AllSearchableDataSpec(DataSpec):
     registrar = Ext(in_params='optional')
 
     sha1 = Ext(in_params='optional')
+
+    sha256 = Ext(in_params='optional')
 
     sport = Ext(in_params='optional')
 

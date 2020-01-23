@@ -122,7 +122,7 @@ class TestAuthAPI__context_manager(
         self.addCleanup(standard_context.__exit__, None, None, None)
 
         # for brevity:
-        self.loc = self.auth_api._thread_local
+        self.loc = self.auth_api._root_node_deposit
 
         # prepare a mock method:
         self.tracer = tracer = Mock()
@@ -140,25 +140,25 @@ class TestAuthAPI__context_manager(
         self.addCleanup(_AuthAPI_silly_method_cleanup)
 
     def test_ldap_root_node__with_and_without_context_manager(self):
-        self.assertIsNone(getattr(self.loc, 'ldap_root_node', None))
+        self.assertIsNone(self.loc.outermost_context)
         root1 = self.auth_api.get_ldap_root_node()
         self.assertEqual(root1, {'attrs': {}})
-        self.assertIsNone(getattr(self.loc, 'ldap_root_node', None))
+        self.assertIsNone(self.loc.outermost_context)
         with self.auth_api:
-            root2 = getattr(self.loc, 'ldap_root_node', None)
+            root2 = self.loc.outermost_context
             self.assertEqual(root2, {'attrs': {}})
             self.assertIsNot(root2, root1)
             self.assertIs(root2, self.auth_api.get_ldap_root_node())
             with self.auth_api, self.auth_api, self.auth_api:
                 # context manager is reentrant (can be freely nested)
-                self.assertIs(root2, getattr(self.loc, 'ldap_root_node', None))
+                self.assertIs(root2, self.loc.outermost_context)
                 self.assertIs(root2, self.auth_api.get_ldap_root_node())
-            self.assertIs(root2, getattr(self.loc, 'ldap_root_node', None))
+            self.assertIs(root2, self.loc.outermost_context)
             self.assertIs(root2, self.auth_api.get_ldap_root_node())
-        self.assertIsNone(getattr(self.loc, 'ldap_root_node', None))
+        self.assertIsNone(self.loc.outermost_context)
         root3 = self.auth_api.get_ldap_root_node()
         self.assertEqual(root3, {'attrs': {}})
-        self.assertIsNone(getattr(self.loc, 'ldap_root_node', None))
+        self.assertIsNone(self.loc.outermost_context)
         self.assertIsNot(root3, root2)
         self.assertIsNot(root3, root1)
 
@@ -206,7 +206,7 @@ class TestAuthAPI__context_manager(
             self.assertEqual(tracer.call_count, 1)
 
             # forcing cache invalidation:
-            self.auth_api._thread_local.ldap_root_node = {'attrs': {}}
+            self.auth_api._root_node_deposit._unsafe_replace_outermost_context({'attrs': {}})
 
             self.assertEqual(method(), 'b')
             self.assertEqual(method(), 'b')
@@ -220,7 +220,7 @@ class TestAuthAPI__context_manager(
                 self.assertEqual(tracer.call_count, 2)
 
                 # forcing cache invalidation:
-                self.auth_api._thread_local.ldap_root_node = {'attrs': {}}
+                self.auth_api._root_node_deposit._unsafe_replace_outermost_context({'attrs': {}})
 
                 self.assertEqual(method(), 'c')
                 self.assertEqual(method(), 'c')

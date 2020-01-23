@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
+import datetime
 from collections import MutableSequence
 
 from passlib.hash import bcrypt
@@ -26,11 +27,11 @@ from sqlalchemy.ext.declarative import (
     declarative_base,
 )
 from sqlalchemy.orm import (
+    ColumnProperty,
     backref,
     relationship,
-    scoped_session,
-    sessionmaker,
     validates,
+    column_property,
 )
 from sqlalchemy.orm.relationships import RelationshipProperty
 
@@ -40,6 +41,9 @@ from n6lib.auth_db import (
 
     CLIENT_CA_PROFILE_NAME,
     SERVICE_CA_PROFILE_NAME,
+
+    REGISTRATION_REQUEST_STATUS_NEW,
+    REGISTRATION_REQUEST_STATUSES,
 
     MAX_LEN_OF_ORG_ID,
     MAX_LEN_OF_CERT_SERIAL_HEX,
@@ -84,9 +88,15 @@ def mysql_opts():
     )
 
 
+def col(*args, **kwargs):
+    return column_property(Column(*args, **kwargs), active_history=True)
+
+def rel(*args, **kwargs):
+    return relationship(*args, active_history=True, **kwargs)
+
+
 def is_relation(attr):
     return isinstance(attr.property, RelationshipProperty)
-
 
 def is_property_list(attr):
     return bool(is_relation(attr) and attr.property.uselist)
@@ -154,7 +164,11 @@ class AuthDBCustomDeclarativeMeta(DeclarativeMeta):
         yield auth_db_validators.VALIDATOR_METHOD_PREFIX + column_name
 
     def _make_validator_func(cls, column_name, validator_name, validator_method):
-        column = getattr(cls, column_name)
+        column_prop = getattr(cls, column_name)
+        assert (isinstance(column_prop, ColumnProperty) and
+                isinstance(column_prop.expression, Column) and
+                column_prop.columns == [column_prop.expression])
+        column = column_prop.expression
         column_is_nullable = column.nullable
 
         def validator_func(self, key, value):
@@ -163,7 +177,8 @@ class AuthDBCustomDeclarativeMeta(DeclarativeMeta):
             try:
                 return validator_method(value)
             except Exception as exc:
-                setattr(exc, 'invalid_field', key)
+                exc.invalid_field = key
+                exc._is_n6_auth_db_validation_error_ = True
                 raise
 
         validator_func.__name__ = validator_name
@@ -176,7 +191,6 @@ class AuthDBCustomDeclarativeMeta(DeclarativeMeta):
 
 
 Base = declarative_base(metaclass=AuthDBCustomDeclarativeMeta)
-db_session = scoped_session(sessionmaker(autocommit=False, autoflush=False))
 
 
 # associative tables (m:n relationships)
@@ -490,132 +504,132 @@ class Org(_ExternalInterfaceMixin, Base):
     __table_args__ = mysql_opts()
 
     # Basic data
-    org_id = Column(String(MAX_LEN_OF_ORG_ID), primary_key=True)
-    actual_name = Column(String(MAX_LEN_OF_OFFICIAL_ACTUAL_NAME))
-    full_access = Column(Boolean, default=False, nullable=False)
-    stream_api_enabled = Column(Boolean, default=False, nullable=False)
+    org_id = col(String(MAX_LEN_OF_ORG_ID), primary_key=True)
+    actual_name = col(String(MAX_LEN_OF_OFFICIAL_ACTUAL_NAME))
+    full_access = col(Boolean, default=False, nullable=False)
+    stream_api_enabled = col(Boolean, default=False, nullable=False)
 
-    org_groups = relationship('OrgGroup', secondary=org_org_group_link, back_populates='orgs')
-    users = relationship('User', back_populates='org')
+    org_groups = rel('OrgGroup', secondary=org_org_group_link, back_populates='orgs')
+    users = rel('User', back_populates='org')
 
     # "Inside" access zone
-    access_to_inside = Column(Boolean, default=False, nullable=False)
-    inside_subsources = relationship(
+    access_to_inside = col(Boolean, default=False, nullable=False)
+    inside_subsources = rel(
         'Subsource',
         secondary=org_inside_subsource_link,
         backref='inside_orgs')
-    inside_off_subsources = relationship(
+    inside_off_subsources = rel(
         'Subsource',
         secondary=org_inside_off_subsource_link,
         backref='inside_off_orgs')
-    inside_subsource_groups = relationship(
+    inside_subsource_groups = rel(
         'SubsourceGroup',
         secondary=org_inside_subsource_group_link,
         backref='inside_orgs')
-    inside_off_subsource_groups = relationship(
+    inside_off_subsource_groups = rel(
         'SubsourceGroup',
         secondary=org_inside_off_subsource_group_link,
         backref='inside_off_orgs')
 
     # "Threats" access zone
-    access_to_threats = Column(Boolean, default=False, nullable=False)
-    threats_subsources = relationship(
+    access_to_threats = col(Boolean, default=False, nullable=False)
+    threats_subsources = rel(
         'Subsource',
         secondary=org_threats_subsource_link,
         backref='threats_orgs')
-    threats_off_subsources = relationship(
+    threats_off_subsources = rel(
         'Subsource',
         secondary=org_threats_off_subsource_link,
         backref='threats_off_orgs')
-    threats_subsource_groups = relationship(
+    threats_subsource_groups = rel(
         'SubsourceGroup',
         secondary=org_threats_subsource_group_link,
         backref='threats_orgs')
-    threats_off_subsource_groups = relationship(
+    threats_off_subsource_groups = rel(
         'SubsourceGroup',
         secondary=org_threats_off_subsource_group_link,
         backref='threats_off_orgs')
 
     # "Search" access zone
-    access_to_search = Column(Boolean, default=False, nullable=False)
-    search_subsources = relationship(
+    access_to_search = col(Boolean, default=False, nullable=False)
+    search_subsources = rel(
         'Subsource',
         secondary=org_search_subsource_link,
         backref='search_orgs')
-    search_off_subsources = relationship(
+    search_off_subsources = rel(
         'Subsource',
         secondary=org_search_off_subsource_link,
         backref='search_off_orgs')
-    search_subsource_groups = relationship(
+    search_subsource_groups = rel(
         'SubsourceGroup',
         secondary=org_search_subsource_group_link,
         backref='search_orgs')
-    search_off_subsource_groups = relationship(
+    search_off_subsource_groups = rel(
         'SubsourceGroup',
         secondary=org_search_off_subsource_group_link,
         backref='search_off_orgs')
 
     # Email notification settings
-    email_notification_enabled = Column(Boolean, default=False, nullable=False)
-    email_notification_addresses = relationship(
+    email_notification_enabled = col(Boolean, default=False, nullable=False)
+    email_notification_addresses = rel(
         'EMailNotificationAddress',
         back_populates='org',
         cascade='all, delete-orphan')
-    email_notification_times = relationship(
+    email_notification_times = rel(
         'EMailNotificationTime',
         back_populates='org',
         cascade='all, delete-orphan')
-    email_notification_language = Column(String(MAX_LEN_OF_COUNTRY_CODE), nullable=True)
-    email_notification_business_days_only = Column(Boolean, default=False, nullable=False)
+    email_notification_language = col(String(MAX_LEN_OF_COUNTRY_CODE), nullable=True)
+    email_notification_business_days_only = col(Boolean, default=False, nullable=False)
 
     # "Inside" event criteria checked by n6filter
-    inside_filter_asns = relationship(
+    inside_filter_asns = rel(
         'InsideFilterASN',
         back_populates='org',
         cascade='all, delete-orphan')
-    inside_filter_ccs = relationship(
+    inside_filter_ccs = rel(
         'InsideFilterCC',
         back_populates='org',
         cascade='all, delete-orphan')
-    inside_filter_fqdns = relationship(
+    inside_filter_fqdns = rel(
         'InsideFilterFQDN',
         back_populates='org',
         cascade='all, delete-orphan')
-    inside_filter_ip_networks = relationship(
+    inside_filter_ip_networks = rel(
         'InsideFilterIPNetwork',
         back_populates='org',
         cascade='all, delete-orphan')
-    inside_filter_urls = relationship(
+    inside_filter_urls = rel(
         'InsideFilterURL',
         back_populates='org',
         cascade='all, delete-orphan')
 
     # Official entity data
-    public_entity = Column(Boolean, default=False, nullable=False)
-    verified = Column(Boolean, default=False, nullable=False)
+    public_entity = col(Boolean, default=False, nullable=False)
+    verified = col(Boolean, default=False, nullable=False)
 
-    entity_type_label = Column(
+    entity_type_label = col(
         String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL),
         ForeignKey('entity_type.label', onupdate='CASCADE',
                    ondelete='RESTRICT'))
-    entity_type = relationship('EntityType', back_populates='orgs')
+    entity_type = rel('EntityType', back_populates='orgs')
 
-    location_type_label = Column(
+    location_type_label = col(
         String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL),
         ForeignKey('location_type.label', onupdate='CASCADE',
                    ondelete='RESTRICT'))
-    location_type = relationship('LocationType', back_populates='orgs')
+    location_type = rel('LocationType', back_populates='orgs')
 
-    location = Column(String(MAX_LEN_OF_OFFICIAL_LOCATION))
-    location_coords = Column(String(MAX_LEN_OF_OFFICIAL_LOCATION_COORDS))
-    address = Column(String(MAX_LEN_OF_OFFICIAL_ADDRESS))
+    location = col(String(MAX_LEN_OF_OFFICIAL_LOCATION))
+    location_coords = col(String(MAX_LEN_OF_OFFICIAL_LOCATION_COORDS))
+    address = col(String(MAX_LEN_OF_OFFICIAL_ADDRESS))
 
-    extra_ids = relationship(
+    extra_ids = rel(
         'ExtraId',
         back_populates='org',
         cascade='all, delete-orphan')
 
-    contact_points = relationship(
+    contact_points = rel(
         'ContactPoint',
         back_populates='org',
         cascade='all, delete-orphan')
@@ -628,6 +642,66 @@ class Org(_ExternalInterfaceMixin, Base):
     _columns_to_validate = ['org_id', 'email_notification_language']
 
 
+class RegistrationRequest(_ExternalInterfaceMixin, Base):
+
+    __tablename__ = 'registration_request'
+    __table_args__ = mysql_opts()
+
+    id = col(Integer, primary_key=True)
+
+    submitted_on = col(DateTime, nullable=False)
+    modified_on = col(DateTime, nullable=False, onupdate=datetime.datetime.utcnow)
+    status = col(
+        mysql.ENUM(*REGISTRATION_REQUEST_STATUSES),
+        nullable=False,
+        default=REGISTRATION_REQUEST_STATUS_NEW)
+
+    org_id = col(String(MAX_LEN_OF_ORG_ID), nullable=False)
+    actual_name = col(String(MAX_LEN_OF_OFFICIAL_ACTUAL_NAME), nullable=False)
+    email = col(String(MAX_LEN_OF_EMAIL), nullable=False)
+
+    submitter_title = col(
+        String(MAX_LEN_OF_GENERIC_SHORT_STRING),
+        nullable=False)
+    submitter_firstname_and_surname = col(
+        String(MAX_LEN_OF_GENERIC_SHORT_STRING),
+        nullable=False)
+
+    csr = col(Text, nullable=False)
+
+    email_notification_language = col(String(MAX_LEN_OF_COUNTRY_CODE), nullable=True)
+    email_notification_addresses = rel(
+        'RegistrationRequestEMailNotificationAddress',
+        back_populates='registration_request',
+        cascade='all, delete-orphan')
+
+    asns = rel(
+        'RegistrationRequestASN',
+        back_populates='registration_request',
+        cascade='all, delete-orphan')
+    fqdns = rel(
+        'RegistrationRequestFQDN',
+        back_populates='registration_request',
+        cascade='all, delete-orphan')
+    ip_networks = rel(
+        'RegistrationRequestIPNetwork',
+        back_populates='registration_request',
+        cascade='all, delete-orphan')
+
+    __repr__ = attr_repr('id', 'org_id', 'submitted_on')
+
+    _columns_to_validate = [
+        'submitted_on',
+        'modified_on',
+
+        'org_id',
+        'email',
+        'csr',
+
+        'email_notification_language',
+    ]
+
+
 class EMailNotificationAddress(Base):
 
     __tablename__ = 'email_notification_address'
@@ -636,16 +710,40 @@ class EMailNotificationAddress(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    email = Column(String(MAX_LEN_OF_EMAIL), nullable=False)
+    id = col(Integer, primary_key=True)
+    email = col(String(MAX_LEN_OF_EMAIL), nullable=False)
 
-    org_id = Column(
+    org_id = col(
         String(MAX_LEN_OF_ORG_ID),
         ForeignKey('org.org_id', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    org = relationship('Org', back_populates='email_notification_addresses')
+    org = rel('Org', back_populates='email_notification_addresses')
 
     __repr__ = attr_repr('id', 'email', 'org_id')
+
+    _columns_to_validate = ['email']
+
+
+class RegistrationRequestEMailNotificationAddress(Base):
+
+    __tablename__ = 'registration_request_email_notification_address'
+    __table_args__ = (
+        UniqueConstraint('email', 'registration_request_id'),
+        mysql_opts(),
+    )
+
+    id = col(Integer, primary_key=True)
+    email = col(String(MAX_LEN_OF_EMAIL), nullable=False)
+
+    registration_request_id = col(
+        Integer,
+        ForeignKey('registration_request.id', onupdate='CASCADE', ondelete='CASCADE'),
+        nullable=False)
+    registration_request = rel(
+        'RegistrationRequest',
+        back_populates='email_notification_addresses')
+
+    __repr__ = attr_repr('id', 'email', 'registration_request_id')
 
     _columns_to_validate = ['email']
 
@@ -658,14 +756,14 @@ class EMailNotificationTime(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    notification_time = Column(Time, nullable=False)
+    id = col(Integer, primary_key=True)
+    notification_time = col(Time, nullable=False)
 
-    org_id = Column(
+    org_id = col(
         String(MAX_LEN_OF_ORG_ID),
         ForeignKey('org.org_id', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    org = relationship('Org', back_populates='email_notification_times')
+    org = rel('Org', back_populates='email_notification_times')
 
     __repr__ = attr_repr('id', 'notification_time', 'org_id')
 
@@ -680,16 +778,38 @@ class InsideFilterASN(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    asn = Column(Integer, nullable=False)
+    id = col(Integer, primary_key=True)
+    asn = col(Integer, nullable=False)
 
-    org_id = Column(
+    org_id = col(
         String(MAX_LEN_OF_ORG_ID),
         ForeignKey('org.org_id', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    org = relationship('Org', back_populates='inside_filter_asns')
+    org = rel('Org', back_populates='inside_filter_asns')
 
     __repr__ = attr_repr('id', 'asn', 'org_id')
+
+    _columns_to_validate = ['asn']
+
+
+class RegistrationRequestASN(Base):
+
+    __tablename__ = 'registration_request_asn'
+    __table_args__ = (
+        UniqueConstraint('asn', 'registration_request_id'),
+        mysql_opts(),
+    )
+
+    id = col(Integer, primary_key=True)
+    asn = col(Integer, nullable=False)
+
+    registration_request_id = col(
+        Integer,
+        ForeignKey('registration_request.id', onupdate='CASCADE', ondelete='CASCADE'),
+        nullable=False)
+    registration_request = rel('RegistrationRequest', back_populates='asns')
+
+    __repr__ = attr_repr('id', 'asn', 'registration_request_id')
 
     _columns_to_validate = ['asn']
 
@@ -702,14 +822,14 @@ class CriteriaASN(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    asn = Column(Integer, nullable=False)
+    id = col(Integer, primary_key=True)
+    asn = col(Integer, nullable=False)
 
-    criteria_container_label = Column(
+    criteria_container_label = col(
         String(MAX_LEN_OF_GENERIC_SHORT_STRING),
         ForeignKey('criteria_container.label', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    criteria_container = relationship('CriteriaContainer', back_populates='criteria_asns')
+    criteria_container = rel('CriteriaContainer', back_populates='criteria_asns')
 
     __repr__ = attr_repr('id', 'asn', 'criteria_container_label')
 
@@ -724,14 +844,14 @@ class InsideFilterCC(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    cc = Column(String(MAX_LEN_OF_COUNTRY_CODE), nullable=False)
+    id = col(Integer, primary_key=True)
+    cc = col(String(MAX_LEN_OF_COUNTRY_CODE), nullable=False)
 
-    org_id = Column(
+    org_id = col(
         String(MAX_LEN_OF_ORG_ID),
         ForeignKey('org.org_id', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    org = relationship('Org', back_populates='inside_filter_ccs')
+    org = rel('Org', back_populates='inside_filter_ccs')
 
     __repr__ = attr_repr('id', 'cc', 'org_id')
 
@@ -746,14 +866,14 @@ class CriteriaCC(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    cc = Column(String(MAX_LEN_OF_COUNTRY_CODE), nullable=False)
+    id = col(Integer, primary_key=True)
+    cc = col(String(MAX_LEN_OF_COUNTRY_CODE), nullable=False)
 
-    criteria_container_label = Column(
+    criteria_container_label = col(
         String(MAX_LEN_OF_GENERIC_SHORT_STRING),
         ForeignKey('criteria_container.label', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    criteria_container = relationship('CriteriaContainer', back_populates='criteria_ccs')
+    criteria_container = rel('CriteriaContainer', back_populates='criteria_ccs')
 
     __repr__ = attr_repr('id', 'cc', 'criteria_container_label')
 
@@ -768,16 +888,38 @@ class InsideFilterFQDN(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    fqdn = Column(String(MAX_LEN_OF_DOMAIN_NAME), nullable=False)
+    id = col(Integer, primary_key=True)
+    fqdn = col(String(MAX_LEN_OF_DOMAIN_NAME), nullable=False)
 
-    org_id = Column(
+    org_id = col(
         String(MAX_LEN_OF_ORG_ID),
         ForeignKey('org.org_id', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    org = relationship('Org', back_populates='inside_filter_fqdns')
+    org = rel('Org', back_populates='inside_filter_fqdns')
 
     __repr__ = attr_repr('id', 'fqdn', 'org_id')
+
+    _columns_to_validate = ['fqdn']
+
+
+class RegistrationRequestFQDN(Base):
+
+    __tablename__ = 'registration_request_fqdn'
+    __table_args__ = (
+        UniqueConstraint('fqdn', 'registration_request_id'),
+        mysql_opts(),
+    )
+
+    id = col(Integer, primary_key=True)
+    fqdn = col(String(MAX_LEN_OF_DOMAIN_NAME), nullable=False)
+
+    registration_request_id = col(
+        Integer,
+        ForeignKey('registration_request.id', onupdate='CASCADE', ondelete='CASCADE'),
+        nullable=False)
+    registration_request = rel('RegistrationRequest', back_populates='fqdns')
+
+    __repr__ = attr_repr('id', 'fqdn', 'registration_request_id')
 
     _columns_to_validate = ['fqdn']
 
@@ -790,16 +932,38 @@ class InsideFilterIPNetwork(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    ip_network = Column(String(MAX_LEN_OF_IP_NETWORK), nullable=False)
+    id = col(Integer, primary_key=True)
+    ip_network = col(String(MAX_LEN_OF_IP_NETWORK), nullable=False)
 
-    org_id = Column(
+    org_id = col(
         String(MAX_LEN_OF_ORG_ID),
         ForeignKey('org.org_id', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    org = relationship('Org', back_populates='inside_filter_ip_networks')
+    org = rel('Org', back_populates='inside_filter_ip_networks')
 
     __repr__ = attr_repr('id', 'ip_network', 'org_id')
+
+    _columns_to_validate = ['ip_network']
+
+
+class RegistrationRequestIPNetwork(Base):
+
+    __tablename__ = 'registration_request_ip_network'
+    __table_args__ = (
+        UniqueConstraint('ip_network', 'registration_request_id'),
+        mysql_opts(),
+    )
+
+    id = col(Integer, primary_key=True)
+    ip_network = col(String(MAX_LEN_OF_IP_NETWORK), nullable=False)
+
+    registration_request_id = col(
+        Integer,
+        ForeignKey('registration_request.id', onupdate='CASCADE', ondelete='CASCADE'),
+        nullable=False)
+    registration_request = rel('RegistrationRequest', back_populates='ip_networks')
+
+    __repr__ = attr_repr('id', 'ip_network', 'registration_request_id')
 
     _columns_to_validate = ['ip_network']
 
@@ -812,14 +976,14 @@ class CriteriaIPNetwork(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    ip_network = Column(String(MAX_LEN_OF_IP_NETWORK), nullable=False)
+    id = col(Integer, primary_key=True)
+    ip_network = col(String(MAX_LEN_OF_IP_NETWORK), nullable=False)
 
-    criteria_container_label = Column(
+    criteria_container_label = col(
         String(MAX_LEN_OF_GENERIC_SHORT_STRING),
         ForeignKey('criteria_container.label', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    criteria_container = relationship('CriteriaContainer', back_populates='criteria_ip_networks')
+    criteria_container = rel('CriteriaContainer', back_populates='criteria_ip_networks')
 
     __repr__ = attr_repr('id', 'ip_network', 'criteria_container_label')
 
@@ -847,14 +1011,14 @@ class InsideFilterURL(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    url = Column(Unicode(MAX_LEN_OF_URL), nullable=False)
+    id = col(Integer, primary_key=True)
+    url = col(Unicode(MAX_LEN_OF_URL), nullable=False)
 
-    org_id = Column(
+    org_id = col(
         String(MAX_LEN_OF_ORG_ID),
         ForeignKey('org.org_id', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    org = relationship('Org', back_populates='inside_filter_urls')
+    org = rel('Org', back_populates='inside_filter_urls')
 
     __repr__ = attr_repr('id', 'url', 'org_id')
 
@@ -869,14 +1033,14 @@ class CriteriaName(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    name = Column(String(MAX_LEN_OF_GENERIC_SHORT_STRING), nullable=False)
+    id = col(Integer, primary_key=True)
+    name = col(String(MAX_LEN_OF_GENERIC_SHORT_STRING), nullable=False)
 
-    criteria_container_label = Column(
+    criteria_container_label = col(
         String(MAX_LEN_OF_GENERIC_SHORT_STRING),
         ForeignKey('criteria_container.label', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    criteria_container = relationship('CriteriaContainer', back_populates='criteria_names')
+    criteria_container = rel('CriteriaContainer', back_populates='criteria_names')
 
     __repr__ = attr_repr('id', 'name', 'criteria_container_label')
 
@@ -888,9 +1052,9 @@ class CriteriaCategory(Base):
     __tablename__ = 'criteria_category'
     __table_args__ = mysql_opts()
 
-    category = Column(String(MAX_LEN_OF_GENERIC_SHORT_STRING), primary_key=True)
+    category = col(String(MAX_LEN_OF_GENERIC_SHORT_STRING), primary_key=True)
 
-    criteria_containers = relationship(
+    criteria_containers = rel(
         'CriteriaContainer',
         secondary=criteria_category_link,
         # we set `passive_deletes` to let secondary's `ondelete='RESTRICT'`
@@ -916,9 +1080,9 @@ class EntityType(Base):
     __tablename__ = 'entity_type'
     __table_args__ = mysql_opts()
 
-    label = Column(String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL), primary_key=True)
+    label = col(String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL), primary_key=True)
 
-    orgs = relationship(
+    orgs = rel(
         'Org',
         passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
         back_populates='entity_type')
@@ -936,9 +1100,9 @@ class LocationType(Base):
     __tablename__ = 'location_type'
     __table_args__ = mysql_opts()
 
-    label = Column(String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL), primary_key=True)
+    label = col(String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL), primary_key=True)
 
-    orgs = relationship(
+    orgs = rel(
         'Org',
         passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
         back_populates='location_type')
@@ -956,9 +1120,9 @@ class ExtraIdType(Base):
     __tablename__ = 'extra_id_type'
     __table_args__ = mysql_opts()
 
-    label = Column(String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL), primary_key=True)
+    label = col(String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL), primary_key=True)
 
-    extra_ids = relationship('ExtraId', back_populates='id_type')
+    extra_ids = rel('ExtraId', back_populates='id_type')
 
     def __str__(self):
         return str(formattable_as_str(self.label))
@@ -976,21 +1140,21 @@ class ExtraId(Base):
         mysql_opts(),
     )
 
-    id = Column(Integer, primary_key=True)
-    value = Column(String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL), nullable=False)
+    id = col(Integer, primary_key=True)
+    value = col(String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL), nullable=False)
 
-    id_type_label = Column(
+    id_type_label = col(
         String(MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL),
         ForeignKey('extra_id_type.label', onupdate='CASCADE',
                    ondelete='RESTRICT'),
         nullable=False)
-    id_type = relationship('ExtraIdType', back_populates='extra_ids')
+    id_type = rel('ExtraIdType', back_populates='extra_ids')
 
-    org_id = Column(
+    org_id = col(
         String(MAX_LEN_OF_ORG_ID),
         ForeignKey('org.org_id', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    org = relationship('Org', back_populates='extra_ids')
+    org = rel('Org', back_populates='extra_ids')
 
     __repr__ = attr_repr('id', 'value', 'id_type_label', 'org_id')
 
@@ -1002,19 +1166,19 @@ class ContactPoint(Base):
     __tablename__ = 'contact_point'
     __table_args__ = mysql_opts()
 
-    id = Column(Integer, primary_key=True)
+    id = col(Integer, primary_key=True)
 
-    org_id = Column(
+    org_id = col(
         String(MAX_LEN_OF_ORG_ID),
         ForeignKey('org.org_id', onupdate='CASCADE', ondelete='CASCADE'),
         nullable=False)
-    org = relationship('Org', back_populates='contact_points')
+    org = rel('Org', back_populates='contact_points')
 
-    title = Column(String(MAX_LEN_OF_GENERIC_SHORT_STRING))
-    name = Column(String(MAX_LEN_OF_GENERIC_SHORT_STRING))
-    surname = Column(String(MAX_LEN_OF_GENERIC_SHORT_STRING))
-    email = Column(String(MAX_LEN_OF_EMAIL))
-    phone = Column(String(MAX_LEN_OF_GENERIC_SHORT_STRING))
+    title = col(String(MAX_LEN_OF_GENERIC_SHORT_STRING))
+    name = col(String(MAX_LEN_OF_GENERIC_SHORT_STRING))
+    surname = col(String(MAX_LEN_OF_GENERIC_SHORT_STRING))
+    email = col(String(MAX_LEN_OF_EMAIL))
+    phone = col(String(MAX_LEN_OF_GENERIC_SHORT_STRING))
 
     __repr__ = attr_repr('id', 'email', 'org_id')
 
@@ -1026,40 +1190,40 @@ class OrgGroup(Base):
     __tablename__ = 'org_group'
     __table_args__ = mysql_opts()
 
-    org_group_id = Column(String(MAX_LEN_OF_GENERIC_SHORT_STRING), primary_key=True)
-    comment = Column(Text)
+    org_group_id = col(String(MAX_LEN_OF_GENERIC_SHORT_STRING), primary_key=True)
+    comment = col(Text)
 
     # "Inside" access zone
-    inside_subsources = relationship(
+    inside_subsources = rel(
         'Subsource',
         secondary=org_group_inside_subsource_link,
         backref='inside_org_groups')
-    inside_subsource_groups = relationship(
+    inside_subsource_groups = rel(
         'SubsourceGroup',
         secondary=org_group_inside_subsource_group_link,
         backref='inside_org_groups')
 
     # "Threats" access zone
-    threats_subsources = relationship(
+    threats_subsources = rel(
         'Subsource',
         secondary=org_group_threats_subsource_link,
         backref='threats_org_groups')
-    threats_subsource_groups = relationship(
+    threats_subsource_groups = rel(
         'SubsourceGroup',
         secondary=org_group_threats_subsource_group_link,
         backref='threats_org_groups')
 
     # "Search" access zone
-    search_subsources = relationship(
+    search_subsources = rel(
         'Subsource',
         secondary=org_group_search_subsource_link,
         backref='search_org_groups')
-    search_subsource_groups = relationship(
+    search_subsource_groups = rel(
         'SubsourceGroup',
         secondary=org_group_search_subsource_group_link,
         backref='search_org_groups')
 
-    orgs = relationship('Org', secondary=org_org_group_link, back_populates='org_groups')
+    orgs = rel('Org', secondary=org_org_group_link, back_populates='org_groups')
 
     def __str__(self):
         return 'Org group "{}"'.format(formattable_as_str(self.org_group_id))
@@ -1077,34 +1241,34 @@ class User(_ExternalInterfaceMixin, _PassEncryptMixin, Base):
     # here we use a surrogate key because natural keys do not play well
     # with Admin Panel's "inline" forms (cannot change the key by using
     # such a form...)
-    id = Column(Integer, primary_key=True)
+    id = col(Integer, primary_key=True)
 
-    login = Column(String(MAX_LEN_OF_EMAIL), nullable=False, unique=True)
-    password = Column(String(MAX_LEN_OF_PASSWORD_HASH))
+    login = col(String(MAX_LEN_OF_EMAIL), nullable=False, unique=True)
+    password = col(String(MAX_LEN_OF_PASSWORD_HASH))
 
-    org_id = Column(
+    org_id = col(
         String(MAX_LEN_OF_ORG_ID),
         ForeignKey('org.org_id', onupdate='CASCADE',
                    ondelete='RESTRICT'),
         nullable=False)
-    org = relationship('Org', back_populates='users')
+    org = rel('Org', back_populates='users')
 
-    system_groups = relationship(
+    system_groups = rel(
         'SystemGroup',
         secondary=user_system_group_link,
         back_populates='users')
 
-    owned_certs = relationship(
+    owned_certs = rel(
         'Cert',
         passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
         back_populates='owner',
         foreign_keys='Cert.owner_login')
-    created_certs = relationship(
+    created_certs = rel(
         'Cert',
         passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
         back_populates='created_by',
         foreign_keys='Cert.created_by_login')
-    revoked_certs = relationship(
+    revoked_certs = rel(
         'Cert',
         passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
         back_populates='revoked_by',
@@ -1123,20 +1287,20 @@ class Component(_ExternalInterfaceMixin, _PassEncryptMixin, Base):
     __tablename__ = 'component'
     __table_args__ = mysql_opts()
 
-    login = Column(String(MAX_LEN_OF_DOMAIN_NAME), primary_key=True)
-    password = Column(String(MAX_LEN_OF_PASSWORD_HASH))
+    login = col(String(MAX_LEN_OF_DOMAIN_NAME), primary_key=True)
+    password = col(String(MAX_LEN_OF_PASSWORD_HASH))
 
-    owned_certs = relationship(
+    owned_certs = rel(
         'Cert',
         passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
         back_populates='owner_component',
         foreign_keys='Cert.owner_component_login')
-    created_certs = relationship(
+    created_certs = rel(
         'Cert',
         passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
         back_populates='created_by_component',
         foreign_keys='Cert.created_by_component_login')
-    revoked_certs = relationship(
+    revoked_certs = rel(
         'Cert',
         passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
         back_populates='revoked_by_component',
@@ -1155,13 +1319,12 @@ class Source(Base):
     __tablename__ = 'source'
     __table_args__ = mysql_opts()
 
-    source_id = Column(String(MAX_LEN_OF_SOURCE_ID), primary_key=True)
-    anonymized_source_id = Column(String(MAX_LEN_OF_SOURCE_ID), nullable=False, unique=True)
-    dip_anonymization_enabled = Column(Boolean, default=True, nullable=False)
-    comment = Column(Text)
+    source_id = col(String(MAX_LEN_OF_SOURCE_ID), primary_key=True)
+    anonymized_source_id = col(String(MAX_LEN_OF_SOURCE_ID), nullable=False, unique=True)
+    dip_anonymization_enabled = col(Boolean, default=True, nullable=False)
+    comment = col(Text)
 
-    # one-to-many relationship
-    subsources = relationship('Subsource', back_populates='source')
+    subsources = rel('Subsource', back_populates='source')
 
     def __str__(self):
         return 'Source "{}"'.format(formattable_as_str(self.source_id))
@@ -1183,28 +1346,28 @@ class Subsource(Base):
     # * natural keys do not play well with Admin Panel's "inline" forms
     # * this model is involved in a lot of relationships (it is easier
     #   to cope with them when a surrogate key is in use...)
-    id = Column(Integer, primary_key=True)
+    id = col(Integer, primary_key=True)
 
-    label = Column(String(MAX_LEN_OF_GENERIC_SHORT_STRING), nullable=False)
-    comment = Column(Text)
+    label = col(String(MAX_LEN_OF_GENERIC_SHORT_STRING), nullable=False)
+    comment = col(Text)
 
-    source_id = Column(
+    source_id = col(
         String(MAX_LEN_OF_SOURCE_ID),
         ForeignKey('source.source_id', onupdate='CASCADE',
                    ondelete='RESTRICT'),
         nullable=False)
-    source = relationship('Source', back_populates='subsources')
+    source = rel('Source', back_populates='subsources')
 
-    inclusion_criteria = relationship(
+    inclusion_criteria = rel(
         'CriteriaContainer',
         secondary=subsource_inclusion_criteria_link,
         back_populates='inclusion_subsources')
-    exclusion_criteria = relationship(
+    exclusion_criteria = rel(
         'CriteriaContainer',
         secondary=subsource_exclusion_criteria_link,
         back_populates='exclusion_subsources')
 
-    subsource_groups = relationship(
+    subsource_groups = rel(
         'SubsourceGroup',
         secondary=subsource_subsource_group_link,
         back_populates='subsources')
@@ -1222,10 +1385,10 @@ class SubsourceGroup(Base):
     __tablename__ = 'subsource_group'
     __table_args__ = mysql_opts()
 
-    label = Column(String(MAX_LEN_OF_GENERIC_SHORT_STRING), primary_key=True)
-    comment = Column(Text)
+    label = col(String(MAX_LEN_OF_GENERIC_SHORT_STRING), primary_key=True)
+    comment = col(Text)
 
-    subsources = relationship(
+    subsources = rel(
         'Subsource',
         secondary=subsource_subsource_group_link,
         back_populates='subsource_groups')
@@ -1243,31 +1406,31 @@ class CriteriaContainer(Base):
     __tablename__ = 'criteria_container'
     __table_args__ = mysql_opts()
 
-    label = Column(String(MAX_LEN_OF_GENERIC_SHORT_STRING), primary_key=True)
+    label = col(String(MAX_LEN_OF_GENERIC_SHORT_STRING), primary_key=True)
 
-    criteria_asns = relationship(
+    criteria_asns = rel(
         'CriteriaASN',
         back_populates='criteria_container',
         cascade='all, delete-orphan')
-    criteria_ccs = relationship(
+    criteria_ccs = rel(
         'CriteriaCC',
         back_populates='criteria_container',
         cascade='all, delete-orphan')
-    criteria_ip_networks = relationship(
+    criteria_ip_networks = rel(
         'CriteriaIPNetwork',
         back_populates='criteria_container',
         cascade='all, delete-orphan')
-    criteria_names = relationship(
+    criteria_names = rel(
         'CriteriaName',
         back_populates='criteria_container',
         cascade='all, delete-orphan')
 
-    criteria_categories = relationship(
+    criteria_categories = rel(
         'CriteriaCategory',
         secondary=criteria_category_link,
         back_populates='criteria_containers')
 
-    inclusion_subsources = relationship(
+    inclusion_subsources = rel(
         'Subsource',
         secondary=subsource_inclusion_criteria_link,
         # we set `passive_deletes` to let secondary's `ondelete='RESTRICT'`
@@ -1279,7 +1442,7 @@ class CriteriaContainer(Base):
         # /`secondary`-related stuff...])
         passive_deletes='all',
         back_populates='inclusion_criteria')
-    exclusion_subsources = relationship(
+    exclusion_subsources = rel(
         'Subsource',
         secondary=subsource_exclusion_criteria_link,
         # we set `passive_deletes` to let secondary's `ondelete='RESTRICT'`
@@ -1305,9 +1468,9 @@ class SystemGroup(_ExternalInterfaceMixin, Base):
     __tablename__ = 'system_group'
     __table_args__ = mysql_opts()
 
-    name = Column(String(MAX_LEN_OF_SYSTEM_GROUP_NAME), primary_key=True)
+    name = col(String(MAX_LEN_OF_SYSTEM_GROUP_NAME), primary_key=True)
 
-    users = relationship(
+    users = rel(
         'User',
         secondary=user_system_group_link,
         back_populates='system_groups')
@@ -1325,13 +1488,13 @@ class Cert(_ExternalInterfaceMixin, Base):
     __tablename__ = 'cert'
     __table_args__ = mysql_opts()
 
-    ca_cert_label = Column(
+    ca_cert_label = col(
         String(MAX_LEN_OF_CA_LABEL),
         ForeignKey('ca_cert.ca_label', onupdate='CASCADE',
                    ondelete='RESTRICT'),
         primary_key=True)
-    ca_cert = relationship('CACert', back_populates='certs')
-    serial_hex = Column(
+    ca_cert = rel('CACert', back_populates='certs')
+    serial_hex = col(
         String(MAX_LEN_OF_CERT_SERIAL_HEX),
         primary_key=True)
 
@@ -1339,60 +1502,60 @@ class Cert(_ExternalInterfaceMixin, Base):
     #       to have their owner users or components; if they are
     #       some mechanism should ensure that *exactly one* of
     #       {`owner_login`,`owner_component_login`} is not null
-    owner_login = Column(
+    owner_login = col(
         String(MAX_LEN_OF_EMAIL),
         ForeignKey('user.login', onupdate='CASCADE',
                    ondelete='RESTRICT'))
-    owner = relationship(
+    owner = rel(
         'User',
         back_populates='owned_certs',
-        foreign_keys=owner_login)
+        foreign_keys=owner_login.expression)
 
-    owner_component_login = Column(
+    owner_component_login = col(
         String(MAX_LEN_OF_DOMAIN_NAME),
         ForeignKey('component.login', onupdate='CASCADE',
                    ondelete='RESTRICT'))
-    owner_component = relationship(
+    owner_component = rel(
         'Component',
         back_populates='owned_certs',
-        foreign_keys=owner_component_login)
+        foreign_keys=owner_component_login.expression)
 
     # TODO: some mechanism should ensure that: `certificate` is a valid PEM of a user certificate;
     #       `csr`, if any, is a valid CSR + matches `certificate`; fields that reflect certificate
     #       content really match it (concerns: `serial_hex`, `owner_login`/`owner_component_login`,
     #       `valid_from`, `expires_on`, `is_client_cert`, `is_server_cert`
     #       and related CACert's `certificate`)
-    certificate = Column(Text, nullable=False)
-    csr = Column(Text, nullable=True)
+    certificate = col(Text, nullable=False)
+    csr = col(Text, nullable=True)
 
-    valid_from = Column(DateTime, nullable=False)
-    expires_on = Column(DateTime, nullable=False)
+    valid_from = col(DateTime, nullable=False)
+    expires_on = col(DateTime, nullable=False)
 
-    is_client_cert = Column(Boolean, default=False, nullable=False)
-    is_server_cert = Column(Boolean, default=False, nullable=False)
+    is_client_cert = col(Boolean, default=False, nullable=False)
+    is_server_cert = col(Boolean, default=False, nullable=False)
 
-    created_on = Column(DateTime, nullable=False)
-    creator_details = Column(Text)
+    created_on = col(DateTime, nullable=False)
+    creator_details = col(Text)
 
     # TODO: some mechanism should ensure that *exactly one* of
     #       {`created_by_login`,`created_by_component_login`} is not null
-    created_by_login = Column(
+    created_by_login = col(
         String(MAX_LEN_OF_EMAIL),
         ForeignKey('user.login', onupdate='CASCADE',
                    ondelete='RESTRICT'))
-    created_by = relationship(
+    created_by = rel(
         'User',
         back_populates='created_certs',
-        foreign_keys=created_by_login)
+        foreign_keys=created_by_login.expression)
 
-    created_by_component_login = Column(
+    created_by_component_login = col(
         String(MAX_LEN_OF_DOMAIN_NAME),
         ForeignKey('component.login', onupdate='CASCADE',
                    ondelete='RESTRICT'))
-    created_by_component = relationship(
+    created_by_component = rel(
         'Component',
         back_populates='created_certs',
-        foreign_keys=created_by_component_login)
+        foreign_keys=created_by_component_login.expression)
 
     # TODO: some mechanism should ensure that:
     #       *if* certificate is revoked
@@ -1402,26 +1565,26 @@ class Cert(_ExternalInterfaceMixin, Base):
     #          * and *exactly one* of {`revoked_by_login`,`revoked_by_component_login`} is not null
     #       *else*
     #          * *all* of these four fields are null
-    revoked_on = Column(DateTime)
-    revocation_comment = Column(Text)
+    revoked_on = col(DateTime)
+    revocation_comment = col(Text)
 
-    revoked_by_login = Column(
+    revoked_by_login = col(
         String(MAX_LEN_OF_EMAIL),
         ForeignKey('user.login', onupdate='CASCADE',
                    ondelete='RESTRICT'))
-    revoked_by = relationship(
+    revoked_by = rel(
         'User',
         back_populates='revoked_certs',
-        foreign_keys=revoked_by_login)
+        foreign_keys=revoked_by_login.expression)
 
-    revoked_by_component_login = Column(
+    revoked_by_component_login = col(
         String(MAX_LEN_OF_DOMAIN_NAME),
         ForeignKey('component.login', onupdate='CASCADE',
                    ondelete='RESTRICT'))
-    revoked_by_component = relationship(
+    revoked_by_component = rel(
         'Component',
         back_populates='revoked_certs',
-        foreign_keys=revoked_by_component_login)
+        foreign_keys=revoked_by_component_login.expression)
 
     # the attribute is a reference to `ca_cert.profile`
     ca_profile = association_proxy('ca_cert', 'profile')
@@ -1459,23 +1622,23 @@ class CACert(_ExternalInterfaceMixin, Base):
     __tablename__ = 'ca_cert'
     __table_args__ = mysql_opts()
 
-    ca_label = Column(String(MAX_LEN_OF_CA_LABEL), primary_key=True)
-    parent_ca_label = Column(
+    ca_label = col(String(MAX_LEN_OF_CA_LABEL), primary_key=True)
+    parent_ca_label = col(
         String(MAX_LEN_OF_CA_LABEL),
-        ForeignKey(ca_label, onupdate='CASCADE',
+        ForeignKey(ca_label.expression, onupdate='CASCADE',
                    ondelete='RESTRICT'))
-    children_ca = relationship(
+    children_ca = rel(
         'CACert',
         passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
-        backref=backref('parent_ca', remote_side=ca_label))
+        backref=backref('parent_ca', remote_side=ca_label.expression))
 
-    profile = Column(mysql.ENUM(CLIENT_CA_PROFILE_NAME, SERVICE_CA_PROFILE_NAME), nullable=True)
+    profile = col(mysql.ENUM(CLIENT_CA_PROFILE_NAME, SERVICE_CA_PROFILE_NAME), nullable=True)
     # TODO: add validation ensuring that `certificate` is a valid PEM of a CA certificate
-    certificate = Column(Text, nullable=False)
+    certificate = col(Text, nullable=False)
     # TODO: add validation ensuring that `ssl_config` is a valid *.ini-like config
-    ssl_config = Column(Text, nullable=False)
+    ssl_config = col(Text, nullable=False)
 
-    certs = relationship('Cert', back_populates='ca_cert')
+    certs = rel('Cert', back_populates='ca_cert')
 
     def __str__(self):
         profile_marker_suffix = (' - {}'.format(formattable_as_str(self.profile)) if self.profile

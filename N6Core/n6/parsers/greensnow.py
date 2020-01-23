@@ -30,8 +30,8 @@ class GreenSnowParser(BlackListTabDataParser):
     def process_row_fields(self, data, parsed, ip):
         parsed['address'] = {'ip': ip}
         parsed['time'] = data['properties.timestamp']
-        parsed['expires'] = parse_iso_datetime_to_utc(data['properties.timestamp']) + \
-                            datetime.timedelta(days=2)
+        parsed['expires'] = (parse_iso_datetime_to_utc(data['properties.timestamp'])
+                             + datetime.timedelta(days=2))
         return parsed
 
 

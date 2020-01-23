@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import sys
 
@@ -70,5 +70,6 @@ class PacketmailOthersParser(_PacketmailBaseParser):
     def process_row_fields(self, data, parsed, idle1, idle2, idle3, idle4, timestamp, ip):
         parsed['address'] = {'ip': ip}
         parsed['time'] = self._convert_cet_to_utc(parse_iso_datetime(timestamp))
+
 
 entry_point_factory(sys.modules[__name__])

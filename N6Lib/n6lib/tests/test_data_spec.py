@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import copy
 import datetime
@@ -39,7 +39,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'ip', 'ip.net', 'asn', 'cc',
         'url', 'url.sub', 'url.b64', 'fqdn', 'fqdn.sub',
         'proto', 'sport', 'dport', 'dip',
-        'md5', 'sha1',
+        'md5', 'sha1', 'sha256',
         'active.min', 'active.max', 'active.until',
         'status', 'replaces',
         'modified.min', 'modified.max', 'modified.until',
@@ -65,7 +65,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'origin', 'name', 'target',
         'address', 'url', 'fqdn',
         'proto', 'sport', 'dport', 'dip',
-        'md5', 'sha1',
+        'md5', 'sha1', 'sha256',
         'expires', 'status', 'replaces', 'until', 'count',
         'modified',
     }

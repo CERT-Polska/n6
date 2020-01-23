@@ -39,6 +39,11 @@ from n6lib.pki_related_test_helpers import (
     _load_csr_pem,
     _parse_crl_pem,
 )
+from n6lib.unit_test_helpers import (
+    DBConnectionPatchMixin,
+    DBSessionMock,
+    QueryMock,
+)
 from n6sdk.exceptions import FieldValueError
 
 
@@ -56,36 +61,7 @@ NEW_CERT_VALIDITY_DELTA = datetime.timedelta(days=365)
 ADMINS_SYSTEM_GROUP = 'admins'
 
 
-class DBSessionMock(mock.MagicMock):
-
-    def add(self, inst):
-        table = inst.__tablename__
-        self.session_state.setdefault(table, [])
-        self.session_state[table].append(inst)
-        self.collection.setdefault(table, [])
-        self.collection[table].append(inst)
-
-
-class QueryMock(mock.MagicMock):
-
-    def filter(self, condition):
-        col = condition.left.key
-        val = condition.right.value
-        m = mock.Mock()
-        m.one.return_value = self._get_from_db(self.table, col, val)
-        return m
-
-    def all(self):
-        return self.collection.get(self.table, [])
-
-    def _get_from_db(self, table, col, val):
-        for obj in self.collection.get(table, []):
-            if getattr(obj, col) == val:
-                return obj
-        raise _AuthDBInterfaceMixin.not_found_exception
-
-
-class _WithMocksMixin(object):
+class _WithMocksMixin(DBConnectionPatchMixin):
 
     CA_KEY_PATH_SENTINEL_STR = '<some ca_key_path from config>'
     config_patched = {
@@ -93,54 +69,39 @@ class _WithMocksMixin(object):
         'server_component_ou_regex_pattern': SERV_COMP_OU_PATTERN,
     }
 
-    def make_basic_patches(self):
-        # create basic patches for testing of Manage API actions,
-        # a patch for `ManagingEntity` class is not included,
-        # because it may change for some single tests
-        self.collection = {}
-        self.session_state = {}
-        self.context_mock = self.get_context_mock(self.collection, self.session_state)
-        self.patch_db_connector(self.context_mock)
-        self.get_config_mock = self.add_new_mock(mock.patch(
+    def make_patches(self, collection=None, session_state=None):
+        """
+        Extend default implementation by defaulting arguments
+        to empty state and empty session if none were provided.
+        """
+        self.context_mock = None
+        super(_WithMocksMixin, self).make_patches(
+            collection if collection is not None else dict(),
+            session_state if session_state is not None else dict())
+        self.patch_db_connector(self.session_mock)
+        self.get_config_mock = self.patch(
             'n6lib.manage_api._manage_api.ManageAPI.get_config_section',
-            return_value=self.config_patched))
+            return_value=self.config_patched)
         self.patch_cert_classes()
 
-    def add_new_mock(self, patcher):
-        handle = patcher.start()
-        self.addCleanup(patcher.stop)
-        return handle
-
     @staticmethod
-    def get_context_mock(collection, session_state):
+    def get_context_mock(session_mock):
         """
-        Get a mock essential for patching of the database interface.
+        Get the patched "context" object, which is normally returned
+        by the database connector used within ManageAPI.
 
-        The mock will be used as a return value of the database
-        connector, which is a "context" object (part of which
-        is a session object).
-
-        Args:
-            `collection`:
-                a dict, which then will be used as a patched
-                database collection.
-            `session_state`:
-                a dict, which then will be used as a container
-                for objects temporarily held in a patched session
-                object's storage (objects normally added by
-                the `add()` method of a session object).
-
-        Returns:
-            a MagicMock() class instance, which is adjusted to serve
-            as a mock of the context object.
-
+        The "context" object provides some essential attributes,
+        like the current session object.
         """
-        def query_effect(model_cls):
-            return QueryMock(table=model_cls.__tablename__, collection=collection)
         m = mock.MagicMock()
-        m.db_session = DBSessionMock(session_state=session_state, collection=collection)
-        m.db_session.query.side_effect = query_effect
+        m.db_session = session_mock
         return m
+
+    def patch_db_connector(self, session_mock):
+        self.context_mock = self.get_context_mock(self.session_mock)
+        self.connector_mock = self.patch(
+            'n6lib.manage_api._manage_api.ManageAPI.auth_db_connector')
+        self.connector_mock.return_value.__enter__.return_value = self.context_mock
 
     @staticmethod
     def patch_session_bind_attr(db_session, database_login):
@@ -158,14 +119,9 @@ class _WithMocksMixin(object):
         db_session.bind = bind_mock
         bind_mock.url.username = database_login
 
-    def patch_db_connector(self, context_mock):
-        self.connector_mock = self.add_new_mock(
-            mock.patch('n6lib.manage_api._manage_api.ManageAPI.auth_db_connector'))
-        self.connector_mock.return_value.__enter__.return_value = context_mock
-
     def patch_managing_entity(self, new_managing_entity=None, user_db_obj=None):
-        self.managing_entity_mock = self.add_new_mock(
-            mock.patch('n6lib.manage_api._manage_api.ManageAPI._verify_and_get_managing_entity'))
+        self.managing_entity_mock = self.patch(
+            'n6lib.manage_api._manage_api.ManageAPI._verify_and_get_managing_entity')
         if new_managing_entity is None:
             self.managing_entity_mock.return_value = mock.MagicMock(hostname=CREATOR_HOSTNAME,
                                                                     cert_cn=CREATOR_CN,
@@ -179,22 +135,22 @@ class _WithMocksMixin(object):
 
     def patch_cert_classes(self):
         self.config_mapping = mock.MagicMock()
-        self.ca_get_config_mock = self.add_new_mock(
-            mock.patch('n6lib.manage_api._manage_api.CACertificate.get_config_section',
-                       return_value=self.config_mapping))
+        self.ca_get_config_mock = self.patch(
+                       'n6lib.manage_api._manage_api.CACertificate.get_config_section',
+                       return_value=self.config_mapping)
         self.config_mapping.__getitem__.return_value = self.CA_KEY_PATH_SENTINEL_STR
         # read CA key file from `ca_key` instance attribute, if file
         # name in config is set to the sentinel string (currently
         # it will be assured by the `config_mapping` __getitem__()
         # magic method's patch
-        self.read_file_mock = self.add_new_mock(
-            mock.patch('n6lib.manage_api._ca_env.read_file', side_effect=lambda name, *args:
+        self.read_file_mock = self.patch(
+                       'n6lib.manage_api._ca_env.read_file', side_effect=lambda name, *args:
                        (self.ca_key if name == self.CA_KEY_PATH_SENTINEL_STR
-                        else read_file(name, *args))))
+                        else read_file(name, *args)))
         self.ca_key = '<to be set in test cases if needed>'
-        self.make_serial_nr_mock = self.add_new_mock(mock.patch(
+        self.make_serial_nr_mock = self.patch(
             'n6lib.manage_api._manage_api.CertificateCreated._make_serial_number',
-            return_value=SERIAL_NUMBER))
+            return_value=SERIAL_NUMBER)
 
     def _get_cert_class_mock_helpers(self, cert_class):
         orig_init = cert_class.__init__
@@ -234,15 +190,12 @@ class _WithMocksMixin(object):
 
     def _get_certificate_created_class_inst_ref(self):
         cert_ref, new_init = self._get_cert_class_mock_helpers(CertificateCreated)
-        self.add_new_mock(mock.patch('n6lib.manage_api._manage_api.CertificateCreated.__init__',
-                                     new=new_init))
+        self.patch('n6lib.manage_api._manage_api.CertificateCreated.__init__', new=new_init)
         return cert_ref
 
     def _get_certificate_from_database_class_inst_ref(self):
         cert_ref, new_init = self._get_cert_class_mock_helpers(CertificateFromDatabase)
-        self.add_new_mock(
-            mock.patch('n6lib.manage_api._manage_api.CertificateFromDatabase.__init__',
-                       new=new_init))
+        self.patch('n6lib.manage_api._manage_api.CertificateFromDatabase.__init__', new=new_init)
         return cert_ref
 
     def load_ca_key(self, ca_label):
@@ -312,7 +265,7 @@ class _BaseAPIActionTest(_WithMocksMixin, _DBInterfaceMixin):
         self.basic_api_action_test_setup()
 
     def basic_api_action_test_setup(self, manage_api_cert_class=CertificateCreated):
-        self.make_basic_patches()
+        self.make_patches()
         self._cert_inst_ref = self.get_certificate_representation_class_inst_ref(
             manage_api_cert_class)
         self.load_ca(self.context_mock, self.ca_label, self.ca_profile)
@@ -463,7 +416,7 @@ class _BaseClientCATestCase(_BaseAPIActionTest):
 class TestCertAndCSRFileClasses(_WithMocksMixin, _DBInterfaceMixin, unittest.TestCase):
 
     def setUp(self):
-        self.make_basic_patches()
+        self.make_patches()
 
     def test_cert_file_init_with_ca_pem(self):
         ca_cert_pem = _load_ca_cert_pem('n6-client-ca')
@@ -600,13 +553,13 @@ class TestManagingEntity(_WithMocksMixin, _DBInterfaceMixin, unittest.TestCase):
     cert_path = mock.sentinel.cert_path
     key_path = mock.sentinel.key_path
 
-    def get_context_mock(self, collection, session_state):
+    def get_context_mock(self, session_mock):
         """
         Extend the superclass method, so it returns a real
         `ConnectionContext` class, not a mocked one, so
         its attributes, created in constructor, can be tested.
         """
-        m = super(TestManagingEntity, self).get_context_mock(collection, session_state)
+        m = super(TestManagingEntity, self).get_context_mock(session_mock)
         self.patch_session_bind_attr(m.db_session, self.database_login)
         return ManageAPIAuthDBConnector.ConnectionContext(m.db_session,
                                                           self.ca_path,
@@ -614,12 +567,11 @@ class TestManagingEntity(_WithMocksMixin, _DBInterfaceMixin, unittest.TestCase):
                                                           self.key_path)
 
     def setUp(self):
-        self.make_basic_patches()
+        self.make_patches()
         # set mocks for certificate file read, return value
         # of the `_file_read_mock` should be set later through
         # the `_set_opened_cert()` method
-        self._open_mock = self.add_new_mock(
-            mock.patch('n6lib.manage_api._manage_api.open', create=True))
+        self._open_mock = self.patch('n6lib.manage_api._manage_api.open', create=True)
         self._file_read_mock = mock.Mock()
         self._open_mock.return_value.__enter__.return_value.read = self._file_read_mock
         # default values for `ManagingEntity` init args
@@ -799,7 +751,7 @@ class TestManagingEntity(_WithMocksMixin, _DBInterfaceMixin, unittest.TestCase):
 class TestDBInterface(_WithMocksMixin, _DBInterfaceMixin, unittest.TestCase):
 
     def setUp(self):
-        self.make_basic_patches()
+        self.make_patches()
         # check if the dict replacing a real database in tests
         # is empty before each test
         self.assertFalse(self.context_mock.db_session.collection)

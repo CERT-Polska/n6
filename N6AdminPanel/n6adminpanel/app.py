@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
 import os
 
@@ -26,7 +26,14 @@ from flask_admin.model.form import (
     converts,
 )
 from sqlalchemy import inspect
-from wtforms import PasswordField
+from sqlalchemy.orm import (
+    scoped_session,
+    sessionmaker,
+)
+from wtforms import (
+    PasswordField,
+    BooleanField,
+)
 from wtforms.fields import Field
 from wtforms.widgets import PasswordInput
 
@@ -61,14 +68,23 @@ from n6lib.auth_db.models import (
     LocationType,
     Org,
     OrgGroup,
+    RegistrationRequest,
+    RegistrationRequestASN,
+    RegistrationRequestEMailNotificationAddress,
+    RegistrationRequestFQDN,
+    RegistrationRequestIPNetwork,
     Source,
     Subsource,
     SubsourceGroup,
     SystemGroup,
     User,
-    db_session,
 )
+from n6lib.common_helpers import ThreadLocalNamespace
 from n6lib.config import ConfigMixin
+from n6lib.const import (
+    WSGI_SSL_ORG_ID_FIELD,
+    WSGI_SSL_USER_ID_FIELD,
+)
 from n6lib.log_helpers import (
     get_logger,
     logging_configured,
@@ -76,6 +92,8 @@ from n6lib.log_helpers import (
 
 
 LOGGER = get_logger(__name__)
+
+db_session = scoped_session(sessionmaker(autocommit=False, autoflush=False))
 
 
 ### TODO: better error messages on integrity/constraint/etc. errors...
@@ -87,6 +105,18 @@ class N6ModelView(ModelView):
     Base n6 view.
 
     Used to define global parameters in all views.
+    """
+
+    fast_mass_delete = False
+    """
+        This property is derived from flask-admin's ModelView which
+        sets the default value to `False`. So this assignment (here, in
+        `N6ModelView`) is redundant; we do it here just to be explicit
+        about the desired value of this option (we really do *not* want
+        to use bulk operations -- for various reasons, among others: we
+        want all benefits the SQLAlchemy's relationship-cleaning
+        machinery gives us; but also because of some AuditLog-related
+        stuff...).
     """
 
     can_set_page_size = False
@@ -136,26 +166,35 @@ class CustomPasswordInput(PasswordInput):
     """
 
     def __call__(self, field, **kwargs):
-        if field._value():
+        if field.data:
             kwargs['placeholder'] = 'Edit to change user\'s password.'
         else:
             kwargs['placeholder'] = 'Add user\'s password.'
         return super(CustomPasswordInput, self).__call__(field, **kwargs)
 
 
+class CustomPasswordField(PasswordField):
+
+    widget = CustomPasswordInput()
+
+    def populate_obj(self, obj, name):
+        # Here we do nothing; the object will be populated
+        # in `_PasswordFieldHandlerMixin.on_model_change()`.
+        pass
+
+
 class _PasswordFieldHandlerMixin(object):
 
     form_extra_fields = {
-        'password': PasswordField(widget=CustomPasswordInput()),
+        'password': CustomPasswordField(),
+        'delete_password': BooleanField('Delete Password')
     }
 
     def on_model_change(self, form, model, is_created):
-        if hasattr(form, 'password') and form.password and form.password.data:
+        if hasattr(form, 'delete_password') and form.delete_password and form.delete_password.data:
+            model.password = None
+        elif hasattr(form, 'password') and form.password and form.password.data:
             model.password = model.get_password_hash_or_none(form.password.data)
-        elif hasattr(model, 'password'):
-            # delete the field from model to avoid overwriting it
-            # with an empty value
-            del model.password
 
 
 class _ExtraCSSMixin(object):
@@ -175,7 +214,8 @@ class UserInlineFormAdmin(_PasswordFieldHandlerMixin, InlineFormAdmin):
     form_columns = [
         'id',
         'login',
-        'password',  # TODO: a button to remove the password (set it to NULL) should be provided
+        'password',
+        'delete_password',
         'system_groups',
 
         'created_certs',
@@ -425,6 +465,76 @@ class OrgView(CustomWithInlineFormsModelView):
     ]
 
 
+class RegistrationRequestView(CustomWithInlineFormsModelView):
+
+    can_view_details = True
+    # essential to display PK column in the "list" view
+    column_display_pk = True
+    column_searchable_list = ['status', 'org_id', 'actual_name', 'email']
+    column_list = [
+        'id',
+        'submitted_on',
+        'modified_on',
+        'status',
+
+        'org_id',
+        'actual_name',
+        'email',
+
+        'email_notification_language',
+    ]
+
+    form_columns = [
+        'id',
+        'submitted_on',
+        'modified_on',
+
+        'status',
+        'org_id',
+        'actual_name',
+
+        'email',
+        'submitter_title',
+        'submitter_firstname_and_surname',
+        'csr',
+
+        'email_notification_language',
+        'email_notification_addresses',
+
+        'asns',
+        'fqdns',
+        'ip_networks',
+    ]
+    form_rules = [
+        rules.Header('Basic data'),
+        rules.Field('status'),
+        rules.Field('org_id'),
+        rules.Field('actual_name'),
+
+        rules.Header('Contact data and access-related stuff'),
+        rules.Field('email'),
+        rules.Field('submitter_title'),
+        rules.Field('submitter_firstname_and_surname'),
+        rules.Field('csr'),
+
+        rules.Header('"Inside" event criteria'),
+        rules.Field('asns'),
+        rules.Field('fqdns'),
+        rules.Field('ip_networks'),
+
+        rules.Header('E-mail notifications preferences'),
+        rules.Field('email_notification_language'),
+        rules.Field('email_notification_addresses'),
+    ]
+    inline_models = [
+        RegistrationRequestEMailNotificationAddress,
+        RegistrationRequestASN,
+        RegistrationRequestFQDN,
+        RegistrationRequestIPNetwork,
+    ]
+
+
+
 class UserView(_PasswordFieldHandlerMixin, N6ModelView):
 
     column_descriptions = {
@@ -433,10 +543,10 @@ class UserView(_PasswordFieldHandlerMixin, N6ModelView):
     column_list = ['login', 'org', 'system_groups']
     form_columns = [
         'login',
-        'password',  # TODO: a button to remove the password (set it to NULL) should be provided
+        'password',
+        'delete_password',
         'org',
         'system_groups',
-
         'created_certs',
         'owned_certs',
         'revoked_certs',
@@ -448,7 +558,8 @@ class ComponentView(_PasswordFieldHandlerMixin, N6ModelView):
     column_list = ['login']
     form_columns = [
         'login',
-        'password',  # TODO: a button to remove the password (set it to NULL) should be provided
+        'password',
+        'delete_password',
         'created_certs',
         'owned_certs',
         'revoked_certs',
@@ -577,6 +688,7 @@ class AdminPanel(ConfigMixin):
         (EntityType, CustomColumnListView),
         (LocationType, CustomColumnListView),
         (ExtraIdType, CustomColumnListView),
+        (RegistrationRequest, RegistrationRequestView),
     ]
 
     def __init__(self, engine):
@@ -586,7 +698,12 @@ class AdminPanel(ConfigMixin):
         self.app.before_request(self._before_request)
         self.app.teardown_request(self._teardown_request)
         db_session.configure(bind=engine)
-        self._audit_log = AuditLog(db_session)
+        self._thread_local = thread_local = ThreadLocalNamespace(attr_factories={
+            'audit_log_external_meta_items': dict,
+        })
+        self._audit_log = AuditLog(
+            session_factory=db_session,
+            external_meta_items_getter=lambda: thread_local.audit_log_external_meta_items)
         self.admin = Admin(self.app,
                            name=self.app_config['app_name'],
                            template_mode=self.app_config['template_mode'],
@@ -600,7 +717,14 @@ class AdminPanel(ConfigMixin):
         self.app.run()
 
     def _before_request(self):
-        db_session.info['remote_addr'] = request.remote_addr
+        self._thread_local.audit_log_external_meta_items = {
+            key: value for key, value in [
+                ('n6_module', __name__),
+                ('request_environ_remote_addr', request.environ.get("REMOTE_ADDR")),
+                ('request_org_id', request.environ.get(WSGI_SSL_ORG_ID_FIELD)),
+                ('request_user_id', request.environ.get(WSGI_SSL_USER_ID_FIELD)),
+            ]
+            if value is not None}
 
     @staticmethod
     def _teardown_request(exception=None):

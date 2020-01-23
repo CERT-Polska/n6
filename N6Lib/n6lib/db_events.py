@@ -14,13 +14,24 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import scoped_session, sessionmaker, relationship
+from sqlalchemy.orm import (
+    scoped_session,
+    sessionmaker,
+    relationship,
+)
 from sqlalchemy.dialects import mysql
-from sqlalchemy import or_, and_, null
+from sqlalchemy import (
+    or_,
+    and_,
+    null,
+)
 
 from zope.sqlalchemy import ZopeTransactionExtension  # @UnresolvedImport
 
-from n6lib.common_helpers import ip_network_tuple_to_min_max_ip, ip_str_to_int
+from n6lib.common_helpers import (
+    ip_network_tuple_to_min_max_ip,
+    ip_str_to_int,
+)
 from n6lib.data_spec import N6DataSpec
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.log_helpers import get_logger
@@ -91,6 +102,9 @@ class MD5(_HashTypeMixIn, sqlalchemy.types.TypeDecorator):
 class SHA1(_HashTypeMixIn, sqlalchemy.types.TypeDecorator):
     impl = sqlalchemy.types.BINARY(20)
 
+
+class SHA256(_HashTypeMixIn, sqlalchemy.types.TypeDecorator):
+    impl = sqlalchemy.types.BINARY(32)
 
 
 class TextPickleType(PickleType):

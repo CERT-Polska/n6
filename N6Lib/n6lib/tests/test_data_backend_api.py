@@ -72,6 +72,7 @@ class Test_QueryProcessor___get_key_to_query_func(unittest.TestCase):
             'restriction': key_query,
             'rid': key_query,
             'sha1': key_query,
+            'sha256': key_query,
             'source': key_query,
             'sport': key_query,
             'status': key_query,

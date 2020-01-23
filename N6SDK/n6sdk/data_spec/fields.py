@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2016 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 """
 .. note::
@@ -361,6 +361,11 @@ class UnicodeField(Field):
 
     disallow_empty = False
 
+    #: **Experimental attribute**
+    #: (can be removed in future versions,
+    #: so do not rely on it, please).
+    auto_strip = False
+
     def clean_param_value(self, value):
         value = super(UnicodeField, self).clean_param_value(value)
         value = self._fix_value(value)
@@ -385,6 +390,8 @@ class UnicodeField(Field):
                         ascii_str(value),
                         self.encoding)))
         assert isinstance(value, unicode)
+        if self.auto_strip:
+            value = value.strip()
         return value
 
     def _validate_value(self, value):
@@ -459,6 +466,16 @@ class SHA1Field(HexDigestField):
 
     num_of_characters = 40
     hash_algo_descr = 'SHA1'
+
+
+class SHA256Field(HexDigestField):
+
+    """
+    For hexadecimal SHA-256 digests (hashes).
+    """
+
+    num_of_characters = 64
+    hash_algo_descr = 'SHA256'
 
 
 class UnicodeEnumField(UnicodeField):
@@ -651,7 +668,10 @@ class IPv4NetField(UnicodeLimitedField, UnicodeRegexField):
 
     * when cleaning a parameter value -- an (<address part as unicode
       string>, <net as int>) tuple is returned (e.g., ``(u'127.234.5.0',
-      24)``);
+      24)``); this behavior is provided by the default implementation
+      of the :meth:`convert_param_cleaned_string_value` method and can
+      be changed by shadowing that method with a subclass attribute or
+      a constructor argument;
 
     * when cleaning a result value -- a unicode string is returned
       (e.g., ``u'127.234.5.0/24'``).
@@ -664,6 +684,9 @@ class IPv4NetField(UnicodeLimitedField, UnicodeRegexField):
 
     def clean_param_value(self, value):
         value = super(IPv4NetField, self).clean_param_value(value)
+        return self.convert_param_cleaned_string_value(value)
+
+    def convert_param_cleaned_string_value(self, value):
         ip, net = ip_network_as_tuple(value)
         assert isinstance(ip, unicode) and IPv4_STRICT_DECIMAL_REGEX.search(ip)
         assert isinstance(net, int) and 0 <= net <= 32
@@ -699,6 +722,11 @@ class IPv6NetField(UnicodeField):
       * the address part is normalized to the "exploded" form, such as
         ``2001:0db8:85a3:0000:0000:8a2e:0370:7334``;
 
+      this behavior is provided by the default implementation of the
+      :meth:`convert_param_network_obj_value` method and can be changed
+      by shadowing that method with a subclass attribute or a
+      constructor argument;
+
     * when cleaning a result value --
 
       * a unicode string is returned (e.g.,
@@ -714,6 +742,9 @@ class IPv6NetField(UnicodeField):
 
     def clean_param_value(self, value):
         ipv6_network_obj = super(IPv6NetField, self).clean_param_value(value)
+        return self.convert_param_network_obj_value(ipv6_network_obj)
+
+    def convert_param_network_obj_value(self, ipv6_network_obj):
         ipv6 = unicode(ipv6_network_obj.ip.exploded)
         net = ipv6_network_obj.prefixlen
         assert isinstance(ipv6, unicode)

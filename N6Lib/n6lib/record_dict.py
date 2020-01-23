@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 #
 # TODO: more comments + docs
@@ -647,6 +647,7 @@ class RecordDict(collections.MutableMapping):
     adjust_category = make_adjuster_using_data_spec('category')
     adjust_md5 = make_adjuster_using_data_spec('md5')
     adjust_sha1 = make_adjuster_using_data_spec('sha1')
+    adjust_sha256 = make_adjuster_using_data_spec('sha256')
     adjust_proto = make_adjuster_using_data_spec('proto')
     adjust_sport = make_adjuster_using_data_spec('sport')
     adjust_dport = make_adjuster_using_data_spec('dport')

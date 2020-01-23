@@ -1,32 +1,46 @@
 # docker-compose for public n6
 
+# Basic Commands
+# docker-compose build
+# docker-compose up
+
+# Prepare Auth DB
+# docker-compose run worker n6/docker/bin/wait-for-services.sh
+# docker-compose run worker n6create_and_initialize_auth_db -D
+# docker-compose run worker n6populate_auth_db -F -i -t -s example.com login@example.com
+
+# On MySQL Changes - restart web cache
+# docker-compose exec web apache2ctl restart
+
+# Cleanup
+# docker-compose down -v
+
 version: "3.7"
 services:
-  work:
-    image: n6-pub-work
+  base:
+    image: n6_base
     build:
       context: .
-      dockerfile: ./docker/work/Dockerfile
+      dockerfile: docker/base/Dockerfile
+  worker:
+    image: n6_worker
+    build:
+      context: .
+      dockerfile: ./docker/worker/Dockerfile
     container_name: n6
     hostname: n6
     environment:
       N6_FORCE_LDAP_API_REPLACEMENT: 1
-    volumes:
-    - ./etc/ssl/generated_certs:/root/certs/:ro
-    - n6_logs:/var/log/n6/
     command: >
-      bash -c "/wait-for-services.sh
-      && supervisord -c etc/supervisord/supervisord.conf"
+      bash -c "n6/docker/bin/wait-for-services.sh
+      && supervisord -c supervisord/supervisord.conf"
     networks:
     - n6-pub-net
   web:
-    image: n6-pub-web
+    image: n6_web
     build:
       context: .
       dockerfile: ./docker/web/Dockerfile
-      args:
-        username: dataman
-        password: password
     hostname: apache
     environment:
       N6_FORCE_LDAP_API_REPLACEMENT: 1
@@ -38,11 +52,11 @@ services:
     - 4443:4443 # N6 API
     - 4444:4444 # N6 Admin Panel
     volumes:
-    - ./etc/ssl/generated_certs:/home/dataman/certs/
+    - ./volume/apache2/logs:/var/log/apache
     networks:
     - n6-pub-net
   rabbit:
-    image: n6-pub-rabbit
+    image: n6_rabbit
     build:
       context: .
       dockerfile: ./docker/rabbit/Dockerfile
@@ -55,6 +69,7 @@ services:
     - RABBITMQ_PASSWORD=n6component
     ports:
     - 5671:5671 #  TLS connections
+    - 5672:5672 #  TCP connections
     - 15671:15671 # WEB management
     - 15672:15672 # HTTP API
     volumes:
@@ -73,7 +88,7 @@ services:
       - 27017:27017
     command: --auth
     healthcheck:
-      test: ["CMD", "docker-healthcheck"]
+      test: ["CMD", "./docker-healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -81,10 +96,11 @@ services:
     networks:
       - n6-pub-net
     volumes:
+      - ./docker/mongo/docker-healthcheck:/docker-healthcheck
       - ./volume/mongo/db:/data/db
       - ./etc/mongo/initdb:/docker-entrypoint-initdb.d
   mysql:
-    image: n6-pub-mysql
+    image: n6_mysql
     build:
       context: .
       dockerfile: ./docker/mysql/Dockerfile

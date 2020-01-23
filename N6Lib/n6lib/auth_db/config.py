@@ -1,10 +1,12 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
 # For some code in this module:
-# Copyright (C) 2005-2019 the SQLAlchemy authors and contributors
+# Copyright (C) 2005-2020 the SQLAlchemy authors and contributors
 # (For more information -- see comments...)
 
 import collections
+import contextlib
+import copy
 
 import sqlalchemy
 import sqlalchemy.event
@@ -12,10 +14,13 @@ import sqlalchemy.exc
 import sqlalchemy.orm
 import sqlalchemy.pool
 from sqlalchemy.engine.url import URL, make_url
+from sqlalchemy.orm.session import Session
 
 from n6lib.auth_db import MYSQL_CHARSET
+from n6lib.auth_db.audit_log import AuditLog
 from n6lib.common_helpers import update_mapping_recursively
 from n6lib.config import ConfigMixin
+from n6lib.context_helpers import ThreadLocalContextDeposit
 
 
 
@@ -141,7 +146,7 @@ class SQLAuthDBConfigMixin(ConfigMixin):
             if opts['ssl_key'].lower() != 'none'
             else {})
 
-    # utility method (may be useful in subclasses)
+    # utility method (may be useful in subclasses or their client code)
     def quote_sql_identifier(self, sql_identifier):
         return self._dialect_specific_quote(sql_identifier)
 
@@ -238,7 +243,8 @@ class SQLAuthDBConfigMixin(ConfigMixin):
             cursor.close()
 
 
-class SimpleSQLAuthDBConnector(SQLAuthDBConfigMixin):
+
+class SQLAuthDBConnector(SQLAuthDBConfigMixin):
 
     def __init__(self,
                  db_host=None,
@@ -247,14 +253,31 @@ class SimpleSQLAuthDBConnector(SQLAuthDBConfigMixin):
                  db_password=None,
                  settings=None,
                  config_section=None):
-        config_section = self.default_config_section if config_section is None else config_section
-        if self._verify_args_for_connection(db_host, db_name, db_user, db_password):
-            option_key = '{}.url'.format(config_section)
-            option_val = 'mysql+mysqldb://{user}:{password}@{host}/{name}'.format(
+        if config_section is None:
+            config_section = self.default_config_section
+        settings = self._get_actual_settings(
+            db_host, db_name, db_user, db_password,
+            settings, config_section)
+        self.context_deposit = ThreadLocalContextDeposit(
+            repr_token=self.__class__.__name__,
+            attr_factories={'audit_log_external_meta_items': dict})
+        self.db_session_factory = None  # to be set in configure_db()
+        self._audit_log = None          # to be set in configure_db()
+        super(SQLAuthDBConnector, self).__init__(settings, config_section)
+
+    def _get_actual_settings(self, db_host, db_name, db_user, db_password,
+                             settings, config_section):
+        if self._verify_args_for_connection(db_host=db_host,
+                                            db_name=db_name,
+                                            db_user=db_user,
+                                            db_password=db_password):
+            password_part = (':{}'.format(db_password) if db_password else '')
+            option_val = 'mysql+mysqldb://{user}{password_part}@{host}/{name}'.format(
                 user=db_user,
-                password=db_password,
+                password_part=password_part,
                 host=db_host,
                 name=db_name)
+            option_key = '{}.url'.format(config_section)
             if settings is None:
                 settings = {
                     option_key: option_val,
@@ -264,38 +287,87 @@ class SimpleSQLAuthDBConnector(SQLAuthDBConfigMixin):
                 # a Pyramid-style config dict), but config options
                 # made with kwargs should have higher priority
                 settings = dict(settings, option_key=option_val)
-        super(SimpleSQLAuthDBConnector, self).__init__(settings, config_section)
+        return settings
 
-    @staticmethod
-    def _verify_args_for_connection(*args):
-        if all(args):
+    def _verify_args_for_connection(self, **kwargs):
+        if kwargs['db_host'] and kwargs['db_name'] and kwargs['db_user']:
             return True
-        if any(args):
-            raise TypeError('All arguments defining AuthDB connection options have to '
-                            'be passed, or none of them.')
+        incorrectly_specified_args = {name: val for name, val in kwargs.iteritems() if val}
+        if incorrectly_specified_args:
+            args_repr = ', '.join('{}={!r}'.format(name, val)
+                                  for name, val in incorrectly_specified_args.iteritems())
+            raise TypeError(
+                '{!r}\'s constructor: *either* the `db_host`, `db_name` '
+                'and `db_user` arguments, plus optionally `db_password`, '
+                'should be given (as non-empty strings), *or* none of '
+                'them! (got: {})'.format(self, args_repr))
         return False
 
     def configure_db(self):
-        super(SimpleSQLAuthDBConnector, self).configure_db()
-        self.db_session_maker = sqlalchemy.orm.sessionmaker(bind=self.engine,
-                                                            autocommit=False,
-                                                            autoflush=False)
+        super(SQLAuthDBConnector, self).configure_db()
+        self.db_session_factory = sqlalchemy.orm.sessionmaker(bind=self.engine,
+                                                              autocommit=False,
+                                                              autoflush=False)
+        self._audit_log = AuditLog(
+            session_factory=self.db_session_factory,
+            external_meta_items_getter=self._get_audit_log_external_meta_items)
+
+    def _get_audit_log_external_meta_items(self):
+        return copy.deepcopy(self.context_deposit.audit_log_external_meta_items)
+
+    # Public methods (to be called by client code; they can also be
+    # overridden/extended and/or called in subclasses):
+
+    def set_audit_log_external_meta_items(self, n6_module, **other_external_meta_items):
+        external_meta_items = dict(n6_module=n6_module, **other_external_meta_items)
+        self.context_deposit.audit_log_external_meta_items = external_meta_items
+
     def __enter__(self):
-        session = self.db_session_maker()
-        self._db_session = session
-        return session
+        self.context_deposit.on_enter(outermost_context_factory=self.db_session_factory,
+                                      context_factory=self.make_nested_savepoint)
+        return self.get_current_session()
 
     def __exit__(self, exc_type, exc, tb):
+        self.context_deposit.on_exit(exc_type, exc, tb,
+                                     context_finalizer=self.finalize_nested_savepoint,
+                                     outermost_context_finalizer=self.finalize_session)
+
+    def get_current_session(self):
+        return self.context_deposit.outermost_context
+
+    # Context-management-related methods that can be overridden/extended
+    # and/or called in subclasses but do *not* belong to the public
+    # interface of `SQLAuthDBConnector` instances:
+
+    def make_nested_savepoint(self):
+        session = self.get_current_session()
+        assert isinstance(session, Session)
+        return session.begin_nested()
+
+    def finalize_nested_savepoint(self, _savepoint, exc_type, exc_value, tb):
+        session = self.get_current_session()
+        assert isinstance(session, Session)
+        self.commit_or_rollback(session, exc_type, exc_value, tb)
+
+    def finalize_session(self, session, exc_type, exc_value, tb):
+        assert isinstance(session, Session)
         try:
-            try:
-                if exc_type is None:
-                    self._db_session.commit()
-                else:
-                    self._db_session.rollback()
-            except:
-                self._db_session.rollback()
-                raise
-            finally:
-                self._db_session.close()
+            self.commit_or_rollback(session, exc_type, exc_value, tb)
         finally:
-            self._db_session = None
+            session.close()
+
+    def commit_or_rollback(self, session, exc_type, _exc_value, _tb):
+        assert isinstance(session, Session)
+        if exc_type is None:
+            with self.commit_wrapper(session):
+                session.commit()
+        else:
+            session.rollback()
+
+    @contextlib.contextmanager
+    def commit_wrapper(self, session):
+        try:
+            yield
+        except:
+            session.rollback()
+            raise

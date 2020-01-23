@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2016 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 
 import functools
@@ -12,6 +12,7 @@ from pyramid.httpexceptions import (
     HTTPException,
     HTTPBadRequest,
     HTTPForbidden,
+    HTTPNoContent,
     HTTPNotFound,
     HTTPServerError,
 )
@@ -234,15 +235,103 @@ class AbstractViewBase(object):
         params = self.request.params
         for key in params:
             values = params.getall(key)
-            assert values and all(isinstance(val, basestring) for val in values)
-            yield key, list(chain_iterables(val.split(',') for val in values))
+            if not (values and all(isinstance(val, basestring) for val in values)):
+                raise AssertionError(
+                    '{}={!r}, *not* being a non-empty sequence '
+                    'of strings!'.format(ascii_str(key), values))
+            yield key, list(chain_iterables(self.iter_values_from_param_value(val)
+                                            for val in values))
+
+    def iter_values_from_param_value(self, value):
+        if not isinstance(value, basestring):
+            raise TypeError('{!r} is not a string'.format(value))
+        yield value
 
     def make_response(self):
         raise NotImplementedError
 
+    #
+    # Utility methods (can be useful in some subclasses)
+
+    def json_response(self, json, **response_kwargs):
+        self.__ensure_no_unwanted_kwargs(response_kwargs, 'body', 'app_iter')
+        return Response(json=json, **response_kwargs)
+
+    def plain_text_response(self, body, charset='UTF-8', **response_kwargs):
+        self.__ensure_no_unwanted_kwargs(response_kwargs, 'content_type')
+        self.__ensure_no_content_type_in_headerlist(response_kwargs)
+        # We do not use the `content_type` keyword argument as it is ignored
+        # by the `Response` constructor if non-None `headerlist` is given.
+        response = Response(body, charset=charset, **response_kwargs)
+        content_type = 'text/plain'
+        if charset:
+            content_type = '{}; {}'.format(content_type, charset)
+        response.content_type = content_type
+        return response
 
 
-class DefaultStreamViewBase(AbstractViewBase):
+    #
+    # Internal helpers
+
+    def __ensure_no_unwanted_kwargs(self, response_kwargs, *unwanted_kwarg_names):
+        for name in unwanted_kwarg_names:
+            if response_kwargs.get(name) is not None:
+                raise TypeError('unexpected keyword argument: {}'.format(name))
+
+    def __ensure_no_content_type_in_headerlist(self, response_kwargs):
+        headerlist = response_kwargs.get('headerlist')
+        if headerlist:
+            found_content_types = [k for k, _ in headerlist
+                                   if k.lower() == 'content-type']
+            if found_content_types:
+                raise ValueError(
+                    '`headerlist` contains header(s) that should not '
+                    'be placed in it: {}'.format(
+                        ', '.join(map(repr, found_content_types))))
+
+
+class CommaSeparatedParamValuesViewMixin(object):
+
+    def iter_values_from_param_value(self, value):
+        assert isinstance(self, AbstractViewBase)
+        assert isinstance(value, basestring)
+        for val in super(CommaSeparatedParamValuesViewMixin,
+                         self).iter_values_from_param_value(value):
+            assert isinstance(val, basestring)
+            for val_part in val.split(','):
+                yield val_part
+
+
+class OmittingEmptyParamsViewMixin(object):
+
+    def iter_deduplicated_params(self):
+        assert isinstance(self, AbstractViewBase)
+        params = super(OmittingEmptyParamsViewMixin, self).iter_deduplicated_params()
+        for param_name, values in params:
+            if not (isinstance(values, list)
+                    and all(isinstance(val, basestring) for val in values)):
+                raise TypeError('{}={!r}, not being a list of strings'
+                                .format(ascii_str(param_name), values))
+            nonempty_values = list(filter(None, values))
+            if nonempty_values:
+                yield param_name, nonempty_values
+
+
+class SingleParamValuesViewMixin(object):
+
+    def iter_deduplicated_params(self):
+        assert isinstance(self, AbstractViewBase)
+        params = super(SingleParamValuesViewMixin, self).iter_deduplicated_params()
+        for param_name, values in params:
+            if len(values) != 1:
+                raise ParamCleaningError(public_message=(
+                    'Received a request with more than or less than exactly one '
+                    'value of the parameter "{}".'.format(ascii_str(param_name))))
+            yield (param_name,
+                   values[0])   # <- here: the value itself (not a list of values)
+
+
+class DefaultStreamViewBase(CommaSeparatedParamValuesViewMixin, AbstractViewBase):
 
     # to be specified as keyword arguments for concrete_view_class()
     renderers = None
@@ -509,10 +598,16 @@ class HttpResource(object):
 #
 # Application startup/configuration
 
-class ConfigHelper(object):
+class BasicConfigHelper(object):
 
     """
-    Class of an object that automatizes necessary WSGI app setup steps.
+    The class provides methods to help with necessary setup steps
+    for a basic WSGI app.
+
+    This class does not yet implement any application-specific
+    components to be added to application's registry, like for
+    example an authentication policy object. Several attributes
+    and methods are therefore overridable/extendable.
 
     Typical usage in your Pyramid application's ``__init__.py``:
 
@@ -521,10 +616,8 @@ class ConfigHelper(object):
         RESOURCES = <list of HttpResource instances>
 
         def main(global_config, **settings):
-            helper = ConfigHelper(
+            helper = <some subclass of BasicConfigHelper>(
                 settings=settings,
-                data_backend_api_class=MyDataBackendAPI,
-                authentication_policy=MyCustomAuthenticationPolicy(settings),
                 resources=RESOURCES,
             )
             ...  # <- here you can call any methods of the helper.config object
@@ -542,15 +635,11 @@ class ConfigHelper(object):
 
     def __init__(self,
                  settings,
-                 data_backend_api_class,
-                 authentication_policy,
                  resources,
                  static_view_config=None,
                  root_factory=None,
                  **rest_configurator_kwargs):
         self.settings = self.prepare_settings(settings)
-        self.data_backend_api_class = data_backend_api_class
-        self.authentication_policy = authentication_policy
         self.resources = resources
         if static_view_config is None:
             static_view_config = self.default_static_view_config
@@ -572,21 +661,14 @@ class ConfigHelper(object):
     def prepare_settings(self, settings):
         return dict(settings)
 
+    def prepare_config(self, config):
+        return config
+
     def make_config(self):
         return Configurator(
               settings=self.settings,
-              authentication_policy=self.authentication_policy,
               root_factory=self.root_factory,
               **self.rest_configurator_kwargs)
-
-    def prepare_config(self, config):
-        config.registry.data_backend_api = self.make_data_backend_api()
-        config.add_request_method(self.authentication_policy.get_auth_data,
-                                  'auth_data', reify=True)
-        return config
-
-    def make_data_backend_api(self):
-        return self.data_backend_api_class(settings=self.settings)
 
     def complete(self):
         self.config.add_view(view=self.exception_view, context=Exception)
@@ -607,6 +689,59 @@ class ConfigHelper(object):
         environ_copy.pop('HTTP_ACCEPT', None)
         http_exc.prepare(environ_copy)
         return http_exc
+
+
+class ConfigHelper(BasicConfigHelper):
+
+    """
+    The class provides methods to help with necessary setup steps
+    for a WSGI app.
+
+    This subclass of the `BasicConfigHelper` additionally registers
+    an authentication policy and a "data backend API" class, which
+    is then used by specific apps.
+
+    Typical usage in your Pyramid application's ``__init__.py``:
+
+    .. code-block:: python
+
+        RESOURCES = <list of HttpResource instances>
+
+        def main(global_config, **settings):
+            helper = ConfigHelper(
+                settings=settings,
+                data_backend_api_class=MyDataBackendAPI,
+                authentication_policy=MyCustomAuthenticationPolicy(settings),
+                resources=RESOURCES,
+            )
+            ...  # <- here you can call any methods of the helper.config object
+            ...  #    which is a pyramid.config.Configurator instance
+            return helper.make_wsgi_app()
+
+    Note: all constructor arguments should be specified as keyword arguments.
+    """
+
+    def __init__(self,
+                 settings,
+                 resources,
+                 data_backend_api_class,
+                 authentication_policy,
+                 **rest_init_kwargs):
+        self.data_backend_api_class = data_backend_api_class
+        self.authentication_policy = authentication_policy
+        super(ConfigHelper, self).__init__(settings=settings,
+                                           resources=resources,
+                                           authentication_policy=authentication_policy,
+                                           **rest_init_kwargs)
+
+    def prepare_config(self, config):
+        config.registry.data_backend_api = self.make_data_backend_api()
+        config.add_request_method(self.authentication_policy.get_auth_data,
+                                  'auth_data', reify=True)
+        return config
+
+    def make_data_backend_api(self):
+        return self.data_backend_api_class(settings=self.settings)
 
 
 

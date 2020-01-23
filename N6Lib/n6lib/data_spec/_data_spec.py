@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 
 # Terminology: some definitions and synonyms
@@ -176,6 +176,7 @@ from n6lib.data_spec.fields import (
     MD5FieldForN6,
     PortFieldForN6,
     SHA1FieldForN6,
+    SHA256FieldForN6,
     SomeFieldForN6,
     SomeUnicodeFieldForN6,
     SomeUnicodeListFieldForN6,
@@ -199,6 +200,7 @@ from n6sdk.data_spec.fields import (
     IPv4Field,
     MD5Field,
     SHA1Field,
+    SHA256Field,
     UnicodeField,
     UnicodeEnumField,
 )
@@ -497,6 +499,11 @@ class N6DataSpec(DataSpec):
     )
 
     sha1 = SHA1FieldForN6(
+        in_params=('optional', 'unrestricted'),
+        in_result=('optional', 'unrestricted'),
+    )
+
+    sha256 = SHA256FieldForN6(
         in_params=('optional', 'unrestricted'),
         in_result=('optional', 'unrestricted'),
     )
@@ -916,6 +923,7 @@ class N6DataSpec(DataSpec):
             IPAddress,
             MD5,
             SHA1,
+            SHA256,
             TextPickleType,
         )
 
@@ -946,6 +954,8 @@ class N6DataSpec(DataSpec):
                 col_args = [MD5]
             elif isinstance(field, SHA1Field):
                 col_args = [SHA1]
+            elif isinstance(field, SHA256Field):
+                col_args = [SHA256]
             elif isinstance(field, IPv4Field):
                 col_args = [IPAddress]
             elif isinstance(field, UnicodeEnumField):

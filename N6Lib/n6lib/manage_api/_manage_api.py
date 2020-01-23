@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
+import contextlib
 import datetime
 import re
 import string
@@ -10,7 +11,7 @@ import string
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.exc import StatementError
 
-from n6lib.auth_db.config import SimpleSQLAuthDBConnector
+from n6lib.auth_db.config import SQLAuthDBConnector
 from n6lib.auth_db.models import (
     CLIENT_CA_PROFILE_NAME,
     SERVICE_CA_PROFILE_NAME,
@@ -30,7 +31,10 @@ from n6lib.config import (
     ConfigError,
     ConfigMixin,
 )
-from n6lib.const import CERTIFICATE_SERIAL_NUMBER_HEXDIGIT_NUM
+from n6lib.const import (
+    CERTIFICATE_SERIAL_NUMBER_HEXDIGIT_NUM,
+    ADMINS_SYSTEM_GROUP_NAME,
+)
 from n6lib.manage_api._ca_env import (
     InvalidSSLConfigError,
     generate_certificate_pem,
@@ -60,7 +64,6 @@ from n6lib.x509_helpers import (
 
 ADMIN_OU = 'n6admins'
 COMPONENT_OU = 'n6components'
-ADMINS_SYSTEM_GROUP_NAME = 'admins'
 USER_KINDS_OF_OWNER = ('app-user', 'admin')
 COMPONENT_KINDS_OF_OWNER = ('component', 'server-component')
 
@@ -143,7 +146,7 @@ class AccessForbiddenError(ManageAPIError):
     """
 
 
-class ManageAPIAuthDBConnector(SimpleSQLAuthDBConnector):
+class ManageAPIAuthDBConnector(SQLAuthDBConnector):
 
     """
     Example of a class handling auth database connection. Its
@@ -249,7 +252,6 @@ class ManageAPIAuthDBConnector(SimpleSQLAuthDBConnector):
             self.database_login = self.db_session.bind.url.username
 
     def __init__(self, *args, **kwargs):
-        self._connection_context = None
         self._ssl_opts = None
         super(ManageAPIAuthDBConnector, self).__init__(*args, **kwargs)
 
@@ -257,40 +259,69 @@ class ManageAPIAuthDBConnector(SimpleSQLAuthDBConnector):
         ssl_engine_kwargs = super(ManageAPIAuthDBConnector,
                                   self).get_ssl_related_create_engine_kwargs()
         if not ssl_engine_kwargs:
-            raise ManageAPIError("A config for an Auth DB connection has to specify "
-                                 "SSL-related options.")
+            raise ManageAPIError(
+                'Auth DB connection config for {} (section `{}`) '
+                'has to specify SSL-related options'.format(
+                    self.__class__.__name__,
+                    self.config_section))
         self._ssl_opts = ssl_engine_kwargs['connect_args']['ssl']
         return ssl_engine_kwargs
 
     def __enter__(self):
-        session = self.db_session_maker()
-        ca_path = self._ssl_opts['ca']
-        cert_path = self._ssl_opts['cert']
-        key_path = self._ssl_opts['key']
-        connection_context = self.ConnectionContext(session, ca_path, cert_path, key_path)
-        self._connection_context = connection_context
-        return connection_context
+        return self.context_deposit.on_enter(
+            outermost_context_factory=self.make_connection_context,
+            context_factory=NotImplemented)
 
     def __exit__(self, exc_type, exc, tb):
+        return self.context_deposit.on_exit(
+            exc_type, exc, tb,
+            outermost_context_finalizer=self.finalize_connection_context)
+
+    def get_current_session(self):
+        # (this method seems to be unused in this module but let's
+        # have it properly implemented for the sake of completenes)
+        connection_context = self.context_deposit.outermost_context
+        if connection_context is None:
+            return None
+        assert isinstance(connection_context, self.ConnectionContext)
+        return connection_context.db_session
+
+    def make_connection_context(self):
+        session = self.db_session_factory()
         try:
+            ca_path = self._ssl_opts['ca']
+            cert_path = self._ssl_opts['cert']
+            key_path = self._ssl_opts['key']
+            return self.ConnectionContext(session, ca_path, cert_path, key_path)
+        except:
+            session.close()
+            raise
+
+    def finalize_connection_context(self, connection_context, exc_type, exc_value, tb):
+        assert isinstance(connection_context, self.ConnectionContext)
+        self.finalize_session(connection_context.db_session, exc_type, exc_value, tb)
+
+    @contextlib.contextmanager
+    def commit_wrapper(self, session):
+        with super(ManageAPIAuthDBConnector, self).commit_wrapper(session):
             try:
-                if exc_type is None:
-                    try:
-                        self._connection_context.db_session.commit()
-                    except StatementError as exc:
-                        raise ManageAPIError("Execution of the SQL statement: {!r} caused "
-                                             "an error: {!r}".format(exc.statement, exc.message))
-                    except Exception as exc:
-                        raise ManageAPIError("Fatal error: {}".format(exc))
-                else:
-                    self._connection_context.db_session.rollback()
-            except:
-                self._connection_context.db_session.rollback()
-                raise
-            finally:
-                self._connection_context.db_session.close()
-        finally:
-            self._connection_context = None
+                yield
+            except StatementError as exc:
+                raise ManageAPIError("Execution of the SQL statement: {!r} caused "
+                                     "an error: {!r}".format(exc.statement, exc.message))
+            except Exception as exc:
+                raise ManageAPIError("Fatal error: {}".format(ascii_str(exc)))
+
+    def set_manage_api_specific_audit_log_meta_items(self, managing_entity):
+        assert isinstance(managing_entity, ManagingEntity)
+        if managing_entity.entity_type == 'user':
+            meta_items = {'request_user_id': managing_entity.user_db_obj.login,
+                          'request_org_id': managing_entity.user_db_obj.org_id}
+        else:
+            assert managing_entity.entity_type == 'component'
+            meta_items = {'request_component_id': managing_entity.component_db_obj.login}
+        meta_items['n6_module'] = __name__
+        self.set_audit_log_external_meta_items(**meta_items)
 
 
 class ManageAPI(ConfigMixin):
@@ -407,6 +438,7 @@ class ManageAPI(ConfigMixin):
 
         with self._auth_db_connector as context:
             managing_entity = self._verify_and_get_managing_entity(context)
+            self._auth_db_connector.set_manage_api_specific_audit_log_meta_items(managing_entity)
             ca_cert = CACertificate(context,
                                     ca_label,
                                     self._manage_api_config_section,
@@ -459,6 +491,7 @@ class ManageAPI(ConfigMixin):
 
         with self._auth_db_connector as context:
             managing_entity = self._verify_and_get_managing_entity(context)
+            self._auth_db_connector.set_manage_api_specific_audit_log_meta_items(managing_entity)
             csr_file_obj = CSRFile(csr_pem)
             ca_cert = CACertificate(context,
                                     ca_label,
@@ -506,6 +539,7 @@ class ManageAPI(ConfigMixin):
 
         with self._auth_db_connector as context:
             managing_entity = self._verify_and_get_managing_entity(context)
+            self._auth_db_connector.set_manage_api_specific_audit_log_meta_items(managing_entity)
             ca_cert = CACertificate(context,
                                     ca_label,
                                     self._manage_api_config_section,
@@ -542,7 +576,8 @@ class ManageAPI(ConfigMixin):
         """
 
         with self._auth_db_connector as context:
-            self._verify_and_get_managing_entity(context)
+            managing_entity = self._verify_and_get_managing_entity(context)
+            self._auth_db_connector.set_manage_api_specific_audit_log_meta_items(managing_entity)
             ca_cert = CACertificate(context,
                                     ca_label,
                                     self._manage_api_config_section,
@@ -565,7 +600,8 @@ class ManageAPI(ConfigMixin):
         """
 
         with self._auth_db_connector as context:
-            self._verify_and_get_managing_entity(context)
+            managing_entity = self._verify_and_get_managing_entity(context)
+            self._auth_db_connector.set_manage_api_specific_audit_log_meta_items(managing_entity)
             ca_cert = CACertificate(context,
                                     ca_label,
                                     self._manage_api_config_section,

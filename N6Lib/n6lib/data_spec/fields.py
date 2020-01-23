@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 
 # Terminology: some definitions and synonyms
@@ -41,6 +41,7 @@ from n6sdk.data_spec.fields import (
     PortField,
     ResultListFieldMixin,
     SHA1Field,
+    SHA256Field,
     SourceField,
     UnicodeField,
     UnicodeEnumField,
@@ -213,6 +214,9 @@ class PortFieldForN6(PortField, FieldForN6):
     pass
 
 class SHA1FieldForN6(SHA1Field, FieldForN6):
+    pass
+
+class SHA256FieldForN6(SHA256Field, FieldForN6):
     pass
 
 class SourceFieldForN6(SourceField, FieldForN6):

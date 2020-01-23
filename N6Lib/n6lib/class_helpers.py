@@ -14,6 +14,8 @@ from n6sdk.encoding_helpers import AsciiMixIn
 from n6sdk.class_helpers import (
     singleton,
     attr_required,
+    is_seq,
+    is_seq_or_set,
 )
 
 

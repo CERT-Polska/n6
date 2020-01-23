@@ -1,7 +1,6 @@
 # Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import datetime
-import string
 
 from n6lib.auth_db import (
     INVALID_FIELD_TEMPLATE_MSG,
@@ -12,7 +11,10 @@ from n6lib.auth_db import (
     MAX_LEN_OF_ORG_ID,
     MAX_LEN_OF_URL,
 )
-from n6lib.common_helpers import EMAIL_OVERRESTRICTED_SIMPLE_REGEX
+from n6lib.common_helpers import (
+    EMAIL_OVERRESTRICTED_SIMPLE_REGEX,
+    ascii_str,
+)
 from n6lib.const import CATEGORY_ENUMS
 from n6lib.data_spec import FieldValueError
 from n6lib.data_spec.fields import (
@@ -20,6 +22,7 @@ from n6lib.data_spec.fields import (
     DomainNameField,
     EmailSimplifiedField,
     Field,
+    IPv4NetField,
     UnicodeLimitedField,
     UnicodeRegexField,
 )
@@ -69,10 +72,63 @@ class EmailCustomizedField(EmailSimplifiedField):
     regex = EMAIL_OVERRESTRICTED_SIMPLE_REGEX
     error_msg_template = u'"{}" is not a valid e-mail address'
 
+    def _validate_value(self, value):
+        forbidden_characters = self._get_additionally_forbidden_characters()
+        illegal_characters = forbidden_characters.intersection(value)
+        if illegal_characters:
+            raise FieldValueError(
+                public_message='"{value}" contains illegal character(s): {chars}.'.format(
+                    value=ascii_str(value),
+                    chars=', '.join(sorted("'{}'".format(ascii_str(ch))
+                                           for ch in illegal_characters))))
+        super(EmailCustomizedField, self)._validate_value(value)
+
+    def _get_additionally_forbidden_characters(self):
+        return frozenset()
+
 
 class UserLoginField(EmailCustomizedField):
 
     error_msg_template = u'"{}" is not a valid user login - an e-mail address is expected'
+
+
+class RegistrationRequestEmailField(EmailCustomizedField):
+
+    # Note: the characters specified by this constant are formally
+    # valid e-mail characters but we prefer to forbid them in email
+    # addresses originating from the registration request web form
+    # which is supposed to be publicly accessible without authentication
+    # (it is not a "hard" counteraction against some particular type of
+    # attack -- but rather a "soft"/"just-in-case"/"let's reduce the
+    # likelihood of some types of attacks" kind of safety measure).
+    _CHARACTERS_ADDITIONALLY_FORBIDDEN_IN_REGISTRATION_REQ_EMAILS = frozenset('#$%&\'*/=?^`{|}~')
+
+    def _get_additionally_forbidden_characters(self):
+        return (self._CHARACTERS_ADDITIONALLY_FORBIDDEN_IN_REGISTRATION_REQ_EMAILS |
+                super(RegistrationRequestEmailField,
+                      self)._get_additionally_forbidden_characters())
+
+
+# XXX: this class is to be removed when we finally get rid of the LDAP stuff remains
+class RegistrationRequestEmailLDAPSafeField(RegistrationRequestEmailField):
+
+    def _validate_value(self, value):
+        from n6lib.auth_db.validators import _ascii_only_ldap_safe_to_unicode_stripped
+        super(RegistrationRequestEmailLDAPSafeField, self)._validate_value(value)
+        assert value.strip() == _ascii_only_ldap_safe_to_unicode_stripped(value)
+
+    def _get_additionally_forbidden_characters(self):
+        from n6lib.auth_db.validators import LDAP_UNSAFE_CHARACTERS
+        return (LDAP_UNSAFE_CHARACTERS |
+                super(RegistrationRequestEmailLDAPSafeField,
+                      self)._get_additionally_forbidden_characters())
+
+
+class IPv4NetAlwaysAsStringField(IPv4NetField):
+
+    def convert_param_cleaned_string_value(self, value):
+        assert isinstance(value, unicode)
+        return value
 
 
 class URLSimpleField(UnicodeLimitedField):

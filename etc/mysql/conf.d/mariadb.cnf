@@ -81,6 +81,23 @@ innodb_open_files        = 400
 innodb_io_capacity       = 400
 innodb_flush_method      = O_DIRECT
 
+#
+# * TokuDB
+#
+[mariadb]
+plugin-load-add = ha_tokudb.so
+tokudb_analyze_time           = 5
+tokudb_block_size             = 8M
+tokudb_cache_size             = 256M
+tokudb_commit_sync            = 0
+tokudb_checkpointing_period   = 60
+tokudb_directio               = 0
+tokudb_disable_prefetching    = 1
+tokudb_fsync_log_period       = 1000
+tokudb_load_save_space        = 1
+tokudb_read_block_size        = 128K
+tokudb_read_buf_size          = 128K
+
 [mysqldump]
 quick
 quote-names

@@ -381,6 +381,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             'list_of_str', 'list_of_unicode',
             'list_of_bool', 'list_of_int', 'list_of_float',
             'list_of_date', 'list_of_datetime',
+            'importable_dotted_name',
             'py', 'json',
         })
         self.assertTrue(all(callable(v) for v in Config.BASIC_CONVERTERS.itervalues()))
@@ -398,10 +399,26 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         ('py', "{u'\xc5\x9b': [False,]}", {u'ś': [False]}),
         ('json', '{"\\u015b": [false]}', {u'ś': [False]}),
     )
-    def test__BASIC_CONVERTERS__single_value_converters(self, name, arg, expected_result):
+    def test__BASIC_CONVERTERS__most_of_single_value_converters(self, name, arg, expected_result):
         converter = Config.BASIC_CONVERTERS[name]
         actual_result = converter(arg)
         self.assertEqualIncludingTypes(actual_result, expected_result)
+
+
+    def test__BASIC_CONVERTERS__importable_dotted_name__of_module(self):
+        converter = Config.BASIC_CONVERTERS['importable_dotted_name']
+        dotted_name = 'n6lib.tests'
+        actual_result = converter(dotted_name)
+        import n6lib.tests
+        expected_result = n6lib.tests
+        self.assertIs(actual_result, expected_result)
+
+    def test__BASIC_CONVERTERS__importable_dotted_name__of_non_module_obj(self):
+        converter = Config.BASIC_CONVERTERS['importable_dotted_name']
+        dotted_name = 'n6lib.tests._dummy_module_used_by_some_tests.DummyObj'
+        actual_result = converter(dotted_name)
+        from n6lib.tests._dummy_module_used_by_some_tests import DummyObj as expected_result
+        self.assertIs(actual_result, expected_result)
 
 
     @foreach(

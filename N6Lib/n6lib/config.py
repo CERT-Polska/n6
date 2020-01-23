@@ -17,6 +17,7 @@ from n6lib.common_helpers import (
     DictWithSomeHooks,
     as_unicode,
     ascii_str,
+    import_by_dotted_name,
     memoized,
     reduce_indent,
     string_to_bool,
@@ -518,6 +519,7 @@ class Config(DictWithSomeHooks):
         'list_of_float': __make_list_converter(float, 'list_of_float'),
         'list_of_date': __make_list_converter(parse_iso_date, 'list_of_date'),
         'list_of_datetime': __make_list_converter(parse_iso_datetime_to_utc, 'list_of_datetime'),
+        'importable_dotted_name': import_by_dotted_name,
         'py': __strip_utf8_literal_eval,
         'json': json.loads,
     }

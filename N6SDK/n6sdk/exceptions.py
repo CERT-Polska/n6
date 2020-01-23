@@ -163,8 +163,9 @@ class FieldValueError(_ErrorWithPublicMessageMixin, ValueError):
     :class:`n6sdk.data_spec.fields.Field` subclasses.
 
     When using it in a :meth:`~.Field.clean_param_value`'s
-    implementation it is recommended (though not required) to insantiate
-    the exception specifying the `public_message` keyword argument.
+    implementation it is recommended (though not required) to
+    instantiate the exception specifying the `public_message`
+    keyword argument.
 
     Typically, this exception (as any other :exc:`~exceptions.Exception`
     subclass/instance raised in a field's :meth:`clean_*_value` method)
@@ -244,7 +245,9 @@ class FieldValueTooLongError(FieldValueError):
 class DataAPIError(_ErrorWithPublicMessageMixin, Exception):
 
     """
-    The base class for *client-data-or-backend-API*-related exceptions.
+    The base class for *data-from-client-or-backend-API*-related
+    exceptions -- raised by: *views*, or the *data specification*
+    machinery, or the *data backend API*.
 
     (They are **not** intended to be raised in :meth:`clean_*_value` of
     :class:`~n6sdk.data_spec.fields.Field` subclasses -- use
@@ -282,8 +285,8 @@ class DataAPIError(_ErrorWithPublicMessageMixin, Exception):
 
 class AuthorizationError(DataAPIError):
     """
-    Intended to be raised by *data backend API* to signal authorization
-    problems.
+    Intended to be raised by *views* or the *data backend API* to signal
+    authorization problems.
     """
     default_public_message = u'Access not allowed.'
 
@@ -298,10 +301,14 @@ class TooMuchDataError(DataAPIError):
 
 class ParamCleaningError(DataAPIError):
     """
-    The base class for exceptions raised when query parameter cleaning fails.
+    The base class for exceptions raised when query parameter cleaning
+    (or some validation before the actual cleaning) fails.
 
     Instances of its subclasses are raised by the *data specification*
     machinery.
+
+    This class can also be instantiated directly (and raised) by
+    *views*.
     """
     default_public_message = u'Invalid parameter(s).'
 

@@ -1,7 +1,5 @@
 DROP DATABASE if exists n6;
-DROP DATABASE if exists auth_db;
 CREATE DATABASE n6 CHARACTER SET utf8 COLLATE utf8_unicode_ci;
-CREATE DATABASE auth_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 use n6;
 
@@ -19,6 +17,7 @@ CREATE TABLE n6.event (
     name VARCHAR(255),
     md5 BINARY(16),
     sha1 BINARY(20),
+    sha256 BINARY(32),
     proto ENUM('tcp','udp','icmp'),
     address MEDIUMTEXT,
     ip INTEGER UNSIGNED NOT NULL,
@@ -38,10 +37,27 @@ CREATE TABLE n6.event (
     count SMALLINT,
     modified DATETIME,
     PRIMARY KEY (id,time,ip)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+)   ENGINE=TokuDB
+    DEFAULT CHARSET=utf8
+    COLLATE=utf8_unicode_ci
+    PARTITION BY RANGE COLUMNS(time) (
+         PARTITION p2014 VALUES LESS THAN ('2015-01-01'),
+         PARTITION p2015_2018 VALUES LESS THAN ('2018-01-01'),
+         PARTITION p2018_2021 VALUES LESS THAN ('2021-01-01'),
+         PARTITION p_max VALUES LESS THAN MAXVALUE
+    );
+
 
 CREATE TABLE n6.client_to_event (
     id Binary(16) NOT NULL,
     client VARCHAR(32),
     time datetime  NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+)   ENGINE=TokuDB
+    DEFAULT CHARSET=utf8
+    COLLATE=utf8_unicode_ci
+    PARTITION BY RANGE COLUMNS(time) (
+         PARTITION p2014 VALUES LESS THAN ('2015-01-01'),
+         PARTITION p2015_2018 VALUES LESS THAN ('2018-01-01'),
+         PARTITION p2018_2021 VALUES LESS THAN ('2021-01-01'),
+         PARTITION p_max VALUES LESS THAN MAXVALUE
+    );

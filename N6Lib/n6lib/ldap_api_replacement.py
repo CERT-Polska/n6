@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
 # NOTE: this module is a drop-in replacement for the legacy
 # n6lib.ldap_api stuff (at least for the needs of AuthAPI). The plan
@@ -84,11 +84,6 @@ class LdapAPI(SQLAuthDBConfigMixin):
     def __init__(self, settings=None):
         self._rlock = threading.RLock()
         super(LdapAPI, self).__init__(settings)
-
-    def configure_db(self):
-        super(LdapAPI, self).configure_db()
-        self._db_session_maker = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
-        self._db_session = None
 
     def __enter__(self):
         self._rlock.acquire()
@@ -180,6 +175,14 @@ class LdapAPI(SQLAuthDBConfigMixin):
         """
         search_results = self._search_flat()
         return self._structuralize_search_results(search_results)
+
+    #
+    # Extended methods from the superclass
+
+    def configure_db(self):
+        super(LdapAPI, self).configure_db()
+        self._db_session_maker = sessionmaker(bind=self.engine, autocommit=False, autoflush=False)
+        self._db_session = None
 
     #
     # Non-public helpers
@@ -1049,9 +1052,9 @@ class _LdapAttrNormalizer(object):
 
     # (for additional LDAP attributes related to formal
     # properties/status of organizations and users...)
-    # [note: the methods of this class omit these attributes
-    # -- at least for now -- because AuthAPI does not make
-    # use of them]
+    # [note: the methods of the `n6lib.ldap_api_replacement`'s
+    # variant of `LdapAPI` omit these attributes -- at least
+    # for now -- because AuthAPI does not make use of them]
 
     _normalize_n6org_location = _to_unicode_stripped
     _normalize_n6org_location_coords = _to_unicode_stripped

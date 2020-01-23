@@ -2,9 +2,12 @@
 
 # Copyright (c) 2013-2014 NASK. All rights reserved.
 
-
 import threading
 import functools
+from collections import (
+    Sequence,
+    Set,
+)
 
 
 def singleton(cls):
@@ -283,3 +286,13 @@ def attr_required(*attr_names, **kwargs):
             return func(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def is_seq(obj):
+    """Is a sequence but *not* a (bytes or unicode) string?"""
+    return isinstance(obj, Sequence) and not isinstance(obj, basestring)
+
+
+def is_seq_or_set(obj):
+    """Is a set or sequence but *not* a (bytes or unicode) string?"""
+    return isinstance(obj, (Sequence, Set)) and not isinstance(obj, basestring)

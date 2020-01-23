@@ -25,33 +25,32 @@ class TestGreenSnowParser(ParserTestMixIn, unittest.TestCase):
         'category': 'other',
     }
 
-    MESSAGE_EXPIRES = str(parse_iso_datetime_to_utc(ParserTestMixIn.message_created) +
-                          datetime.timedelta(days=2))
+    MESSAGE_EXPIRES = str(parse_iso_datetime_to_utc(ParserTestMixIn.message_created)
+                          + datetime.timedelta(days=2))
 
     def cases(self):
         yield (
-            '101.102.103.104\n'
-            '81.82.83.84\n'
-            '61.62.63.64\n'
-            ,
+            '1.1.1.1\n'
+            '2.2.2.2\n'
+            '3.3.3.3\n',
             [
                 dict(
                     self.get_bl_items(1, 3),
-                    address=[{'ip': '101.102.103.104'}],
+                    address=[{'ip': '1.1.1.1'}],
                     time=self.message_created,
                     expires=self.MESSAGE_EXPIRES,
                 ),
 
                 dict(
                     self.get_bl_items(2, 3),
-                    address=[{'ip': '81.82.83.84'}],
+                    address=[{'ip': '2.2.2.2'}],
                     time=self.message_created,
                     expires=self.MESSAGE_EXPIRES,
                 ),
 
                 dict(
                     self.get_bl_items(3, 3),
-                    address=[{'ip': '61.62.63.64'}],
+                    address=[{'ip': '3.3.3.3'}],
                     time=self.message_created,
                     expires=self.MESSAGE_EXPIRES,
                 ),

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2016 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 
 import collections
@@ -19,6 +19,7 @@ from n6sdk.data_spec.fields import (
     HexDigestField,
     MD5Field,
     SHA1Field,
+    SHA256Field,
     UnicodeEnumField,
     UnicodeLimitedField,
     UnicodeRegexField,
@@ -707,6 +708,61 @@ class TestSHA1Field(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given=40 * ' ',
+            expected=FieldValueError,
+        )
+
+    def cases__clean_result_value(self):
+        for c in self.cases__clean_param_value():
+            yield c
+        yield case(
+            given=123,
+            expected=TypeError,
+        )
+        yield case(
+            given=None,
+            expected=TypeError,
+        )
+
+
+class TestSHA256Field(FieldTestMixin, unittest.TestCase):
+
+    CLASS = SHA256Field
+
+    def cases__clean_param_value(self):
+        yield case(
+            given='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+            expected=u'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given='9F86D081884C7D659A2feaa0c55ad015A3BF4F1B2B0B822CD15D6C15B0F00A08',
+            expected=u'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given=u'9f86d081884c7d659a2FEAA0c55AD015A3bf4f1b2b0b822cd15d6c15b0f00a08',
+            expected=u'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given=u'9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08',
+            expected=u'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given=u'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' + '1',  # too long
+            expected=FieldValueError,
+        )
+        yield case(
+            given='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6',         # too short
+            expected=FieldValueError,
+        )
+        yield case(
+            given=u'',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=u'9f86d081884c7d659a2zzzz0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',   # illegal chars
+            expected=FieldValueError,
+        )
+        yield case(
+            given=64 * ' ',
             expected=FieldValueError,
         )
 

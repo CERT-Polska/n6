@@ -398,9 +398,20 @@ class RandomEvent(ConfigMixin):
             return random.choice(self._params[attr_name])
         if self._include_in_event(attr_name):
             random_str = ''.join(
-                random.choice(string.ascii_letters + string.digits) for _ in xrange(32)
+                random.choice(string.ascii_letters + string.digits) for _ in xrange(40)
             )
             return hashlib.sha1(random_str).hexdigest()
+        return None
+
+    def _get_sha256(self):
+        attr_name = 'sha256'
+        if self._attr_in_params(attr_name):
+            return random.choice(self._params[attr_name])
+        if self._include_in_event(attr_name):
+            random_str = ''.join(
+                random.choice(string.ascii_letters + string.digits) for _ in xrange(64)
+            )
+            return hashlib.sha256(random_str).hexdigest()
         return None
 
     @staticmethod

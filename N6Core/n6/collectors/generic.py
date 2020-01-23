@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
 """
 Collector base classes + auxiliary tools.
@@ -921,8 +921,8 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
 
     def __init__(self, **kwargs):
         super(BaseTimeOrderedRowsCollector, self).__init__(**kwargs)
-        self._state = None           # to be set in run_handling()
-        self._selected_data = None   # to be set in run_handling() if needed
+        self._state = None           # to be set in `run_handling()`
+        self._selected_data = None   # to be set in `run_handling()` if needed
 
     def run_handling(self):
         self._state = self.load_state()
@@ -930,7 +930,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         all_rows = self.split_orig_data_into_rows(orig_data)
         fresh_rows = self.get_fresh_rows_only(all_rows)
         if fresh_rows:
-            self._selected_data = self.join_fresh_rows(fresh_rows)
+            self._selected_data = self.prepare_selected_data(fresh_rows)
             super(BaseTimeOrderedRowsCollector, self).run_handling()
 
     def make_default_state(self):
@@ -953,9 +953,10 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
 
 
     #
-    # Stuff that can be overridden in subclasses (if needed; note
-    # that sensible defaults are provided, except two abstract
-    # methods: obtain_orig_data() and extract_row_time())
+    # Stuff that can be overridden in subclasses (only if needed,
+    # as sensible defaults are provided -- *except* for the three
+    # abstract methods: `obtain_orig_data()`, `extract_raw_row_time()`
+    # and `clean_row_time()`)
 
     # * basic raw event attributes:
 
@@ -965,11 +966,25 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
     # * related to writable state management:
 
     def get_oldest_possible_row_time(self):
-        # The value returned by this method should be less than any
-        # real row time (in subclasses it can be, e.g.,
-        # `datetime.datetime.min` or `0`, if needed).
-        # See also: the return value description in the docstring
-        # of the extract_row_time() method.
+        """
+        The value returned by this method should sort as *less than*
+        any real row time returned by `clean_row_time()`.
+
+        **Important:** when implementing your subclass, you need to
+        ensure that the value returned by this method meets the above
+        condition for any non-`None` value returned by `clean_row_time()`.
+
+        The value returned by the default implementation of this method
+        is `""` (empty `str`) -- appropriate for such implementations
+        of `clean_row_time()` that produce ISO-8601-formatted strings.
+        Note that for other implementations of `clean_row_time()` the
+        appropriate value may be, for example, `datetime.datetime.min`
+        or `0`...
+
+        See also: the docs of the method `clean_row_time()` and the
+        description of the return value the method `extract_row_time()`
+        (in its docs).
+        """
         return ''
 
     # * obtaining of original data:
@@ -985,19 +1000,19 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
                                           retries=self.config['download_retries'])
 
         (Though, in practice -- when it comes to obtaining original
-        data with the RequestPerformer stuff -- you will want to use
-        the BaseDownloadingTimeOrderedRowsCollector class rather than
-        to implement RequestPerformer-based obtain_orig_data() by your
-        own.)
+        data with the `RequestPerformer` stuff -- you will want to use
+        the `BaseDownloadingTimeOrderedRowsCollector` class rather than
+        to implement `RequestPerformer`-based `obtain_orig_data(`) by
+        your own.)
         """
         raise NotImplementedError
 
-    # * splitting original data and re-joining selected data:
+    # * splitting original data and re-joining/preparing selected data:
 
     def split_orig_data_into_rows(self, orig_data):
         return orig_data.split('\n')
 
-    def join_fresh_rows(self, fresh_rows):
+    def prepare_selected_data(self, fresh_rows):
         return '\n'.join(fresh_rows)
 
     # * selection of fresh rows:
@@ -1014,13 +1029,12 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         preceding_row_time = None
 
         for row in all_rows:
-            if self.should_row_be_ignored(row):
+            row_time = self.extract_row_time(row)
+            if row_time is None:
                 continue
 
-            row_time = self.extract_row_time(row)
-
-            # it is required that time values in consecutive rows are:
-            # non-increasing, monotonic, possibly repeating
+            # it is required that time values in consecutive rows are
+            # non-increasing and monotonic (but can be repeating)
             if preceding_row_time is not None and row_time > preceding_row_time:
                 raise ValueError(
                     'encountered row time {!r} > preceding row time {!r}'.format(
@@ -1070,45 +1084,141 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         return fresh_rows
 
 
-    def should_row_be_ignored(self, row):
-        return row.startswith('#') or not row.strip()
-
-
     def extract_row_time(self, row):
         """
-        Abstract method: extract a row time indicator from the given row.
+        Extract the row time indicator from the given row.
 
         Args:
             `row`:
                 An item yielded by an iterable returned by
-                split_orig_data_into_rows().  It is guaranteed that
-                only a `row` for whom should_row_be_ignored() returned
-                false can appear here.
+                `split_orig_data_into_rows()`.
 
         Returns:
-            A sortable date/time value -- an object that represents the date
-            or timestamp extracted from `row`, e.g., an ISO-8601-formatted
-            string (representing some date of date+time), or a float/int being
-            a UNIX timestamp, or a datetime.datetime instance.  What is
-            important is that objects returned by this method are sortable
-            in a sensible way: newer one is always greater than older one,
-            and values representing the same time are always equal.
+            *Either* `None` -- indicating that `row` should just be
+            ignored (skipped); *or* a sortable date/time value, i.e.,
+            an object that represents the date or timestamp extracted
+            from `row`, e.g., an ISO-8601-formatted string (that
+            represents some date or date+time), or a `float`/`int`
+            value being a UNIX timestamp, or a `datetime.datetime`
+            instance; its type does not matter -- provided that such
+            values (returned by this method, and also by the method
+            `get_oldest_possible_row_time()`) sort in a sensible way:
+            a newer one is always greater than an older one, and values
+            representing the same time are always equal.
 
-        Example implementation for a case when `row` has a form such as
-        `"some integer id", "YYYY-MM-DD", "some URL", ...`:
+        This is a template method that calls the following methods:
 
-            fields = row.split(',')
-            time_field = fields[1]
-            row_time = time_field.strip().strip('"')
-            if not re.match(r'[0-9]{4}-[0-9]{2}-[0-9]{2}$', row_time):
-                raise ValueError('wrong format of row time indicator {!r} '
-                                 '(from row {!r})'.format(row_time, row))
-            return row_time
+        * `should_row_be_used()` (has a sensible default implementation
+          but, of course, can be overridden/extended in your subclass
+          if needed) -- takes the given `row` and returns a boolean
+          value; if a false value is returned, the result of the whole
+          `extract_row_time()` call will be `None`, and *no* calls of
+          the further methods (that is, `extract_raw_row_time()` and
+          `clean_row_time()`) will be made;
 
-        Note: the above example includes a simple validation.
-        Implementing some kind of validation is not required, but
-        recommended (as it is better to fail loudly if the format
-        of source data changed).
+        * `extract_raw_row_time()` (must be implemented in subclasses)
+          -- takes the given `row` and extracts the raw value of its
+          date-or-timestamp field, and then returns that raw value
+          (typically, as a string); alternatively it can return `None`
+          (to indicate that the whole row should be ignored) -- then
+          the result of the whole `extract_row_time()` call will also
+          be `None`, and the call of `clean_row_time()` will not be
+          made;
+
+        * `clean_row_time()` (must be implemented in subclasses) --
+          takes the value just returned by `extract_raw_row_time()` and
+          cleans it (i.e., validates and normalizes -- in particular,
+          converts to some target type, if needed), ant then returns
+          the cleaned value; alternatively it can return `None` (to
+          indicate that the whole row should be ignored); the returned
+          value will become the result of the whole `extract_row_time()`
+          call.
+        """
+        if not self.should_row_be_used(row):
+            return None
+        raw_row_time = self.extract_raw_row_time(row)
+        if raw_row_time is None:
+            return None
+        return self.clean_row_time(raw_row_time)
+
+    def should_row_be_used(self, row):
+        """
+        See the docs of `extract_row_time()`.
+
+        The default implementation of this method returns `False` if
+        the given `row` starts with the `#` character or contains only
+        whitespace characters (or no characters at all); otherwise the
+        returned value is `True`.
+        """
+        return row.strip() and not row.startswith('#')
+
+    def extract_raw_row_time(self, row):
+        """
+        Abstract method; see the docs of `extract_row_time()`.
+
+        Below we present an implementation for a case when data rows
+        are expected be formatted according to the following pattern:
+        `"<row number>", "<row date+time>", <other data fields...>`.
+
+            def extract_raw_row_time(self, row):
+                # (here we use `split_csv_row()` --
+                # imported from `n6lib.csv_helpers`)
+                fields = split_csv_row()
+                return fields[1].strip()
+
+        An alternative version of the above example:
+
+            def extract_raw_row_time(self, row):
+                # Here we return `None` if an error occurs when trying
+                # to parse the row -- because:
+                # * we assume that (for our particular data source)
+                #   some wrongly formatted rows may appear,
+                # * and we want to skip such rows.
+                try:
+                    fields = split_csv_row()
+                    return fields[1].strip()
+                except Exception as exc:
+                    LOGGER.warning(
+                        'Cannot extract the time field from the %r row '
+                        '(%r) -- so the row will be skipped.', row, exc)
+                    return None
+        """
+        raise NotImplementedError
+
+    def clean_row_time(self, raw_row_time):
+        """
+        Abstract method; see the docs of `extract_row_time()`.
+
+        An example implementation for a case when `raw_row_time` is
+        expected to be an ISO-8601-formatted date+time indicator --
+        such as `"2020-01-23T19:52:17+01:00"`:
+
+            def clean_row_time(self, raw_row_time):
+                # (here we use `parse_iso_datetime_to_utc()` --
+                # imported from `n6lib.datetime_helpers`)
+                return str(parse_iso_datetime_to_utc(raw_row_time))
+
+        An alternative version of the above example:
+
+            def clean_row_time(self, raw_row_time):
+                # Here we return `None` if a conversion error occurs
+                # -- because:
+                # * we assume that (for our particular data source)
+                #   rows containing wrongly formatted time indicators
+                #   may appear,
+                # * and we want to skip such rows.
+                try:
+                    return str(parse_iso_datetime_to_utc(raw_row_time))
+                except ValueError:
+                    LOGGER.warning(
+                        'Cannot parse %r as an ISO date+time so the row '
+                        'containing it will be skipped.', raw_row_time)
+                    return None
+
+        **Important:** the resultant value, if not `None`, must be
+        compatible, in terms of sorting, with the value returned by
+        `get_oldest_possible_row_time()` (see its docs, as well as the
+        return value description in the docs of `extract_row_time()`).
         """
         raise NotImplementedError
 

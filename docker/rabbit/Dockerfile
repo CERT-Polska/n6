@@ -13,6 +13,7 @@ RUN rabbitmq-plugins enable --offline \
     rabbitmq_shovel \
     rabbitmq_shovel_management
 
+COPY etc/rabbitmq/conf/rabbitmq.conf /etc/rabbitmq/rabbitmq.conf
 ADD docker/rabbit/entrypoint.sh /entrypoint.sh
 RUN chmod a+x /entrypoint.sh
 

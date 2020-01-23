@@ -1,8 +1,19 @@
-FROM mariadb:10.4
+FROM mariadb:10.3
+
+# MariaDB image with TokuDB engine
+# solution how to install taken from:
+# https://github.com/docker-library/mariadb/issues/219#issuecomment-456909306
 
 # interactive mode
 ENV TERM xterm
 ENV DEBIAN_FRONTEND noninteractive
+
+RUN apt-get update && \
+    apt-get install -y \
+        mariadb-plugin-tokudb \
+        libjemalloc1
+
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.1
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=5 \
 CMD mysqladmin -u $MYSQL_USERNAME -p$MYSQL_ROOT_PASSWORD ping && \

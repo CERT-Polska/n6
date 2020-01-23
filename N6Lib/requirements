@@ -1,5 +1,6 @@
 # setuptools install section
 pyramid==1.5.7
+venusian>=1.0
 sqlalchemy==0.9.10
 zope.sqlalchemy==0.7.7
 transaction==2.0.3
@@ -20,7 +21,10 @@ pytz==2016.7
 dnspython>=1.14.0
 beautifulsoup4>=4.7,<4.8
 M2Crypto==0.30.1
+typing
 
 # pip install section
+czipfile
 pymisp==2.2
 geoip2
+more_itertools

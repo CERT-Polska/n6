@@ -7,6 +7,7 @@ from datetime import (
     datetime as dt,
     timedelta,
 )
+from urllib import quote_plus
 
 from unittest_expander import expand, foreach, param
 
@@ -18,6 +19,10 @@ from mock import (
 
 from n6lib.unit_test_helpers import MethodProxy
 from n6web import RestAPIViewBase
+
+
+def _quoted_tuple(*values):
+    return tuple(quote_plus(str(v)) for v in values)
 
 
 @expand
@@ -57,7 +62,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={},
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from utcnow():
                 UTC_NOW - DEFAULT_DELTA),
         ).label('non-empty qs'),
@@ -65,7 +70,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='',
             cleaned_param_dict={},
-            expected_redirect_url='/foo?time.min=%s' % (
+            expected_redirect_url='/foo?time.min=%s' % _quoted_tuple(
                 # `time.min` derived from utcnow():
                 UTC_NOW - DEFAULT_DELTA),
         ).label('empty qs'),
@@ -76,7 +81,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'time.max': [BEFORE_UTC_NOW]},
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from `time.max`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA),
         ).label('time.max < utcnow()'),
@@ -84,7 +89,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'time.until': [BEFORE_UTC_NOW]},
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from `time.until`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA),
         ).label('time.until < utcnow()'),
@@ -92,7 +97,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'time.max': [AFTER_UTC_NOW]},
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from utcnow():
                 UTC_NOW - DEFAULT_DELTA),
         ).label('time.max > utcnow()'),
@@ -100,7 +105,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'time.until': [AFTER_UTC_NOW]},
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from utcnow():
                 UTC_NOW - DEFAULT_DELTA),
         ).label('time.until > utcnow()'),
@@ -111,7 +116,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'modified.min': [BEFORE_UTC_NOW]},
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from `modified.min`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA),
         ).label('modified.min < utcnow()'),
@@ -119,7 +124,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'modified.min': [AFTER_UTC_NOW]},
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from utcnow():
                 UTC_NOW - DEFAULT_DELTA),
         ).label('modified.min > utcnow()'),
@@ -130,7 +135,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'modified.min': [BEFORE_UTC_NOW],
                 'modified.max': sen.ANYTHING,
             },
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from `modified.min`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA),
         ).label('modified.min < utcnow(), irrelevant modified.max'),
@@ -141,7 +146,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'modified.min': [AFTER_UTC_NOW],
                 'modified.until': sen.ANYTHING,
             },
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from utcnow():
                 UTC_NOW - DEFAULT_DELTA),
         ).label('modified.min > utcnow(), irrelevant modified.until'),
@@ -152,7 +157,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'modified.max': [BEFORE_UTC_NOW]},
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.max`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA,
                 # `time.min` derived from `modified.min`:
@@ -163,7 +168,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'modified.until': [BEFORE_UTC_NOW]},
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.until`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA,
                 # `time.min` derived from `modified.min`:
@@ -174,7 +179,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'modified.max': [BEFORE_UTC_NOW + DEFAULT_DELTA]},
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.max`:
                 BEFORE_UTC_NOW,
                 # `time.min` derived from `modified.min`:
@@ -187,7 +192,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'modified.until': [BEFORE_UTC_NOW + DEFAULT_DELTA]},
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.until`:
                 BEFORE_UTC_NOW,
                 # `time.min` derived from `modified.min`:
@@ -200,7 +205,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'modified.max': [AFTER_UTC_NOW + DEFAULT_DELTA]},
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.max`:
                 AFTER_UTC_NOW,
                 # `time.min` derived from utcnow():
@@ -211,7 +216,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'modified.until': [AFTER_UTC_NOW + DEFAULT_DELTA]},
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.until`:
                 AFTER_UTC_NOW,
                 # `time.min` derived from utcnow():
@@ -225,7 +230,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'active.min': [BEFORE_UTC_NOW]},
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from `active.min`:
                 BEFORE_UTC_NOW - SAM_DELTA),
         ).label('active.min'),
@@ -233,7 +238,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'active.min': [AFTER_UTC_NOW]},
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from `active.min`:
                 AFTER_UTC_NOW - SAM_DELTA),
         ).label(
@@ -243,7 +248,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'active.min': [BEFORE_UTC_NOW + SAM_DELTA]},
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from utcnow():
                 UTC_NOW - DEFAULT_DELTA),
         ).label('active.min > utcnow() + SAFE_ACTIVE_MIN_DELTA - default_delta'),
@@ -254,7 +259,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.min': [BEFORE_UTC_NOW],
                 'active.max': sen.ANYTHING,
             },
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from `active.min`:
                 BEFORE_UTC_NOW - SAM_DELTA),
         ).label('active.min, irrelevant active.max'),
@@ -265,7 +270,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.min': [BEFORE_UTC_NOW + SAM_DELTA],
                 'active.until': sen.ANYTHING,
             },
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from utcnow():
                 UTC_NOW - DEFAULT_DELTA),
         ).label('active.min..., irrelevant active.until'),
@@ -276,7 +281,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'active.max': [BEFORE_UTC_NOW]},
-            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `active.min` derived from `active.max`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA,
                 # `time.min` derived from `active.min`:
@@ -287,7 +292,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'active.until': [BEFORE_UTC_NOW]},
-            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `active.min` derived from `active.until`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA,
                 # `time.min` derived from `active.min`:
@@ -298,7 +303,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'active.max': [BEFORE_UTC_NOW + DEFAULT_DELTA]},
-            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `active.min` derived from `active.max`:
                 BEFORE_UTC_NOW,
                 # `time.min` derived from `active.min`:
@@ -311,7 +316,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'active.until': [BEFORE_UTC_NOW + SAM_DELTA]},
-            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `active.min` derived from `active.until`:
                 BEFORE_UTC_NOW + SAM_DELTA - DEFAULT_DELTA,
                 # `time.min` derived from `active.min`:
@@ -324,7 +329,7 @@ class TestRestAPIViewBase(unittest.TestCase):
         param(
             request_query_string='...',
             cleaned_param_dict={'active.max': [AFTER_UTC_NOW + SAM_DELTA]},
-            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `active.min` derived from `active.max`:
                 AFTER_UTC_NOW + SAM_DELTA - DEFAULT_DELTA,
                 # `time.min` derived from utcnow():
@@ -342,7 +347,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.min': [BEFORE_UTC_NOW],
                 'time.max': [BEFORE_UTC_NOW + SAM_DELTA],
             },
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from `active.min`:
                 BEFORE_UTC_NOW - SAM_DELTA),
         ).label(
@@ -358,7 +363,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'modified.max': sen.ANYTHING,
                 'active.until': sen.ANYTHING,
             },
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from `modified.min`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA),
         ).label(
@@ -372,7 +377,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'modified.min': [BEFORE_UTC_NOW + SAM_DELTA],
                 'active.min': [AFTER_UTC_NOW + SAM_DELTA],
             },
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from utcnow():
                 UTC_NOW - DEFAULT_DELTA),
         ).label(
@@ -386,7 +391,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.min': [AFTER_UTC_NOW + SAM_DELTA],
                 'time.until': [BEFORE_UTC_NOW],
             },
-            expected_redirect_url='/foo?...&time.min=%s' % (
+            expected_redirect_url='/foo?...&time.min=%s' % _quoted_tuple(
                 # `time.min` derived from `time.until`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA),
         ).label(
@@ -403,7 +408,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'modified.max': [BEFORE_UTC_NOW],
                 'active.until': [BEFORE_UTC_NOW],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.max`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA,
                 # `active.min` derived from `active.until`:
@@ -422,7 +427,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.max': [BEFORE_UTC_NOW],
                 'time.max': [BEFORE_UTC_NOW - 2*SAM_DELTA],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.until`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA,
                 # `active.min` derived from `active.max`:
@@ -441,7 +446,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'modified.max': [BEFORE_UTC_NOW],
                 'time.max': [BEFORE_UTC_NOW - 2*SAM_DELTA],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.max`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA,
                 # `time.min` derived from `time.max`:
@@ -458,7 +463,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.max': [AFTER_UTC_NOW + SAM_DELTA],
                 'time.until': [AFTER_UTC_NOW + 2*SAM_DELTA],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.until`:
                 BEFORE_UTC_NOW,
                 # `active.min` derived from `active.max`:
@@ -478,7 +483,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'modified.max': [AFTER_UTC_NOW + DEFAULT_DELTA],
                 'active.max': [AFTER_UTC_NOW + SAM_DELTA],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.max`:
                 AFTER_UTC_NOW,
                 # `active.min` derived from `active.max`:
@@ -497,7 +502,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.max': [AFTER_UTC_NOW + SAM_DELTA],
                 'time.until': [AFTER_UTC_NOW],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.max`:
                 AFTER_UTC_NOW,
                 # `active.min` derived from `active.max`:
@@ -516,7 +521,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.max': [AFTER_UTC_NOW + SAM_DELTA],
                 'time.until': [BEFORE_UTC_NOW],
             },
-            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `active.min` derived from `active.max`:
                 AFTER_UTC_NOW + SAM_DELTA - DEFAULT_DELTA,
                 # `time.min` derived from `time.until`:
@@ -536,7 +541,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 # `time.min` derived from `time.until`:
                 'time.until': [BEFORE_UTC_NOW],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&active.min=%s&time.min=%s' % _quoted_tuple(
                 AFTER_UTC_NOW,
                 AFTER_UTC_NOW + SAM_DELTA - DEFAULT_DELTA,
                 BEFORE_UTC_NOW - DEFAULT_DELTA,
@@ -556,7 +561,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'modified.max': sen.ANYTHING,
                 'active.max': [BEFORE_UTC_NOW],
             },
-            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `active.min` derived from `active.max`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA,
                 # `time.min` derived from `active.min`:
@@ -574,7 +579,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.min': [BEFORE_UTC_NOW],
                 'active.until': sen.ANYTHING,
             },
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.until`:
                 AFTER_UTC_NOW - DEFAULT_DELTA,
                 # `time.min` derived from `active.min`:
@@ -593,7 +598,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.until': sen.ANYTHING,
                 'time.max': [BEFORE_UTC_NOW - 2*SAM_DELTA],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.until`:
                 BEFORE_UTC_NOW - DEFAULT_DELTA,
                 # `time.min` derived from `time.max`:
@@ -612,7 +617,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.max': [AFTER_UTC_NOW + SAM_DELTA],
                 'time.until': [AFTER_UTC_NOW + 2*SAM_DELTA],
             },
-            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `active.min` derived from `active.max`:
                 AFTER_UTC_NOW + SAM_DELTA - DEFAULT_DELTA,
                 # `time.min` derived from `modified.min`:
@@ -629,7 +634,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'modified.min': [AFTER_UTC_NOW],
                 'active.max': [AFTER_UTC_NOW + SAM_DELTA],
             },
-            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `active.min` derived from `active.max`:
                 AFTER_UTC_NOW + SAM_DELTA - DEFAULT_DELTA,
                 # `time.min` derived from utcnow():
@@ -646,7 +651,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.max': [AFTER_UTC_NOW + SAM_DELTA],
                 'time.until': [AFTER_UTC_NOW],
             },
-            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&active.min=%s&time.min=%s' % _quoted_tuple(
                 # `active.min` derived from `active.max`:
                 AFTER_UTC_NOW + SAM_DELTA - DEFAULT_DELTA,
                 # `time.min` derived from utcnow():
@@ -664,7 +669,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.min': [BEFORE_UTC_NOW + SAM_DELTA - DEFAULT_DELTA],
                 'time.max': [BEFORE_UTC_NOW - DEFAULT_DELTA],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.max`:
                 AFTER_UTC_NOW,
                 # `time.min` derived from `time.max`:
@@ -683,7 +688,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.min': [BEFORE_UTC_NOW + SAM_DELTA - DEFAULT_DELTA],
                 'time.max': [AFTER_UTC_NOW],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.max`:
                 AFTER_UTC_NOW,
                 # `time.min` derived from `active.min`:
@@ -702,7 +707,7 @@ class TestRestAPIViewBase(unittest.TestCase):
                 'active.min': [AFTER_UTC_NOW + SAM_DELTA - DEFAULT_DELTA],
                 'time.max': [AFTER_UTC_NOW],
             },
-            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % (
+            expected_redirect_url='/foo?...&modified.min=%s&time.min=%s' % _quoted_tuple(
                 # `modified.min` derived from `modified.max`:
                 AFTER_UTC_NOW,
                 # `time.min` derived from utcnow():

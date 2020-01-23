@@ -45,6 +45,7 @@ from n6sdk.data_spec.fields import (
     MD5Field,
     PortField,
     SHA1Field,
+    SHA256Field,
     SourceField,
     UnicodeField,
     UnicodeEnumField,
@@ -187,6 +188,7 @@ class MixinBase(TestCaseMixin):
         u'proto': UnicodeEnumField,
         u'registrar': UnicodeLimitedField,
         u'sha1': SHA1Field,
+        u'sha256': SHA256Field,
         u'sport': PortField,
         u'target': UnicodeLimitedField,
         u'url': URLField,
@@ -215,13 +217,17 @@ class MixinBase(TestCaseMixin):
     def get_data_spec_class(self):
         return self.base_data_spec_class
 
+    def get_example_given_dict_keys_to_be_omitted(self):
+        return set()
+
     def _selftest_assertions(self):
         assert self.keys <= set(self.key_to_field_type)
         assert self.required_keys <= self.keys
         assert self.required_keys <= set(self.example_given_dict)
-        assert set(self.example_given_dict) <= self.keys
-        assert (set(self.example_given_dict) ==
-                set(self.example_cleaned_dict))
+        omitted = self.get_example_given_dict_keys_to_be_omitted()
+        non_omitted = set(self.example_given_dict) - omitted
+        assert non_omitted <= self.keys
+        assert set(self.example_cleaned_dict) == non_omitted
 
     def _given_dict(self, **kwargs):
         d = dict(self.example_given_dict, **kwargs)
@@ -267,7 +273,14 @@ class MixinBase(TestCaseMixin):
             self.assertIs(type(field), self.key_to_field_type[key])
 
 
-class AllSearchableParamCleanMixin(MixinBase):
+class ParamCleanMixin(MixinBase):
+
+    def get_example_given_dict_keys_to_be_omitted(self):
+        return {key for key, value in self.example_given_dict.iteritems()
+                if value == []}
+
+
+class AllSearchableParamCleanMixin(ParamCleanMixin):
 
     # param-fields-related
 
@@ -286,7 +299,7 @@ class AllSearchableParamCleanMixin(MixinBase):
 
         u'action', u'dip', u'dport', u'email', u'fqdn', u'fqdn.sub',
         u'iban', u'modified.max', u'modified.min', u'modified.until',
-        u'name', u'md5', u'sha1', u'origin', u'phone', u'proto',
+        u'name', u'md5', u'sha1', u'sha256', u'origin', u'phone', u'proto',
         u'registrar', u'sport', u'target', u'url', u'url.sub',
         u'url_pattern', u'username', u'x509fp_sha1',
     }
@@ -308,12 +321,15 @@ class AllSearchableParamCleanMixin(MixinBase):
         'ipv6': ['2001:db8:85a3::8a2e:370:7334'],
         u'cc': ['PL', 'US'],
         'dip': [u'0.10.20.30'],
+        u'foo.bar.spam.ham.unknown': [],  # empty list so param should be treated as non-existent
         'registrar': ['Foo Bar'],
         u'asn': ['80000', '1'],
         'dport': [u'1234'],
         u'ip.net': [u'100.101.102.103/32', '1.2.3.4/7'],
         'ipv6.net': ['2001:db8:85a3::8a2e:370:7334/128'],
         u'time.min': ['2014-04-01 01:07:42+02:00'],
+        'time.max': [],                   # empty list so param should be treated as non-existent
+        u'iban': [],                      # empty list so param should be treated as non-existent
         'modified.until': [u'2014-04-01 01:07:42+02:00'],
         u'active.min': [u'2015-05-02T24:00'],
         'phone': ['abc', u'+48123456789'],
@@ -380,7 +396,7 @@ class AllSearchableParamCleanMixin(MixinBase):
         assert self.single_param_keys <= self.keys
 
 
-class NoSearchableParamCleanMixin(MixinBase):
+class NoSearchableParamCleanMixin(ParamCleanMixin):
 
     base_data_spec_class = DataSpec
 
@@ -390,7 +406,12 @@ class NoSearchableParamCleanMixin(MixinBase):
     required_keys = set()
     single_param_keys = set()
 
-    example_given_dict = {}
+    example_given_dict = {
+        # empty lists so these params should be treated as non-existent
+        u'foo.bar.spam.ham.unknown': [],
+        'time.max': [],
+        u'iban': [],
+    }
     example_cleaned_dict = {}
     example_illegal_keys = AllSearchableParamCleanMixin.keys.copy()
     example_missing_keys = set()
@@ -413,7 +434,7 @@ class ResultCleanMixin(MixinBase):
         u'count', u'until',
 
         u'action', u'adip', u'dip', u'dport', u'email', u'fqdn',
-        u'iban', u'injects', u'modified', u'name', u'md5', u'sha1',
+        u'iban', u'injects', u'modified', u'name', u'md5', u'sha1', u'sha256',
         u'origin', u'phone', u'proto', u'registrar', u'sport',
         u'target', u'url', u'url_pattern', u'username', u'x509fp_sha1',
     }

@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+# Copyright (c) 2013-2019 NASK. All rights reserved.
+
 import copy
 import datetime
 import json
@@ -12,7 +14,12 @@ from mock import (
     patch,
     sentinel,
 )
-from unittest_expander import expand, foreach, param, paramseq
+from unittest_expander import (
+    expand,
+    foreach,
+    param,
+    paramseq,
+)
 
 from n6.collectors.misp import MispCollector
 

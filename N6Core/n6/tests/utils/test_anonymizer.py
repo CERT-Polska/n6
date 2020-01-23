@@ -51,6 +51,8 @@ class TestAnonymizer__input_callback(TestCaseMixin, unittest.TestCase):
             sen.cleaned_result_dict,
             sen.output_body,
         )
+        self.force_exit_on_any_remaining_entered_contexts_mock = self.patch(
+            'n6.utils.anonymizer.force_exit_on_any_remaining_entered_contexts')
 
 
     @foreach(
@@ -78,6 +80,9 @@ class TestAnonymizer__input_callback(TestCaseMixin, unittest.TestCase):
             self.body,
             sen.properties)
 
+        self.assertEqual(self.force_exit_on_any_remaining_entered_contexts_mock.mock_calls, [
+            call(self.mock.auth_api),
+        ])
         self.assertEqual(self.mock.mock_calls, [
             call.setting_error_event_info(self.event_data),
             call.setting_error_event_info().__enter__(),
@@ -121,6 +126,9 @@ class TestAnonymizer__input_callback(TestCaseMixin, unittest.TestCase):
             self.body,
             sen.properties)
 
+        self.assertEqual(self.force_exit_on_any_remaining_entered_contexts_mock.mock_calls, [
+            call(self.mock.auth_api),
+        ])
         self.assertEqual(self.mock.mock_calls, [
             call.setting_error_event_info(self.event_data),
             call.setting_error_event_info().__enter__(),
@@ -150,6 +158,9 @@ class TestAnonymizer__input_callback(TestCaseMixin, unittest.TestCase):
                 self.body,
                 sen.properties)
 
+        self.assertEqual(self.force_exit_on_any_remaining_entered_contexts_mock.mock_calls, [
+            call(self.mock.auth_api),
+        ])
         self.assertEqual(self.mock.mock_calls, [
             call.setting_error_event_info(self.event_data),
             call.setting_error_event_info().__enter__(),

@@ -19,7 +19,7 @@ _SIMPLE_CONFIG = {
     "possible_event_attributes": ["name", "source", "restriction", "confidence", "category",
                                   "time", "url", "fqdn", "address", "proto", "sport", "dport",
                                   "dip", "id", "rid", "client", "replaces", "status", "md5",
-                                  "origin", "sha1", "target", "modified", "expires"],
+                                  "origin", "sha1", "sha256", "target", "modified", "expires"],
     "required_attributes": ["id", "rid", "source", "restriction", "confidence", "category",
                             "time"],
     "dip_categories": ["bots", "cnc", "dos-attacker", "scanning", "other"],
@@ -82,6 +82,8 @@ class TestRandomEventWithParams(unittest.TestCase):
         'origin': ['darknet', 'honeypot'],
         'sha1': ['02346807a6013599e62044978131068d893fc36e',
                  '8826c5a01fd04759431004ef30c755c280949e8e'],
+        'sha256': ['9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+                   '60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752'],
         'target': ['test target1', 'test target2'],
     }
     _SPECIAL_PARAMS = {

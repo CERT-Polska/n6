@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2019 NASK. All rights reserved.
 
 import unittest
 
@@ -45,6 +45,7 @@ NAMES_OF_FIELD_CLASSES_CORRELATED_WITH_SDK_ONES = frozenset([
     'MD5FieldForN6',
     'PortFieldForN6',
     'SHA1FieldForN6',
+    'SHA256FieldForN6',
     'SourceFieldForN6',
     'URLFieldForN6',
     'URLSubstringFieldForN6',

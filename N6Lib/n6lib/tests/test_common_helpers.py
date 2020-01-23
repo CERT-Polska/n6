@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
 import os
 import re
@@ -762,7 +762,8 @@ class TestMakeDebugMsg(unittest.TestCase):
 @patch('sys.stdout')
 class TestDumpDebugMsg(unittest.TestCase):
 
-    def test_dump_condensed_debug_msg_no_exc(self, mock_stdout, mock_stderr):
+    # TODO: refactor (and maybe improve?) this method
+    def test_dump_condensed_debug_msg(self, mock_stdout, mock_stderr):
         """
         Tests for dumping error msg to stdout and stderr.
 
@@ -798,7 +799,7 @@ class TestDumpDebugMsg(unittest.TestCase):
             raise ValueError('ValueError msg')
         except ValueError:
             # Dump exception debug msg to stdout
-            exc_stdout_msg = re.compile(r"\\nstdout\\n\\nCONDENSED DEBUG INFO:.+\[.+@.+\] "
+            exc_stdout_msg = re.compile(r"\\nstdout\\n\\nCONDENSED DEBUG INFO: \[.+\] \[.+@.+\] "
                                         r"ValueError:.+ValueError msg.+raise ValueError"
                                         r"\('ValueError msg'\).+test_common_helpers.+`")
             dump_condensed_debug_msg(header='stdout', stream=sys.stdout)
@@ -808,7 +809,7 @@ class TestDumpDebugMsg(unittest.TestCase):
             self.assertEqual(mock_stdout.mock_calls[-1], call.flush())
 
             # Dump exception debug msg to stderr
-            exc_stderr_msg = re.compile(r"\\nstderr\\n\\nCONDENSED DEBUG INFO:.+\[.+@.+\] "
+            exc_stderr_msg = re.compile(r"\\nstderr\\n\\nCONDENSED DEBUG INFO: \[.+\] \[.+@.+\] "
                                         r"ValueError:.+ValueError msg.+raise ValueError"
                                         r"\('ValueError msg'\).+test_common_helpers.+`")
             dump_condensed_debug_msg(header='stderr', stream=sys.stderr)
@@ -817,6 +818,15 @@ class TestDumpDebugMsg(unittest.TestCase):
                                      expected_regexp=exc_stderr_msg)
             self.assertEqual(mock_stderr.mock_calls[-1], call.flush())
 
+            # Same but specifying argument `debug_msg`
+            mock_stderr.reset_mock()
+            exc_stderr_msg = re.compile(r"\\nstderr\\n\\nCONDENSED DEBUG INFO: \[[^@]+\] "
+                                        r"my_debug_msg\\n\W*\Z")
+            dump_condensed_debug_msg(header='stderr', stream=sys.stderr, debug_msg='my_debug_msg')
+            stderr_call = str(list(mock_stderr.mock_calls)[0])
+            self.assertRegexpMatches(text=stderr_call,
+                                     expected_regexp=exc_stderr_msg)
+            self.assertEqual(mock_stderr.mock_calls[-1], call.flush())
 
 
 # maybe TODO later: tests of the other classes and functions in

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 #
 # For some code in this module:
 # Copyright (c) 2001-2013 Python Software Foundation. All rights reserved.
@@ -28,6 +28,7 @@ import threading
 import time
 import traceback
 import weakref
+from importlib import import_module
 
 from pkg_resources import cleanup_resources
 from pyramid.decorator import reify
@@ -158,7 +159,9 @@ class RsyncFileContextManager(object):
 class SimpleNamespace(object):
 
     """
-    Provides attribute access to its namespace, as well as a meaningful repr.
+    Provides attribute access to its namespace, as well as
+    namespace-content-based implementation of `repr()` and the
+    `==`/`!=` operators.
 
     Copied from http://docs.python.org/3.4/library/types.html and adjusted.
     """
@@ -186,6 +189,88 @@ class SimpleNamespace(object):
 
     def __ne__(self, other):
         return not self == other
+
+
+class ThreadLocalNamespace(SimpleNamespace, threading.local):
+
+    """
+    Somewhat similar to `SimpleNamespace` (which is one of its base
+    classes) -- but with two significant differences:
+
+    * it is also a subclass of `threading.local` -- so its instances
+      provide a *separate namespace for each thread*;
+
+    * the constructor takes *only* one optional keyword argument:
+      `attr_factories` -- it should be a dict that maps attribute names
+      to attribute factories, i.e., argumentless callables that will be
+      called *separately in each thread* to obtain corresponding
+      attribute values.
+
+    >>> TLN = ThreadLocalNamespace(attr_factories={'foo': lambda: ['xyz']})
+    >>> TLN.foo
+    ['xyz']
+    >>> TLN                                                                    # doctest: +ELLIPSIS
+    <ThreadLocalNamespace object as visible from thread ...: foo=['xyz']>
+
+    >>> SN = SimpleNamespace(foo=['xyz', 123])
+    >>> TLN == SN
+    False
+    >>> TLN.foo.append(123)
+    >>> TLN.foo
+    ['xyz', 123]
+    >>> TLN == SN
+    True
+    >>> TLN                                                                    # doctest: +ELLIPSIS
+    <ThreadLocalNamespace object as visible from thread ...: foo=['xyz', 123]>
+
+    >>> def test_it(tln, sn, with_appended=None):
+    ...     if with_appended is not None:
+    ...         tln.foo.append(with_appended)
+    ...     print(
+    ...         'TLN with foo={tln.foo}'
+    ...         ' is {equality} to'
+    ...         ' SN with foo={sn.foo}'.format(
+    ...             tln=tln,
+    ...             sn=sn,
+    ...             equality=('equal' if tln==sn else '*not* equal')))
+    ...
+    >>> def test_it_in_another_thread(tln, sn, with_appended=None):
+    ...     t = threading.Thread(target=test_it, args=(tln, sn, with_appended))
+    ...     t.start()
+    ...     t.join()
+    ...
+    >>> test_it(TLN, SN)
+    TLN with foo=['xyz', 123] is equal to SN with foo=['xyz', 123]
+    >>> test_it_in_another_thread(TLN, SN)
+    TLN with foo=['xyz'] is *not* equal to SN with foo=['xyz', 123]
+    >>> test_it_in_another_thread(TLN, SN, with_appended=123)
+    TLN with foo=['xyz', 123] is equal to SN with foo=['xyz', 123]
+    >>> SN.foo.pop()
+    123
+    >>> test_it(TLN, SN)
+    TLN with foo=['xyz', 123] is *not* equal to SN with foo=['xyz']
+    >>> test_it_in_another_thread(TLN, SN)
+    TLN with foo=['xyz'] is equal to SN with foo=['xyz']
+    >>> test_it_in_another_thread(TLN, SN, with_appended=123)
+    TLN with foo=['xyz', 123] is *not* equal to SN with foo=['xyz']
+    """
+
+    def __init__(self, attr_factories=None):
+        attrs = {}
+        if attr_factories is not None:
+            for name, factory in sorted(attr_factories.iteritems()):
+                value = factory()
+                attrs[name] = value
+        super(ThreadLocalNamespace, self).__init__(**attrs)
+
+    def __repr__(self):
+        namespace = self.__dict__
+        items = ("{0}={1!r}".format(k, namespace[k])
+                 for k in sorted(namespace))
+        return '<{} object as visible from thread {!r}: {}>'.format(
+            type(self).__name__,
+            threading.current_thread(),
+            ', '.join(items))
 
 
 class FilePagedSequence(collections.MutableSequence):
@@ -1654,26 +1739,35 @@ def memoized(func=None,
                 raise RuntimeError(
                     'recursive calls cannot be memoized ({0!r} appeared '
                     'to be called recursively)'.format(wrapper))
-            recursion_guard.append(None)
             try:
-                if expires_after is not None:
-                    # delete expired items
-                    current_time = time_func()
-                    while cache_register and cache_register[0].expiry_time <= current_time:
-                        key = cache_register.popleft().key
-                        del keys_to_results[key]
-                key = CacheKey(*args)
-                result = keys_to_results.get(key, NOT_FOUND)
-                if result is NOT_FOUND:
-                    result = keys_to_results[key] = func(*args)
-                    expiry_time = (
-                        (time_func() + expires_after +
-                         random.randint(0, max_extra_time or 0))
-                        if expires_after is not None else None)
-                    cache_register.append(CacheRegItem(key, expiry_time))
-                return result
-            finally:
-                recursion_guard.pop()
+                recursion_guard.append(None)
+                try:
+                    if expires_after is not None:
+                        # delete expired items
+                        current_time = time_func()
+                        while cache_register and cache_register[0].expiry_time <= current_time:
+                            key = cache_register.popleft().key
+                            del keys_to_results[key]
+                    key = CacheKey(*args)
+                    result = keys_to_results.get(key, NOT_FOUND)
+                    if result is NOT_FOUND:
+                        result = keys_to_results[key] = func(*args)
+                        expiry_time = (
+                            (time_func() + expires_after +
+                             random.randint(0, max_extra_time or 0))
+                            if expires_after is not None else None)
+                        cache_register.append(CacheRegItem(key, expiry_time))
+                    return result
+                finally:
+                    recursion_guard.pop()
+            except:
+                # additional safety measures in the event of an
+                # intrusive exception (e.g., an exception from a
+                # signal handler, such as `KeyboardInterrupt` caused
+                # by Ctrl+C) that breaks the guarantee that the above
+                # `recursion_guard.pop()` call is always made
+                del recursion_guard[:]
+                raise
 
     wrapper.func = func  # making the original function still available
     return wrapper
@@ -3206,6 +3300,34 @@ def safe_eval(node_or_string, namespace=None):
     return _convert(node_or_string)
 
 
+def import_by_dotted_name(dotted_name):
+    """
+    Import an object specified by the given `dotted_name`.
+
+    >>> obj = import_by_dotted_name('n6lib.tests._dummy_module_used_by_some_tests.DummyObj')
+    >>> from n6lib.tests._dummy_module_used_by_some_tests import DummyObj
+    >>> obj is DummyObj
+    True
+
+    >>> import_by_dotted_name('n6lib.tests._dummy_module_used_by_some_tests.NonExistentObj'
+    ...                       )  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ImportError: ...
+    """
+    all_name_parts = dotted_name.split('.')
+    importable_name = all_name_parts[0]
+    obj = import_module(importable_name)
+    for part in all_name_parts[1:]:
+        importable_name += '.{}'.format(part)
+        try:
+            obj = getattr(obj, part)
+        except AttributeError:
+            import_module(importable_name)
+            obj = getattr(obj, part)
+    return obj
+
+
 def with_flipped_args(func):
     """
     From a given function that takes exactly two positional parameters
@@ -3423,29 +3545,66 @@ def cleanup_src():
         _LOGGER.warning('Fail cleanup resources: %r', fail_cleanup)
 
 
-def make_exc_ascii_str(exc):
+def make_exc_ascii_str(exc=None):
     ur"""
-    Generate an ASCII string representing the given exception.
+    Generate an ASCII-only string representing the (given) exception.
 
     Args:
         `exc`:
-            The given exception instance.
+            The given exception instance or a tuple whose length is not
+            less than 2 and whose first two items are: the exception
+            type and instance (value).  If not given or `None` it will
+            be retrieved automatically with `sys.exc_info()`.
 
     Returns:
-        A textual representation of `exc`, containing both the name
-        of its class and its normal `str()`-representation, as an
-        ASCII-only `str` instance.
+        A textual representation (coerced to be an ASCII-only `str`
+        instance) of the exception (if given or successfully retrieved
+        automatically), containing the name of its class (type) and,
+        typically, also its normal `str()`-representation.  If `exc`
+        was not given (or given as `None`) and auto-retrieval failed
+        then the `'Unknown exception (if any)'` string is returned
+        (obviously also being an ASCII-only `str` instance).
 
     >>> make_exc_ascii_str(RuntimeError('whoops!'))
     'RuntimeError: whoops!'
     >>> make_exc_ascii_str(RuntimeError(u'whoops!'))
     'RuntimeError: whoops!'
 
+    >>> make_exc_ascii_str((RuntimeError, RuntimeError('whoops!')))
+    'RuntimeError: whoops!'
+    >>> make_exc_ascii_str((RuntimeError, RuntimeError('whoops!'), 'irrelevant stuff', 42, 'SPAM'))
+    'RuntimeError: whoops!'
+    >>> make_exc_ascii_str((RuntimeError, None))
+    'RuntimeError'
+
     >>> make_exc_ascii_str(ValueError('Zażółć jaźń!\xcc'))
     'ValueError: Za\\u017c\\xf3\\u0142\\u0107 ja\\u017a\\u0144!\\udccc'
     >>> make_exc_ascii_str(ValueError(u'Zażółć jaźń!\\udccc'))
     'ValueError: Za\\u017c\\xf3\\u0142\\u0107 ja\\u017a\\u0144!\\udccc'
+
+    >>> try:
+    ...     raise RuntimeError('whoops!')
+    ... except Exception:
+    ...     exc_string = make_exc_ascii_str()
+    ...
+    >>> exc_string
+    'RuntimeError: whoops!'
+
+    >>> make_exc_ascii_str()
+    'Unknown exception (if any)'
     """
+    if exc is None or isinstance(exc, tuple):
+        if exc is None:
+            exc = sys.exc_info()[:2]
+        assert isinstance(exc, tuple)
+        exc_type, exc = exc[:2]
+        if exc is None and exc_type is not None:
+            try:
+                return ascii_str(exc_type.__name__)
+            except Exception:
+                pass
+    if exc is None:
+        return 'Unknown exception (if any)'
     return '{}: {}'.format(ascii_str(exc.__class__.__name__), ascii_str(exc))
 
 
@@ -3564,28 +3723,37 @@ def _try_to_release_dump_condensed_debug_msg_lock(
         # already unlocked
         pass
 
-def dump_condensed_debug_msg(header=None, stream=None,
+def dump_condensed_debug_msg(header=None, stream=None, debug_msg=None,
                              # these objects are intended to be accessible even when
                              # this module is in a weird state on interpreter exit...
                              _acquire_lock=_dump_condensed_debug_msg_lock.acquire,
                              _try_to_release_lock=_try_to_release_dump_condensed_debug_msg_lock):
     """
-    Call make_condensed_debug_msg(total_limit=None, exc_str_limit=1000,
-    tb_str_limit=None, stack_str_limit=None) and print the resultant
+    Call `make_condensed_debug_msg(total_limit=None, exc_str_limit=1000,
+    tb_str_limit=None, stack_str_limit=None)` and print the resultant
     debug message (adding to it an apropriate caption, containing
     current thread's identifier and name, and optionally preceding it
     with the specified `header`) to the standard error output or to the
     specified `stream`.
 
+    If `debug_msg` is given (as a non-`None` value) then the
+    `make_condensed_debug_msg(...)` call is not made but, instead of
+    its result, the given value is used.
+
     This function is thread-safe (guarded with an RLock).
 
     Args/kwargs:
-        `header` (default: None):
+        `header` (default: `None`):
             Optional header -- to be printed above the actual debug
             information.
         `stream` (default: None):
-            The stream the debug message is to be printed to.  If None
+            The stream the debug message is to be printed to.  If `None`
             the message will be printed to the standard error output.
+        `debug_msg` (default: None):
+            Typically it is left as `None`.  In some cases, however, it
+            may be appropriate to specify it (e.g., if the client code
+            has already called `make_condensed_debug_msg(...)`, so
+            another call would be redundant).
     """
     try:
         _acquire_lock()
@@ -3595,11 +3763,12 @@ def dump_condensed_debug_msg(header=None, stream=None,
                 else '')
             if stream is None:
                 stream = sys.stderr
-            debug_msg = make_condensed_debug_msg(
-                total_limit=None,
-                exc_str_limit=1000,
-                tb_str_limit=None,
-                stack_str_limit=None)
+            if debug_msg is None:
+                debug_msg = make_condensed_debug_msg(
+                    total_limit=None,
+                    exc_str_limit=1000,
+                    tb_str_limit=None,
+                    stack_str_limit=None)
             cur_thread = threading.current_thread()
             print >>stream, '{0}\nCONDENSED DEBUG INFO: [thread {1!r} (#{2})] {3}\n'.format(
                 header,

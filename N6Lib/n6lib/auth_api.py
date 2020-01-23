@@ -9,7 +9,6 @@ import fnmatch
 import functools
 import os
 import re
-import threading
 import traceback
 
 import ldap
@@ -27,6 +26,7 @@ from n6lib.common_helpers import (
     deep_copying_result,
 )
 from n6lib.const import CLIENT_ORGANIZATION_MAX_LENGTH
+from n6lib.context_helpers import ThreadLocalContextDeposit
 from n6lib.db_events import n6NormalizedData
 from n6lib.db_filtering_abstractions import (
     BaseCond,
@@ -163,7 +163,7 @@ class AuthAPI(object):
 
 
     def __init__(self, settings=None):
-        self._thread_local = threading.local()
+        self._root_node_deposit = ThreadLocalContextDeposit(repr_token=self.__class__.__name__)
         self._ldap_api = LdapAPI(settings)
 
 
@@ -171,20 +171,11 @@ class AuthAPI(object):
     # Context manager interface
 
     def __enter__(self):
-        loc = self._thread_local
-        context_count = getattr(loc, 'context_count', 0)
-        if context_count == 0:
-            loc.ldap_root_node = self._get_root_node()
-        assert getattr(loc, 'ldap_root_node', None) is not None
-        loc.context_count = context_count + 1
+        self._root_node_deposit.on_enter(outermost_context_factory=self._get_root_node)
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        loc = self._thread_local
-        assert getattr(loc, 'ldap_root_node', None) is not None
-        loc.context_count = context_count = loc.context_count - 1
-        if context_count == 0:
-            loc.ldap_root_node = None
+        self._root_node_deposit.on_exit(exc_type, exc, tb)
 
 
     #
@@ -192,7 +183,7 @@ class AuthAPI(object):
 
     # WARNING: when you call this function you should *never* modify its results!
     def get_ldap_root_node(self):
-        root_node = getattr(self._thread_local, 'ldap_root_node', None)
+        root_node = self._root_node_deposit.outermost_context
         if root_node is None:
             root_node = self._get_root_node()
         return root_node

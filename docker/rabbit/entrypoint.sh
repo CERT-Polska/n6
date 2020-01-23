@@ -10,6 +10,9 @@ echo "Starting RabbitMQ..."
   if rabbitmqctl list_users >/dev/null 2>&1
   then
     # Create Rabbitmq user
+    rabbitmqctl add_user $RABBITMQ_DEFAULT_USER $RABBITMQ_DEFAULT_PASS
+    rabbitmqctl set_user_tags $RABBITMQ_DEFAULT_USER administrator
+    rabbitmqctl set_permissions -p / $RABBITMQ_DEFAULT_USER ".*" ".*" ".*"
     rabbitmqctl add_user $RABBITMQ_USER $RABBITMQ_PASSWORD
     rabbitmqctl set_user_tags $RABBITMQ_USER administrator
     rabbitmqctl set_permissions -p / $RABBITMQ_USER ".*" ".*" ".*"
