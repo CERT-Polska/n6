@@ -18,6 +18,7 @@ requires = [
     'Flask-Admin==1.5.2',
     'SQLAlchemy==0.9.10',
     'WTForms==2.1',
+    'werkzeug<1.0',
 ]
 
 setup(
