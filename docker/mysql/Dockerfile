@@ -1,4 +1,4 @@
-FROM mariadb:10.3
+FROM mariadb:10.3-bionic
 
 # MariaDB image with TokuDB engine
 # solution how to install taken from:
