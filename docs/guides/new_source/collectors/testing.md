@@ -115,7 +115,7 @@ So, after all of that, we need to implement the `test` method.
         return collector
 ```
 
-And that is all. So what have we done? First we created our collector
+And that's all. So what have we done? First we created our collector
 using the `prepare_collector` method, giving it a class of the
 collector and the content of its (mocked) configuration. However before
 doing so we mocked `_download_data` method on the `MyCollector` class

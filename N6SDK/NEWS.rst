@@ -1,3 +1,17 @@
+x.x.x (20xx-xx-xx)
+==================
+
+**Deprecation warning**: using *n6sdk* as a standalone library is now
+deprecated.
+
+Use *n6lib* instead (and/or other sub-packages of *n6*, which is now an
+open-source project; see: https://github.com/CERT-Polska/n6 and
+https://n6.readthedocs.io/).
+
+Most probably, in the future, *n6sdk* will be incorporated into the
+*n6lib* sub-package of the *n6* project.
+
+
 0.6.2 (2016-05-11)
 ==================
 

@@ -1,3 +1,5 @@
+# Executable Commands
+
 For each public collector, during installation, there will be console command
 generated in the form `n6collector_{trimmed_collector_class_name}` where the 
 `trimmed collector class name` is lowercased collectors class name

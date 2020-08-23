@@ -41,7 +41,7 @@ You would need to deal with the queue communication
 by yourself as well as be wary about *n6*'s queue naming
 conventions, exchange types and so on...
 
-Next class described in this chapter will addres these issues
+Next class described in this chapter will address these issues
 so you should not have to bother with them.
 
 But if you really have to use `AbstractBaseCollector` as your
@@ -113,7 +113,7 @@ pipeline.
 On the other hand, for collectors of the other types (non-`blacklist`
 ones) it is often not so trivial because, typically, sources expose
 data that are continually increasing in records over time - so a
-collector muest take care not to download the same records again and
+collector must take care not to download the same records again and
 again; to cope with that such collectors need to have some internal
 state that persists throughout collector's runs. Because of that it is
 often a bit harder to implement a `stream` or a `file` collector than a
@@ -217,7 +217,7 @@ existing collectors.
 What the `BaseCollector` class does for us is dividing collectors logic
 into 6 different methods. The method `get_output_components` glues them
 back together (yes, it is a *template method* - if you are familiar
-with programming desing patterns). Its return value contains all you
+with programming design patterns). Its return value contains all you
 need to export the collected data as a RabbitMQ message; it is a
 3-tuple consisting of: the AMQP routing key, the output data body and a
 dict of AMQP message properties (typically, these three items are ready
@@ -241,7 +241,7 @@ replace them if needed. The resultant dict is then passed as keyword
 arguments to *each* of the later functions' calls. The default
 implementation just returns the given keyword arguments intact.
 
-`get_source_channel` returns the second part of the source identyfier.
+`get_source_channel` returns the second part of the source identifier.
 Here we need to explain it precisely: each source identifier follows
 the following format: `{provider name}.{channel name}` (each of the two
 parts must consist of ASCII letters, digits and hyphens only; and whole

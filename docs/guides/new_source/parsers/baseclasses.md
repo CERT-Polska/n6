@@ -55,7 +55,7 @@ attributes we care about:
 draw its data from the queue. Typically, it consists of two parts joined
 with the "." character. The first part is the source name (provider) and the second
 one is the source channel. So for the `example-label` source provider and
-the `example-channel` source channek it would look like so: 
+the `example-channel` source channel it would look like so: 
 `default_bindig_key = "example-label.exammple-channel"`. 
 * `constant_items` - which is a dictionary of items that
 are constant for all of the output events. Most parsers will have
@@ -185,7 +185,7 @@ extracted string.
 The same as the `BaseParser` except it needs to create
 a `_group` key for the *Aggregator* module
  -- so the `group_id_components` class attribute needs to be provided.
-See [high frequency collectors](../collectors/hifreq.md).
+See [high frequency data sources](hifreq.md).
 
 Example:
 
@@ -202,7 +202,7 @@ class ExampleHiFreqParser(AggregatedEventParser):
 
     def parse(self, data):
         # implementation here...
-        pass 
+        pass
 ```
 
 ## Versioning parsers

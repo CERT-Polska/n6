@@ -1,4 +1,4 @@
-# State
+# Stateful Collectors
 
 Some collectors need to preserve their state between consecutive runs.
 The usual case is that we want to remember some information which allows
@@ -16,7 +16,7 @@ some kind of persistent storage.
 ## Implementation
 
 `N6Core`'s module `n6.collectors.generic` comes with a class mix-in `CollectorWithStateMixin` (not to be
-confised with the deprecated legacy ones: `CollectorStateMixIn` and
+confused with the deprecated legacy ones: `CollectorStateMixIn` and
 `CollectorStateMixInPlus`!) which saves the state as a pickle (so it
 can be almost any Python object) inside the *n6*'s cache directory.
 

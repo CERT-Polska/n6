@@ -48,9 +48,8 @@ source code repository is: `N6Core/n6/collectors/generic.py`.)
 Contents
 --------
 
-* [Console command](command.md)
-* [Base classes](classes.md)
-* [State](state.md)
-* [Hi-Freq data sources](hifreq.md)
+* [Executable Commands](command.md)
+* [Base Classes](classes.md)
+* [Stateful Collectors](state.md)
 * [Testing](testing.md)
 

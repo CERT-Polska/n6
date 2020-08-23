@@ -26,11 +26,31 @@ Parsers only draw from their respective queue
 but how the data got there is not for their concern.
 It could be pushed there with some other tool. 
 
+## Parsers' output
+
+Parsers normalize data for the *n6* so the output of the
+parser cannot be of any format. All parsers need to return
+a dictionary of specific items. There is a specialised
+class called `RecordDict` (and `BLRecordDict` for blacklist parsers)
+which is an enhanced dictionary, intended to be used
+to represent *n6*'s records. 
+
+Some fields of the returned dictionary
+are required by the *n6* in the
+resulting data. These fields are
+`id`, `source`, `restriction`, `confidence`, `category`, and `time`.
+Furthermore there are a lot of optional
+fields that the values can be provided for.
+The full list the fields that can appear in the parser's result can be
+deduced from the `adjust_{field name}` attributes of the
+`n6lib.record_dict.RecordDict` class.
+
 Contents
 --------
 
 * [Console command](command.md)
 * [Base classes](baseclasses.md)
+* [Hi-Freq data sources](hifreq.md)
 * [Testing](testing.md)
 
 

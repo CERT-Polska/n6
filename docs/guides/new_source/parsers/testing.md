@@ -77,17 +77,11 @@ class TestMyParserSimpleCase(ParserTestMixIn, unittest.TestCase)
         )
 ```
 
-Of course the input and resulting data fields will depend on the tested source. Yet some fields are required by the *n6* in the
-resulting data. These fields are
-`id`, `source`, `restriction`, `confidence`, `category`, and `time`.
+Of course the input and resulting data fields will depend on the tested source. 
 `ParserTestMixIn` automatically covers testing the `id` and `source`
 fields as well as any fields that the `PARSER_CONSTANT_ITEMS` mapping
 includes. We need to provide the values for any other fields in the
-expected results.
-
-The full list the fields that can appear in the parser's result can be
-deduced from the `adjust_{field name}` attributes of the
-`n6lib.record_dict.RecordDict` class.
+expected results. 
 
 It is also worth mentioning that the `ParserTestMixIn` class also provides
 a helper method for creating blacklist items, `get_bl_items`, which is
