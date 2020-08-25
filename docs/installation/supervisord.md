@@ -1,14 +1,14 @@
-# Managing processes with Supervisor
+# Supervisor
 
-## Setup
 Supervisor is a system for controlling processes' state under UNIX,
-useful to manage `N6Core` components.
+useful to manage the *n6* pipeline (`N6Core`) components.
 
 ```bash
 (env)$ pip install supervisor
 ```
 
 ## Configuration
+
 Create directories for Supervisor's config and log files. Create a configuration file in
 `~/supervisor/supervisord.conf`. 
 You can find example configuration in *n6* repository, in

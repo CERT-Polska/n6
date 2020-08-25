@@ -1,6 +1,9 @@
-# Configuration
+# Configuration of *n6* components
 
-To create configuration files required for `N6Core` components to work, run the command:
+## Generating pipeline components' configuration files
+
+To create configuration files required for the *n6* pipeline (`N6Core`)
+components to work, run the command:
 
 ```bash
 (env)$ n6config
@@ -124,7 +127,7 @@ spam404-com.scam-list
 You can close the parser with `CTRL + c`. It will gracefully close the connection and exit.
 
 
-## SQL databases
+## SQL databases (MariaDB)
 
 MySQL setup configuration can be found in `/etc/mysql/my.cnf`. _n6_ provides its own configuration
 in `n6/etc/mysql/conf.d/mariadb.cnf`. Adjust this configuration as a root and restart the _mariadb_
@@ -141,9 +144,9 @@ Remove plugins from user:
 # mysql -p -u root -e 'update mysql.user set plugin=" " where User="root";flush privileges;'
 ```
 
-**Adjust *n6* configuration files:**
+Now, it's time to adjust relevant *n6* configuration files...
 
-### Event database
+### Event DB
 
 As the `dataman` user, edit `/home/dataman/.n6/21_recorder.conf`, section `recorder`. Primarily,
 set a proper database URI - SQL _event_ database (URI should include username, password,
@@ -156,15 +159,6 @@ echo = 0
 wait_timeout = 28800
 ```
 
-Edit `/home/dataman/.n6/09_auth_db.conf`, section `auth_db`:
-
-```ini
-[auth_db]
-url = mysql://root:yourMysqlPassword@localhost/auth_db
-```
-
-(**Note**: here it is `url`, not `uri` as above.)
-
 SQL files placed under `n6/etc/mysql/initdb` will create tables `events` and `client_to_event`
 in database `n6` (tables used mainly for event storage).
 
@@ -173,11 +167,21 @@ $ mysql -p -u root < /home/dataman/n6/etc/mysql/initdb/1_create_tables.sql
 $ mysql -p -u root < /home/dataman/n6/etc/mysql/initdb/2_create_indexes.sql
 ```
 
-### AuthDB
+### Auth DB
 
-_AuthDB_ database is used for authentication and authorization.
+_Auth DB_ database is used for authentication and authorization.
 
-Tables for authentication will be created using _n6_ script `n6create_and_initialize_auth_db`:
+First, edit (as the `dataman` user) the `/home/dataman/.n6/09_auth_db.conf`
+file, section `auth_db`:
+
+```ini
+[auth_db]
+url = mysql://root:yourMysqlPassword@localhost/auth_db
+```
+
+(**Note**: here it is `url`, not `uri` as above.)
+
+Tables for authentication should be created using _n6_ script `n6create_and_initialize_auth_db`:
 
 ```bash
 (env)$ n6create_and_initialize_auth_db -D -y
@@ -254,7 +258,7 @@ X.509 client certificate used for certificate-based authentication against *n6 R
 and *n6 Portal*.
 
 
-## Archival database - MongoDB
+## Archive DB (MongoDB)
 
 To start with, make sure that `mongod` process is running:
 
@@ -408,7 +412,8 @@ $ service mongod start
 
 ## Apache2
 
-Add `dataman` to the `www-data` group, make needed directories, and set permissions:
+Add `dataman` to the `www-data` group, make the necessary directories,
+and set appropriate permissions:
 
 ```bash
 $ /usr/sbin/usermod -a -G dataman www-data

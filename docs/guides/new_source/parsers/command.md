@@ -1,3 +1,5 @@
+# Parser Executable Commands
+
 As with [collectors](../collectors/command.md) we can generate
 a console command for our parser to be started with.
 

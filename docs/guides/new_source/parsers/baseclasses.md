@@ -1,4 +1,4 @@
-# Implementing your parser
+# Parser Base Classes
 
 As with the collectors, *n6* already comes with some tools
 to relieve developer of some work that needs to be done

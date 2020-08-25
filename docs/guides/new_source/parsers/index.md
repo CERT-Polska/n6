@@ -3,9 +3,9 @@
 Parsers take data from their respective queue and normalize them.
 There are three main types of parsers:
 
-* Event - parsing data from event sources.
-* Blacklist - parsing data from blacklist sources.
-* Hi-Freq - parsing data from high frequency event sources.
+* *Event* - parsing data from event sources.
+* *Blacklist* - parsing data from blacklist sources.
+* *Hi-Freq* - parsing data from high frequency event sources.
 
 For the most parts they work really similar. The most 
 important difference between them is how they tag their
@@ -18,13 +18,15 @@ the high frequency parser adds the `hifreq` string.
 The routing key is important for the further processing down the
 pipeline. While normal events go through `enricher`, blacklist ones -
 through `enricher` and then to `comparator`, and `hifreq` - to
-`aggregator` and only then to `enricher`.
+`aggregator` and only then to `enricher` (see: the [n6 pipeline
+diagram](../../../installation/pipeline.md) in the installation guide).
 
 One more thing to note here is that a parser does not have to
 receive data from the collectors.
 Parsers only draw from their respective queue
 but how the data got there is not for their concern.
 It could be pushed there with some other tool. 
+
 
 ## Parsers' output
 
@@ -45,13 +47,11 @@ The full list the fields that can appear in the parser's result can be
 deduced from the `adjust_{field name}` attributes of the
 `n6lib.record_dict.RecordDict` class.
 
+
 Contents
 --------
 
-* [Console command](command.md)
-* [Base classes](baseclasses.md)
-* [Hi-Freq data sources](hifreq.md)
-* [Testing](testing.md)
-
-
-
+* [Parser Executable Commands](command.md)
+* [Parser Base Classes](baseclasses.md)
+* [High-Frequency Data Sources](hifreq.md)
+* [Parser Testing](testing.md)

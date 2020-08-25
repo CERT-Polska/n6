@@ -1,17 +1,17 @@
 # Collectors
 
 Collectors are *n6*'s entry points for any external data to flow in.
-Data harvested with the collector is then sent to its corresponding parser.
+Data harvested with a collector is then sent to its corresponding parser.
 So the pipeline at this stage looks like this:
-
 
 ![Pipeline](c_p_pipe.png)
 
+Parsers translate the obtained data to the *n6*-understandable normalized format.
 
-Parser will translate the data to the *n6*-understandable normalized format.
-The role of the collector is to acquire the data and send it
-further down the pipeline so that other components do not have to
-concern themselves with external connections.
+To state it shortly: the role of a collector is to acquire data from an
+external source and send those data further down the pipeline so that
+other components do not have to concern themselves with external
+connections.
 
 ## Using a collector
 
@@ -45,11 +45,11 @@ All of those classes can be found in `N6Core` in the module
 `n6.collectors.generic`. (The path of the module file in the *n6*
 source code repository is: `N6Core/n6/collectors/generic.py`.)
 
+
 Contents
 --------
 
-* [Executable Commands](command.md)
-* [Base Classes](classes.md)
+* [Collector Executable Commands](command.md)
+* [Collector Base Classes](classes.md)
 * [Stateful Collectors](state.md)
-* [Testing](testing.md)
-
+* [Collector Tests](testing.md)

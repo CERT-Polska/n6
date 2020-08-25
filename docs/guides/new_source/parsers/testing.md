@@ -1,3 +1,5 @@
+# Parser Tests
+
 As with everything, *n6* comes with a class simplifying the task at hand.
 In this case we'll have to look at the `ParserTestMixIn` in the
 `n6.tests.parsers._parser_test_mixin` module. 

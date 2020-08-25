@@ -1,10 +1,12 @@
-# RabbitMQ
+# System Preparation
+
+## RabbitMQ
 
 RabbitMQ is an open source message broker software (sometimes called message-oriented middleware)
 that implements the Advanced Message Queuing Protocol (AMQP). RabbitMQ is responsible for
 communication between most of the *n6* components.
 
-## Setup
+### Setup
 
 ```bash
 $ apt-get install gnupg2 apt-transport-https curl
@@ -35,7 +37,7 @@ $ systemctl status rabbitmq-server
            └─5043 inet_gethost 4
 ```
 
-## Plugins
+### Plugins
 Enable necessary plugins, like SSL or management panel plugin:
 
 ```bash
@@ -62,7 +64,8 @@ The following plugins have been enabled:
 started 8 plugins.
 ```
 
-## Configuration
+### Configuration
+
 If you do not provide a configuration file for RabbitMQ, default values will be used. Or you
 can use the example configuration from `n6/etc/rabbitmq/conf/rabbitmq.conf`, by copying
 the file to `/etc/rabbitmq`. Restart the `rabbitmq-server` process afterwards:
@@ -95,7 +98,7 @@ To make the new user an administrator, set him the `administrator` tag:
 $ sudo rabbitmqctl set_user_tags <username> administrator
 ```
 
-# MariaDB
+## MariaDB
 
 *n6* uses two SQL databases - event database and *Auth DB*.
 The event database primarily stores processed information about network events and possible
@@ -141,7 +144,7 @@ running, look for its status, it should be `active`.
 ```
 
 
-## Initialize system database
+### Initialize system database
 
 In this step we create databases and their tables. Stop database's processes:
 
@@ -163,9 +166,9 @@ Consider joining MariaDB's strong and vibrant community:
 https://mariadb.org/get-involved/
 ```
 
-## Troubleshooting
+### Troubleshooting
 
-### [ERROR] TokuDB is not initialized because jemalloc is not loaded
+#### [ERROR] TokuDB is not initialized because jemalloc is not loaded
 
 There are a few solutions. Check for
 [Check for Transparent HugePage Support on Linux](https://mariadb.com/kb/en/library/installing-tokudb/#check-for-transparent-hugepage-support-on-linux) and this section [about libjemalloc](https://mariadb.com/kb/en/library/installing-tokudb/#libjemalloc).
@@ -236,7 +239,7 @@ TokuDB_fractal_tree_block_map
 ```
 
 
-# MongoDB
+## MongoDB
 
 *n6* uses MongoDB as archival database. Events gathered by collectors will be stored in MongoDB
 and can be restored in case of errors.
@@ -337,7 +340,7 @@ MongoDB server version: 4.2.3
 ```
 
 
-# Apache HTTP Server
+## Apache HTTP Server
 
 _n6_ uses Apache as an HTTP server for services like *n6 REST API*, *n6 Portal API*
 or *n6 Admin Panel* `N6RestAPI` or `N6AdminPanel`.
@@ -391,9 +394,11 @@ $ systemctl restart apache2
 ```
 
 
-# Debian dependencies
+## Debian dependencies
 
 You should install the essential Debian packages:
+
+> Note: Add the "contrib" repository in `/etc/apt/sources.list` if needed.
 
 ```bash
 $ sudo apt-get update
@@ -436,19 +441,18 @@ $ sudo apt-get install \
 $ sudo apt-get clean
 ```
 
-> Note: Add the "contrib" repository in `/etc/apt/sources.list` if needed.
+## Creating the _dataman_ user
 
-# _Dataman_ user
-
-We decided that *n6* will be run by the `dataman` user. First, create a group for him:
+Let *n6* be run by the `dataman` OS user.  First, let us create its
+initial login group:
 
 ```bash
 $ /usr/sbin/groupadd dataman
 ```
 
-We should keep the `n6` repository in _dataman's_ home directory.
-
-Add the user to the `www-data` group, so he has access to *Apache* files:
+Now, when creating the `dataman` user, let us ensure that the user is
+also added to the `www-data` group (so that access to *Apache*'s files
+is granted).
 
 ```bash
 $ /usr/sbin/useradd -rm \
@@ -459,3 +463,5 @@ $ /usr/sbin/useradd -rm \
     -G www-data \
     dataman
 ```
+
+We will keep the `n6` repository in the `dataman`'s home directory.

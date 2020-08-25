@@ -1,18 +1,23 @@
-The aim of this book is to introduce the developer to the pipeline
-of implementing new data source for the *n6*.
+# Implementing a New Data Source (Developer Guide)
+
+The aim of this guide is to describe how to implement *n6* components
+that are necessary to support a new data source.
+
 
 ## Overview
 
-This guide consists of 2 main chapters.
+This guide consists of two main parts:
 
-* The ***Collectors*** chapter about Collectors which are
-the main entry points for the external data to the *n6*.
-With these we will be able, for example, to download data from the
-web and send it for further processing.
-* The ***Parsers*** chapter introducing the next pipeline stage
-of the external data processing. Parsers come right after
-collectors. Their goal is to transform the data to the 
-form digestible by *n6*.
+* The first one focuses on ***collectors*** which are the main *n6*'s
+  data entry points.  With a *collector* we are be able to obtain some
+  external data (for example, from a particular web site) and send those
+  data for further processing.
+
+* The other one focuses on ***parsers*** which are the next stage of the
+  *n6*'s external data processing pipeline: *parsers* come right after
+  *collectors*. Their job is to transform obtained data to a form
+  digestible by *n6*.
+
 
 Contents
 --------

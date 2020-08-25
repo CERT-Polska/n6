@@ -1,3 +1,5 @@
+# Collector Tests
+
 Testing collectors can be tricky. Mostly because collectors work 
 asynchronously based on the `rabbitmq` as well as the fact that they
 are treated as the standalone programs.

@@ -3,27 +3,27 @@ nav:
     - Home: index.md
     - Docker-Based Installation Guide: docker.md
     - Step-by-Step Installation Guide:
-      - Overview: installation/index.md
+      - Introduction: installation/index.md
       - System Preparation: installation/system.md
-      - Packages Setup and Configuration:
-        - Core Packages:
-          - Installation: installation/n6_core.md
-          - Configuration: installation/configuration.md
-        - Certificates: installation/certs.md
-        - Components Served by an HTTP Server: installation/n6_web.md
-        - Supervisor: installation/supervisord.md
-        - Pipeline: installation/pipeline.md
-    - Implementing a New Source (Developer Guide):
+      - Installation of n6 Components: installation/n6_core.md
+      - Configuration of n6 Components: installation/configuration.md
+      - Certificates: installation/certs.md
+      - HTTP Services: installation/n6_web.md
+      - Supervisor: installation/supervisord.md
+      - Data Flow Overview: installation/pipeline.md
+    - Implementing a New Data Source (Developer Guide):
       - Introduction: guides/new_source/index.md
-      - Collectors: guides/new_source/collectors/index.md
-      - Collectors' Executable Commands: guides/new_source/collectors/command.md
-      - Collectors' Base Classes: guides/new_source/collectors/classes.md
-      - Stateful Collectors: guides/new_source/collectors/state.md
-      - Testing Collectors: guides/new_source/collectors/testing.md
-      - Parsers: guides/new_source/parsers/index.md
-      - Parsers' Command: guides/new_source/parsers/command.md
-      - Parsers' Base Classes: guides/new_source/parsers/baseclasses.md
-      - High-Frequency Data Sources: guides/new_source/parsers/hifreq.md
-      - Testing Parsers: guides/new_source/parsers/testing.md
+      - Collectors:
+        - Collectors Overview: guides/new_source/collectors/index.md
+        - Collector Executable Commands: guides/new_source/collectors/command.md
+        - Collector Base Classes: guides/new_source/collectors/classes.md
+        - Stateful Collectors: guides/new_source/collectors/state.md
+        - Collector Tests: guides/new_source/collectors/testing.md
+      - Parsers:
+        - Parsers Overview: guides/new_source/parsers/index.md
+        - Parser Executable Commands: guides/new_source/parsers/command.md
+        - Parser Base Classes: guides/new_source/parsers/baseclasses.md
+        - High-Frequency Data Sources: guides/new_source/parsers/hifreq.md
+        - Parser Tests: guides/new_source/parsers/testing.md
 
 theme: readthedocs

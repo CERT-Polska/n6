@@ -1,4 +1,4 @@
-# About
+# High-Frequency Data Sources
 
 Some data sources have a property of supplying high amounts of
 events that are really similar to each other (for example 

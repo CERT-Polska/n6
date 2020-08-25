@@ -1,27 +1,35 @@
 # Docker-Based Installation Guide
 
-This short guide describes how to run, for testing and learning, the
-latest version of *n6*, with *Docker* and *Docker Compose*.
+This short guide describes how to run, for testing and exploration, the
+latest version of *n6* -- using the *Docker* and *Docker Compose* tools.
 
-The goal of this guide is to give you an example of how you can glue the
-relevant elements together in an easy way, so that you can learn -- by
-monitoring and experimenting with the stuff -- how the *n6* system works
-and how you can interact with it.
+The goal of this guide is to give you an example of how you can run *n6*
+in the easiest possible way, so that you can learn -- by monitoring and
+experimenting -- how the *n6* system works and how you can interact with
+it.
+
+> **Note:** If you wish to explore the *n6*'s ecosystem a bit more profoundly
+> you may want to familiarize yourself with the [Step-by-Step Installation
+> Guide](installation/index.md) as well.
 
 
 ## Important: what these materials *are* and what they are *not*
 
-This installation guide, as well as the stuff you can find in the `etc/`
-and `docker/` directories of the *n6* source code repository, concern
-setting up an *n6* instance just for testing, exploration and
-experimentation, that is, **not for production** (at least, *not*
-without a careful security-focused adjustment).
+This installation guide, as well as the stuff you can find in the
+[`etc/`](https://github.com/CERT-Polska/n6/tree/master/etc) and
+[`docker/`](https://github.com/CERT-Polska/n6/tree/master/docker)
+directories of the *n6* source code repository, concern setting up an
+*n6* instance just for testing, exploration and experimentation, i.e.,
+**not for production** (at least, *not* without careful security-focused
+adjustments).
 
 In other words, these materials are *not* intended to be used as a
 recipe for a secure production setup -- in particular, when it comes to
 (but not limited to) such issues as X.509 certificates (note that those
-in the `etc/ssl/` directory of the source code repository are purely
-example ones), authentication and authorization settings (which in these
+in the [`etc/ssl/*`](https://github.com/CERT-Polska/n6/tree/master/etc/ssl)
+directories of the source code repository are purely example ones --
+they should *never* be used for anything related to production
+systems!), authentication and authorization settings (which in these
 materials are, generally, either skipped or reduced to what is necessary
 just to run the stuff), or file access permissions.
 
@@ -41,7 +49,7 @@ public.
 
 ## Building the environment
 
-> Note: Make sure you are in n6 directory
+> **Note:** Make sure you are in the top-level directory of the cloned source code repository.
 
 To build our demonstrational _n6_ environment we use [Docker Compose](https://docs.docker.com/compose/) which binds all the services needed to run the *n6* infrastructure.
 
@@ -51,7 +59,7 @@ $ docker-compose build
 
 The result of the process are ready-to-use docker images.
 
-> Note: the Docker stack requires all images to be built correctly.
+> **Note:** The Docker stack requires all images to be built correctly.
 > In case of errors, please do not hesitate to create an
 > [issue on our GitHub site](https://github.com/CERT-Polska/n6/issues).
 
@@ -90,14 +98,14 @@ By default, the stack exposes the following ports:
 * 4444 -- *n6* Admin Panel
 * 15671 -- RabbitMQ Management
 
-> Note: Make sure that all ports are not used by your localhost.
+> **Note:** Make sure that all ports are not used by your localhost.
 > If a port is used by another service, please change it in the
 > `docker-compose.yml` file.
 
 
 ## Launching the system
 
-To start the n6 environment:
+To start the n6 environment, execute:
 
 ```bash
 $ docker-compose up
@@ -105,8 +113,8 @@ $ docker-compose up
 
 Now, give Docker a few minutes to initialize.
 
-After that, you can add the `-d` flag to run the stuff in the background
-(*detached mode*).
+> **Note:** You can add the `-d` flag to run the stuff in the background
+> (*detached mode*).
 
 
 ### First startup
@@ -179,7 +187,7 @@ To see the results, restart (or reload) the `apache2` service:
 $ docker-compose exec web apache2ctl restart
 ```
 
-Then go to _n6 Admin Panel's_ interface: `https://localhost:4444/org`.
+Then you can try the _n6 Admin Panel's_ interface: `https://localhost:4444/org`.
 There should be new records in the following Auth DB tables: `org`,
 `user`, `source`, `subsource`.
 
@@ -216,9 +224,9 @@ drwxr-xr-x 1 dataman dataman     4096 Jan 27 10:22 supervisord
 drwxr-xr-x 2 dataman dataman     4096 Jan 27 10:17 tmp
 ```
 
-Some files and directories worth mentioning are:
+Some files and directories are worth mentioning -- namely:
 
-- the **entrypoint.sh** script wraps the given command, adding a
+- the **`entrypoint.sh`** script wraps the given command, adding a
   necessary Python environment.  It is used on every run/execution
   of the `worker` image.  For example, we can run an *n6* collector
   script in two ways:
@@ -226,34 +234,34 @@ Some files and directories worth mentioning are:
     - `docker-compose run worker n6collector_spam404`
     - `docker-compose run worker bash` and then `./entrypoint.sh n6collector_spam404`
 
-- the **certs** directory contains certificate files, used as server
+- the **`certs`** directory contains certificate files, used as server
   certificates for authentication.  Those certificates are used by
   _RabbitMQ_ or Apache2-hosted services (such as _n6 REST API_ or
   _n6 Portal_). The server authentication certificate file with the
   subject `/CN=login@example.com/O=example.com` is generated by the
   script `n6/etc/ssl/generate_certs.sh`, and signed by the CA
-  certificate (`/CN=n6-CA`) from the **n6-CA** subdirectory.
+  certificate (`/CN=n6-CA`) from the **`n6-CA`** subdirectory.
 
   **These certificates are provided only for demonstration
   purposes.  Using them in any production environment would be
   extremely wrong from the point of view of security!**
 
-- the **logs** directory contains log files created by _n6_ components.
+- the **`logs`** directory contains log files created by _n6_ components.
   Every collector, parser or other _n6_ component will write its logs
   here.
 
-  **This directory will be lost on every container stop.  You can use
-  the Docker's _volumes_ feature to make the directory persistent.**
+  **The `logs` directory will be lost on every container stop.  You can
+  use the Docker's _volumes_ feature to make the directory persistent.**
 
-- the **supervisord** directory contains Supervisor-related configuration
-  files; the subdirectory **programs** contains a list of _n6_ components
+- the **`supervisord`** directory contains Supervisor-related configuration
+  files; the subdirectory **`programs`** contains a list of _n6_ components
   that will be run by the _supervisord_ process.  You are free to **mount
-  the _programs_ directory as a _volume_ into the container** and add more
+  the `programs` directory as a _volume_ into the container** and add more
   parsers.
   
-- the **n6** directory contains the cloned repository. The _n6_
+- the **`n6`** directory contains the cloned repository. The _n6_
   infrastructure has been installed with the `develop` option. This
-  means that you can mount the whole locally cloned _n6_ directory
+  means that you can mount the whole locally cloned `n6` directory
   as a _volume_ into the container. As a result, every change in locally
   stored _n6_ code will be immediately applied inside the container on
   every `docker-compose run  <n6parser/collector/etc>` (without the need
@@ -262,7 +270,7 @@ Some files and directories worth mentioning are:
 
 ## Supervisor
 
-> This setup requires running `docker-compose up`
+> **Note:** This setup requires running `docker-compose up`.
 
 Run `supervisorctl` to examine the status of all n6 components:
 

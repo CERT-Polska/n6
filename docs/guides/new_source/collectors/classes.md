@@ -1,3 +1,5 @@
+# Collector Base Classes
+
 This section takes a quick look at each of the possible base classes
 of your collector to choose from. Each subsection will familiarize you 
 with a new class, starting from an abstract interface and then

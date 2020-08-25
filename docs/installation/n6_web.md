@@ -1,9 +1,13 @@
-# *n6 Admin Panel*
+# HTTP Services
 
-**Note**: to complete this step you need to have:
+> **Note**: to complete any of the steps described below you need to have:
+>
+> * installed the relevant *n6* component(s); see: section [Installation of n6 components](n6_core.md)
+> * the *Auth DB* created; see: section [n6 Configuration for SQL databases](configuration.md#n6-configuration-for-mysqldb)
+> * generated certificates; see: section [Certificates](certs.md)
 
-* the *Auth DB* created; section [n6 Configuration for SQL databases](configuration.md#n6-configuration-for-mysqldb)
-* generated certificates; section [Certificates](certs.md)
+
+## *n6 Admin Panel*
 
 Copy the example *n6 Admin Panel* configuration files to the directory with *n6* config files:
 
@@ -45,16 +49,10 @@ The *n6* Admin Panel should be accessible via `https://server_IP_or_FQDN:4444/` 
 `server_IP_or_FQDN` is the address of your Apache server).
 
 **WARNING:** the example *n6 Admin Panel* website configuration has no authentication!
-(So, especially, do not make this website public!).
+(So, in particular, do not make this website public!).
 
 
-# *n6 REST API*
-
-**Note**: to complete this step you need to have:
-
-* the *Auth DB* created; section [n6 Configuration for SQL databases](configuration.md#n6-configuration-for-mysqldb)
-* generated certificates; section [Certificates](certs.md)
-
+## *n6 REST API*
 
 Set up database connection addresses in `/home/dataman/n6/etc/web/conf/api.ini` (*Pyramid*
 framework configuration):
@@ -93,7 +91,7 @@ $ a2ensite n6-api
 $ systemctl restart apache2
 ```
 
-## Querying the API
+### Querying the API
 
 ```bash
 (env)$ cd ~/certs
@@ -106,15 +104,9 @@ $ systemctl restart apache2
 This response means the *event* database is empty. 
 
 
-# *n6 Portal*
+## *n6 Portal*
 
-**Note**: to complete this step you need to have:
-
-* the *Auth DB* created; section [n6 Configuration for SQL databases](configuration.md#n6-configuration-for-mysqldb)
-* generated certificates; section [Certificates](certs.md)
-
-
-Install `npm`:
+First, install `npm`:
 
 ```bash
 $ apt-get install -y nodejs npm
@@ -127,9 +119,9 @@ Copy and replace `config.json` in `N6Portal/gui/src/config/`:
 (env)$ cp -f /home/dataman/n6/etc/web/conf/gui-config.json /home/dataman/n6/N6Portal/gui/src/config/config.json
 ```
 
-## GUI customization
+### GUI customization
 
-### Customize the text of registration terms
+#### Customize the text of registration terms
 
 When user switches to *Sign-up* view in *n6 Portal*, he has to accept the Terms and Conditions
 of using the system. By default, it is the text of terms by NASK and CERT Polska. When
@@ -156,7 +148,7 @@ A feature to allow to choose custom languages, or keep one language only, is to 
 Right now, if you do not need Polish localization, you can for example edit out the
 language-switching buttons.
 
-## Deployment
+### Deployment
 
 Install dependencies and build GUI application:
 
@@ -186,13 +178,13 @@ $ systemctl restart apache2
 The *n6* Portal should be accessible via `https://server_IP_or_FQDN/`
 (where `server_IP_or_FQDN` is the address of your Apache server).
 
-## Troubleshooting
+### Troubleshooting
 
 **[ERROR]: Certificate not found. Add it in the browser to log in**
 
 There are a few possible causes:
 
-> ### n6 Portal Api is not working
+> #### n6 Portal Api is not working
 >
 > Check if *n6 Portal API* is available using CURL. In case of wrong configuration,
 > the API should throw an error with 500 status code.
@@ -211,7 +203,7 @@ There are a few possible causes:
 > * `n6/etc/web/conf/portal.ini` : check options: `sqlalchemy.url` and
 > `auth_db.url`
 
-> ### Certificate is not imported into browser
+> #### Certificate is not imported into browser
 
 > To browse the *n6 Portal GUI*, a web browser needs a certificate. Convert the certificate
 > in `~/certs` into the `p12` file format and import it into the browser. Use `openssl`
@@ -249,7 +241,7 @@ There are a few possible causes:
 >    that the user is related to the `Org "example.com"` organization record.
 
 
-> ### Other issues
+> #### Other issues
 >
 > Check the *n6* Apache logs (`/var/log/apache2/*-n6*.log`) to look into the cause of an issue.
 > Consider creating an issue at *n6* GitHub project:
