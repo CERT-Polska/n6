@@ -20,7 +20,7 @@ Contact us via e-mail: [n6@cert.pl](mailto:n6@cert.pl).
 ## Copyright and License
 
 Copyright (c) 2013-2020 [Naukowa i Akademicka Sieć Komputerowa (Research and Academic
-   Computer Network)](https://eng.nask.pl/).  All rights reserved.
+   Computer Network)](https://en.nask.pl/).  All rights reserved.
 
 *n6* is free software; you can redistribute it and/or modify it under
 the terms of the GNU Affero General Public License, Version 3, as
