@@ -292,7 +292,7 @@ Running the container initializes and starts processes configured to be
 run by Supervisor.
 
 Components being run by Supervisor work as daemon processes.  Running
-any parsers triggers creating of RabbitMQ per-data-source queues.
+a parser triggers creation of a per-data-source RabbitMQ queue.
 
 In the interactive mode you can type, in bash, `n6` + the `TAB` key to
 see all available _n6_ executable scripts. To see some data flowing
