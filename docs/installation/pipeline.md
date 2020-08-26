@@ -17,4 +17,4 @@
 
 * Log into the RabbitMQ web management panel to check message queues.
 * Log into the *n6* Portal and query the *n6* API through the search form.
-* Query the *n6* REST API (you can use *curl*, a web browser etc.).
+* Query the *n6* REST API (you can use *curl*, a web browser, etc.).

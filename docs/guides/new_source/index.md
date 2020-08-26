@@ -1,7 +1,7 @@
 # Implementing a New Data Source (Developer Guide)
 
 The aim of this guide is to describe how to implement *n6* components
-that are necessary to support a new data source.
+that are necessary for collecting and parsing data from a new source.
 
 
 ## Overview
@@ -9,7 +9,7 @@ that are necessary to support a new data source.
 This guide consists of two main parts:
 
 * The first one focuses on ***collectors*** which are the main *n6*'s
-  data entry points.  With a *collector* we are be able to obtain some
+  data entry points.  With a *collector* we are able to obtain some
   external data (for example, from a particular web site) and send those
   data for further processing.
 
