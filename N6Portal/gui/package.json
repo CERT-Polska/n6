@@ -12,7 +12,7 @@
     "report": "env npm_config_report=true npm run build"
   },
   "dependencies": {
-    "axios": "^0.19.0",
+    "axios": "^0.21.1",
     "babel-preset-stage-3": "^6.24.1",
     "babel-runtime": "^6.26.0",
     "compression-webpack-plugin": "^2.0.0",
