@@ -80,7 +80,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
 
     def test__enrich__with_fqdn_given(self):
         data = self.enricher.enrich(RecordDict({"fqdn": "cert.pl"}))
-        self.enricher._resolver.asert_called_once_with("cert.pl")
+        self.enricher._resolver.assert_called_once_with("cert.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {"127.0.0.1": ["asn", "cc", "ip"]}),
             "fqdn": "cert.pl",
@@ -92,7 +92,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
         data = self.enricher.enrich(RecordDict({
             "fqdn": "cert.pl",
             "_do_not_resolve_fqdn_to_ip": True}))
-        self.enricher._resolver.asert_called_once_with("cert.pl")
+        self.enricher._resolver.assert_called_once_with("cert.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {}),
             "fqdn": "cert.pl",
@@ -111,7 +111,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
             '1.0.1.1',
         ]
         data = self.enricher.enrich(RecordDict({"fqdn": "cert.pl"}))
-        self.enricher._resolver.asert_called_once_with("cert.pl")
+        self.enricher._resolver.assert_called_once_with("cert.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {"1.0.1.1": ["asn", "cc", "ip"],
                               "1.1.1.1": ["asn", "cc", "ip"],
@@ -141,7 +141,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
 
     def test__enrich__with_url_given(self):
         data = self.enricher.enrich(RecordDict({"url": "http://www.nask.pl/asd"}))
-        self.enricher._resolver.asert_called_once_with("www.nask.pl")
+        self.enricher._resolver.assert_called_once_with("www.nask.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": (["fqdn"], {"127.0.0.1": ["asn", "cc", "ip"]}),
             "url": "http://www.nask.pl/asd",
@@ -154,7 +154,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
         data = self.enricher.enrich(RecordDict({
             "url": "http://www.nask.pl/asd",
             "_do_not_resolve_fqdn_to_ip": True}))
-        self.enricher._resolver.asert_called_once_with("www.nask.pl")
+        self.enricher._resolver.assert_called_once_with("www.nask.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": (["fqdn"], {}),
             "url": "http://www.nask.pl/asd",
@@ -208,7 +208,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
     def test__enrich__with_fqdn_and_url_given(self):
         data = self.enricher.enrich(RecordDict({"fqdn": "cert.pl",
                                                 "url": "http://www.nask.pl/asd"}))
-        self.enricher._resolver.asert_called_once_with("cert.pl")
+        self.enricher._resolver.assert_called_once_with("cert.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {"127.0.0.1": ["asn", "cc", "ip"]}),
             "url": "http://www.nask.pl/asd",
@@ -222,7 +222,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
             "fqdn": "cert.pl",
             "url": "http://www.nask.pl/asd",
             "_do_not_resolve_fqdn_to_ip": True}))
-        self.enricher._resolver.asert_called_once_with("cert.pl")
+        self.enricher._resolver.assert_called_once_with("cert.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {}),
             "url": "http://www.nask.pl/asd",
@@ -233,7 +233,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
         data = self.enricher.enrich(RecordDict({
             "fqdn": "cert.pl",
             "url": "http://192.168.0.1/asd"}))
-        self.enricher._resolver.asert_called_once_with("cert.pl")
+        self.enricher._resolver.assert_called_once_with("cert.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {"127.0.0.1": ["asn", "cc", "ip"]}),
             "url": "http://192.168.0.1/asd",
@@ -539,7 +539,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
         self.enricher.excluded_ips = self.enricher._get_excluded_ips()
         data = self.enricher.enrich(RecordDict({"url": "http://www.nask.pl/asd",
                                                 "address": [{'ip': "127.0.0.1"}]}))
-        self.enricher._resolver.asert_called_once_with("www.nask.pl")
+        self.enricher._resolver.assert_called_once_with("www.nask.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": (["fqdn"], {}),
             "url": "http://www.nask.pl/asd",
@@ -552,7 +552,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
                                         'excluded_ips': '127.0.0.1, 2.2.2.2, 3.3.3.3'}
         self.enricher.excluded_ips = self.enricher._get_excluded_ips()
         data = self.enricher.enrich(RecordDict({"url": "http://www.nask.pl/asd"}))
-        self.enricher._resolver.asert_called_once_with("www.nask.pl")
+        self.enricher._resolver.assert_called_once_with("www.nask.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": (["fqdn"], {}),
             "url": "http://www.nask.pl/asd",
@@ -565,7 +565,7 @@ class TestEnricher(TestCaseMixin, unittest.TestCase):
                                         'excluded_ips': '2.2.2.2, 3.3.3.3'}
         self.enricher.excluded_ips = self.enricher._get_excluded_ips()
         data = self.enricher.enrich(RecordDict({"url": "http://www.nask.pl/asd"}))
-        self.enricher._resolver.asert_called_once_with("www.nask.pl")
+        self.enricher._resolver.assert_called_once_with("www.nask.pl")
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": (["fqdn"], {"127.0.0.1": ["asn", "cc", "ip"]}),
             "url": "http://www.nask.pl/asd",
