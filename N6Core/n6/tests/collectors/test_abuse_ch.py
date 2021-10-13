@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2019-2020 NASK. All rights reserved.
+# Copyright (c) 2019-2021 NASK. All rights reserved.
 
+import datetime
+import json
 import unittest
 
 from bson.json_util import loads
 from mock import (
     ANY,
     Mock,
+    MagicMock,
     call,
     patch,
     sentinel,
@@ -23,13 +26,22 @@ from n6.collectors.abuse_ch import (
     AbuseChRansomwareTrackerCollector,
     AbuseChFeodoTrackerCollector,
     AbuseChSSLBlacklistCollector,
+    AbuseChUrlhausUrlsCollector,
     AbuseChUrlhausPayloadsUrlsCollector,
     AbuseChSSLBlacklistDyreCollector,
     NoNewDataException,
 )
+from n6lib.unit_test_helpers import zip_data_in_memory
 from n6.tests.collectors.test_generic import _BaseCollectorTestCase
 
 
+def _make_request_performer_mock(response_content, mock_spec=None, last_modified_dt=None):
+    performer_mock = MagicMock(spec=mock_spec)
+    performer_mock.__enter__.return_value = performer_mock
+    performer_mock.get_dt_header.return_value = last_modified_dt
+    performer_mock.response.content = response_content
+    return performer_mock
+    
 
 class _TestAbuseChDownloadingTimeOrderedRowsCollectorBase(_BaseCollectorTestCase):
 
@@ -97,7 +109,7 @@ class TestAbuseChRansomwareTrackerCollector(_TestAbuseChDownloadingTimeOrderedRo
                         'message_id': ANY,
                         'type': 'file',
                         'content_type': 'text/csv',
-                        'headers': {}
+                        'headers': {},
                     },
                 ),
             ],
@@ -219,13 +231,13 @@ class TestAbuseChFeodoTrackerCollector(_TestAbuseChDownloadingTimeOrderedRowsCol
             expected_publish_output_calls=[
                 call(
                     # routing_key
-                    'abuse-ch.feodotracker.201908',
+                    'abuse-ch.feodotracker.202110',
 
                     # body
                     (
-                        '2019-08-20 03:00:00,5.5.5.5,447,2019-08-20,ExampleName5\n'
-                        '2019-08-20 03:00:00,4.4.4.4,447,2019-08-20,ExampleName4\n'
-                        '2019-08-20 02:00:00,3.3.3.3,447,2019-08-20,ExampleName3'
+                        '2019-08-20 03:00:00,5.5.5.5,447,online,2019-08-20,ExampleName5\n'
+                        '2019-08-20 03:00:00,4.4.4.4,447,online,2019-08-20,ExampleName4\n'
+                        '2019-08-20 02:00:00,3.3.3.3,447,online,2019-08-20,ExampleName3'
                     ),
 
                     # prop_kwargs
@@ -234,15 +246,15 @@ class TestAbuseChFeodoTrackerCollector(_TestAbuseChDownloadingTimeOrderedRowsCol
                         'message_id': ANY,
                         'type': 'file',
                         'content_type': 'text/csv',
-                        'headers': {}
+                        'headers': {},
                     },
                 ),
             ],
             expected_saved_state={
                 'newest_row_time': '2019-08-20 03:00:00',
                 'newest_rows': {
-                    '2019-08-20 03:00:00,5.5.5.5,447,2019-08-20,ExampleName5',
-                    '2019-08-20 03:00:00,4.4.4.4,447,2019-08-20,ExampleName4'
+                    '2019-08-20 03:00:00,5.5.5.5,447,online,2019-08-20,ExampleName5',
+                    '2019-08-20 03:00:00,4.4.4.4,447,online,2019-08-20,ExampleName4'
                 },
             },
         )
@@ -253,18 +265,19 @@ class TestAbuseChFeodoTrackerCollector(_TestAbuseChDownloadingTimeOrderedRowsCol
             initial_state={
                 'newest_row_time': '2019-08-20 01:00:00',
                 'newest_rows': {
-                    '2019-08-20 01:00:00,1.1.1.1,447,2019-08-20,ExampleName1',
-                    '2019-08-20 01:00:00,2.2.2.2,447,2019-08-20,ExampleName2'
+                    '2019-08-20 01:00:00,1.1.1.1,447,online,2019-08-20,ExampleName1',
+                    '2019-08-20 01:00:00,2.2.2.2,447,online,2019-08-20,ExampleName2',
                 },
             },
             orig_data=(
                 '# row which should be ignored by collector\n'
-                '2019-08-20 03:00:00,5.5.5.5,447,2019-08-20,ExampleName5\n'
-                '2019-08-20 03:00:00,4.4.4.4,447,2019-08-20,ExampleName4\n'
-                '2019-08-20 02:00:00,3.3.3.3,447,2019-08-20,ExampleName3\n'
-                '2019-08-20 01:00:00,2.2.2.2,447,2019-08-20,ExampleName2\n'
-                '2019-08-20 01:00:00,1.1.1.1,447,2019-08-20,ExampleName1\n'
-                '2019-08-20 00:00:00,0.0.0.0,447,2019-08-20,ExampleName0'
+                '2019-08-20 00:00:00,0.0.0.0,447,online,2019-08-20,ExampleName0\n'
+                '2019-08-20 01:00:00,1.1.1.1,447,online,2019-08-20,ExampleName1\n'
+                '2019-08-20 01:00:00,2.2.2.2,447,online,2019-08-20,ExampleName2\n'                
+                '2019-08-20 02:00:00,3.3.3.3,447,online,2019-08-20,ExampleName3\n'
+                '2019-08-20 03:00:00,4.4.4.4,447,online,2019-08-20,ExampleName4\n'
+                '2019-08-20 03:00:00,5.5.5.5,447,online,2019-08-20,ExampleName5'
+
             ),
         )
 
@@ -272,9 +285,9 @@ class TestAbuseChFeodoTrackerCollector(_TestAbuseChDownloadingTimeOrderedRowsCol
             initial_state=sentinel.NO_STATE,
             orig_data=(
                 '# row which should be ignored by collector\n'
-                '2019-08-20 03:00:00,5.5.5.5,447,2019-08-20,ExampleName5\n'
-                '2019-08-20 03:00:00,4.4.4.4,447,2019-08-20,ExampleName4\n'
-                '2019-08-20 02:00:00,3.3.3.3,447,2019-08-20,ExampleName3\n'
+                '2019-08-20 02:00:00,3.3.3.3,447,online,2019-08-20,ExampleName3\n'
+                '2019-08-20 03:00:00,4.4.4.4,447,online,2019-08-20,ExampleName4\n'
+                '2019-08-20 03:00:00,5.5.5.5,447,online,2019-08-20,ExampleName5\n'
             ),
         )
 
@@ -317,7 +330,7 @@ class TestAbuseChSSLBlacklistCollector(_TestAbuseChDownloadingTimeOrderedRowsCol
                         'message_id': ANY,
                         'type': 'file',
                         'content_type': 'text/csv',
-                        'headers': {}
+                        'headers': {},
                     },
                 ),
             ],
@@ -384,19 +397,230 @@ class TestAbuseChSSLBlacklistCollector(_TestAbuseChDownloadingTimeOrderedRowsCol
 
 
 @expand
-class TestAbuseChUrlhausPayloadsUrlsCollector(_TestAbuseChDownloadingTimeOrderedRowsCollectorBase):
+class TestAbuseChUrlhausUrlsCollector(_BaseCollectorTestCase):
 
-    COLLECTOR_CLASS = AbuseChUrlhausPayloadsUrlsCollector
+    CONFIG_CONTENT = '''
+        [abusech_urlhaus_urls]
+        source=abuse-ch
+        api_url=https://www.example2.com
+        url=https://www.example1.com
+        api_retries=3
+        cache_dir=~/.n6cache
+        download_retries=10
+    '''
+
+    DEFAULT_EXPECTED_OUTPUT_ROUTING_KEY = 'abuse-ch.urlhaus-urls.202001'
+
+    DEFAULT_ABUSE_ROWS = (
+        '"111111", "2020-01-01 01:00:00", "http://example_1.com", "XXX1", "YYY1", "ZZZ1",'
+            '"https://urlhaus.abuse.ch/url/111111/", "Example_Nick_1"\n'
+        '"000000", "2020-01-01 00:00:00", "http://example_0.com", "XXX0", "YYY0", "ZZZ0",'
+            '"https://urlhaus.abuse.ch/url/000000/", "Example_Nick_0"')
+
+    DEFAULT_INFO_PAGES = [
+        json.dumps(
+            {
+                "urlhaus_reference": "https://urlhaus.abuse.ch/url/000000/",
+                "threat": "malware_download",
+                "larted": "true",
+                "reporter": "ExampleNick_1",
+                "url": "https://example_1.com",
+                "tags": [
+                    "elf",
+                    "Mozi",
+                ],
+                "blacklists": {
+                    "surbl": "not listed",
+                    "gsb": "not listed",
+                    "spamhaus_dbl": "not listed",
+                },
+                "id": "111111",
+                "host": "1.1.1.1",
+                "payloads": [
+                    {
+                        "urlhaus_download": "https://urlhaus-api.abuse.ch/v1/download/a00a00aa0aa0a0a00aaa0a00a0a00a00a00a000a0a00000a0a0a0a00a0aaa0a0/",
+                        "file_type": "elf",
+                        "filename": "",
+                        "response_md5": "1a111111a1aa11a111111aa11a111aa1",
+                        "response_sha256": "a11a11aa1aa1a1a11aaa1a11a1a11a11a11a111a1a11111a1a1a1a11a1aaa1a1",
+                        "response_size": "95268",
+                        "signature": "",
+                        "firstseen": "2020-01-20",
+                        "virustotal": {
+                            "link": "https://www.virustotal.com/file/a11a11aa1aa1a1a11aaa1a11a1a11a11a11a111a1a11111a1a1a1a11a1aaa1a1/analysis/111111111111/",
+                            "percent": "61.02",
+                            "result": "36 / 59",
+                        },
+                    },
+                ],
+                "url_status": "online",
+                "takedown_time_seconds": "",
+                "date_added": "2020-01-01 00:00:00 UTC",
+                "query_status": "ok",
+            },
+        ),
+        json.dumps(
+            {
+                "urlhaus_reference": "https://urlhaus.abuse.ch/url/000000/",
+                "threat": "malware_download",
+                "larted": "true",
+                "reporter": "ExampleNick_1",
+                "url": "https://example_1.com",
+                "tags": [
+                    "elf",
+                    "Mozi",
+                ],
+                "blacklists": {
+                    "surbl": "not listed",
+                    "gsb": "not listed",
+                    "spamhaus_dbl": "not listed",
+                },
+                "id": "111111",
+                "host": "1.1.1.1",
+                "payloads": [
+                    {
+                        "urlhaus_download": "https://urlhaus-api.abuse.ch/v1/download/a00a00aa0aa0a0a00aaa0a00a0a00a00a00a000a0a00000a0a0a0a00a0aaa0a0/",
+                        "file_type": "elf",
+                        "filename": "",
+                        "response_md5": "1a111111a1aa11a111111aa11a111aa1",
+                        "response_sha256": "a11a11aa1aa1a1a11aaa1a11a1a11a11a11a111a1a11111a1a1a1a11a1aaa1a1",
+                        "response_size": "95268",
+                        "signature": "",
+                        "firstseen": "2020-01-20",
+                        "virustotal": {
+                            "link": "https://www.virustotal.com/file/a11a11aa1aa1a1a11aaa1a11a1a11a11a11a111a1a11111a1a1a1a11a1aaa1a1/analysis/111111111111/",
+                            "percent": "61.02",
+                            "result": "36 / 59",
+                        },
+                    },
+                ],
+                "url_status": "online",
+                "takedown_time_seconds": "",
+                "date_added": "2020-01-01 00:00:00 UTC",
+                "query_status": "ok",
+            },
+        ),
+    ]
+
+    @paramseq
+    def cases(self):
+        yield param(
+            config_content=self.CONFIG_CONTENT,
+            url_info_pages=self.DEFAULT_INFO_PAGES,
+            expected_publish_output_calls=[
+                call('abuse-ch.urlhaus-urls.202001',
+                     ('[{"dateadded": "2020-01-01 01:00:00", "threat": "YYY1", "url_status": "XXX1", '
+                      '"tags": "ZZZ1", "url": "http://example_1.com", "urlhaus_link": '
+                      '"https://urlhaus.abuse.ch/url/111111/", "url_id": "111111", '
+                      '"url_info_from_api": {"urlhaus_reference": '
+                      '"https://urlhaus.abuse.ch/url/000000/", "url_status": "online", "larted": '
+                      '"true", "reporter": "ExampleNick_1", "url": "https://example_1.com", "tags": '
+                      '["elf", "Mozi"], "blacklists": {"surbl": "not listed", "gsb": "not listed", '
+                      '"spamhaus_dbl": "not listed"}, "query_status": "ok", "host": "1.1.1.1", '
+                      '"payloads": [{"virustotal": {"link": '
+                      '"https://www.virustotal.com/file/a11a11aa1aa1a1a11aaa1a11a1a11a11a11a111a1a11111a1a1a1a11a1aaa1a1/analysis/111111111111/", '
+                      '"percent": "61.02", "result": "36 / 59"}, "file_type": "elf", "filename": '
+                      '"", "response_md5": "1a111111a1aa11a111111aa11a111aa1", "response_sha256": '
+                      '"a11a11aa1aa1a1a11aaa1a11a1a11a11a11a111a1a11111a1a1a1a11a1aaa1a1", '
+                      '"response_size": "95268", "signature": "", "firstseen": "2020-01-20", '
+                      '"urlhaus_download": '
+                      '"https://urlhaus-api.abuse.ch/v1/download/a00a00aa0aa0a0a00aaa0a00a0a00a00a00a000a0a00000a0a0a0a00a0aaa0a0/"}], '
+                      '"threat": "malware_download", "takedown_time_seconds": "", "date_added": '
+                      '"2020-01-01 00:00:00 UTC", "id": "111111"}, "reporter": "Example_Nick_1"}, '
+                      
+                      '{"dateadded": "2020-01-01 00:00:00", "threat": "YYY0", "url_status": "XXX0", '
+                      '"tags": "ZZZ0", "url": "http://example_0.com", "urlhaus_link": '
+                      '"https://urlhaus.abuse.ch/url/000000/", "url_id": "000000", '
+                      '"url_info_from_api": {"urlhaus_reference": '
+                      '"https://urlhaus.abuse.ch/url/000000/", "url_status": "online", "larted": '
+                      '"true", "reporter": "ExampleNick_1", "url": "https://example_1.com", "tags": '
+                      '["elf", "Mozi"], "blacklists": {"surbl": "not listed", "gsb": "not listed", '
+                      '"spamhaus_dbl": "not listed"}, "query_status": "ok", "host": "1.1.1.1", '
+                      '"payloads": [{"virustotal": {"link": '
+                      '"https://www.virustotal.com/file/a11a11aa1aa1a1a11aaa1a11a1a11a11a11a111a1a11111a1a1a1a11a1aaa1a1/analysis/111111111111/", '
+                      '"percent": "61.02", "result": "36 / 59"}, "file_type": "elf", "filename": '
+                      '"", "response_md5": "1a111111a1aa11a111111aa11a111aa1", "response_sha256": '
+                      '"a11a11aa1aa1a1a11aaa1a11a1a11a11a11a111a1a11111a1a1a1a11a1aaa1a1", '
+                      '"response_size": "95268", "signature": "", "firstseen": "2020-01-20", '
+                      '"urlhaus_download": '
+                      '"https://urlhaus-api.abuse.ch/v1/download/a00a00aa0aa0a0a00aaa0a00a0a00a00a00a000a0a00000a0a0a0a00a0aaa0a0/"}], '
+                      '"threat": "malware_download", "takedown_time_seconds": "", "date_added": '
+                      '"2020-01-01 00:00:00 UTC", "id": "111111"}, "reporter": "Example_Nick_0"}]'),
+                     {
+                         'timestamp': ANY,
+                         'message_id': ANY,
+                         'type': 'stream',
+                         'headers': {
+                             'meta': {
+                                 'http_last_modified': '2020-12-12 01:01:01',
+                             },
+                         },
+                     },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2020-01-01 01:00:00',
+                'newest_rows': {
+                    '"111111","2020-01-01 01:00:00","http://example_1.com","XXX1","YYY1","ZZZ1",'
+                        '"https://urlhaus.abuse.ch/url/111111/","Example_Nick_1"'
+                },
+            },
+        )
+
+    @paramseq
+    def initial_state_and_orig_data_variants():
+        yield param(
+            initial_state=sentinel.NO_STATE,
+            orig_data=zip_data_in_memory(
+                filename='csv.txt',
+                data=(
+                    '# row which should be ignored by collector\n'
+                    '"111111","2020-01-01 01:00:00","http://example_1.com","XXX1","YYY1","ZZZ1",'
+                        '"https://urlhaus.abuse.ch/url/111111/","Example_Nick_1"\n'
+                    '"000000","2020-01-01 00:00:00","http://example_0.com","XXX0","YYY0","ZZZ0",'
+                        '"https://urlhaus.abuse.ch/url/000000/","Example_Nick_0"\n'
+                ),
+            ),
+        )
+
+    @foreach(cases)
+    @foreach(initial_state_and_orig_data_variants)
+    def test(self,
+             config_content,
+             initial_state,
+             orig_data,
+             url_info_pages,
+             expected_publish_output_calls,
+             expected_saved_state):
+        collector = self.prepare_collector(AbuseChUrlhausUrlsCollector,
+                                           config_content=config_content,
+                                           initial_state=initial_state)
+        self.patch(
+            'n6.collectors.generic.RequestPerformer',
+            side_effect=[_make_request_performer_mock(
+                response_content=orig_data,
+                mock_spec=['__enter__', '__exit__', 'response', 'get_dt_header'],
+                last_modified_dt=datetime.datetime(2020, 12, 12, 01, 01, 01),
+            )],
+            spec=True)
+        self.patch(
+            'n6.collectors.abuse_ch.RequestPerformer.fetch',
+            side_effect=url_info_pages)
+        collector.run_handling()
+        self.assertEqual(self.publish_output_mock.mock_calls, expected_publish_output_calls)
+        self.assertEqual(self.saved_state, expected_saved_state)
+
+
+@expand
+class TestAbuseChUrlhausPayloadsUrlsCollector(_BaseCollectorTestCase):
 
     DEFAULT_PROP_KWARGS = {
         'timestamp': ANY,
         'message_id': ANY,
         'type': 'file',
         'content_type': 'text/csv',
-        'headers': {}
+        'headers': ANY,
     }
-
-
 
     @paramseq
     def cases():
@@ -435,7 +659,11 @@ class TestAbuseChUrlhausPayloadsUrlsCollector(_TestAbuseChDownloadingTimeOrdered
                         'message_id': ANY,
                         'type': 'file',
                         'content_type': 'text/csv',
-                        'headers': {}
+                        'headers': {
+                            'meta': {
+                                'http_last_modified': '2020-12-12 01:01:01',
+                            },
+                        },
                     },
                 ),
             ],
@@ -449,7 +677,7 @@ class TestAbuseChUrlhausPayloadsUrlsCollector(_TestAbuseChDownloadingTimeOrdered
                     '"2019-08-20 03:00:00","http://www.example4.com","XX4",'
                         '"444d4444d444dd4d44d44444dd444444",'
                         '"4d4d44dd44d4d44dd44d4444444dddddddddddddd444444d4d4d4d4d4d4d4d44",'
-                        '"ExampleNick4"'
+                        '"ExampleNick4"',
                 },
             },
         )
@@ -470,7 +698,9 @@ class TestAbuseChUrlhausPayloadsUrlsCollector(_TestAbuseChDownloadingTimeOrdered
                         '"ExampleNick1"'
                 },
             },
-            orig_data=(
+            orig_data=zip_data_in_memory(
+                filename='payload.txt',
+                data=(
                 '# row which should be ignored by collector\n'
                 '"2019-08-20 03:00:00","http://www.example5.com","XX5",'
                     '"555e5555e555ee5e55e55555ee555555",'
@@ -496,12 +726,15 @@ class TestAbuseChUrlhausPayloadsUrlsCollector(_TestAbuseChDownloadingTimeOrdered
                     '"000a0000a000aa0a00a00000aa000000",'
                     '"0a0a00aa00a0a00aa00a0000000aaaaaaaaaaaaaa000000a0a0a0a0a0a0a0a00",'
                     '"ExampleNick0"'
+                ),
             ),
         )
 
         yield param(
             initial_state=sentinel.NO_STATE,
-            orig_data=(
+            orig_data=zip_data_in_memory(
+                filename='payload.txt',
+                data=(
                 '# row which should be ignored by collector\n'
                 '"2019-08-20 03:00:00","http://www.example5.com","XX5",'
                     '"555e5555e555ee5e55e55555ee555555",'
@@ -515,13 +748,32 @@ class TestAbuseChUrlhausPayloadsUrlsCollector(_TestAbuseChDownloadingTimeOrdered
                     '"333c3333c333cc3c33c33333cc333333",'
                     '"3c3c33cc33c3c33cc33c3333333cccccccccccccc333333c3c3c3c3c3c3c3c33",'
                     '"ExampleNick3"\n'
+                ),
             ),
         )
 
     @foreach(cases)
     @foreach(initial_state_and_orig_data_variants)
-    def test(self, **kwargs):
-        self._perform_test(**kwargs)
+    def test(self,
+             config_content,
+             initial_state,
+             orig_data,
+             expected_publish_output_calls,
+             expected_saved_state):
+        collector = self.prepare_collector(AbuseChUrlhausPayloadsUrlsCollector,
+                                           config_content=config_content,
+                                           initial_state=initial_state)
+        self.patch(
+            'n6.collectors.generic.RequestPerformer',
+            side_effect=[_make_request_performer_mock(
+                response_content=orig_data,
+                mock_spec=['__enter__', '__exit__', 'response', 'get_dt_header'],
+                last_modified_dt=datetime.datetime(2020, 12, 12, 01, 01, 01),
+            )],
+            spec=True)
+        collector.run_handling()
+        self.assertEqual(self.publish_output_mock.mock_calls, expected_publish_output_calls)
+        self.assertEqual(self.saved_state, expected_saved_state)
 
 
 @expand

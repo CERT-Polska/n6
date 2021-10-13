@@ -1,0 +1,210 @@
+Dear *n6* User,
+
+{% filter wordwrap(width=76) -%}
+the request to update the configuration of your organization, submitted by the user {{ data_dict.update_info.requesting_user|default('<removed>', boolean=true) }} ({{ data_dict.update_info.update_request_time.strftime('on %Y-%m-%d, at %H:%M UTC') }}), has been accepted.
+{%- endfilter %}
+
+
+The details of the applied update are listed below.
+
+{%- set key_descr_pairs = [
+            ("actual_name", "The actual name of the organization"),
+            ("notification_enabled", "Whether e-mail notifications on new security events should be delivered"),
+            ("notification_language", "The language of e-mail notifications on new security events"),
+            ("notification_emails", "The addresses of the recipients of e-mail notifications on new security events"),
+            ("notification_times", "The hours (in this n6 instance's local time zone) of sending e-mail notifications on new security events"),
+            ("asns", "The organization's ASNs (autonomous system numbers)"),
+            ("fqdns", "The organization's FQDNs (domain names)"),
+            ("ip_networks", "The organization's IP networks (in the CIDR notation)"),
+] %}
+{%- for key, description in key_descr_pairs %}
+    {%- if key in data_dict.update_info %}
+        {%- set old_value = data_dict[key] %}
+        {%- set upd_value = data_dict.update_info[key] %}
+
+        {%- if key == 'notification_enabled' %}
+            {%- set old_value = 'yes' if old_value else 'no' %}
+            {%- set upd_value = 'yes' if upd_value else 'no' %}
+        {%- elif upd_value is sequence and upd_value is not string %}
+            {%- if key == 'notification_times' %}
+                {%- set old_formatted = [] %}
+                {%- set upd_formatted = [] %}
+                {%- for t in old_value %}
+                    {%- do old_formatted.append('{t.hour}:{t.minute:02}'.format(t=t)) %}
+                {%- endfor %}
+                {%- for t in upd_value %}
+                    {%- do upd_formatted.append('{t.hour}:{t.minute:02}'.format(t=t)) %}
+                {%- endfor %}
+                {%- set old_value = old_formatted %}
+                {%- set upd_value = upd_formatted %}
+            {%- endif %}
+            {%- set old_value = old_value|join(', ') %}
+            {%- set upd_value = upd_value|join(', ') %}
+        {%- endif %}
+
+* {{ description }}:
+  * [previously] {{ old_value|default('(not set)', boolean=true) }}
+  * [currently] {{ upd_value|default('(not set)', boolean=true) }}
+
+    {%- endif %}
+{%- endfor %}
+
+{%- if data_dict.update_info.additional_comment|trim %}
+
+The user who had submitted the request had enclosed the following comment:
+----------------------------------------------------------------------------
+{{ data_dict.update_info.additional_comment|trim|wordwrap(width=76) }}
+----------------------------------------------------------------------------
+{%- endif %}
+
+
+If you have any questions, please do not hesitate to contact us.
+
+
+Best regards,
+
+- the administrators of this *n6* instance
+
+
+
+
+
+{#- *** TEMPLATE COMMENTS ***
+
+The rendering context used with this template includes the `data_dict`
+variable which is a dictionary that contains the items described below.
+
+
+(1) First of all, `data_dict` contains:
+
+    * 'org_id'
+      (string, e.g.: 'my-org.example.org')
+      -- the identifier of the concerned organization
+
+
+(2) The following items of `data_dict` represent the *previous*
+    (before-the-update) state of the *organization config*:
+
+    * 'actual_name'
+      (string or None, e.g.: 'The Ministry of Silly Walks')
+      -- the actual name of the concerned organization
+
+    * 'notification_enabled'
+      (True or False)
+      -- whether e-mail notifications on events
+         should be sent to the organization
+
+    * 'notification_language'
+      (string or None, e.g.: 'EN')
+      -- the language variant (specified as a two-letter code)
+         of those e-mail notifications
+
+    * 'notification_emails'
+      (list [possibly empty] of strings, e.g.: ['you@example.org', 'me@example.org'])
+      -- the e-mail addresses of the recipients
+         of those e-mail notifications
+
+    * 'notification_times'
+      (list [possibly empty] of datetime.time objects without TZ information)
+      -- the hours at which n6notifier should send those
+         e-mail notifications (note: only the `hour` and
+         `minute` parts are relevant; the `second` and
+         `microsecond` parts are always set to 0)
+
+    * 'asns'
+      (list [possibly empty] of integers, e.g.: [12345, 67890])
+      -- all Autonomous System numbers related to the organization
+         (when it comes to the "inside" event criteria checked by n6filter)
+
+    * 'fqdns'
+      (list [possibly empty] of strings, e.g.: ['example.info', 'example.com'])
+      -- all Fully Qualified Domain Names related to the organization
+         (when it comes to the "inside" event criteria checked by n6filter)
+
+    * 'ip_networks'
+      (list [possibly empty] of strings, e.g.: ['198.51.100.0/24', '10.20.30.41/32'])
+      -- all IPv4 networks (in the CIDR format) related to the organization
+         (when it comes to the "inside" event criteria checked by n6filter)
+
+
+(3) `data_dict` also contains an item which represents the *organization
+    config update request* that has been *accepted*:
+
+    * 'update_info'
+      -- a dict containing all information about the update *applied* to
+         the organization config; the possible items of this dict are
+         listed below (those marked as *required* are always present;
+         those marked as *optional* are present only if needed):
+
+         * 'update_request_id'
+           (required; string)
+           -- the database identifier of the
+              *organization config update request*
+
+         * 'update_request_time'
+           (required; datetime.datetime without TZ information)
+           -- the date+time (UTC) of submission of the
+              *organization config update request*
+
+         * 'requesting_user'
+           (required; string or None)
+           -- the login of the user who submitted the
+              *organization config update request*
+              (note: in rare cases it may be None --
+              if the user does not exist anymore)
+
+         * 'additional_comment'
+           (optional; string)
+           -- the facultative message from the user who submitted the
+              *organization config update request*
+
+         [the following items, all optional, represent the current state
+         of the corresponding items of the organization config, i.e.,
+         *after applying the update* according to the accepted update
+         request]
+
+         * 'actual_name'
+           (optional; string or None, e.g.: 'The Ministry of Silly Walks')
+           -- the actual name of the concerned organization
+
+         * 'notification_enabled'
+           (optional; True or False)
+           -- whether e-mail notifications on events
+              should be sent to the organization
+
+         * 'notification_language'
+           (optional; string or None, e.g.: 'EN')
+           -- the language variant (specified as a two-letter code)
+              of those e-mail notifications
+
+         * 'notification_emails'
+           (optional; list [possibly empty] of strings, e.g.: ['you@example.org', 'me@example.org'])
+           -- the e-mail addresses of the recipients
+              of those e-mail notifications
+
+         * 'notification_times'
+           (optional; list [possibly empty] of datetime.time objects without TZ information)
+           -- the hours at which n6notifier should send those
+              e-mail notifications (note: only the `hour` and
+              `minute` parts are relevant; the `second` and
+              `microsecond` parts are always set to 0)
+
+         * 'asns'
+           (optional; list [possibly empty] of integers, e.g.: [12345, 67890])
+           -- all Autonomous System numbers related to the organization
+              (when it comes to the "inside" event criteria checked by n6filter)
+
+         * 'fqdns'
+           (optional; list [possibly empty] of strings, e.g.: ['example.info', 'example.com'])
+           -- all Fully Qualified Domain Names related to the organization
+              (when it comes to the "inside" event criteria checked by n6filter)
+
+         * 'ip_networks'
+           (optional; list [possibly empty] of strings, e.g.: ['198.51.100.0/24', '10.20.30.41/32'])
+           -- all IPv4 networks (in the CIDR format) related to the organization
+              (when it comes to the "inside" event criteria checked by n6filter)
+
+
+Note: all lists are already sorted.
+
+-#}

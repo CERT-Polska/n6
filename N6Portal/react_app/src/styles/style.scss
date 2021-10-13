@@ -1,0 +1,30 @@
+/* general styles */
+@import 'functions';
+@import 'variables';
+@import 'bootstrap/scss/bootstrap.scss';
+@import 'react-toastify/dist/ReactToastify.css';
+@import 'mixins';
+@import 'layout';
+
+/* shared components */
+@import 'buttons';
+@import 'customSelect';
+@import 'customCheckbox';
+@import 'columnFilter';
+@import 'formFields';
+@import 'reactTable';
+@import 'datePicker';
+@import 'tooltip';
+@import 'header';
+@import 'footer';
+@import 'spinner';
+
+/* pages styles */
+@import 'login';
+@import 'account';
+@import 'signup';
+@import 'editSettings';
+@import 'userSettings';
+@import 'incidents';
+@import 'organization';
+@import 'error';

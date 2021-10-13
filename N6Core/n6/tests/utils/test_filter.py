@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
 import json
 import unittest
@@ -9,7 +9,7 @@ from mock import MagicMock, call
 
 from n6.base.queue import QueuedBase
 from n6.utils.filter import Filter
-from n6lib.auth_api import AuthAPI
+from n6lib.auth_api import InsideCriteriaResolver
 from n6lib.record_dict import RecordDict, AdjusterError
 
 
@@ -97,21 +97,21 @@ class TestFilter(unittest.TestCase):
 
     def setUp(self):
         self.filter = Filter.__new__(Filter)
-        self.auth_api_mock = self.filter.auth_api = self._make_auth_api_mock()
+        self.per_test_inside_criteria = None  # to be set in methods that need it
+        self.filter.auth_api = self._make_auth_api_mock()
         self.fqdn_only_categories = frozenset(['leak'])
 
     def _make_auth_api_mock(self):
         m = MagicMock()
-        get_inside_criteria_resolver = (
-            # get the original method func, unwrapping it (removing the decorator)
-            AuthAPI.get_inside_criteria_resolver.__func__.func)
-        m.get_inside_criteria_resolver = lambda: get_inside_criteria_resolver(m)
+        m.get_inside_criteria_resolver.side_effect = (
+            lambda: InsideCriteriaResolver(self.per_test_inside_criteria))
         return m
 
     def tearDown(self):
         assert all(
-            c == call._get_inside_criteria()
+            c == call.get_inside_criteria_resolver()
             for c in self.filter.auth_api.mock_calls), 'test must be updated?'
+
 
     def test_parameters_queue(self):
         """Test parameters queue."""
@@ -122,15 +122,14 @@ class TestFilter(unittest.TestCase):
                          'topic')
         self.assertEqual(Filter.input_queue['queue_name'],
                          'filter')
-        self.assertEqual(Filter.input_queue['binding_keys'],
-                         ['event.enriched.*.*',
-                          'bl-new.compared.*.*',
-                          'bl-update.compared.*.*',
-                          'bl-change.compared.*.*',
-                          'bl-delist.compared.*.*',
-                          'bl-expire.compared.*.*',
-                          'suppressed.enriched.*.*',
-                          'bl-update.enriched.*.*', ])
+        self.assertEqual(Filter.input_queue['accepted_event_types'],
+                         ['event',
+                          'bl-new',
+                          'bl-update',
+                          'bl-change',
+                          'bl-delist',
+                          'bl-expire',
+                          'suppressed'])
         self.assertEqual(Filter.output_queue['exchange'],
                          'event')
         self.assertEqual(Filter.output_queue['exchange_type'],
@@ -165,7 +164,7 @@ class TestFilter(unittest.TestCase):
                       'asn': ['43756', ['afbc']],
                       'fqdn': ['mycertbridgeonetalamakotawpmikmoknask.org', ['afbc']]}
 
-        self.auth_api_mock._get_inside_criteria.return_value = TEST_CRITERIA
+        self.per_test_inside_criteria = TEST_CRITERIA
 
         for i in input_data:
             body = self.reset_body(body)
@@ -196,7 +195,7 @@ class TestFilter(unittest.TestCase):
                       'asn': ['45975', ['fdc']],
                       'fqdn': ['onetbridgemikmokcert.eu', ['fdc']]}
 
-        self.auth_api_mock._get_inside_criteria.return_value = TEST_CRITERIA
+        self.per_test_inside_criteria = TEST_CRITERIA
 
         for i in input_data:
             body = self.reset_body(body)
@@ -227,7 +226,7 @@ class TestFilter(unittest.TestCase):
                       'asn': ['31110', ['befa']],
                       'fqdn': ['makabimikmokvirutonet.biz', ['befa']]}
 
-        self.auth_api_mock._get_inside_criteria.return_value = TEST_CRITERIA
+        self.per_test_inside_criteria = TEST_CRITERIA
         for i in input_data:
             body = self.reset_body(body)
             if i == 'fqdn':
@@ -282,7 +281,7 @@ class TestFilter(unittest.TestCase):
                       'asn': ['31110', ['befa']],
                       'fqdn': ['makabimikmokvirutonet.biz', ['befa']]}
 
-        self.auth_api_mock._get_inside_criteria.return_value = test_criteria_local
+        self.per_test_inside_criteria = test_criteria_local
         for i in input_data:
             body = self.reset_body(body)
             if i == 'fqdn':
@@ -595,7 +594,7 @@ class TestFilter(unittest.TestCase):
                 "sport": "2147", "dip": "10.28.71.43", "id": "023a00e7c2ef04ee5b0f767ba73ee397"}
 
         # test_all_fields
-        self.auth_api_mock._get_inside_criteria.return_value = test_criteria_local
+        self.per_test_inside_criteria = test_criteria_local
         body['fqdn'] = 'onet.pl'
         body['address'][0]['cc'] = 'GH'
         body['address'][0]['asn'] = '1234'
@@ -919,7 +918,7 @@ class TestFilter(unittest.TestCase):
                 "source": "hpfeeds.dionaea", "time": "2013-07-01 20:37:20", "dport": "445",
                 "rid": "023a00e7c2ef04ee5b0f767ba73ee397", "sport": "2147", "dip": "10.28.71.43",
                 "id": "023a00e7c2ef04ee5b0f767ba73ee397"}
-        self.auth_api_mock._get_inside_criteria.return_value = test_criteria_local
+        self.per_test_inside_criteria = test_criteria_local
         body = self.reset_body(body)
         return body
 
@@ -1040,10 +1039,11 @@ class TestFilter(unittest.TestCase):
             ([], {}))
 
     def test__get_client_and_urls_matched__with_idna_fqdn(self):
-        self.auth_api_mock._get_inside_criteria.return_value = [
-            {'org_id': 'org1000',
-             'fqdn_seq': [u'xn--krlgr-1tac.pl'],  # `królgór.pl`, IDNA-encoded + coerced to unicode
-             }]
+        test_criteria_local = [{
+            'org_id': 'org1000',
+            'fqdn_seq': [u'xn--krlgr-1tac.pl'],  # `królgór.pl`, IDNA-encoded + coerced to unicode
+        }]
+        self.per_test_inside_criteria = test_criteria_local
         body = {"category": "bots", "restriction": "public", "confidence": "medium",
                 "name": "virut", "address": [{"cc": "XX", "ip": "1.1.1.1"}],
                 "source": "hpfeeds.dionaea", "time": "2013-07-01 20:37:20",
@@ -1055,10 +1055,11 @@ class TestFilter(unittest.TestCase):
             (['org1000'], {}))
 
     def test__get_client_and_urls_matched__with_unicode_url_pattern(self):
-        self.auth_api_mock._get_inside_criteria.return_value = [
-            {'org_id': 'org11',
-             'url_seq': [u'władcażlebów.pl'],
-             }]
+        test_criteria_local = [{
+            'org_id': 'org11',
+            'url_seq': [u'władcażlebów.pl'],
+        }]
+        self.per_test_inside_criteria = test_criteria_local
         body = {"category": "bots", "restriction": "public", "confidence": "medium",
                 "name": "virut", "address": [{"cc": "XX", "ip": "1.1.1.1"}],
                 "source": "hpfeeds.dionaea", "time": "2013-07-01 20:37:20",

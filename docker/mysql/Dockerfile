@@ -1,4 +1,5 @@
-FROM mariadb:10.3-bionic
+ARG DOCKER_IMAGE=mariadb:10.3-bionic
+FROM $DOCKER_IMAGE
 
 # MariaDB image with TokuDB engine
 # solution how to install taken from:

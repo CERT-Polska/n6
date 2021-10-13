@@ -1,16 +1,14 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 #
 # For some code in this module:
 # Copyright (c) 2001-2013 Python Software Foundation. All rights reserved.
 # (For more information -- see the docstrings below...)
 
 import abc
-import ast
 import collections
+import collections.abc as collections_abc
 import copy
-import cPickle
+import pickle
 import functools
 import hashlib
 import itertools
@@ -23,12 +21,17 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import thread
 import threading
 import time
 import traceback
 import weakref
 from importlib import import_module
+from threading import get_ident as get_current_thread_ident
+from typing import (
+    Iterable,
+    Iterator,
+    List,
+)
 
 from pkg_resources import cleanup_resources
 from pyramid.decorator import reify
@@ -43,10 +46,10 @@ from n6sdk.addr_helpers import (
 )
 from n6sdk.encoding_helpers import (
     ascii_str,
-    py_identifier_str,
+    ascii_py_identifier_str,
     as_unicode,
-    provide_surrogateescape,
-    string_to_bool,
+    str_to_bool,
+    try_to_normalize_surrogate_pairs_to_proper_codepoints,
 )
 from n6sdk.regexes import (
     CC_SIMPLE_REGEX,
@@ -57,9 +60,14 @@ from n6sdk.regexes import (
     IPv4_CIDR_NETWORK_REGEX,
     PY_IDENTIFIER_REGEX,
 )
+from n6lib.class_helpers import properly_negate_eq
 from n6lib.const import (
     HOSTNAME,
     SCRIPT_BASENAME,
+)
+from n6lib.typing_helpers import (
+    String as Str,
+    T,
 )
 
 
@@ -89,18 +97,24 @@ EMAIL_OVERRESTRICTED_SIMPLE_REGEX = re.compile(r'''
         )
         \Z
     '''.format(
-        domain=DOMAIN_ASCII_LOWERCASE_STRICT_REGEX.pattern.lstrip(' \\A\r\n').rstrip(' \\Z\r\n'),
-    ), re.VERBOSE)
+        domain=DOMAIN_ASCII_LOWERCASE_STRICT_REGEX.pattern.lstrip('A\\ \r\n').rstrip('Z\\ \r\n'),
+    ), re.ASCII | re.VERBOSE)
 
 # search()-only regexes of source code path prefixes that do not include
 # any valuable information (so they can be cut off from debug messages)
 USELESS_SRC_PATH_PREFIX_REGEXES = (
-    re.compile(r'/N6(?:Core|AdminPanel|GridFSMount|Lib|Portal|Push|RestApi|SDK)/(?=n6)'),
-    re.compile(r'/[^/]+\.egg/'),
-    re.compile(r'/(?:site|dist)-packages/'),
-    re.compile(r'/python[2](?:\.\d+)+/'),
-    re.compile(r'^/home/\w+/'),
-    re.compile(r'^/usr/(?:(?:local/)?lib/)?'),
+    re.compile(r'/N6'
+               r'(?:'
+               r'AdminPanel|BrokerAuthApi|Core|CoreLib|GitLabTools'
+               r'|GridFSMount|KscApi|Lib|Portal|Push|RestApi|SDK'
+               r')'
+               r'/(?=n6)',
+               re.ASCII),
+    re.compile(r'/[^/]+\.egg/', re.ASCII),
+    re.compile(r'/(?:site|dist)-packages/', re.ASCII),
+    re.compile(r'/python[23](?:\.\d+)+/', re.ASCII),
+    re.compile(r'^/home/\w+/', re.ASCII),
+    re.compile(r'^/usr/(?:(?:local/)?lib/)?', re.ASCII),
 )
 
 
@@ -125,10 +139,10 @@ class RsyncFileContextManager(object):
 
     def __enter__(self):
         if self._file is not None:
-            raise RuntimeError('Context manager {!r} is not reentrant'.format(self))
+            raise RuntimeError('Context manager {!a} is not reentrant'.format(self))
         self._dir_name = tempfile.mkdtemp()
         try:
-            full_file_path = os.path.join(self._dir_name, self._file_name)
+            full_file_path = osp.join(self._dir_name, self._file_name)
             try:
                 subprocess.check_output(["rsync", self._option, self._source, full_file_path],
                                         stderr=subprocess.STDOUT)
@@ -139,9 +153,13 @@ class RsyncFileContextManager(object):
             self._file = open(full_file_path)
         except:
             try:
-                shutil.rmtree(self._dir_name)
+                if self._file is not None:
+                    self._file.close()
             finally:
-                self._dir_name = None
+                try:
+                    shutil.rmtree(self._dir_name)
+                finally:
+                    self._dir_name = None
             raise
         return self._file
 
@@ -156,45 +174,48 @@ class RsyncFileContextManager(object):
                 self._file = None
 
 
-class SimpleNamespace(object):
+class PlainNamespace(object):
 
     """
     Provides attribute access to its namespace, as well as
-    namespace-content-based implementation of `repr()` and the
-    `==`/`!=` operators.
+    namespace-content-based implementation of the `==`/`!=` operators
+    and `repr()`.
 
-    Copied from http://docs.python.org/3.4/library/types.html and adjusted.
+    It is similar to Python 3's `types.SimpleNamespace`. In fact, its
+    initial version was copied from the `SimpleNamespace` example from
+    http://docs.python.org/3.4/library/types.html.
+
+    However, some modifications/additions has been made by us, so we
+    decided to keep this class here even after migration to Python 3.
     """
 
-    def __init__(*args, **kwargs):
-        try:
-            # to avoid arg name clash ('self' may be in kwargs)...
-            [self] = args
-        except ValueError:
-            args_length = len(args)
-            assert args_length >= 2
-            raise TypeError(
-                '{.__class__.__name__}.__init__() takes no positional '
-                'arguments ({} given)'.format(args[0], args_length - 1))
+    @classmethod
+    def from_class(cls, decorated_class):
+        return cls(**{
+            name: getattr(decorated_class, name) for name in vars(decorated_class)
+            if not (name.startswith('__') and name.endswith('__'))})
+
+    def __init__(self, /, **kwargs):
         self.__dict__.update(kwargs)
 
     def __repr__(self):
         namespace = self.__dict__
-        items = ("{0}={1!r}".format(k, namespace[k])
+        items = ("{}={!r}".format(k, namespace[k])
                  for k in sorted(namespace))
-        return "{0}({1})".format(type(self).__name__, ", ".join(items))
+        return "{.__qualname__}({})".format(type(self), ", ".join(items))
 
     def __eq__(self, other):
-        return self.__dict__ == other.__dict__
+        if hasattr(other, '__dict__'):
+            return self.__dict__ == other.__dict__
+        return NotImplemented
 
-    def __ne__(self, other):
-        return not self == other
+    __ne__ = properly_negate_eq
 
 
-class ThreadLocalNamespace(SimpleNamespace, threading.local):
+class ThreadLocalNamespace(PlainNamespace, threading.local):
 
     """
-    Somewhat similar to `SimpleNamespace` (which is one of its base
+    Somewhat similar to `PlainNamespace` (which is one of its base
     classes) -- but with two significant differences:
 
     * it is also a subclass of `threading.local` -- so its instances
@@ -212,13 +233,13 @@ class ThreadLocalNamespace(SimpleNamespace, threading.local):
     >>> TLN                                                                    # doctest: +ELLIPSIS
     <ThreadLocalNamespace object as visible from thread ...: foo=['xyz']>
 
-    >>> SN = SimpleNamespace(foo=['xyz', 123])
-    >>> TLN == SN
+    >>> PN = PlainNamespace(foo=['xyz', 123])
+    >>> TLN == PN
     False
     >>> TLN.foo.append(123)
     >>> TLN.foo
     ['xyz', 123]
-    >>> TLN == SN
+    >>> TLN == PN
     True
     >>> TLN                                                                    # doctest: +ELLIPSIS
     <ThreadLocalNamespace object as visible from thread ...: foo=['xyz', 123]>
@@ -229,7 +250,7 @@ class ThreadLocalNamespace(SimpleNamespace, threading.local):
     ...     print(
     ...         'TLN with foo={tln.foo}'
     ...         ' is {equality} to'
-    ...         ' SN with foo={sn.foo}'.format(
+    ...         ' PN with foo={sn.foo}'.format(
     ...             tln=tln,
     ...             sn=sn,
     ...             equality=('equal' if tln==sn else '*not* equal')))
@@ -239,41 +260,98 @@ class ThreadLocalNamespace(SimpleNamespace, threading.local):
     ...     t.start()
     ...     t.join()
     ...
-    >>> test_it(TLN, SN)
-    TLN with foo=['xyz', 123] is equal to SN with foo=['xyz', 123]
-    >>> test_it_in_another_thread(TLN, SN)
-    TLN with foo=['xyz'] is *not* equal to SN with foo=['xyz', 123]
-    >>> test_it_in_another_thread(TLN, SN, with_appended=123)
-    TLN with foo=['xyz', 123] is equal to SN with foo=['xyz', 123]
-    >>> SN.foo.pop()
+    >>> test_it(TLN, PN)
+    TLN with foo=['xyz', 123] is equal to PN with foo=['xyz', 123]
+    >>> test_it_in_another_thread(TLN, PN)
+    TLN with foo=['xyz'] is *not* equal to PN with foo=['xyz', 123]
+    >>> test_it_in_another_thread(TLN, PN, with_appended=123)
+    TLN with foo=['xyz', 123] is equal to PN with foo=['xyz', 123]
+    >>> PN.foo.pop()
     123
-    >>> test_it(TLN, SN)
-    TLN with foo=['xyz', 123] is *not* equal to SN with foo=['xyz']
-    >>> test_it_in_another_thread(TLN, SN)
-    TLN with foo=['xyz'] is equal to SN with foo=['xyz']
-    >>> test_it_in_another_thread(TLN, SN, with_appended=123)
-    TLN with foo=['xyz', 123] is *not* equal to SN with foo=['xyz']
+    >>> test_it(TLN, PN)
+    TLN with foo=['xyz', 123] is *not* equal to PN with foo=['xyz']
+    >>> test_it_in_another_thread(TLN, PN)
+    TLN with foo=['xyz'] is equal to PN with foo=['xyz']
+    >>> test_it_in_another_thread(TLN, PN, with_appended=123)
+    TLN with foo=['xyz', 123] is *not* equal to PN with foo=['xyz']
     """
+
+    @classmethod
+    def from_class(cls, decorated_class):
+        return cls(attr_factories={
+            name: getattr(decorated_class, name) for name in vars(decorated_class)
+            if not (name.startswith('__') and name.endswith('__'))})
 
     def __init__(self, attr_factories=None):
         attrs = {}
         if attr_factories is not None:
-            for name, factory in sorted(attr_factories.iteritems()):
+            for name, factory in sorted(attr_factories.items()):
                 value = factory()
                 attrs[name] = value
         super(ThreadLocalNamespace, self).__init__(**attrs)
 
     def __repr__(self):
         namespace = self.__dict__
-        items = ("{0}={1!r}".format(k, namespace[k])
+        items = ("{}={!r}".format(k, namespace[k])
                  for k in sorted(namespace))
         return '<{} object as visible from thread {!r}: {}>'.format(
-            type(self).__name__,
+            type(self).__qualname__,
             threading.current_thread(),
             ', '.join(items))
 
 
-class FilePagedSequence(collections.MutableSequence):
+class NonBlockingLockWrapper(object):
+
+    """
+    A lock wrapper to acquire a lock in non-blocking manner.
+
+    Constructor args/kwargs:
+        `lock`:
+            The threading.Lock or threading.RLock instance to be wrapped.
+        `lock_description` (optional):
+            The lock description (for debug purposes).
+
+    Instance interface includes:
+        * the context manager (`with` statement) interface,
+        * explicit `acquire()` (argumentless, always non-blocking),
+        * explicit `release()`.
+
+    If `lock` cannot be acquired, `RuntimeError` is raised (with
+    `lock_description`, if provided, used in the error message).
+
+    Example use:
+        my_lock = threading.Lock()  # or threading.RLock()
+        ...
+        with NonBlockingLockWrapper(my_lock, 'my very important lock')
+            ...
+    """
+
+    def __init__(self, lock, lock_description=None):
+        self.lock = lock
+        self._lock_ascii_description = self._make_lock_ascii_description(lock_description)
+
+    def _make_lock_ascii_description(self, lock_description):
+        if lock_description is None:
+            lock_description = ascii(self.lock)
+        return ascii_str(lock_description)
+
+    def __enter__(self):
+        self.acquire()
+        return self.lock
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
+
+    def acquire(self):
+        if self.lock.acquire(False):
+            return True
+        raise RuntimeError('could not acquire {}'.format(self._lock_ascii_description))
+
+    def release(self):
+        self.lock.release()
+
+
+class FilePagedSequence(collections_abc.MutableSequence):
 
     """
     A mutable sequence that reduces memory usage by keeping data as files.
@@ -308,7 +386,7 @@ class FilePagedSequence(collections.MutableSequence):
     undefined (i.e., apart from an exception being raised, the sequence may
     be left in a defective, inconsistent state).
 
-    Temporary directory and files are created leazily -- no disk operations
+    Temporary directory and files are created lazily -- no disk operations
     are performed at all if all data fit on one page.
 
     The implementation is *not* thread-safe.
@@ -682,7 +760,7 @@ class FilePagedSequence(collections.MutableSequence):
         self._cur_page_data[local_index] = value
 
     def __reversed__(self):
-        for i in xrange(len(self) - 1, -1, -1):
+        for i in range(len(self) - 1, -1, -1):
             yield self[i]
 
     def append(self, value):
@@ -760,14 +838,14 @@ class FilePagedSequence(collections.MutableSequence):
         if self._cur_page_no is not None:
             # save the current page
             with open(self._get_page_filename(self._cur_page_no), 'wb') as f:
-                cPickle.dump(self._cur_page_data, f, -1)
+                pickle.dump(self._cur_page_data, f, -1)
         if new:
             # initialize a new page...
             self._cur_page_data = []
         else:
             # load an existing page...
             with open(self._get_page_filename(page_no), 'rb') as f:
-                self._cur_page_data = cPickle.load(f)
+                self._cur_page_data = pickle.load(f)
         # ...and set it as the current one
         self._cur_page_no = page_no
 
@@ -779,7 +857,7 @@ class FilePagedSequence(collections.MutableSequence):
 
     @staticmethod
     def _instance_mock():
-        from mock import create_autospec
+        from unittest.mock import create_autospec
 
         NOT_IMPLEMENTED_METHODS = (
             '__delitem__', 'remove', 'insert', 'reverse', 'sort')
@@ -798,6 +876,7 @@ class FilePagedSequence(collections.MutableSequence):
             def side_effect(*args, **kwargs):
                 return meth_obj(*args, **kwargs)
             side_effect.__name__ = meth
+            side_effect.__qualname__ = '{}.{}'.format(FilePagedSequence.__name__, meth)
             return side_effect
 
         def getitem_side_effect(index):
@@ -823,10 +902,10 @@ class FilePagedSequence(collections.MutableSequence):
             itertools.repeat(lambda: None))
 
         def enter_side_effect():
-            return FilePagedSequence.__enter__.__func__(m)
+            return FilePagedSequence.__enter__(m)
 
         def exit_side_effect(*args):
-            return FilePagedSequence.__exit__.__func__(m, *args)
+            return FilePagedSequence.__exit__(m, *args)
 
         #
         # configuring the actual mock
@@ -878,10 +957,10 @@ class DictWithSomeHooks(dict):
       __repr__() completely.
 
     * The __ne__ () method (the `!=` operator) is already -- for your
-      convenience -- implemented as negation of __eq__() (`==`) -- so
-      when you will need, in your subclass, to reimplement/extend the
-      equality/inequality operations, typically, you will need to
-      override/extend only the __eq__() method.
+      convenience -- implemented as negation of __eq__() (`==`) --
+      so if you need, in your subclass, to reimplement/extend the
+      equality/inequality operations, typically, you will need
+      to override/extend only the __eq__() method.
 
     * Important: you should not replace the __init__() method completely
       in your subclasses -- but only extend it (e.g., using super()).
@@ -897,13 +976,12 @@ class DictWithSomeHooks(dict):
       attributes and including support for recursive mappings.
 
       Please note, however, that those copying operations are supposed
-      to work properly only if the iteritems() and update() methods work
-      as expected -- i.e., that iteritems() generates ``(<hashable key>,
-      <corresponding value>)`` pairs (one for each item of the mapping)
-      and that update() is able to "consume" an input data object being
-      an iterable of such pairs or a `dict` instance created from such
-      pairs (the order of items should be considered arbitrary -- it is
-      *not* guaranteed to be preserved).
+      to work properly only if the items() and update() methods work
+      as expected for an ordinary dict -- i.e., that items() provides
+      `(<hashable key>, <corresponding value>)` pairs (one for each item
+      of the mapping) and that update() is able to "consume" an input
+      data object being an iterable of such pairs; the order of items
+      is preserved *only if* those two methods preserve it.
 
     >>> class MyUselessDict(DictWithSomeHooks):
     ...
@@ -915,7 +993,7 @@ class DictWithSomeHooks(dict):
     ...     # examples of implementation of the two customization hooks:
     ...
     ...     def _constructor_args_repr(self):
-    ...         return '<' + repr(sorted(self.items())) + '>'
+    ...         return '<' + repr(sorted(self.items(), key=repr)) + '>'
     ...
     ...     def _custom_key_error(self, key_error, method_name):
     ...         e = super(MyUselessDict, self)._custom_key_error(
@@ -1029,7 +1107,7 @@ class DictWithSomeHooks(dict):
     True
 
     >>> class RecurKey(object):
-    ...     def __repr__(self): return 'rr'
+    ...     def __repr__(self): return '$$$'
     ...     def __hash__(self): return 42
     ...     def __eq__(self, other): return isinstance(other, RecurKey)
     ...     def __ne__(self, other): return not (self == other)
@@ -1042,11 +1120,11 @@ class DictWithSomeHooks(dict):
     >>> recur_d[recur_key] = recur_d
     >>> recur_d['b'] = recur_d.b = recur_d
     >>> recur_d
-    MyUselessDict(<[(rr, MyUselessDict(<...>)), ('a', ['A']), ('b', MyUselessDict(<...>))]>)
+    MyUselessDict(<[($$$, MyUselessDict(<...>)), ('a', ['A']), ('b', MyUselessDict(<...>))]>)
 
     >>> recur_d_deepcopy = copy.deepcopy(recur_d)
     >>> recur_d_deepcopy
-    MyUselessDict(<[(rr, MyUselessDict(<...>)), ('a', ['A']), ('b', MyUselessDict(<...>))]>)
+    MyUselessDict(<[($$$, MyUselessDict(<...>)), ('a', ['A']), ('b', MyUselessDict(<...>))]>)
     >>> recur_d_deepcopy is recur_d
     False
     >>> [dc_recur_key] = [k for k in recur_d_deepcopy if k == recur_key]
@@ -1110,7 +1188,7 @@ class DictWithSomeHooks(dict):
 
     >>> recur_d_shallowcopy = copy.copy(recur_d)
     >>> recur_d_shallowcopy                               # doctest: +ELLIPSIS
-    MyUselessDict(<[(rr, MyUselessDict(<[(rr, MyUselessDict(<...>)), ('a', ...
+    MyUselessDict(<[($$$, MyUselessDict(<[($$$, MyUselessDict(<...>)), ('a', ...
 
     >>> recur_d_shallowcopy == recur_d
     True
@@ -1171,20 +1249,19 @@ class DictWithSomeHooks(dict):
     False
     """
 
-    def __init__(*args, **kwargs):
-        self = args[0]  # to avoid arg name clash ('self' may be in kwargs)...
-        super(DictWithSomeHooks, self).__init__(*args[1:], **kwargs)
+    def __init__(self, /, *args, **kwargs):
+        super(DictWithSomeHooks, self).__init__(*args, **kwargs)
         self._repr_recur_thread_ids = set()
 
     @classmethod
     def fromkeys(cls, *args, **kwargs):
         raise NotImplementedError(
             'the fromkeys() class method is not implemented '
-            'for the {0.__name__} class', cls)
+            'for the {.__qualname__} class', cls)
 
     def __repr__(self):
         repr_recur_thread_ids = self._repr_recur_thread_ids
-        cur_thread_id = thread.get_ident()
+        cur_thread_id = get_current_thread_ident()
         if cur_thread_id in self._repr_recur_thread_ids:
             # recursion detected
             constructor_args_repr = '<...>'
@@ -1194,34 +1271,33 @@ class DictWithSomeHooks(dict):
                 constructor_args_repr = self._constructor_args_repr()
             finally:
                 repr_recur_thread_ids.discard(cur_thread_id)
-        return '{0.__class__.__name__}({1})'.format(self, constructor_args_repr)
+        return '{.__class__.__qualname__}({})'.format(self, constructor_args_repr)
 
-    def __ne__(self, other):
-        return not (self == other)
+    __ne__ = properly_negate_eq
 
     def __getitem__(self, key):
         try:
             return super(DictWithSomeHooks, self).__getitem__(key)
         except KeyError as key_error:
-            raise self._custom_key_error(key_error, '__getitem__')
+            raise self._custom_key_error(key_error, '__getitem__') from key_error
 
     def __delitem__(self, key):
         try:
             super(DictWithSomeHooks, self).__delitem__(key)
         except KeyError as key_error:
-            raise self._custom_key_error(key_error, '__delitem__')
+            raise self._custom_key_error(key_error, '__delitem__') from key_error
 
     def pop(self, *args):
         try:
             return super(DictWithSomeHooks, self).pop(*args)
         except KeyError as key_error:
-            raise self._custom_key_error(key_error, 'pop')
+            raise self._custom_key_error(key_error, 'pop') from key_error
 
     def popitem(self):
         try:
             return super(DictWithSomeHooks, self).popitem()
         except KeyError as key_error:
-            raise self._custom_key_error(key_error, 'popitem')
+            raise self._custom_key_error(key_error, 'popitem') from key_error
 
     def copy(self):
         return copy.copy(self)
@@ -1229,38 +1305,40 @@ class DictWithSomeHooks(dict):
     def __copy__(self):
         cls = type(self)
         new = cls.__new__(cls)
-        new.update(self.iteritems())
-        vars(new).update(vars(self))
         new._repr_recur_thread_ids = set()
+        new.update(self.items())
+        vars(new).update((k, v) for k, v in vars(self).items()
+                         if k != '_repr_recur_thread_ids')
         return new
 
     def __deepcopy__(self, memo):
         cls = type(self)
         new = cls.__new__(cls)
-        memo[id(self)] = new  # <- needed in case of a recursive mapping
-        new.update(copy.deepcopy(dict(self.iteritems()), memo))
-        vars(new).update(copy.deepcopy(vars(self), memo))
         new._repr_recur_thread_ids = set()
+        memo[id(self)] = new  # <- needed in case of a recursive mapping
+        copied_items = copy.deepcopy(list(self.items()), memo)
+        copied_attrs = copy.deepcopy(list(vars(self).items()), memo)
+        new.update(copied_items)
+        vars(new).update((k, v) for k, v in copied_attrs
+                         if k != '_repr_recur_thread_ids')
         return new
 
     # the overridable/extendable hooks:
 
     def _constructor_args_repr(self):
-        return repr(dict(self.iteritems()))
+        return repr(dict(self.items()))
 
     def _custom_key_error(self, key_error, method_name):
         if method_name == 'popitem':
             # for popitem() the standard behaviour is mostly the desired one
-            raise key_error
+            raise
         return key_error
 
 
 ## TODO: doc + maybe more tests (now only the CIDict subclass is doc-tested...)
-class NormalizedDict(collections.MutableMapping):
+class NormalizedDict(collections_abc.MutableMapping):
 
-    def __init__(*args, **kwargs):
-        self = args[0]  # to avoid arg name clash ('self' may be in kwargs)...
-        args = args[1:]
+    def __init__(self, /, *args, **kwargs):
         self._mapping = {}
         self.update(*args, **kwargs)
 
@@ -1281,43 +1359,28 @@ class NormalizedDict(collections.MutableMapping):
         del self._mapping[nkey]
 
     def __repr__(self):
-        return '{0.__class__.__name__}({1!r})'.format(self, dict(self.iteritems()))
+        return '{0.__class__.__qualname__}({1!r})'.format(self, dict(self.items()))
 
     def __len__(self):
         return len(self._mapping)
 
     def __eq__(self, other):
-        if isinstance(other, type(self)):
+        if isinstance(other, NormalizedDict):
             return (dict(self.iter_normalized_items()) ==
                     dict(other.iter_normalized_items()))
         return super(NormalizedDict, self).__eq__(other)
 
-    def iterkeys(self):
-        return itertools.imap(operator.itemgetter(0), self._mapping.itervalues())
+    __ne__ = properly_negate_eq
 
-    __iter__ = iterkeys
+    def __iter__(self):
+        return map(operator.itemgetter(0), self._mapping.values())
 
-    def itervalues(self):
-        return itertools.imap(operator.itemgetter(1), self._mapping.itervalues())
-
-    def iteritems(self):
-        return self._mapping.itervalues()
+    def __reversed__(self):
+        return map(operator.itemgetter(0), reversed(self._mapping.values()))
 
     def iter_normalized_items(self):
-        for nkey, (key, value) in self._mapping.iteritems():
+        for nkey, (key, value) in self._mapping.items():
             yield nkey, value
-
-    def keys(self):
-        return list(self.iterkeys())
-
-    def values(self):
-        return list(self.itervalues())
-
-    def items(self):
-        return list(self.iteritems())
-
-    def normalized_items(self):
-        return list(self.iter_normalized_items())
 
     def copy(self):
         return type(self)(self)
@@ -1327,7 +1390,7 @@ class NormalizedDict(collections.MutableMapping):
 
     @classmethod
     def fromkeys(cls, seq, value=None):
-        return cls(itertools.izip(seq, itertools.repeat(value)))
+        return cls(zip(seq, itertools.repeat(value)))
 
 
 class CIDict(NormalizedDict):
@@ -1413,12 +1476,12 @@ class CIDict(NormalizedDict):
     True
 
     >>> d.update([('zz', 1), ('ZZ', 1), ('XX', 5)], xx=6)
-    >>> sorted(d.iteritems())
+    >>> sorted(d.items())
     [('ZZ', 1), ('xx', 6)]
     >>> sorted(d.iter_normalized_items())
     [('xx', 6), ('zz', 1)]
     >>> del d['Xx']
-    >>> d.normalized_items()
+    >>> list(d.iter_normalized_items())
     [('zz', 1)]
     """
 
@@ -1445,6 +1508,31 @@ class LimitedDict(collections.OrderedDict):
     >>> lo.update([((1,2,3), 42), (None, True)])
     >>> lo == OrderedDict([('d', 4), ((1,2,3), 42), (None, True)])
     True
+    >>> lo.setdefault('a', 1)
+    1
+    >>> lo == OrderedDict([((1,2,3), 42), (None, True), ('a', 1)])
+    True
+    >>> lo |= [('c', 3), ('d', 4)]
+    >>> lo == OrderedDict([('a', 1), ('c', 3), ('d', 4)])
+    True
+
+    >>> lo = LimitedDict([('b', 2), ('a', 1), ('c', 3), ('d', 4)], maxlen=3)
+    >>> lo == OrderedDict([('a', 1), ('c', 3), ('d', 4)])
+    True
+    >>> lo = LimitedDict([('b', 2), ('a', 1), ('c', 3)], d=4, maxlen=3)
+    >>> lo == OrderedDict([('a', 1), ('c', 3), ('d', 4)])
+    True
+
+    >>> lo = LimitedDict([('b', 2), ('a', 1), ('c', 3)], maxlen=3)
+    >>> lo == OrderedDict([('b', 2), ('a', 1), ('c', 3)])
+    True
+
+    >>> lo = LimitedDict(b=2, maxlen=3)
+    >>> lo == OrderedDict(b=2)
+    True
+    >>> lo = LimitedDict([('b', 2)], maxlen=3)
+    >>> lo == OrderedDict([('b', 2)])
+    True
 
     >>> LimitedDict([('b', 2)])  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
@@ -1452,14 +1540,8 @@ class LimitedDict(collections.OrderedDict):
     TypeError: ...
     """
 
-    def __init__(*args, **kwargs):
-        self = args[0]  # to avoid arg name clash ('self' may be in kwargs)...
-        args = args[1:]
-        try:
-            self._maxlen = kwargs.pop('maxlen')
-        except KeyError:
-            raise TypeError('{0.__class__.__name__}.__init__ needs '
-                            'keyword-only argument maxlen'.format(self))
+    def __init__(self, /, *args, maxlen, **kwargs):
+        self._maxlen = maxlen
         super(LimitedDict, self).__init__(*args, **kwargs)
 
     def __repr__(self):
@@ -1471,13 +1553,13 @@ class LimitedDict(collections.OrderedDict):
         LimitedDict([(1, 2)], maxlen=3)
 
         >>> class StrangeBase(collections.OrderedDict):
-        ...     def __repr__(self): return 'XXX'
+        ...     def __repr__(self): return 'SOMETHING NON-STANDARD'
         ...
         >>> class StrangeSubclass(LimitedDict, StrangeBase):
         ...     pass
         ...
         >>> StrangeSubclass({1: 2}, maxlen=3)  # doctest: +ELLIPSIS
-        <n6lib.common_helpers.StrangeSubclass object at 0x...>
+        <...StrangeSubclass object at 0x...>
         """
         s = super(LimitedDict, self).__repr__()
         if s.endswith(')'):
@@ -1510,7 +1592,7 @@ class LimitedDict(collections.OrderedDict):
         return self.__class__(self, maxlen=self._maxlen)
 
     @classmethod
-    def fromkeys(cls, iterable, value=None, **kwargs):
+    def fromkeys(cls, iterable, value=None, *, maxlen):
         """
         >>> LimitedDict.fromkeys([1,2,3,4], maxlen=3)
         LimitedDict([(2, None), (3, None), (4, None)], maxlen=3)
@@ -1524,15 +1606,8 @@ class LimitedDict(collections.OrderedDict):
           ...
         TypeError: ...
         """
-        try:
-            maxlen = kwargs.pop('maxlen')
-        except KeyError:
-            raise TypeError('{0.__name__}.fromkeys needs '
-                            'keyword-only argument maxlen'.format(cls))
-        self = cls(maxlen=maxlen)
-        for key in iterable:
-            self[key] = value
-        return self
+        items = zip(iterable, itertools.repeat(value))
+        return cls(items, maxlen=maxlen)
 
 
 class _CacheKey(object):
@@ -1542,16 +1617,15 @@ class _CacheKey(object):
         self.args_hash = hash(args)
 
     def __repr__(self):
-        return '{0.__class__.__name__}{0.args!r}'.format(self)
+        return '{0.__class__.__qualname__}{0.args!r}'.format(self)
 
     def __hash__(self):
         return self.args_hash
 
-    def __eq__(self, other):
-        return self.args == other
-
-    def __ne__(self, other):
-        return not (self == other)
+    def __eq__(self, other,
+               _type=type):
+        assert _type(other) == _type(self)
+        return self.args == other.args
 
 
 def memoized(func=None,
@@ -1594,7 +1668,7 @@ def memoized(func=None,
 
     >>> @memoized(expires_after=None, max_size=2)
     ... def add(a, b):
-    ...     print 'calculating: {} + {} = ...'.format(a, b)
+    ...     print('calculating: {} + {} = ...'.format(a, b))
     ...     return a + b
     ...
     >>> add(1, 2)  # first time: calling the add() function
@@ -1628,7 +1702,7 @@ def memoized(func=None,
     >>> pseudo_time = lambda: t
     >>> @memoized(expires_after=4, max_extra_time=None, time_func=pseudo_time)
     ... def sub(a, b):
-    ...     print 'calculating: {} - {} = ...'.format(a, b)
+    ...     print('calculating: {} - {} = ...'.format(a, b))
     ...     return a - b
     ...
     >>> sub(1, 2)
@@ -1676,37 +1750,37 @@ def memoized(func=None,
 
     >>> @memoized(expires_after=None, max_size=2)
     ... def div(a, b):
-    ...     print 'calculating: {} / {} = ...'.format(a, b)
+    ...     print('calculating: {} / {} = ...'.format(a, b))
     ...     return a / b
     ...
     >>> div(6, 2)
     calculating: 6 / 2 = ...
-    3
+    3.0
     >>> div(8, 2)
     calculating: 8 / 2 = ...
-    4
+    4.0
     >>> div(15, 3)
     calculating: 15 / 3 = ...
-    5
+    5.0
     >>> try: div(7, 0)
-    ... except ZeroDivisionError: print 'Uff'
+    ... except ZeroDivisionError: print('Uff')
     calculating: 7 / 0 = ...
     Uff
     >>> try: div(7, 0)
-    ... except ZeroDivisionError: print 'Uff'
+    ... except ZeroDivisionError: print('Uff')
     calculating: 7 / 0 = ...
     Uff
     >>> try: div(7, 0)
-    ... except ZeroDivisionError: print 'Uff'
+    ... except ZeroDivisionError: print('Uff')
     calculating: 7 / 0 = ...
     Uff
     >>> div(15, 3)
-    5
+    5.0
     >>> div(8, 2)
-    4
+    4.0
     >>> div(6, 2)
     calculating: 6 / 2 = ...
-    3
+    3.0
 
     >>> @memoized
     ... def recur(n):
@@ -1737,7 +1811,7 @@ def memoized(func=None,
         with mutex:
             if recursion_guard:
                 raise RuntimeError(
-                    'recursive calls cannot be memoized ({0!r} appeared '
+                    'recursive calls cannot be memoized ({0!a} appeared '
                     'to be called recursively)'.format(wrapper))
             try:
                 recursion_guard.append(None)
@@ -1806,10 +1880,16 @@ class DictDeltaKey(collections.namedtuple('DictDeltaKey', ('op', 'key_obj'))):
     def __eq__(self, other):
         if isinstance(other, DictDeltaKey):
             return super(DictDeltaKey, self).__eq__(other)
+        # We don't want to be equal to anything else,
+        # in particular, not to any other tuples...
         return False
 
-    def __ne__(self, other):
-        return not (self == other)
+    __ne__ = properly_negate_eq
+
+    def __hash__(self):
+        # Needed because Python 3.x implicitly sets `__hash__` to `None`
+        # if `__eq__()` is redefined and `__hash__()` is not.
+        return super().__hash__()
 
 
 def make_dict_delta(dict1, dict2):
@@ -1830,9 +1910,9 @@ def make_dict_delta(dict1, dict2):
     True
     >>> make_dict_delta({'spam': 42}, {'spam': 42}) == {}
     True
-    >>> make_dict_delta({'spam': 42}, {'spam': 42L}) == {}
+    >>> make_dict_delta({'spam': 42}, {'spam': 42.0}) == {}
     True
-    >>> make_dict_delta({42: 'spam'}, {42L: 'spam'}) == {}
+    >>> make_dict_delta({42: 'spam'}, {42.0: 'spam'}) == {}
     True
     >>> make_dict_delta({'spam': 42}, {'spam': 'HAM'}) == {
     ...     DictDeltaKey('-', 'spam'): 42,
@@ -1843,11 +1923,11 @@ def make_dict_delta(dict1, dict2):
     ...     DictDeltaKey('+', 'HAM'): 'spam'}
     True
     >>> delta = make_dict_delta(
-    ...     {u'a': 1, u'b': 2L, 'c': 3, 'd': 4L},
-    ...     {'b': 2, u'c': 3L, 'd': 42, 'e': 555})
+    ...     {'a': 1, 'b': 2.0, 'c': 3, 'd': 4.0},
+    ...     {'b': 2, 'c': 3.0, 'd': 42, 'e': 555})
     >>> delta == {
-    ...     DictDeltaKey('-', u'a'): 1,
-    ...     DictDeltaKey('-', 'd'): 4L,
+    ...     DictDeltaKey('-', 'a'): 1,
+    ...     DictDeltaKey('-', 'd'): 4.0,
     ...     DictDeltaKey('+', 'd'): 42,
     ...     DictDeltaKey('+', 'e'): 555}
     True
@@ -1856,9 +1936,9 @@ def make_dict_delta(dict1, dict2):
     >>> delta.pop(DictDeltaKey('+', 'd'))
     42
     >>> delta.pop(DictDeltaKey('-', 'd'))
-    4L
+    4.0
     >>> delta.popitem()
-    (DictDeltaKey(op='-', key_obj=u'a'), 1)
+    (DictDeltaKey(op='-', key_obj='a'), 1)
 
     Important feature: nested deltas are supported as well.
     For example:
@@ -1868,7 +1948,7 @@ def make_dict_delta(dict1, dict2):
     ...         'w': 42,
     ...         'e': ['spam', {42: 'spam'}, 'spam'],
     ...         'r': {
-    ...             3: 3L,
+    ...             3: 3.0,
     ...             2: {
     ...                 'a': {
     ...                     'aa': 42,
@@ -1877,9 +1957,9 @@ def make_dict_delta(dict1, dict2):
     ...                 'b': 'bb',
     ...                 'c': {'cc': {'ccc': 43}},
     ...                 'd': {'dd': {'ddd': 44}},
-    ...                 'z': {'zz': {'zzz': 123L}},
+    ...                 'z': {'zz': {'zzz': 123.0}},
     ...             },
-    ...             1L: 7L,
+    ...             1.0: 7.0,
     ...         },
     ...         't': {'a': 42},
     ...         'y': {},
@@ -1888,17 +1968,17 @@ def make_dict_delta(dict1, dict2):
     ...         'p': {'b': 43, 'c': {'d': {'e': 456}}},
     ...     }, {
     ...         'q': 'foo',
-    ...         u'w': 42L,
+    ...         'w': 42.0,
     ...         'e': ['spam', {42: 'HAM'}, 'spam'],
     ...         'r': {
-    ...             3: 3L,
+    ...             3: 3.0,
     ...             2: {
     ...                 'a': {'aa': 43},
     ...                 'b': 'bb',
     ...                 'c': {'cc': {'CCC': 43}},
     ...                 'e': {'ee': {'eee': 45}},
     ...                 'z': {
-    ...                     'zz': {u'zzz': 123},
+    ...                     'zz': {'zzz': 123},
     ...                     'xx': ['bar'],
     ...                 },
     ...             },
@@ -1932,7 +2012,7 @@ def make_dict_delta(dict1, dict2):
     ...                 DictDeltaKey('+', 'xx'): ['bar'],
     ...             },
     ...         },
-    ...         DictDeltaKey('-', 1): 7L,
+    ...         DictDeltaKey('-', 1): 7.0,
     ...         DictDeltaKey('+', 1): 777,
     ...     },
     ...     DictDeltaKey('-', 't'): {'a': 42},
@@ -1949,9 +2029,9 @@ def make_dict_delta(dict1, dict2):
     ...     },
     ... }
     True
-    >>> sorted(delta['r'])  # (a corner case detail: note that within both
-    ...                     # DictDeltaKey instances `key_obj` is 1, not 1L)
-    [2, DictDeltaKey(op='+', key_obj=1), DictDeltaKey(op='-', key_obj=1)]
+    >>> list(delta['r'])   # (a corner case detail: within both
+    ...                    # DictDeltaKey instances `key_obj` is 1, not 1.0)
+    [2, DictDeltaKey(op='-', key_obj=1), DictDeltaKey(op='+', key_obj=1)]
 
     Making deltas from dicts that already contain keys being
     DictDeltaKey instances is (consciously) unsupported:
@@ -1977,9 +2057,9 @@ def make_dict_delta(dict1, dict2):
     if any(isinstance(key, DictDeltaKey)
            for key in itertools.chain(common_keys, del_keys, add_keys)):
         raise TypeError(
-            'make_dict_delta() does not accept dicts that '
-            'already contain keys being DictDeltaKey instances'
-            '(keys of given dicts: {0!r} and {1!r})'.format(
+            'make_dict_delta() does not accept dicts that '      # TODO: Let's analyze whether this
+            'already contain keys being DictDeltaKey instances'  #       limitation can be lifted.
+            '(keys of given dicts: {0!a} and {1!a})'.format(
                 sorted(dict1), sorted(dict2)))
     delta = {}
     for key in common_keys:
@@ -2006,14 +2086,14 @@ def update_mapping_recursively(*args, **kwargs):
     Update the given mapping recursively with items from other mappings.
 
     Args:
-        `target_mapping` (a collection.MutableMapping, e.g. a dict):
+        `target_mapping` (a collections.abc.MutableMapping, e.g. a dict):
             The target mapping, that is, the mapping to be mutated.
         <other positional arguments>:
             The source mappings (e.g., dicts); their items will be
-            used to update `target_mapping` recursively.  The mappings
-            will be used in the given order.  Instead of a mapping
-            (collection.Mapping instance) some other iterable can
-            be given, provided it yields `(<key>, <value>)` pairs.
+            used to recursively update `target_mapping`. The mappings
+            will be used in the given order. Instead of a mapping
+            (collections.abc.Mapping instance) any iterable object
+            can be given, provided it yields `(<key>, <value>)` pairs.
 
     Kwargs:
         <all keyword arguments (if any)>:
@@ -2021,21 +2101,21 @@ def update_mapping_recursively(*args, **kwargs):
             (as the last one) in the same way the mappings specified as
             <other positional arguments> will be.
 
-    Here, *recursive update* means that for each key in the particular
-    source mapping:
+    Here, *recursive update* means that for each key in each of the
+    source mappings:
 
-    * if the corresponding value in the target mapping *is* a mutable
-      mapping (dict or another instance of collections.MutableMapping)
-      -- it will be *updated recursively* with the contents of the value
-      from the source mapping (which then must be either an instance of
-      collections.Mapping or an iterable that yields `(<key>, <value>)`
-      pairs);
+    * if the corresponding value in the target mapping *is* a dict or
+      another instance of collections.abc.MutableMapping -- it will be
+      *recursively updated* with the contents of the value from the
+      source mapping (which then must be either an instance of
+      collections.abc.Mapping or any iterable that yields
+      `(<key>, <value>)` pairs);
 
-    * if the corresponding value in the target mapping is *not* a
-      mutable mapping or does *not* exist at all -- the result of
+    * if the corresponding value in the target mapping is *not* such
+      a mutable mapping or does *not* exist at all -- the result of
       applying copy.deepcopy() will be applied to the value from the
-      source mapping, and that copy will be stored in the target mapping
-      (replacing the aformentioned value, if any).
+      source mapping, and that copy will be stored in the target
+      mapping (replacing the aforementioned value, if any).
 
     For example:
 
@@ -2089,11 +2169,11 @@ def update_mapping_recursively(*args, **kwargs):
     for src_mapping in source_mappings:
         src_items = (
             src_mapping.items()
-            if isinstance(src_mapping, collections.Mapping)
+            if isinstance(src_mapping, collections_abc.Mapping)
             else src_mapping)
         for key, src_val in src_items:
             target_val = target_mapping.get(key)
-            if isinstance(target_val, collections.MutableMapping):
+            if isinstance(target_val, collections_abc.MutableMapping):
                 update_mapping_recursively(target_val, src_val)
             else:
                 target_mapping[key] = copy.deepcopy(src_val)
@@ -2207,7 +2287,7 @@ def exiting_on_exception(func=None,
                              'FATAL ERROR!\n'
                              '{traceback_msg}\n'
                              'CONDENSED DEBUG INFO:'
-                             ' [thread {thread_name!r}'
+                             ' [thread {thread_name!a}'
                              ' (#{thread_ident})]'
                              ' {condensed_debug_msg}'
                          )):
@@ -2258,7 +2338,7 @@ def exiting_on_exception(func=None,
             return func(*args, **kwargs)
         except (SystemExit, KeyboardInterrupt):
             raise
-        except:
+        except BaseException as exc:
             exc_info = sys.exc_info()
             try:
                 condensed_debug_msg = make_condensed_debug_msg(
@@ -2275,10 +2355,10 @@ def exiting_on_exception(func=None,
                     thread_name=ascii_str(cur_thread.name),
                     thread_ident=cur_thread.ident,
                     condensed_debug_msg=condensed_debug_msg))
-                raise raised_exc
+                raise raised_exc from exc
             finally:
                 # (to break any traceback-related reference cycles)
-                del exc_info
+                exc_info = raised_exc = None  # noqa
 
     wrapper.func = func  # making the original function still available
     return wrapper
@@ -2289,9 +2369,10 @@ def picklable(func_or_class):
     Make the given (possibly non-top-level) function or class picklable.
 
     Note: this decorator may change values of the `__module__` and/or
-    `__name__` attributes of the given function or class.
+    `__name__` and/or `__qualname__` attributes of the given function
+    or class.
 
-    >>> from cPickle import PicklingError, dumps, loads
+    >>> from pickle import PicklingError, dumps, loads
     >>> def _make_nontoplevel():
     ...     def func_a(x, y): return x, y
     ...     func_b = lambda: None
@@ -2302,12 +2383,14 @@ def picklable(func_or_class):
     ...
     >>> a, b, b2, b3, C = _make_nontoplevel()
 
-    >>> a.__module__
-    'n6lib.common_helpers'
+    >>> a.__module__.endswith('common_helpers')
+    True
     >>> a.__name__
     'func_a'
+    >>> a.__qualname__
+    '_make_nontoplevel.<locals>.func_a'
     >>> try: dumps(a)
-    ... except (PicklingError, TypeError): print 'Nie da rady!'
+    ... except (PicklingError, TypeError, AttributeError): print('Nie da rady!')
     ...
     Nie da rady!
     >>> picklable(a) is a    # applying the decorator
@@ -2315,6 +2398,8 @@ def picklable(func_or_class):
     >>> a.__module__
     'n6lib._picklable_objs'
     >>> a.__name__
+    'func_a'
+    >>> a.__qualname__
     'func_a'
     >>> import n6lib._picklable_objs
     >>> n6lib._picklable_objs.func_a is a
@@ -2324,21 +2409,24 @@ def picklable(func_or_class):
 
     >>> b is not b2 and b is not b3 and b2 is not b3
     True
-    >>> (b.__module__ == b2.__module__ == b3.__module__ ==
-    ...  'n6lib.common_helpers')
+    >>> (b.__module__.endswith('common_helpers')
+    ...  and b.__module__ == b2.__module__ == b3.__module__)
     True
     >>> b.__name__ == b2.__name__ == b3.__name__ == '<lambda>'
     True
+    >>> b.__qualname__ == b2.__qualname__ == b3.__qualname__ == (
+    ...     '_make_nontoplevel.<locals>.<lambda>')
+    True
     >>> try: dumps(b)
-    ... except (PicklingError, TypeError): print 'Nie da rady!'
+    ... except (PicklingError, TypeError, AttributeError): print('Nie da rady!')
     ...
     Nie da rady!
     >>> try: dumps(b2)
-    ... except (PicklingError, TypeError): print 'Nie da rady!'
+    ... except (PicklingError, TypeError, AttributeError): print('Nie da rady!')
     ...
     Nie da rady!
     >>> try: dumps(b3)
-    ... except (PicklingError, TypeError): print 'Nie da rady!'
+    ... except (PicklingError, TypeError, AttributeError): print('Nie da rady!')
     ...
     Nie da rady!
     >>> picklable(b) is b    # applying the decorator
@@ -2356,6 +2444,12 @@ def picklable(func_or_class):
     '<lambda>__2'
     >>> b3.__name__          # note this value!
     '<lambda>__3'
+    >>> b.__qualname__
+    '<lambda>'
+    >>> b2.__qualname__
+    '<lambda>__2'
+    >>> b3.__qualname__
+    '<lambda>__3'
     >>> getattr(n6lib._picklable_objs, '<lambda>') is b
     True
     >>> getattr(n6lib._picklable_objs, '<lambda>__2') is b2
@@ -2369,12 +2463,14 @@ def picklable(func_or_class):
     >>> loads(dumps(b3)) is b3
     True
 
-    >>> C.__module__
-    'n6lib.common_helpers'
+    >>> C.__module__.endswith('common_helpers')
+    True
     >>> C.__name__
     'class_C'
+    >>> C.__qualname__
+    '_make_nontoplevel.<locals>.class_C'
     >>> try: dumps(C)
-    ... except (PicklingError, TypeError): print 'Nie da rady!'
+    ... except (PicklingError, TypeError, AttributeError): print('Nie da rady!')
     ...
     Nie da rady!
     >>> picklable(C) is C    # applying the decorator
@@ -2383,22 +2479,29 @@ def picklable(func_or_class):
     'n6lib._picklable_objs'
     >>> C.__name__
     'class_C'
+    >>> C.__qualname__
+    'class_C'
     >>> n6lib._picklable_objs.class_C is C
     True
     >>> loads(dumps(C)) is C
     True
 
-    >>> picklable.__module__
-    'n6lib.common_helpers'
+    >>> mod = picklable.__module__
+    >>> mod.endswith('common_helpers')
+    True
     >>> picklable.__name__
+    'picklable'
+    >>> picklable.__qualname__
     'picklable'
     >>> loads(dumps(picklable)) is picklable
     True
     >>> picklable(picklable) is picklable   # nothing changes after applying:
     True
-    >>> picklable.__module__
-    'n6lib.common_helpers'
+    >>> picklable.__module__ == mod
+    True
     >>> picklable.__name__
+    'picklable'
+    >>> picklable.__qualname__
     'picklable'
     >>> loads(dumps(picklable)) is picklable
     True
@@ -2416,34 +2519,35 @@ def picklable(func_or_class):
         while namespace.setdefault(name, func_or_class) is not func_or_class:
             count += 1
             name = '{}__{}'.format(func_or_class.__name__, count)
-        func_or_class.__name__ = name
+        func_or_class.__name__ = func_or_class.__qualname__ = name
         func_or_class.__module__ = 'n6lib._picklable_objs'
     return func_or_class
 
 
-def reduce_indent(a_string):
+def reduce_indent(s):
     r"""
-    Reduce indents, retaining relative indentation (ignore first line indent).
+    Reduce indent, retaining relative indentation, except that the first
+    line's indent is completely ignored and erased.
 
     Args:
-        `a_string` (str or unicode):
-            The string to be modified.
+        `s` (str or bytes/bytearray):
+            The input string (or bytes sequence).
 
     Returns:
-        The input string with minimized indentation (of course, it's a
-        new string object); its type is the type of `a_string`.
+        A copy of the input string (or bytes sequence) with minimized
+        indentation; its type is the type of `s`.
 
-        Note #1: All tab characters ('\t') are, at first, converted to
-        spaces (by applying the expandtabs() method to the input
-        string).
+        Note #1: All tab (`\t`) characters (or bytes) are, at first,
+        converted to spaces (by applying the expandtabs() method to
+        the input string).
 
-        Note #2: The splitlines() method is applied to the input string.
-        It means that, in particular, different newline styles are
-        recognized ('\n', '\r' and '\r\n') but in the returned string
-        all newlines are normalized to '\n' (the Unix style).
+        Note #2: The splitlines_asc() helper is applied to the input
+        string. That means that, in particular, different newline styles
+        are recognized (`\n`, `\r` and `\r\n`) but in the returned
+        string all newlines are normalized to `\n` (the Unix style).
 
         Note #3: The first line as well as any lines that consist only
-        of whitespace characters -- are:
+        of whitespace characters (or bytes) -- are:
 
         * omitted when it comes to inspection and reduction of
           indentation depth;
@@ -2458,23 +2562,23 @@ def reduce_indent(a_string):
 
     A few examples (including some corner cases):
 
-    >>> reduce_indent(''' Lecz
+    >>> reduce_indent(b''' Lecz
     ...   Nie za bardzo.
     ...     Za bardzo nie.
-    ...       Raczej też.''') == ('''Lecz
+    ...       Raczej te\xc5\xbc.''') == (b'''Lecz
     ... Nie za bardzo.
     ...   Za bardzo nie.
-    ...     Raczej też.''')
+    ...     Raczej te\xc5\xbc.''')
     True
 
-    >>> reduce_indent(u'''\tAzaliż
+    >>> reduce_indent('''\tAzaliż
     ...      Ala ma kota.
     ...       A kot ma Alę.
     ...     Ala go kocha...
     ...
     ... \tA kot na to:
     ...         niemożliwe.
-    ... ''') == (u'''Azaliż
+    ... ''') == ('''Azaliż
     ...  Ala ma kota.
     ...   A kot ma Alę.
     ... Ala go kocha...
@@ -2503,48 +2607,58 @@ def reduce_indent(a_string):
 
     >>> reduce_indent('\n \n X\n  ABC')
     '\n\nX\n ABC'
-    >>> reduce_indent(u' ---\n \n\t\n  ABC\n\r\n')
-    u'---\n\n\nABC\n\n'
-    >>> reduce_indent('  abc\t\n    def\r\n   123\r        ')
-    'abc   \n def\n123\n'
-    >>> reduce_indent(u'    abc\n    def\r\n   123\r        x ')
-    u'abc\n def\n123\n     x '
+    >>> reduce_indent(' ---\n \n\t\n  ABC\n\r\n')
+    '---\n\n\nABC\n\n'
+    >>> reduce_indent(bytearray(b'  abc\t\n    def\r\n   123\r        '))
+    bytearray(b'abc   \n def\n123\n')
+    >>> reduce_indent('    abc\n    def\r\n   123\r        x ')
+    'abc\n def\n123\n     x '
 
-    >>> reduce_indent(u'')
-    u''
-    >>> reduce_indent(' ')
+    >>> reduce_indent('')
     ''
-    >>> reduce_indent(u'\n')
-    u'\n'
-    >>> reduce_indent('\r\n')
+    >>> reduce_indent(b' ')
+    b''
+    >>> reduce_indent('\n')
     '\n'
-    >>> reduce_indent(u'\n \n')
-    u'\n\n'
-    >>> reduce_indent(' \r \r\n ')
+    >>> reduce_indent(b'\r\n')
+    b'\n'
+    >>> reduce_indent('\n \n')
     '\n\n'
-    >>> reduce_indent(u'x')
-    u'x'
-    >>> reduce_indent(' x')
+    >>> reduce_indent(b' \r \r\n ')
+    b'\n\n'
+    >>> reduce_indent('x')
     'x'
-    >>> reduce_indent(u'\nx\n')
-    u'\nx\n'
-    >>> reduce_indent(' \r x\r\n ')
+    >>> reduce_indent(b' x')
+    b'x'
+    >>> reduce_indent('\nx\n')
     '\nx\n'
-    >>> reduce_indent(' \r  x\r\n y\n ')
-    '\n x\ny\n'
+    >>> reduce_indent(b' \r x\r\n ')
+    b'\nx\n'
+    >>> reduce_indent(bytearray(b' \r  x\r\n y\n '))
+    bytearray(b'\n x\ny\n')
     """
+    tp = type(s)
+    empty, lf, cr = '', '\n', '\r'
+    if issubclass(tp, (bytes, bytearray)):
+        empty, lf, cr = map(as_bytes, (empty, lf, cr))
+    elif not issubclass(tp, str):
+        raise TypeError('{!a} is neither a `str` nor a `bytes`/`bytearray`'.format(s))
 
-    _INFINITE_INDENT = float('inf')
+    if not s:
+        return s
 
-    def _get_lines(a_string):
-        lines = a_string.expandtabs(8).splitlines()
-        assert a_string and lines
-        if a_string.endswith(('\n', '\r')):
-            lines.append('')
+    empty, lf, cr = map(tp, (empty, lf, cr))
+    inf = float('inf')
+
+    def _get_lines(s):
+        lines = splitlines_asc(s.expandtabs(8))
+        assert s and lines
+        if s.endswith((lf, cr)):
+            lines.append(empty)
         return lines
 
     def _get_min_indent(lines):
-        min_indent = _INFINITE_INDENT
+        min_indent = inf
         for i, li in enumerate(lines):
             lstripped = li.lstrip()
             if lstripped and i > 0:
@@ -2556,347 +2670,291 @@ def reduce_indent(a_string):
         for i, li in enumerate(lines):
             lstripped = li.lstrip()
             if lstripped and i > 0:
-                assert min_indent < _INFINITE_INDENT
+                assert min_indent < inf
                 lines[i] = li[min_indent:]
             else:
                 lines[i] = lstripped
 
-    if not a_string:
-        return a_string
-    lines = _get_lines(a_string)
+    lines = _get_lines(s)
     min_indent = _get_min_indent(lines)
     _modify_lines(lines, min_indent)
-    return '\n'.join(lines)
+    return lf.join(lines)
 
 
-def concat_reducing_indent(*strings):
-    r"""
-    Concatenate given strings, first applying reduce_indent() to each of them.
-
-    >>> s1 = '''
-    ...      1-indented
-    ...     zero-indented
-    ...                   '''
-    >>> s2 = '''Zero-indented
-    ...   ZERO-indented
-    ...      3-indented
-    ...
-    ... '''
-    >>> s3 = '''  zeRO-indented
-    ...               2-indented
-    ...                                   \t
-    ...             ZeRo-indented
-    ...  \t
-    ...              1-indented'''
-    >>> concat_reducing_indent(s1) == '''
-    ...  1-indented
-    ... zero-indented
-    ... '''
-    True
-    >>> concat_reducing_indent(s1, s2) == '''
-    ...  1-indented
-    ... zero-indented
-    ... Zero-indented
-    ... ZERO-indented
-    ...    3-indented
-    ...
-    ... '''
-    True
-    >>> concat_reducing_indent(s1, s2, s3) == '''
-    ...  1-indented
-    ... zero-indented
-    ... Zero-indented
-    ... ZERO-indented
-    ...    3-indented
-    ...
-    ... zeRO-indented
-    ...   2-indented
-    ...
-    ... ZeRo-indented
-    ...
-    ...  1-indented'''
-    True
-    >>> concat_reducing_indent(s3, s2, s1) == '''zeRO-indented
-    ...   2-indented
-    ...
-    ... ZeRo-indented
-    ...
-    ...  1-indentedZero-indented
-    ... ZERO-indented
-    ...    3-indented
-    ...
-    ...
-    ...  1-indented
-    ... zero-indented
-    ... '''
-    True
-    >>> concat_reducing_indent()
-    ''
-    >>> concat_reducing_indent('')
-    ''
-    >>> concat_reducing_indent(u'')
-    u''
-    >>> concat_reducing_indent(s1, '')
-    '\n 1-indented\nzero-indented\n'
-    >>> concat_reducing_indent(' ', s1)
-    '\n 1-indented\nzero-indented\n'
-    >>> concat_reducing_indent(unicode(s1))
-    u'\n 1-indented\nzero-indented\n'
-    >>> concat_reducing_indent(s1, '   0-indented \t x ')
-    '\n 1-indented\nzero-indented\n0-indented    x '
-    >>> concat_reducing_indent(unicode(s1), '   0-indented \t x ')
-    u'\n 1-indented\nzero-indented\n0-indented    x '
-    >>> concat_reducing_indent(s1, u'   0-indented \t x ')
-    u'\n 1-indented\nzero-indented\n0-indented    x '
-    >>> concat_reducing_indent(unicode(s1), u'   0-indented \t x ')
-    u'\n 1-indented\nzero-indented\n0-indented    x '
-    >>> concat_reducing_indent(unicode(s1), '', u'   0-indented \t x ')
-    u'\n 1-indented\nzero-indented\n0-indented    x '
+def replace_segment(s, segment_index, new_content, sep='.'):
     """
-    return ''.join(map(reduce_indent, strings))
-
-
-def replace_segment(a_string, segment_index, new_content, sep='.'):
-    """
-    Replace the specified separator-surrounded segment in the given string.
+    Replace the specified separator-surrounded segment in the given text
+    string or bytes sequence (producing a new string or bytes sequence).
 
     Args:
-        `a_string`:
-            The string to be modified.
-        `segment_index`:
+        `s` (str or bytes/bytearray):
+            The input string or bytes sequence.
+        `segment_index` (int)
             The number (0-indexed) of the segment to be replaced.
-        `new_content`:
-            The string to be placed as the segment.
+        `new_content` (str or bytes/bytearray, auto-coerced to type of `s`):
+            The string (or bytes sequence) to be placed as the segment.
 
     Kwargs:
-        `sep` (default: '.'):
-            The string that separates segments.
+        `sep` (default: '.'; str or bytes/bytearray, auto-coerced to type of `s`):
+            The string (or bytes sequence) that separates segments.
 
     Returns:
-        The modified string -- with the specified segment replaced
-        (of course, it's a new string object).
+        A copy of the input string (or bytes sequence) with the specified
+        segment replaced.
 
     >>> replace_segment('a.b.c.d', 1, 'ZZZ')
     'a.ZZZ.c.d'
-    >>> replace_segment('a::b::c::d', 2, 'ZZZ', sep='::')
+    >>> replace_segment('a.b.c.d', 1, b'ZZZ')
+    'a.ZZZ.c.d'
+    >>> replace_segment(bytearray(b'a::b::c::d'), 2, 'ZZZ', sep=b'::')
+    bytearray(b'a::b::ZZZ::d')
+    >>> replace_segment('a::b::c::d', 2, b'ZZZ', sep=bytearray(b'::'))
     'a::b::ZZZ::d'
     """
-    segments = a_string.split(sep)
+    tp = type(s)
+    if issubclass(tp, (bytes, bytearray)):
+        new_content = as_bytes(new_content)
+        sep = as_bytes(sep)
+    elif issubclass(tp, str):
+        if isinstance(new_content, (bytes, bytearray)):
+            new_content = new_content.decode('utf-8')
+        if isinstance(sep, (bytes, bytearray)):
+            sep = sep.decode('utf-8')
+    else:
+        raise TypeError('{!a} is neither a `str` nor a `bytes`/`bytearray`'.format(s))
+    new_content = tp(new_content)
+    sep = tp(sep)
+    segments = s.split(sep)
     segments[segment_index] = new_content
     return sep.join(segments)
 
 
-def limit_string(s, char_limit, cut_indicator='[...]', middle_cut=False):
-    u"""
-    Shorten the given string (`s`) to the specified number of characters
-    (`char_limit`) by replacing exceeding stuff with the given
-    `cut_indicator` ("[...]" by default).
+def splitlines_asc(s, keepends=False):
+    r"""
+    Like the built-in `{str/bytes/bytearray}.splitlines()` method, but
+    split only at ASCII line boundaries (`\n`, `\r\n`, `\r`), even if
+    the argument is a `str` (whereas the standard `str.splitlines()`
+    method does the splits also at some other line boundary characters,
+    including `\v`, `\f`, `\u2028` and a few others...).
 
-    Note: in this description the term `character` refers to a single
-    item of a string (i.e., *single byte* for str strings and *single
-    Unicode codepoint* for unicode strings).
+    **Note:** the argument need *not* to be ASCII-only.
+
+    ***
+
+    For `str`:
+
+    >>> s = 'abc\ndef\rghi\vjkl\f\u2028mno\r\npqr\n'
+    >>> splitlines_asc(s)
+    ['abc', 'def', 'ghi\x0bjkl\x0c\u2028mno', 'pqr']
+    >>> splitlines_asc(s, True)
+    ['abc\n', 'def\r', 'ghi\x0bjkl\x0c\u2028mno\r\n', 'pqr\n']
+
+    ...the results are *different* than when using the method:
+
+    >>> s.splitlines()
+    ['abc', 'def', 'ghi', 'jkl', '', 'mno', 'pqr']
+    >>> s.splitlines(True)
+    ['abc\n', 'def\r', 'ghi\x0b', 'jkl\x0c', '\u2028', 'mno\r\n', 'pqr\n']
+
+    ***
+
+    For `bytes`/`bytearray`:
+
+    >>> b = b"abc\ndef\rghi\vjkl\fmno\r\npqr\n"
+    >>> splitlines_asc(b)
+    [b'abc', b'def', b'ghi\x0bjkl\x0cmno', b'pqr']
+    >>> splitlines_asc(b, True)
+    [b'abc\n', b'def\r', b'ghi\x0bjkl\x0cmno\r\n', b'pqr\n']
+    >>> splitlines_asc(bytearray(b'ghi\vjkl\rspam'))
+    [bytearray(b'ghi\x0bjkl'), bytearray(b'spam')]
+
+    ...the results are *the same* as when using the method:
+
+    >>> b.splitlines()
+    [b'abc', b'def', b'ghi\x0bjkl\x0cmno', b'pqr']
+    >>> b.splitlines(True)
+    [b'abc\n', b'def\r', b'ghi\x0bjkl\x0cmno\r\n', b'pqr\n']
+    >>> bytearray(b'ghi\vjkl\rspam').splitlines()
+    [bytearray(b'ghi\x0bjkl'), bytearray(b'spam')]
+    """
+    if isinstance(s, (bytes, bytearray)):
+        return s.splitlines(keepends)
+    if isinstance(s, str):
+        return [b.decode('utf-8', 'surrogatepass')
+                for b in s.encode('utf-8', 'surrogatepass').splitlines(keepends)]
+    raise TypeError('{!a} is neither a `str` nor a `bytes`/`bytearray`'.format(s))
+
+
+def limit_str(s, char_limit, cut_indicator='[...]', middle_cut=False):
+    r"""
+    Shorten the given text string (`s`) to the specified number of
+    characters (`char_limit`) by replacing exceeding stuff with the
+    given `cut_indicator` ("[...]" by default).
+
+    Note: this function accepts only text strings (`str`), *not* binary
+    data (such as `bytes`/`bytearray`).
 
     By default, the cut is made at the end of the string but doing it in
     the middle of the string can be requested by specifying `middle_cut`
     as True.
 
-    If `s` is a str string and `cut_indicator` is not a str string
-    (then it is supposed to be a unicode string), or `s` is a unicode
-    string and `cut_indicator` is not a unicode string (then it is
-    supposed to be a str string), `cut_indicator` is automatically
-    coerced (appropriately: to str or unicode, using the UTF-8
-    encoding).
+    The `char_limit` number (an `int`) must be greater than or equal to
+    the length of `cut_indicator`; otherwise ValueError is raised.
 
-    The `char_limit` number must be greater than or equal to the length
-    of the (already coerced, if needed -- see above) `cut_indicator`
-    string; otherwise ValueError is raised.
-
-    >>> limit_string('Ala ma kota', 10)
-    'Ala m[...]'
-    >>> limit_string(u'Alą mą ĸóŧą', 10)
-    u'Al\\u0105 m[...]'
-    >>> limit_string('Ala ma kota', 11)
-    'Ala ma kota'
-    >>> limit_string('Ala ma kota', 1000000)
-    'Ala ma kota'
-    >>> limit_string('Ala ma kota', 9)
-    'Ala [...]'
-    >>> limit_string('Ala ma kota', 8)
-    'Ala[...]'
-    >>> limit_string('Ala ma kota', 7)
+    >>> limit_str('Alą mą ĸóŧą', 10)
+    'Alą m[...]'
+    >>> limit_str('Alą mą ĸóŧą', 11)
+    'Alą mą ĸóŧą'
+    >>> limit_str('Alą mą ĸóŧą', 12)
+    'Alą mą ĸóŧą'
+    >>> limit_str('Alą mą ĸóŧą', 1000000)
+    'Alą mą ĸóŧą'
+    >>> limit_str('Alą mą ĸóŧą', 9)
+    'Alą [...]'
+    >>> limit_str('Alą mą ĸóŧą', 8)
+    'Alą[...]'
+    >>> limit_str('Alą mą ĸóŧą', 7)
     'Al[...]'
-    >>> limit_string('Ala ma kota', 6)
+    >>> limit_str('Alą mą ĸóŧą', 6)
     'A[...]'
-    >>> limit_string('Ala ma kota', 5)
+    >>> limit_str('Alą mą ĸóŧą', 5)
     '[...]'
-    >>> limit_string('Ala ma kota', 4)                          # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_str('Alą mą ĸóŧą', 4)                             # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_str('Alą mą ĸóŧą', 3)                             # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_str('Alą mą ĸóŧą', 0)                             # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
 
-    >>> limit_string('Ala ma kota', 10, middle_cut=True)
-    'Ala[...]ta'
-    >>> limit_string(u'Alą mą ĸóŧą', 10, middle_cut=True)
-    u'Al\\u0105[...]\\u0167\\u0105'
-    >>> limit_string('Ala ma kota', 11, middle_cut=True)
-    'Ala ma kota'
-    >>> limit_string('Ala ma kota', 1000000, middle_cut=True)
-    'Ala ma kota'
-    >>> limit_string('Ala ma kota', 9, middle_cut=True)
-    'Al[...]ta'
-    >>> limit_string('Ala ma kota', 8, middle_cut=True)
-    'Al[...]a'
-    >>> limit_string('Ala ma kota', 7, middle_cut=True)
-    'A[...]a'
-    >>> limit_string('Ala ma kota', 6, middle_cut=True)
+    >>> limit_str('Alą mą ĸóŧą', 10, middle_cut=True)
+    'Alą[...]ŧą'
+    >>> limit_str('Alą mą ĸóŧą', 11, middle_cut=True)
+    'Alą mą ĸóŧą'
+    >>> limit_str('Alą mą ĸóŧą', 12, middle_cut=True)
+    'Alą mą ĸóŧą'
+    >>> limit_str('Alą mą ĸóŧą', 1000000, middle_cut=True)
+    'Alą mą ĸóŧą'
+    >>> limit_str('Alą mą ĸóŧą', 9, middle_cut=True)
+    'Al[...]ŧą'
+    >>> limit_str('Alą mą ĸóŧą', 8, middle_cut=True)
+    'Al[...]ą'
+    >>> limit_str('Alą mą ĸóŧą', 7, middle_cut=True)
+    'A[...]ą'
+    >>> limit_str('Alą mą ĸóŧą', 6, middle_cut=True)
     'A[...]'
-    >>> limit_string('Ala ma kota', 5, middle_cut=True)
+    >>> limit_str('Alą mą ĸóŧą', 5, middle_cut=True)
     '[...]'
-    >>> limit_string('Ala ma kota', 4, middle_cut=True)         # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_str('Alą mą ĸóŧą', 4, middle_cut=True)            # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_str('Alą mą ĸóŧą', 3, middle_cut=True)            # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+    >>> limit_str('Alą mą ĸóŧą', 0, middle_cut=True)            # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
 
-    >>> limit_string('Ala ma kota', 12, cut_indicator='****')
-    'Ala ma kota'
-    >>> limit_string(u'Alą mą ĸóŧą', 12, cut_indicator='****', middle_cut=True)
-    u'Al\\u0105 m\\u0105 \\u0138\\xf3\\u0167\\u0105'
-    >>> limit_string(u'Alą mą ĸóŧą', 11, cut_indicator='****')
-    u'Al\\u0105 m\\u0105 \\u0138\\xf3\\u0167\\u0105'
-    >>> limit_string('Ala ma kota', 11, cut_indicator='****', middle_cut=True)
-    'Ala ma kota'
-    >>> limit_string('Ala ma kota', 11, cut_indicator=u'****')
-    'Ala ma kota'
-    >>> limit_string('Ala ma kota', 10, cut_indicator='****', middle_cut=True)
-    'Ala****ota'
-    >>> limit_string(u'Alą mą ĸóŧą', 10, cut_indicator='****')
-    u'Al\\u0105 m\\u0105****'
-    >>> limit_string('Ala ma kota', 10, cut_indicator=u'****', middle_cut=True)
-    'Ala****ota'
-    >>> limit_string(u'Alą mą ĸóŧą', 10, cut_indicator=u'****')
-    u'Al\\u0105 m\\u0105****'
-    >>> limit_string('Ala ma kota', 6, cut_indicator='****', middle_cut=True)
-    'A****a'
-    >>> limit_string('Ala ma kota', 6, cut_indicator=u'****')
-    'Al****'
-    >>> limit_string('Ala ma kota', 6, cut_indicator=u'****', middle_cut=True)
-    'A****a'
-    >>> limit_string('Ala ma kota', 5, cut_indicator='****')
-    'A****'
-    >>> limit_string('Ala ma kota', 5, cut_indicator=u'****', middle_cut=True)
-    'A****'
-    >>> limit_string('Ala ma kota', 4, cut_indicator=u'****')
-    '****'
-    >>> limit_string('Ala ma kota', 4, cut_indicator='****', middle_cut=True)
-    '****'
-    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator='****')
-    u'****'
-    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator=u'****', middle_cut=True)
-    u'****'
-    >>> limit_string('Ala ma kota', 4, cut_indicator='**ą*')    # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_str('Alą mą ĸóŧą', 12, cut_indicator='**Ś*')
+    'Alą mą ĸóŧą'
+    >>> limit_str('Alą mą ĸóŧą', 12, cut_indicator='**Ś*', middle_cut=True)
+    'Alą mą ĸóŧą'
+    >>> limit_str('Alą mą ĸóŧą', 11, cut_indicator='**Ś*')
+    'Alą mą ĸóŧą'
+    >>> limit_str('Alą mą ĸóŧą', 11, cut_indicator='**Ś*', middle_cut=True)
+    'Alą mą ĸóŧą'
+    >>> limit_str('Alą mą ĸóŧą', 10, cut_indicator='**Ś*')
+    'Alą mą**Ś*'
+    >>> limit_str('Alą mą ĸóŧą', 10, cut_indicator='**Ś*', middle_cut=True)
+    'Alą**Ś*óŧą'
+    >>> limit_str('Alą mą ĸóŧą', 6, cut_indicator='**Ś*')
+    'Al**Ś*'
+    >>> limit_str('Alą mą ĸóŧą', 6, cut_indicator='**Ś*', middle_cut=True)
+    'A**Ś*ą'
+    >>> limit_str('Alą mą ĸóŧą', 5, cut_indicator='**Ś*')
+    'A**Ś*'
+    >>> limit_str('Alą mą ĸóŧą', 5, cut_indicator='**Ś*', middle_cut=True)
+    'A**Ś*'
+    >>> limit_str('Alą mą ĸóŧą', 4, cut_indicator='**Ś*')
+    '**Ś*'
+    >>> limit_str('Alą mą ĸóŧą', 4, cut_indicator='**Ś*', middle_cut=True)
+    '**Ś*'
+    >>> limit_str('Alą mą ĸóŧą', 3, cut_indicator='**Ś*')       # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
-    >>> limit_string('Ala ma kota', 4, cut_indicator=u'**ą*',
-    ...              middle_cut=True)                           # doctest: +IGNORE_EXCEPTION_DETAIL
-    Traceback (most recent call last):
-      ...
-    ValueError: ...
-    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator='**ą*')
-    u'**\\u0105*'
-    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator='**ą*', middle_cut=True)
-    u'**\\u0105*'
-    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator=u'**ą*')
-    u'**\\u0105*'
-    >>> limit_string(u'Alą mą ĸóŧą', 4, cut_indicator=u'**ą*', middle_cut=True)
-    u'**\\u0105*'
-    >>> limit_string('Ala ma kota', 3, cut_indicator='****')    # doctest: +IGNORE_EXCEPTION_DETAIL
-    Traceback (most recent call last):
-      ...
-    ValueError: ...
-    >>> limit_string(u'Alą mą ĸóŧą', 3, cut_indicator='****',
-    ...              middle_cut=True)                           # doctest: +IGNORE_EXCEPTION_DETAIL
-    Traceback (most recent call last):
-      ...
-    ValueError: ...
-    >>> limit_string('Ala ma kota', 3, cut_indicator=u'****')   # doctest: +IGNORE_EXCEPTION_DETAIL
-    Traceback (most recent call last):
-      ...
-    ValueError: ...
-    >>> limit_string(u'Alą mą ĸóŧą', 3, cut_indicator=u'****',
-    ...              middle_cut=True)                           # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_str('Alą mą ĸóŧą', 3, cut_indicator='**Ś*',
+    ...           middle_cut=True)                              # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
 
-    >>> limit_string(u'Ala', 4, cut_indicator='')
-    u'Ala'
-    >>> limit_string('Ala', 4, cut_indicator='', middle_cut=True)
-    'Ala'
-    >>> limit_string('Ala', 3, cut_indicator=u'')
-    'Ala'
-    >>> limit_string(u'Ala', 3, cut_indicator=u'', middle_cut=True)
-    u'Ala'
-    >>> limit_string(u'Ala', 2, cut_indicator='')
-    u'Al'
-    >>> limit_string('Ala', 2, cut_indicator=u'', middle_cut=True)
-    'Aa'
-    >>> limit_string(u'Ala', 2, cut_indicator=u'')
-    u'Al'
-    >>> limit_string('Ala', 2, cut_indicator='', middle_cut=True)
-    'Aa'
-    >>> limit_string('Ala', 2, cut_indicator=u'')
+    >>> limit_str('Alą', 4, cut_indicator='')
+    'Alą'
+    >>> limit_str('Alą', 4, cut_indicator='', middle_cut=True)
+    'Alą'
+    >>> limit_str('Alą', 3, cut_indicator='')
+    'Alą'
+    >>> limit_str('Alą', 3, cut_indicator='', middle_cut=True)
+    'Alą'
+    >>> limit_str('Alą', 2, cut_indicator='')
     'Al'
-    >>> limit_string(u'Ala', 2, cut_indicator='', middle_cut=True)
-    u'Aa'
-    >>> limit_string('Ala', 1, cut_indicator='')
+    >>> limit_str('Alą', 2, cut_indicator='', middle_cut=True)
+    'Aą'
+    >>> limit_str('Alą', 1, cut_indicator='')
     'A'
-    >>> limit_string('Ala', 1, cut_indicator='', middle_cut=True)
+    >>> limit_str('Alą', 1, cut_indicator='', middle_cut=True)
     'A'
-    >>> limit_string(u'Ala', 0, cut_indicator='')
-    u''
-    >>> limit_string('Ala', 0, cut_indicator='', middle_cut=True)
+    >>> limit_str('Alą', 0, cut_indicator='')
     ''
-    >>> limit_string(u'Ala', 0, cut_indicator='*')              # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_str('Alą', 0, cut_indicator='', middle_cut=True)
+    ''
+
+    >>> limit_str('Alą', 0, cut_indicator='*')                  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
-    >>> limit_string('Ala', 0, cut_indicator='*',
-    ...              middle_cut=True)                           # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_str('Alą', 0, cut_indicator='*',
+    ...           middle_cut=True)                              # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
 
-    >>> limit_string('', 10)
+    >>> limit_str('', 10)
     ''
-    >>> limit_string(u'', 10, middle_cut=True)
-    u''
-    >>> limit_string('', 0, cut_indicator='', middle_cut=True)
+    >>> limit_str('', 10, middle_cut=True)
     ''
-    >>> limit_string(u'', 0, cut_indicator='')
-    u''
-    >>> limit_string('', 0, cut_indicator='*')                  # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_str('', 0, cut_indicator='')
+    ''
+    >>> limit_str('', 0, cut_indicator='', middle_cut=True)
+    ''
+
+    >>> limit_str('', 0, cut_indicator='*')                     # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
-    >>> limit_string('', 0, cut_indicator=u'')
-    ''
-    >>> limit_string(u'', 0, cut_indicator=u'', middle_cut=True)
-    u''
-    >>> limit_string('', 0, cut_indicator=u'*')                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> limit_str('', 0, cut_indicator='*', middle_cut=True)    # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
     """
-    if isinstance(s, str) and not isinstance(cut_indicator, str):
-        cut_indicator = cut_indicator.encode('utf-8')
-    elif isinstance(s, unicode) and not isinstance(cut_indicator, unicode):
-        cut_indicator = cut_indicator.decode('utf-8')
+    if not isinstance(s, str):
+        raise TypeError('{!a} is not a `str`'.format(s))
+    if not isinstance(cut_indicator, str):
+        raise TypeError('cut_indicator={!a} is not a `str`'.format(cut_indicator))
     effective_limit = char_limit - len(cut_indicator)
     if effective_limit < 0:
         raise ValueError(
-            '`char_limit` is too small: {0}, i.e., smaller than '
-            'the length of `cut_indicator` ({1!r})'.format(
+            '`char_limit` is too small: {}, i.e., smaller than '
+            'the length of `cut_indicator` ({!a})'.format(
                 char_limit,
                 cut_indicator))
     if len(s) > char_limit:
@@ -2912,12 +2970,12 @@ def limit_string(s, char_limit, cut_indicator='[...]', middle_cut=False):
 
 # TODO: docs + tests
 def is_pure_ascii(s):
-    if isinstance(s, unicode):
+    if isinstance(s, str):
         return s == s.encode('ascii', 'ignore').decode('ascii', 'ignore')
-    elif isinstance(s, str):
+    elif isinstance(s, (bytes, bytearray)):
         return s == s.decode('ascii', 'ignore').encode('ascii', 'ignore')
     else:
-        raise TypeError('{!r} is neither `str` nor `unicode`'.format(s))
+        raise TypeError('{!a} is neither a `str` nor a `bytes`/`bytearray`'.format(s))
 
 
 # TODO: docs + tests
@@ -2927,100 +2985,67 @@ def lower_if_pure_ascii(s):
     return s
 
 
-def string_as_bytes(s):
+def as_bytes(obj, encode_error_handling='surrogatepass'):
     r"""
-    Coerce the given string to `str`.
+    Convert the given object to `bytes`.
 
-    If the given argument is --
-        * a `str`: return it unchanged;
-        * a `unicode`: return its content encoded as an UTF-8 `str`;
-        * anything else: raise `TypeError`.
+    If the given object is a `str` -- encode it using `utf-8` with the
+    error handler specified as the second argument, `encode_error_handling`
+    (whose default value is `'surrogatepass'`).                                # TODO: change the default to 'strict' (adjusting client code where needed...)
 
-    >>> string_as_bytes('zażółć\xdd') == 'zażółć\xdd'
+    If the given object is a `bytes`, `bytearray` or `memoryview`,
+    or an object whose type provides the `__bytes__()` special method
+    (actually, the check is whether the type's `__bytes__` attribute
+    exists and is not `None`), coerce it with the `bytes()` constructor.
+
+    In any other case -- raise `TypeError`.
+
+    >>> s = 'zażółć\udcdd'
+    >>> b = s[:-1].encode('utf-8') + b'\xed\xb3\x9d'
+    >>> type(b) is bytes and as_bytes(b) is b
     True
-    >>> string_as_bytes(u'za\u017c\xf3\u0142\u0107\udcdd') == 'zażółć\xed\xb3\x9d'
+    >>> b2 = as_bytes(s)
+    >>> b2 == b and type(b2) is bytes
     True
-    >>> string_as_bytes(123)               # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> b3 = as_bytes(bytearray(b))
+    >>> b3 == b and type(b3) is bytes
+    True
+    >>> b4 = as_bytes(memoryview(b))
+    >>> b4 == b and type(b4) is bytes
+    True
+    >>> class WithDunderBytes(object):
+    ...     def __bytes__(self):
+    ...         return b
+    ...
+    >>> b5 = as_bytes(WithDunderBytes())
+    >>> b5 == b and type(b5) is bytes
+    True
+    >>> as_bytes(123)               # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     TypeError: ...
     """
-    if not isinstance(s, str):
-        if isinstance(s, unicode):
-            s = s.encode('utf-8')
-        else:
-            raise TypeError('{!r} is neither `str` nor `unicode`'.format(s))
-    assert isinstance(s, str)
-    return s
-
-
-def formattable_as_str(s):
-    r"""
-    If a `unicode` is given then coerce it to a UTF-8-encoded `str`;
-    otherwise just return the argument intact.
-
-    To be used in `__str()__` implementations to coerce in a sensible
-    way `unicode` strings that, e.g., are to be used with `str.format()`.
-
-    This function should not be needed in Python 3.x.
-
-    >>> formattable_as_str(u'Tralala')
-    'Tralala'
-    >>> formattable_as_str(u'foo \u0105 \udccc')
-    'foo \xc4\x85 \xed\xb3\x8c'
-
-    >>> formattable_as_str('foo \xc4\x85 \xed\xb3\x8c')
-    'foo \xc4\x85 \xed\xb3\x8c'
-    >>> formattable_as_str('foo \xc4\x85 \xcc')
-    'foo \xc4\x85 \xcc'
-    >>> formattable_as_str(42)
-    42
-    """
-    if isinstance(s, unicode):
-        return s.encode('utf-8')
-    return s
-
-
-def with_dunder_unicode_from_str(cls):
-    r"""
-    A class decorator that adds an implementation of `__unicode__` that
-    uses `str()` on the instance and decodes the result using the UTF-8
-    encoding.
-
-    This decorator should not be needed in Python 3.x.
-
-    >>> @with_dunder_unicode_from_str
-    ... class Foo(object):
-    ...     def __str__(self):
-    ...         return 'zażółć gęślą jaźń'
-    ...
-    >>> str(Foo())
-    'za\xc5\xbc\xc3\xb3\xc5\x82\xc4\x87 g\xc4\x99\xc5\x9bl\xc4\x85 ja\xc5\xba\xc5\x84'
-    >>> unicode(Foo())
-    u'za\u017c\xf3\u0142\u0107 g\u0119\u015bl\u0105 ja\u017a\u0144'
-    """
-
-    def to_str_then_utf8_decode(self):
-        return str(self).decode('utf-8')
-
-    to_str_then_utf8_decode.__module__ = cls.__module__
-    to_str_then_utf8_decode.__name__ = '__unicode__'
-    cls.__unicode__ = to_str_then_utf8_decode
-    return cls
+    if isinstance(obj, str):
+        return obj.encode('utf-8', encode_error_handling)
+    if (isinstance(obj, (bytes, bytearray, memoryview))
+          or getattr(type(obj), '__bytes__', None) is not None):
+        return bytes(obj)
+    raise TypeError('{!a} cannot be converted to bytes'.format(obj))
 
 
 # TODO: doc, tests
 ### CR: db_event (and maybe some other stuff) uses different implementation
 ### -- fix it?? (unification needed??)
+# TODO: support ipaddress.* stuff...
 def ipv4_to_int(ipv4, accept_no_dot=False):
     """
     Return, as int, an IPv4 address specified as a string or integer.
 
     Args:
         `ipv4`:
-            IPv4 as a string (formatted as 4 dot-separated decimal numbers
-            or, if `accept_no_dot` is true, as one decimal number) or as
-            an int/long number.
+            IPv4 as a `str` (formatted as 4 dot-separated decimal numbers
+            or, if `accept_no_dot` is true, possible also as one decimal
+            number) or as an `int` number.
         `accept_no_dot` (bool, default: False):
             If true -- accept `ipv4` as a string formatted as one decimal
             number.
@@ -3029,15 +3054,15 @@ def ipv4_to_int(ipv4, accept_no_dot=False):
         The IPv4 address as an int number.
 
     Raises:
-        ValueError.
+        ValueError or TypeError.
 
     >>> ipv4_to_int('193.59.204.91')
     3241921627
-    >>> ipv4_to_int(u'193.59.204.91')
+    >>> ipv4_to_int('193.59.204.91 ')
     3241921627
     >>> ipv4_to_int(' 193 . 59 . 204.91')
     3241921627
-    >>> ipv4_to_int(u' 193.59. 204 .91 ')
+    >>> ipv4_to_int(' 193.59. 204 .91 ')
     3241921627
     >>> ipv4_to_int(3241921627)
     3241921627
@@ -3066,7 +3091,7 @@ def ipv4_to_int(ipv4, accept_no_dot=False):
     3241921627
     >>> ipv4_to_int(' 3241921627 ', accept_no_dot=True)
     3241921627
-    >>> ipv4_to_int(u'3241921627 ', accept_no_dot=True)
+    >>> ipv4_to_int('3241921627 ', accept_no_dot=True)
     3241921627
 
     >>> ipv4_to_int('32419216270000000',   # doctest: +IGNORE_EXCEPTION_DETAIL
@@ -3074,14 +3099,32 @@ def ipv4_to_int(ipv4, accept_no_dot=False):
     Traceback (most recent call last):
       ...
     ValueError: ...
+
+    >>> ipv4_to_int(bytearray(b'193.59.204.91'))      # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> ipv4_to_int(bytearray(b'3241921627'),
+    ...             accept_no_dot=True)               # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> ipv4_to_int(3241921627.0)                     # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
     """
     try:
-        if isinstance(ipv4, (int, long)):
+        if isinstance(ipv4, int):
             int_value = ipv4
+        elif not isinstance(ipv4, str):
+            raise TypeError('{!a} is neither `str` nor `int`'.format(ipv4))
         elif accept_no_dot and ipv4.strip().isdigit():
             int_value = int(ipv4)
         else:
-            numbers = map(int, ipv4.split('.'))  ## FIXME: 04.05.06.0222 etc. are accepted and interpreted as decimal, should they???
+            numbers = list(map(int, ipv4.split('.')))  ## FIXME: 04.05.06.0222 etc. are accepted and interpreted as decimal, should they???
             if len(numbers) != 4:
                 raise ValueError
             if not all(0 <= num <= 0xff for num in numbers):
@@ -3091,39 +3134,40 @@ def ipv4_to_int(ipv4, accept_no_dot=False):
             int_value = sum(multiplied)
         if not 0 <= int_value <= 0xffffffff:
             raise ValueError
-    except ValueError:
-        raise ValueError('{!r} is not a valid IPv4 address'.format(ipv4))
+    except ValueError as exc:
+        raise ValueError('{!a} is not a valid IPv4 address'.format(ipv4)) from exc
     return int_value
 
 
 ### CR: db_event (and maybe some other stuff) uses different implementation
 ### -- fix it?? (unification needed??)
+# TODO: support stuff from the `ipaddress` std lib module...
 def ipv4_to_str(ipv4, accept_no_dot=False):
     """
-    Return, as str, an IPv4 address specified as a string or integer.
+    Return, as a `str`, the IPv4 address specified as a `str` or `int`.
 
     Args:
         `ipv4`:
-            IPv4 as a string (formatted as 4 dot-separated decimal numbers
-            or, if `accept_no_dot` is true, as one decimal number) or as
-            an int/long number.
+            IPv4 as a `str` (formatted as 4 dot-separated decimal numbers
+            or, if `accept_no_dot` is true, possible also as one decimal
+            number) or as an `int` number.
         `accept_no_dot` (bool, default: False):
             If true -- accept `ipv4` as a string formatted as one decimal
             number.
 
     Returns:
-        The IPv4 address as an str string.
+        The IPv4 address as a `str`.
 
     Raises:
-        ValueError.
+        ValueError or TypeError.
 
     >>> ipv4_to_str('193.59.204.91')
     '193.59.204.91'
-    >>> ipv4_to_str(u'193.59.204.91')
+    >>> ipv4_to_str('193.59.204.91 ')
     '193.59.204.91'
     >>> ipv4_to_str(' 193 . 59 . 204.91')
     '193.59.204.91'
-    >>> ipv4_to_str(u' 193.59. 204 .91 ')
+    >>> ipv4_to_str(' 193.59. 204 .91 ')
     '193.59.204.91'
     >>> ipv4_to_str(3241921627)
     '193.59.204.91'
@@ -3152,7 +3196,7 @@ def ipv4_to_str(ipv4, accept_no_dot=False):
     '193.59.204.91'
     >>> ipv4_to_str(' 3241921627 ', accept_no_dot=True)
     '193.59.204.91'
-    >>> ipv4_to_str(u'3241921627 ', accept_no_dot=True)
+    >>> ipv4_to_str('3241921627 ', accept_no_dot=True)
     '193.59.204.91'
 
     >>> ipv4_to_str('32419216270000000',   # doctest: +IGNORE_EXCEPTION_DETAIL
@@ -3160,6 +3204,22 @@ def ipv4_to_str(ipv4, accept_no_dot=False):
     Traceback (most recent call last):
       ...
     ValueError: ...
+
+    >>> ipv4_to_str(bytearray(b'193.59.204.91'))      # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> ipv4_to_str(bytearray(b'3241921627'),
+    ...             accept_no_dot=True)               # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> ipv4_to_str(3241921627.0)                     # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
     """
     int_value = ipv4_to_int(ipv4, accept_no_dot)
     numbers = [(int_value >> rot) & 0xff
@@ -3168,19 +3228,18 @@ def ipv4_to_str(ipv4, accept_no_dot=False):
 
 
 # maybe TODO later: more tests
+# maybe TODO: support ipaddress.* stuff?...
 def is_ipv4(value):
-    """
-    Check if the given value is a properly formatted IPv4 address.
+    r"""
+    Check if the given `str` value is a properly formatted IPv4 address.
 
     Attrs:
-        `value` (str or unicode): the value to be tested.
+        `value` (str): the value to be tested.
 
     Returns:
         Whether the value is properly formatted IPv4 address: True or False.
 
     >>> is_ipv4('255.127.34.124')
-    True
-    >>> is_ipv4(u'255.127.34.124')
     True
     >>> is_ipv4('192.168.0.1')
     True
@@ -3196,7 +3255,7 @@ def is_ipv4(value):
     False
     >>> is_ipv4('www.nask.pl')
     False
-    >>> is_ipv4(u'www.jaźń\udcdd.pl')
+    >>> is_ipv4('www.jaźń\udcdd.pl')
     False
     """
     fields = value.split(".")
@@ -3213,91 +3272,6 @@ def is_ipv4(value):
         if intvalue > 255 or intvalue < 0:
             return False
     return True
-
-
-# TODO: more tests
-### CR: is it really necessary? consider deleting it... :-/
-def safe_eval(node_or_string, namespace=None):
-    """
-    Copied from Python2.6's ast.literal_eval() + *improved*:
-
-    it also evaluates attribute lookups (if attribute names do not start
-    with '_'), based on the given `namespace` dict (if specified).
-
-    >>> safe_eval('1')
-    1
-
-    >>> safe_eval('True')
-    True
-
-    >>> safe_eval("[1, 2, 3, {4: ('a', 'b', 'c')}]")
-    [1, 2, 3, {4: ('a', 'b', 'c')}]
-
-    >>> class C:
-    ...     x = 'cherry'
-    ...     _private = 'spam'
-    >>> class B: C = C
-    >>> class A: B = B
-    >>> safe_eval('A.B.C.x', {'A': A})
-    'cherry'
-    >>> safe_eval('A.B.C._private',  # doctest: +IGNORE_EXCEPTION_DETAIL
-    ...           {'A': A})
-    Traceback (most recent call last):
-      ...
-    ValueError: ...
-    """
-
-    _namespace = {'None': None, 'True': True, 'False': False}
-    if namespace is not None:
-        _namespace.update(namespace)
-
-    if isinstance(node_or_string, basestring):
-        node_or_string = ast.parse(node_or_string, mode='eval')
-    if isinstance(node_or_string, ast.Expression):
-        node_or_string = node_or_string.body
-
-    def _convert(node):
-        if isinstance(node, ast.Str):
-            return node.s
-        elif isinstance(node, ast.Num):
-            return node.n
-        elif isinstance(node, ast.Tuple):
-            return tuple(map(_convert, node.elts))
-        elif isinstance(node, ast.List):
-            return list(map(_convert, node.elts))
-        elif isinstance(node, ast.Dict):
-            return dict((_convert(k), _convert(v)) for k, v
-                        in zip(node.keys, node.values))
-        elif isinstance(node, ast.Name):
-            if node.id in _namespace:
-                return _namespace[node.id]
-        elif isinstance(node, ast.Attribute):
-            parts = _extract_dotted_name_parts(node)
-            base = parts[0]
-            if base in _namespace:
-                return _resolve_dotted_name_parts(_namespace[base], parts[1:])
-        raise ValueError('malformed string')
-
-    def _extract_dotted_name_parts(attr_node, parts=()):
-        parts = (attr_node.attr,) + parts
-        if isinstance(attr_node.value, ast.Attribute):
-            return _extract_dotted_name_parts(attr_node.value, parts)
-        elif isinstance(attr_node.value, ast.Name):
-            return (attr_node.value.id,) + parts
-        else:
-            raise ValueError('malformed string')
-
-    def _resolve_dotted_name_parts(obj, remaining_parts):
-        while remaining_parts:
-            attr_name = remaining_parts[0]
-            if attr_name.startswith('_'):
-                raise ValueError('malformed string (underscored '
-                                 'attributes not allowed')
-            obj = getattr(obj, attr_name)
-            remaining_parts = remaining_parts[1:]
-        return obj
-
-    return _convert(node_or_string)
 
 
 def import_by_dotted_name(dotted_name):
@@ -3323,19 +3297,24 @@ def import_by_dotted_name(dotted_name):
         try:
             obj = getattr(obj, part)
         except AttributeError:
-            import_module(importable_name)
+            try:
+                import_module(importable_name)
+            except ModuleNotFoundError as exc:
+                raise ImportError(
+                    f'cannot import {importable_name!a}',
+                    name=exc.name, path=exc.path) from None
             obj = getattr(obj, part)
     return obj
 
 
 def with_flipped_args(func):
     """
-    From a given function that takes exactly two positional parameters
-    -- make a new function that takes these parameters in the reversed
+    From a given function that accepts exactly two positional parameters
+    -- make a new function that accepts these parameters in the reversed
     order.
 
     >>> def foo(first, second):
-    ...     print first, second
+    ...     print(first, second)
     ...
     >>> foo(42, 'zzz')
     42 zzz
@@ -3344,8 +3323,19 @@ def with_flipped_args(func):
     zzz 42
     >>> flipped_foo.__name__
     'foo__with_flipped_args'
+    >>> flipped_foo.__qualname__
+    'with_flipped_args.<locals>.foo__with_flipped_args'
 
-    This function can be useful when using functools.partial(), e.g.:
+    >>> flipped_print = with_flipped_args(print)
+    >>> flipped_print(42, 'zzz')
+    zzz 42
+    >>> flipped_print.__name__
+    'print__with_flipped_args'
+    >>> flipped_print.__qualname__
+    'with_flipped_args.<locals>.print__with_flipped_args'
+
+    This function can be useful when combined with functools.partial(),
+    e.g.:
 
     >>> from functools import partial
     >>> from operator import contains
@@ -3362,24 +3352,210 @@ def with_flipped_args(func):
     def flipped_func(a, b):
         return func(b, a)
     flipped_func.__name__ = func.__name__ + '__with_flipped_args'
+    flipped_func.__qualname__ = '{}.<locals>.{}'.format(with_flipped_args.__name__,
+                                                        flipped_func.__name__)
     return flipped_func
 
 
-def read_file(name, *open_args):
-    """
-    Open the file and read its contents.
+def iter_grouped_by_attr(collection_of_objects,   # type: Iterable[T]
+                         attr_name,               # type: Str
+                         presort=False,           # type: bool
 
-    Args:
-        `name`:
-            The file name (path).
-        Other positional arguments:
-            To be passed into the open() build-in function.
+                         # not real parameters, just quasi-constants for faster access:
+                         _attrgetter=operator.attrgetter,
+                         _groupby=itertools.groupby,
+                         _list=list,
+                         _sorted=sorted):
+    # type: (...) -> Iterator[List[T]]
     """
-    with open(name, *open_args) as f:
+    For the given collection of objects (`collection_of_objects`) and
+    attribute name (`attr_name`), return an iterator which yields lists
+    that group adjacent objects having equal values of the designated
+    attribute.
+
+    All objects the given collection contains are expected to have the
+    designated attribute. `AttributeError` will be raised if an object
+    without that attribute is encountered.
+
+    By default the collection is processed in a "lazy" manner (it may be
+    especially important if it is, for example, a generator that yields
+    a huge number of objects).
+
+    However, if the optional argument `presort` is true (its default
+    value is `False`) then, in the first place, the given collection of
+    objects is consumed to construct a list of those objects, **sorted
+    by the designated attribute**, and only then the main part of the
+    operation is performed -- using that sorted list as the source
+    collection.
+
+    >>> a = PlainNamespace(pi=3.14, tau='spam')
+    >>> b = PlainNamespace(pi=3.14, tau='ni', mu=None)
+    >>> c = collections.namedtuple('TimTheEnchanter', ['pi', 'tau', 'mu'])(pi=3, tau='ni', mu=3.14)
+    >>> class d:
+    ...     pi = 3
+    ...     tau = 'spam'
+    ...     mu = 3.14
+    ...
+    >>> assert a != b and a != c and a !=d and b != c and b != d and c != d, (
+    ...     'Failure of this assertion might mean '
+    ...     'incorrectness of the following doctests.')
+
+    >>> grouped = iter_grouped_by_attr([a, b, c, d], 'pi')
+    >>> list(grouped) == [[a, b], [c, d]]
+    True
+    >>> grouped = iter_grouped_by_attr([a, b, c, d], 'pi', presort=True)
+    >>> list(grouped) == [[c, d], [a, b]]
+    True
+
+    >>> grouped = iter_grouped_by_attr([a, b, c, d], 'tau')
+    >>> list(grouped) == [[a], [b, c], [d]]
+    True
+    >>> grouped = iter_grouped_by_attr([a, b, c, d], 'tau', presort=True)
+    >>> list(grouped) == [[b, c], [a, d]]
+    True
+
+    >>> grouped = iter_grouped_by_attr([a, c, b, d, c, a], 'pi')
+    >>> list(grouped) == [[a], [c], [b], [d, c], [a]]
+    True
+    >>> grouped = iter_grouped_by_attr([a, c, b, d, c, a], 'pi', presort=True)
+    >>> list(grouped) == [[c, d, c], [a, b, a]]
+    True
+
+    >>> grouped = iter_grouped_by_attr([a, c, b, d, c, a], 'tau')
+    >>> list(grouped) == [[a], [c, b], [d], [c], [a]]
+    True
+    >>> grouped = iter_grouped_by_attr([a, c, b, d, c, a], 'tau', presort=True)
+    >>> list(grouped) == [[c, b, c], [a, d, a]]
+    True
+
+    >>> grouped = iter_grouped_by_attr([d, c, a, d, d, c, b], 'pi')
+    >>> list(grouped) == [[d, c], [a], [d, d, c], [b]]
+    True
+    >>> grouped = iter_grouped_by_attr([d, c, a, d, d, c, b], 'pi', presort=True)
+    >>> list(grouped) == [[d, c, d, d, c], [a, b]]
+    True
+
+    >>> grouped = iter_grouped_by_attr([d, c, a, d, d, c, b], 'tau')
+    >>> list(grouped) == [[d], [c], [a, d, d], [c, b]]
+    True
+    >>> grouped = iter_grouped_by_attr([d, c, a, d, d, c, b], 'tau', presort=True)
+    >>> list(grouped) == [[c, c, b], [d, a, d, d]]
+    True
+
+    >>> grouped = iter_grouped_by_attr([d, c, b], 'tau')
+    >>> next(grouped) == [d]
+    True
+    >>> next(grouped) == [c, b]
+    True
+    >>> next(grouped)  # just end of iteration (not an error)   # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    StopIteration: ...
+
+    >>> grouped = iter_grouped_by_attr([d, c, b], 'tau', presort=True)
+    >>> next(grouped) == [c, b]
+    True
+    >>> next(grouped) == [d]
+    True
+    >>> next(grouped)  # just end of iteration (not an error)   # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    StopIteration: ...
+
+    >>> grouped = iter_grouped_by_attr([d, c, b], 'mu')
+    >>> next(grouped) == [d, c]
+    True
+    >>> next(grouped) == [b]
+    True
+    >>> next(grouped)  # just end of iteration (not an error)   # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    StopIteration: ...
+
+    >>> grouped = iter_grouped_by_attr([d, c, b], 'mu', presort=True)
+    >>> next(grouped)   # 3.14 and None cannot be ordered       # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> grouped = iter_grouped_by_attr([d, c, b, a], 'mu')
+    >>> next(grouped) == [d, c]
+    True
+    >>> next(grouped)   # `a` does not have `mu`                # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    AttributeError: ...
+
+    >>> grouped = iter_grouped_by_attr([d, c, b, a], 'mu', presort=True)
+    >>> next(grouped)   # `a` does not have `mu`                # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    AttributeError: ...
+    """
+    key = _attrgetter(attr_name)
+    if presort:
+        collection_of_objects = _sorted(collection_of_objects, key=key)
+    for _, grouped_items in _groupby(collection_of_objects, key):
+        yield _list(grouped_items)
+
+
+def open_file(file, mode='r', **open_kwargs):
+    """
+    Open `file` and return a corresponding file object. Similar to
+    the built-in function `open()` but with the *additional feature*
+    described below.
+
+    Args/kwargs:
+        `file`:
+            Typically it is a string specifying the name (path) of the
+            file to be opened. For more information, see the docs of the
+            built-in function `open()`.
+        `mode` (default: 'r'):
+            An optional string that specifies the mode in which the file
+            is opened. If it contains 'b' then it will be a binary mode;
+            otherwise -- a text mode. For more information, see the docs
+            of the built-in function `open()`.
+        Other optional arguments, only as *keyword* (named) ones:
+            See the docs of the built-in function `open()`.
+
+    Returns:
+        A file object (for details, see the docs of the built-in
+        function `open()`).
+
+    Raises:
+        See the docs of the built-in function `open()`.
+
+    *Additional feature:* if `mode` does *not* contain the 'b' marker
+    (i.e., if the file is being opened in a text mode) *and* keyword
+    arguments do *not* include `encoding` then the `encoding` argument
+    is automatically set to 'utf-8'.
+    """
+    if 'b' not in mode:
+        open_kwargs.setdefault('encoding', 'utf-8')
+    return open(file, mode, **open_kwargs)
+
+
+def read_file(file, mode='r', **open_kwargs):
+    """
+    Open `file` using the `open_file()` helper (see its docstring...),
+    then read and return the file's content.
+
+    Args/kwargs:
+        See the docstring of `open_file()`.
+
+    Returns:
+        The file's content (`str` or `bytes`, depending on `mode` --
+        see the docs of the `open()` built-in function).
+
+    Raises:
+        See the docs of the built-in function `open()` and of the
+        Python's standard library module `io`.
+    """
+    with open_file(file, mode, **open_kwargs) as f:
         return f.read()
 
 
-def make_hex_id(length=96, additional_salt=''):
+def make_hex_id(length=96, additional_salt=b''):
     """
     Make a random, unpredictable id consisting of hexadecimal digits.
 
@@ -3388,19 +3564,26 @@ def make_hex_id(length=96, additional_salt=''):
             The number of hexadecimal digits the generated id shall
             consist of.  Must not be less than 1 or greater than 96 --
             or ValueError will be raised.
-        `additional_salt` (str; default: ''):
-            Additional string to be mixed in when generating the id.
+        `additional_salt` (default: b''):
+            Additional bytes to be mixed in when generating the id.
             Hardly needed but it does not hurt to specify it. :)
 
     Returns:
-        A str consisting of `length` hexadecimal lowercase digits.
+        A `str` consisting of `length` hexadecimal lowercase digits.
 
     Raises:
         ValueError -- if `length` is lesser than 1 or greater than 96.
-        TypeError -- if `additional_salt` is not a str instance.
+        TypeError -- if `additional_salt` is of a type that cannot be
+        converted to bytes with the `as_bytes()` helper function.
 
     >>> import string; is_hex = set(string.hexdigits.lower()).issuperset
     >>> h = make_hex_id()
+    >>> isinstance(h, str) and is_hex(h) and len(h) == 96
+    True
+    >>> h = make_hex_id(additional_salt=b'some salt')
+    >>> isinstance(h, str) and is_hex(h) and len(h) == 96
+    True
+    >>> h = make_hex_id(additional_salt=bytearray(b'some salt'))
     >>> isinstance(h, str) and is_hex(h) and len(h) == 96
     True
     >>> h = make_hex_id(additional_salt='some salt')
@@ -3424,31 +3607,33 @@ def make_hex_id(length=96, additional_salt=''):
     Traceback (most recent call last):
       ...
     ValueError: ...
-    >>> make_hex_id(42, additioanl_salt=u'x')  # doctest: +IGNORE_EXCEPTION_DETAIL
-    Traceback (most recent call last):
-      ...
-    TypeError: ...
-    >>> make_hex_id(additioanl_salt=42)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> make_hex_id(additional_salt=42)  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     TypeError: ...
     """
     if not 1 <= length <= 96:
-        raise ValueError('`length` must be in the range 1..96 ({0!r} given)'.format(length))
-    if not isinstance(additional_salt, str):
-        raise TypeError('`additional_salt` must be str, not {0}'.format(
-            type(additional_salt).__name__))
-    hash_base = os.urandom(40) + additional_salt + '{0:.24f}'.format(time.time())
+        raise ValueError(
+            '`length` must be in the range 1..96 ({0!a} given)'.format(length))
+    try:
+        additional_salt = as_bytes(additional_salt)
+    except TypeError:
+        raise TypeError(
+            '`additional_salt` cannot be converted to bytes (its '
+            'type is {})'.format(type(additional_salt).__qualname__)) from None
+    time_derived_bytes = '{:.24f}'.format(time.time()).encode('ascii')
+    hash_base = os.urandom(40) + additional_salt + time_derived_bytes
     hex_id = hashlib.sha384(hash_base).hexdigest()[:length]
     return hex_id
 
 
 def normalize_hex_id(hex_id, min_digit_num=0):
     """
-    Normalize the given `hex_id` string so that the result is a str
-    instance, without the '0x prefix, at least `min_digit_num`-long
-    (padded with zeroes if necessary; `min_digit_num` defaults to 0)
-    and containing only lowercase hexadecimal digits.
+    Normalize the given `hex_id` string (`str`) so that the result
+    is a `str` instance, without the '0x prefix and at least
+    `min_digit_num`-long (padded with zeroes if necessary;
+    `min_digit_num` defaults to 0) and containing only
+    lowercase hexadecimal digits.
 
     Examples:
 
@@ -3476,23 +3661,29 @@ def normalize_hex_id(hex_id, min_digit_num=0):
     '0000000012a4e415e1e1b36ff883d1'
     >>> normalize_hex_id('0x12A4E415E1E1B36FF883D1', 30)
     '0000000012a4e415e1e1b36ff883d1'
-    >>> normalize_hex_id('')   # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> normalize_hex_id('')                                    # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
-    >>> normalize_hex_id(1)    # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> normalize_hex_id(bytearray(b'1'))                       # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    >>> normalize_hex_id(1)                                     # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     TypeError: ...
     """
+    if not isinstance(hex_id, str):
+        raise TypeError('`hex_id` must be str, not {}'.format(type(hex_id).__qualname__))
     int_id = int(hex_id, 16)
     return int_id_to_hex(int_id, min_digit_num)
 
 
 def int_id_to_hex(int_id, min_digit_num=0):
     """
-    Convert the given `int_id` integer so that the result is a str
-    instance, without the '0x prefix, at least `min_digit_num`-long
+    Convert the given `int_id` integer so that the result is a `str`
+    instance, without the '0x prefix and at least `min_digit_num`-long
     (padded with zeroes if necessary; `min_digit_num` defaults to 0)
     and containing only lowercase hexadecimal digits.
 
@@ -3500,11 +3691,9 @@ def int_id_to_hex(int_id, min_digit_num=0):
 
     >>> int_id_to_hex(1)
     '1'
-    >>> int_id_to_hex(1L)
-    '1'
     >>> int_id_to_hex(31, 0)
     '1f'
-    >>> int_id_to_hex(31L, 1)
+    >>> int_id_to_hex(31, 1)
     '1f'
     >>> int_id_to_hex(31, 2)
     '1f'
@@ -3512,9 +3701,9 @@ def int_id_to_hex(int_id, min_digit_num=0):
     '01f'
     >>> int_id_to_hex(31, 10)
     '000000001f'
-    >>> int_id_to_hex(22539340290692258087863249L)
+    >>> int_id_to_hex(22539340290692258087863249)
     '12a4e415e1e1b36ff883d1'
-    >>> int_id_to_hex(22539340290692258087863249L, 30)
+    >>> int_id_to_hex(22539340290692258087863249, 30)
     '0000000012a4e415e1e1b36ff883d1'
     >>> int_id_to_hex('1')   # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
@@ -3523,9 +3712,8 @@ def int_id_to_hex(int_id, min_digit_num=0):
     """
     hex_id = hex(int_id)
     assert hex_id[:2] == '0x'
-    # get it *without* the '0x' prefix and the 'L' suffix
-    # (the integer value could be a long integer)
-    hex_id = hex_id[2:].rstrip('L')
+    # get it *without* the '0x' prefix
+    hex_id = hex_id[2:]
     # pad with zeroes if necessary
     hex_id = hex_id.rjust(min_digit_num, '0')
     return hex_id
@@ -3535,18 +3723,18 @@ def cleanup_src():
     """
     Delete all extracted resource files and directories,
     logs a list of the file and directory names that could not be successfully removed.
-    [see: https://pythonhosted.org/setuptools/pkg_resources.html#resource-extraction]
+    [see: https://setuptools.readthedocs.io/en/latest/pkg_resources.html?highlight=cleanup_resources#resource-extraction]
     """
     from n6lib.log_helpers import get_logger
     _LOGGER = get_logger(__name__)
 
     fail_cleanup = cleanup_resources()
     if fail_cleanup:
-        _LOGGER.warning('Fail cleanup resources: %r', fail_cleanup)
+        _LOGGER.warning('Fail cleanup resources: %a', fail_cleanup)
 
 
 def make_exc_ascii_str(exc=None):
-    ur"""
+    r"""
     Generate an ASCII-only string representing the (given) exception.
 
     Args:
@@ -3567,8 +3755,6 @@ def make_exc_ascii_str(exc=None):
 
     >>> make_exc_ascii_str(RuntimeError('whoops!'))
     'RuntimeError: whoops!'
-    >>> make_exc_ascii_str(RuntimeError(u'whoops!'))
-    'RuntimeError: whoops!'
 
     >>> make_exc_ascii_str((RuntimeError, RuntimeError('whoops!')))
     'RuntimeError: whoops!'
@@ -3577,9 +3763,7 @@ def make_exc_ascii_str(exc=None):
     >>> make_exc_ascii_str((RuntimeError, None))
     'RuntimeError'
 
-    >>> make_exc_ascii_str(ValueError('Zażółć jaźń!\xcc'))
-    'ValueError: Za\\u017c\\xf3\\u0142\\u0107 ja\\u017a\\u0144!\\udccc'
-    >>> make_exc_ascii_str(ValueError(u'Zażółć jaźń!\\udccc'))
+    >>> make_exc_ascii_str(ValueError('Zażółć jaźń!\udccc'))
     'ValueError: Za\\u017c\\xf3\\u0142\\u0107 ja\\u017a\\u0144!\\udccc'
 
     >>> try:
@@ -3600,12 +3784,16 @@ def make_exc_ascii_str(exc=None):
         exc_type, exc = exc[:2]
         if exc is None and exc_type is not None:
             try:
+                # Note: to be consistent with standard error displays
+                # we use the exc type's `__name__`, not `__qualname__`.
                 return ascii_str(exc_type.__name__)
             except Exception:
                 pass
     if exc is None:
         return 'Unknown exception (if any)'
-    return '{}: {}'.format(ascii_str(exc.__class__.__name__), ascii_str(exc))
+    # Note: to be consistent with standard error displays
+    # we use the exc type's `__name__`, not `__qualname__`.
+    return '{}: {}'.format(ascii_str(type(exc).__name__), ascii_str(exc))
 
 
 def make_condensed_debug_msg(exc_info=None,
@@ -3672,11 +3860,13 @@ def make_condensed_debug_msg(exc_info=None,
         def make_msg(obj, limit, middle_cut=True):
             if obj is None:
                 return ''
-            if isinstance(obj, type):
+            if isinstance(obj, type):  # (exception type)
+                # Note: to be consistent with standard error displays
+                # we use the exc type's `__name__`, not `__qualname__`.
                 obj = obj.__name__
             s = ascii_str(obj).replace('\n', '\\n').replace('\r', '\\r')
             if limit is not None:
-                s = limit_string(s, limit, cut_indicator, middle_cut)
+                s = limit_str(s, limit, cut_indicator, middle_cut)
             return s
 
         cut_indicator = ascii_str(cut_indicator)
@@ -3731,7 +3921,7 @@ def dump_condensed_debug_msg(header=None, stream=None, debug_msg=None,
     """
     Call `make_condensed_debug_msg(total_limit=None, exc_str_limit=1000,
     tb_str_limit=None, stack_str_limit=None)` and print the resultant
-    debug message (adding to it an apropriate caption, containing
+    debug message (adding to it an appropriate caption, containing
     current thread's identifier and name, and optionally preceding it
     with the specified `header`) to the standard error output or to the
     specified `stream`.
@@ -3759,7 +3949,7 @@ def dump_condensed_debug_msg(header=None, stream=None, debug_msg=None,
         _acquire_lock()
         try:
             header = (
-                '\n{0}\n'.format(ascii_str(header)) if header is not None
+                '\n{}\n'.format(ascii_str(header)) if header is not None
                 else '')
             if stream is None:
                 stream = sys.stderr
@@ -3770,11 +3960,13 @@ def dump_condensed_debug_msg(header=None, stream=None, debug_msg=None,
                     tb_str_limit=None,
                     stack_str_limit=None)
             cur_thread = threading.current_thread()
-            print >>stream, '{0}\nCONDENSED DEBUG INFO: [thread {1!r} (#{2})] {3}\n'.format(
-                header,
-                ascii_str(cur_thread.name),
-                cur_thread.ident,
-                debug_msg)
+            print(
+                '{0}\nCONDENSED DEBUG INFO: [thread {1!r} (#{2})] {3}\n'.format(
+                    header,
+                    ascii_str(cur_thread.name),
+                    cur_thread.ident,
+                    debug_msg),
+                file=stream)
             try:
                 stream.flush()
             except Exception:
@@ -3794,6 +3986,83 @@ def dump_condensed_debug_msg(header=None, stream=None, debug_msg=None,
         # deal, especially compared with a possibility of a deadlock).
         _try_to_release_lock()
         raise
+
+
+class AtomicallySavedFile(object):
+
+    """
+    A context manager that saves a file atomically (the file will
+    *either* be saved successfully *or* remain untouched).
+
+    It takes the target file path and mode as arguments,
+    creates a temporary file in the same directory as the target file;
+    returns the opened temporary file.
+    Finally, the context manager closes the temporary file and then
+    renames it to the name of the target file (overwriting the latter
+    atomically) if no exception occurred. Otherwise, it removes the
+    temporary file (without touching the target file) and re-raises
+    the exception.
+
+    *Additional feature:* if `mode` does *not* contain the 'b' marker
+    (i.e., if the file is being opened in a text mode) *and* keyword
+    arguments do *not* include `encoding` then the `encoding` argument
+    is automatically set to 'utf-8'.
+    """
+
+    def __init__(self, dest_path, mode, **kwargs):
+        if 'w' not in mode and 'x' not in mode:
+            # Maybe TODO: we may want to support also 'a' and 'r+...' (but it
+            #             would require careful modification of implementation
+            #             of `__enter__()` and `__exit__()`...).
+            raise ValueError('mode {!a} not supported'.format(mode))
+        kwargs = self._adjust_kwargs(mode, **kwargs)
+        self._dest_path = dest_path
+        self._mode = mode
+        self._kwargs = kwargs
+
+    __NOT_GIVEN = object()
+
+    def _adjust_kwargs(self,
+                       mode,
+                       buffering=__NOT_GIVEN,
+                       encoding=__NOT_GIVEN,
+                       errors=__NOT_GIVEN,
+                       newline=__NOT_GIVEN):
+        NOT_GIVEN = self.__NOT_GIVEN
+        if 'b' not in mode and encoding is NOT_GIVEN:
+            encoding = 'utf-8'
+        kwargs = {}
+        if buffering is not NOT_GIVEN:
+            kwargs['buffering'] = buffering
+        if encoding is not NOT_GIVEN:
+            kwargs['encoding'] = encoding
+        if errors is not NOT_GIVEN:
+            kwargs['errors'] = errors
+        if newline is not NOT_GIVEN:
+            kwargs['newline'] = newline
+        return kwargs
+
+    def __enter__(self):
+        self.tmp_file = tempfile.NamedTemporaryFile(
+            mode=self._mode,
+            dir=osp.dirname(self._dest_path),
+            delete=False,
+            **self._kwargs)
+        self.tmp_file_path = self.tmp_file.name
+        return self.tmp_file
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        from n6lib.log_helpers import get_logger
+        LOGGER = get_logger(__name__)
+
+        self.tmp_file.close()
+        if exc_type is not None:
+            LOGGER.warning("Exception occurred when trying to save the %a file atomically "
+                           "(so the file is not touched): %s.",
+                           self._dest_path, make_exc_ascii_str((exc_type, exc_value)))
+            os.unlink(self.tmp_file_path)
+        else:
+            os.rename(self.tmp_file_path, self._dest_path)
 
 
 if __name__ == '__main__':

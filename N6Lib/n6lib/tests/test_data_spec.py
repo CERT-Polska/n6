@@ -1,12 +1,10 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import copy
 import datetime
 import unittest
+from unittest.mock import MagicMock
 
-from mock import MagicMock
 from unittest_expander import (
     expand,
     foreach,
@@ -89,6 +87,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'dataset',
         'first_seen',
         'referer',
+        'rt',
         'proxy_type',
         'dns_version',
         'facebook_id',
@@ -120,6 +119,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'action',
         'tags',
         'filename',
+        'block',
     }
 
     RESULT_KEYS = NONCUSTOM_RESULT_KEYS | CUSTOM_RESULT_KEYS
@@ -133,6 +133,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'modified',
     } | CUSTOM_RESULT_KEYS - {
         'adip',
+        'block',
         'url_pattern',
         'username',
         'email',
@@ -177,9 +178,6 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
 
     # example data used in some tests
 
-    # (NOTE: str vs. unicode differentiation is mostly neglected here
-    # -- because it is covered quite well by SDK tests...)
-
     raw_param_dict_base = {
         'id': ['0123456789abcdef0123456789abcdef', '123456789ABCDEF0123456789ABCDEF0'],
         'category': ['bots'],
@@ -187,13 +185,13 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'confidence': ['high', 'medium'],
         'ip': ['100.101.102.103'],
         'cc': ['PL', 'US'],
-        'asn': ['80000', '1'],
+        'asn': ['AS80000', '1'],
         'dport': ['1234'],
         'ip.net': ['100.101.102.103/32', '1.2.3.4/7'],
         'time.min': ['2014-04-01 01:07:42+02:00'],
         'active.min': ['2015-05-02T24:00'],
-        'url': ['http://www.ołówek.EXAMPLĘ.com/\xddπœ\xffę\xed\xb3\xbf³¢ą.py'],
-        'url.sub': [('xx' + 682 * '\xcc')],
+        'url': [u'http://www.ołówek.EXAMPLĘ.com/\udcddπœ\udcffę\udcff³¢ą.py'],
+        'url.sub': [('xx' + 682 * u'\udccc')],
         'url.b64': ['aHR0cDovL3d3dy5vxYLDs3dlay5FWEFNUEzEmC5jb20v3c-AxZP_xJnts7_Cs8KixIUucHk='],
         'fqdn': ['www.test.org', u'www.ołówek.EXAMPLĘ.com'],
         'fqdn.sub': ['ołówek'],
@@ -243,8 +241,8 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'dip': False,
         'md5': False,
     }
-    assert raw_param_dict_base.viewkeys() <= PARAM_KEYS
-    assert raw_param_dict_base.viewkeys() == cleaned_param_dict_base.viewkeys()
+    assert raw_param_dict_base.keys() <= PARAM_KEYS
+    assert raw_param_dict_base.keys() == cleaned_param_dict_base.keys()
 
     raw_result_dict_base = {
         'id': '0123456789abcdef0123456789abcdef',
@@ -269,9 +267,10 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'time': datetime.datetime(
             2014, 4, 1, 1, 7, 42,
             tzinfo=FixedOffsetTimezone(120)),
-        'url': 'http://www.ołówek.EXAMPLĘ.com/\xdd-TRALALą.html',
-        'fqdn': 'www.ołówek.EXAMPLĘ.com',
+        'url': b'http://www.o\xc5\x82\xc3\xb3wek.EXAMPL\xc4\x98.com/\xdd-TRALAL\xc4\x85.html',
+        'fqdn': u'www.ołówek.EXAMPLĘ.com'.encode('utf-8'),
         'username': u'ołówek',
+        'block': True,
     }
     cleaned_result_dict_base = {
         'id': '0123456789abcdef0123456789abcdef',
@@ -297,14 +296,15 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'url': u'http://www.ołówek.EXAMPLĘ.com/\udcdd-TRALALą.html',
         'fqdn': u'www.xn--owek-qqa78b.xn--exampl-14a.com',
         'username': u'ołówek',
+        'block': True,
     }
     restricted_access_cleaned_result_dict_base = {
         k: ('anonymized.source' if k == 'source' else v)
         for k, v in cleaned_result_dict_base.items()
         if k not in ('rid', 'restriction')}
 
-    assert raw_result_dict_base.viewkeys() <= RESULT_KEYS
-    assert raw_result_dict_base.viewkeys() == cleaned_result_dict_base.viewkeys()
+    assert raw_result_dict_base.keys() <= RESULT_KEYS
+    assert raw_result_dict_base.keys() == cleaned_result_dict_base.keys()
 
     anonymized_source_mapping = {
         'forward_mapping': {
@@ -1276,7 +1276,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
             raw=dict(
                 raw_result_dict_base,
                 urls_matched={
-                    'o1': ['http://zażółć.gęślą.jaźń', 'ftp://\xdd'],
+                    'o1': [u'http://zażółć.gęślą.jaźń'.encode('utf-8'), b'ftp://\xdd'],
                     'o2': [10000 * u'xą'],
                 }),
             full_access=True,
@@ -1291,7 +1291,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
             raw=dict(
                 raw_result_dict_base,
                 urls_matched={
-                    'o1': ['http://zażółć.gęślą.jaźń', 'ftp://\xdd'],
+                    'o1': [u'http://zażółć.gęślą.jaźń'.encode('utf-8'), b'ftp://\xdd'],
                     'o2': [10000 * u'xą'],
                 }),
             full_access=False,

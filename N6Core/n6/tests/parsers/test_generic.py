@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import hashlib
 import json
@@ -22,12 +22,12 @@ from unittest_expander import (
 
 from n6lib.common_helpers import (
     FilePagedSequence,
-    SimpleNamespace,
-    concat_reducing_indent,
+    PlainNamespace,
 )
 from n6lib.config import (
     Config,
     ConfigSection,
+    join_config_specs,
     parse_config_spec,
 )
 from n6lib.record_dict import (
@@ -66,7 +66,6 @@ class TestBaseParser(unittest.TestCase):
             'exchange': 'raw',
             'exchange_type': 'topic',
             'queue_name': binding_key,
-            'binding_keys': [binding_key],
         })
         self.assertEqual(BaseParser.input_queue, {
             'exchange': 'raw',
@@ -143,7 +142,7 @@ class TestBaseParser(unittest.TestCase):
             expected_config_full=Config.make({'SomeParser': {'prefetch_count': 42}}),
         ),
         param(
-            custom_config_spec_pattern=concat_reducing_indent(
+            custom_config_spec_pattern=join_config_specs(
                 BaseParser.config_spec_pattern,
                 '''
                     some_opt = [-3, null] :: json
@@ -196,7 +195,7 @@ class TestBaseParser(unittest.TestCase):
         self._asserts_of_proper__new__instance_adjustment(unready_instance)
         self._asserts_of_proper_preinit_hook_instance_adjustment(unready_instance, binding_key)
 
-        super_cls_mock = SimpleNamespace(__init__=Mock())
+        super_cls_mock = PlainNamespace(__init__=Mock())
         with patch_always('n6.parsers.generic.super',
                           return_value=super_cls_mock) as super_mock, \
              patch('n6.parsers.generic.Config._load_n6_config_files',
@@ -213,16 +212,27 @@ class TestBaseParser(unittest.TestCase):
                 expected_config,
                 expected_config_full)
 
+    # TODO: full process of the pipeline configuration should
+    # be tested
     def test__make_binding_keys(self):
         self.mock.default_binding_key = 'fooo.barr'
-        binding_keys = self.meth.make_binding_keys()
-        self.assertEqual(binding_keys, ['fooo.barr'])
+        self.mock.input_queue = {}
+        self.meth.make_binding_keys([self.mock.default_binding_key])
+        self.assertEqual(self.mock.input_queue['binding_keys'], ['fooo.barr'])
         self.assertEqual(self.mock.mock_calls, [])
 
     def test__make_binding_keys_with_raw_format_version_tag(self):
         self.mock.default_binding_key = 'fooo.barr.33'
-        binding_keys = self.meth.make_binding_keys()
-        self.assertEqual(binding_keys, ['fooo.barr.33'])
+        self.mock.input_queue = {}
+        self.meth.make_binding_keys([self.mock.default_binding_key])
+        self.assertEqual(self.mock.input_queue['binding_keys'], ['fooo.barr.33'])
+        self.assertEqual(self.mock.mock_calls, [])
+
+    def test__make_binding_keys__override_default_key(self):
+        self.mock.default_binding_key = 'fooo.barr'
+        self.mock.input_queue = {}
+        self.meth.make_binding_keys(['overridden.key'])
+        self.assertEqual(self.mock.input_queue['binding_keys'], ['overridden.key'])
         self.assertEqual(self.mock.mock_calls, [])
 
     def test__get_script_init_kwargs(self):
@@ -285,10 +295,10 @@ class TestBaseParser(unittest.TestCase):
         data = self.meth.prepare_data(
             routing_key='ham.spam',
             body=sentinel.body,
-            properties=SimpleNamespace(foo=sentinel.foo,
-                                       bar=sentinel.bar,
-                                       timestamp=1389348840,
-                                       headers={'a': sentinel.a}))
+            properties=PlainNamespace(foo=sentinel.foo,
+                                      bar=sentinel.bar,
+                                      timestamp=1389348840,
+                                      headers={'a': sentinel.a}))
         self.assertEqual(data, {
             'a': sentinel.a,
             'properties.foo': sentinel.foo,
@@ -303,10 +313,10 @@ class TestBaseParser(unittest.TestCase):
         data = self.meth.prepare_data(
             routing_key='ham.spam.33',
             body=sentinel.body,
-            properties=SimpleNamespace(foo=sentinel.foo,
-                                       bar=sentinel.bar,
-                                       timestamp=1389348840,
-                                       headers={'a': sentinel.a}))
+            properties=PlainNamespace(foo=sentinel.foo,
+                                      bar=sentinel.bar,
+                                      timestamp=1389348840,
+                                      headers={'a': sentinel.a}))
         self.assertEqual(data, {
             'a': sentinel.a,
             'properties.foo': sentinel.foo,

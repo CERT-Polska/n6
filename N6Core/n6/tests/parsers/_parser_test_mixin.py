@@ -13,6 +13,7 @@ from n6.parsers.generic import (
     AggregatedEventParser,
     BlackListParser,
 )
+from n6lib.class_helpers import FalseIfOwnerClassNameMatchesRegex
 from n6lib.record_dict import RecordDict
 from n6lib.unit_test_helpers import TestCaseMixin
 
@@ -21,6 +22,11 @@ from n6lib.unit_test_helpers import TestCaseMixin
 # Helper mix-ins for parser test cases
 
 class ParserTestMixIn(TestCaseMixin):
+
+    # Prevent pytest *from treating* those subclasses of this class that
+    # are base/mixin (abstract) classes *as concrete test classes*.
+    __test__ = FalseIfOwnerClassNameMatchesRegex(r'\A(_.*Base|.*ParserTestMix[Ii]n\Z)')
+
 
     MESSAGE_TIMESTAMP = 1389348840  # '2014-01-10 10:14:00'
     message_created = str(datetime.datetime.utcfromtimestamp(MESSAGE_TIMESTAMP))

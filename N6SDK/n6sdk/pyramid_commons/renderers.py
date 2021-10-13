@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2014 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 """
 .. note::
@@ -43,10 +41,10 @@ class BaseStreamRenderer(object):
         self.is_first = True
 
     def before_content(self, **kwargs):
-        return ""
+        return b""
 
     def after_content(self, **kwargs):
-        return ""
+        return b""
 
     def render_content(self, data, **kwargs):
         raise NotImplementedError(
@@ -58,49 +56,52 @@ class BaseStreamRenderer(object):
             self.is_first = False
 
     def generate_content(self, **kwargs):
-        yield self.before_content()
-        for content in self.iter_content():
-            yield content
-        yield self.after_content()
-        self.is_first = True
+        try:
+            yield self.before_content()
+            for content in self.iter_content():
+                yield content
+            yield self.after_content()
+            self.is_first = True
+        finally:
+            self.data_generator.close()
 
 
 class StreamRenderer_sjson(BaseStreamRenderer):
 
     """
-    The class of the standard ``json`` stream renderer.
+    The class of the standard ``sjson`` stream renderer.
     """
 
     content_type = "text/plain"
 
     def render_content(self, data, **kwargs):
-        jsonized = data_dict_to_json(data)
-        return jsonized + "\n"
+        jsonized_as_bytes = data_dict_to_json(data).encode('ascii')
+        return jsonized_as_bytes + b"\n"
 
     def after_content(self, **kwargs):
-        return "\n"
+        return b"\n"
 
 
 class StreamRenderer_json(BaseStreamRenderer):
 
     """
-    The class of the standard ``sjson`` stream renderer.
+    The class of the standard ``json`` stream renderer.
     """
 
     content_type = "application/json"
 
     def before_content(self, **kwargs):
-        return "[\n"
+        return b"[\n"
 
     def after_content(self, **kwargs):
-        return "\n]"
+        return b"\n]"
 
     def render_content(self, data, **kwargs):
-        jsonized = data_dict_to_json(data, indent=4)
+        jsonized_as_bytes = data_dict_to_json(data, indent=4).encode('ascii')
         if self.is_first:
-            return jsonized
+            return jsonized_as_bytes
         else:
-            return ",\n" + jsonized
+            return b",\n" + jsonized_as_bytes
 
 
 #
@@ -108,8 +109,11 @@ class StreamRenderer_json(BaseStreamRenderer):
 
 def _json_default(o):
     if isinstance(o, datetime.datetime):
+        assert o.tzinfo is None, ("result cleaning by data spec should have "
+                                  "ensured that datetime's tzinfo is None (got: "
+                                  "{!a} with tzinfo={!a})".format(o, o.tzinfo))
         return o.isoformat() + "Z"
-    raise TypeError(repr(o) + " is not JSON serializable")
+    raise TypeError(ascii(o) + " is not JSON serializable")
 
 
 # helper for dict_with_nulls_removed() (see below)
@@ -122,7 +126,7 @@ def _container_with_nulls_removed(
         _isinstance=isinstance,
         _jsonable_container=(dict, list, tuple),
         _dict=dict,
-        _dict_items=dict.iteritems):
+        _dict_items=dict.items):
     #assert _isinstance(obj, _jsonable_container)
     this_func = _container_with_nulls_removed
     if _isinstance(obj, _dict):
@@ -153,7 +157,7 @@ def dict_with_nulls_removed(
         _container_with_nulls_removed=_container_with_nulls_removed,
         _isinstance=isinstance,
         _jsonable_container=(dict, list, tuple),
-        _dict_items=dict.iteritems):
+        _dict_items=dict.items):
     """
     Get a copy of the given dictionary with empty-or-:obj:`None` items
     removed recursively.

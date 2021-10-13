@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import datetime
 import unittest
@@ -25,6 +25,7 @@ from n6.parsers.abuse_ch import (
     AbuseChZeusTrackerParser,
     AbuseChFeodoTrackerParser,
     AbuseChFeodoTracker201908Parser,
+    AbuseChFeodoTracker202110Parser,
     AbuseChRansomwareTrackerParser,
     _AbuseChSSLBlacklistBaseParser,
     AbuseChSSLBlacklistDyreParser,
@@ -498,6 +499,51 @@ class TestAbuseChFeodotracker201908Parser(ParserTestMixIn, unittest.TestCase):
             'this, is, one, wrong, line\n'
             '2019-05-25 01:30:36,0.0.0.0,443,2019-05-27,Heodo\n'
             '2019-05-16 19:43:27,0.0.0.0,8080,2019-05-22,Heodo\n',
+            [
+                {
+                    'name': 'trickbot',
+                    'address': [{'ip': '0.0.0.0'}],
+                    'dport': 447,
+                    'time': '2019-05-27 13:36:27',
+                },
+                {
+                    'name': 'heodo',
+                    'address': [{'ip': '0.0.0.0'}],
+                    'dport': 443,
+                    'time': '2019-05-25 01:30:36',
+                },
+                {
+                    'name': 'heodo',
+                    'address': [{'ip': '0.0.0.0'}],
+                    'dport': 8080,
+                    'time': '2019-05-16 19:43:27',
+                },
+            ]
+        )
+
+        yield (
+            "INVALID_DATA",
+            ValueError
+        )
+
+
+class TestAbuseChFeodotracker202110Parser(ParserTestMixIn, unittest.TestCase):
+
+    PARSER_SOURCE = 'abuse-ch.feodotracker'
+    PARSER_CLASS = AbuseChFeodoTracker202110Parser
+    PARSER_BASE_CLASS = BaseParser
+    PARSER_CONSTANT_ITEMS = {
+        'restriction': 'public',
+        'confidence': 'medium',
+        'category': 'cnc'
+    }
+
+    def cases(self):
+        yield (
+            '2019-05-27 13:36:27,0.0.0.0,447,online,2019-05-28,TrickBot\n'
+            'this, is, one, very, wrong, line\n'
+            '2019-05-25 01:30:36,0.0.0.0,443,online,2019-05-27,Heodo\n'
+            '2019-05-16 19:43:27,0.0.0.0,8080,online,2019-05-22,Heodo\n',
             [
                 {
                     'name': 'trickbot',

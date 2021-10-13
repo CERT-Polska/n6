@@ -1,7 +1,9 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
-import Queue
+import collections.abc as collections_abc
+import itertools
+import queue as queue_lib
 import threading
 import time
 import traceback
@@ -11,9 +13,15 @@ import pika
 import pika.credentials
 import pika.exceptions
 
-from n6lib.amqp_helpers import get_amqp_connection_params_dict
-from n6lib.common_helpers import dump_condensed_debug_msg
-from n6lib.concurrency_helpers import NonBlockingLockWrapper
+from n6lib.amqp_helpers import (
+    get_amqp_connection_params_dict,
+    get_n6_default_client_properties_for_amqp_connection,
+)
+from n6lib.class_helpers import is_seq
+from n6lib.common_helpers import (
+    NonBlockingLockWrapper,
+    dump_condensed_debug_msg,
+)
 
 
 
@@ -50,17 +58,19 @@ class BaseAMQPTool(object):
             connection_params_dict.setdefault(
                   'credentials',
                   pika.credentials.ExternalCredentials())
+        if 'client_properties' not in connection_params_dict:
+            connection_params_dict['client_properties'] = \
+                get_n6_default_client_properties_for_amqp_connection()
 
         # normalize the `queues_to_declare` argument
         # -- to a list of kwargs for queue_declare()
-        if (isinstance(queues_to_declare, collections.Sequence) and
-              not isinstance(queues_to_declare, basestring)):
+        if is_seq(queues_to_declare):
             queues_to_declare = list(queues_to_declare)
         else:
             queues_to_declare = [queues_to_declare]
         for i, queue in enumerate(queues_to_declare):
             queue = queues_to_declare[i] = (
-                dict(queue) if isinstance(queue, collections.Mapping)
+                dict(queue) if isinstance(queue, collections_abc.Mapping)
                 else {'queue': queue})
             queue.setdefault('callback', (lambda *args, **kwargs: None))
 
@@ -82,7 +92,7 @@ class BaseAMQPTool(object):
 
     def __repr__(self):
         return '<{0} object at {1:#x} with {2!r}>'.format(
-              self.__class__.__name__,
+              self.__class__.__qualname__,
               id(self),
               self._connection_params_dict)
 
@@ -127,15 +137,15 @@ class BaseAMQPTool(object):
             self._additional_communication_setup()
 
     def _make_connection(self):
-        exc = None
-        for attempt in xrange(self.CONNECTION_ATTEMPTS):
+        for attempt in itertools.count(start=1):
             parameters = pika.ConnectionParameters(**self._connection_params_dict)
             try:
                 return pika.BlockingConnection(parameters)
-            except pika.exceptions.AMQPConnectionError as exc:
-                time.sleep(self.CONNECTION_RETRY_DELAY)
-        assert exc is not None
-        raise exc
+            except pika.exceptions.AMQPConnectionError:
+                if attempt >= self.CONNECTION_ATTEMPTS:
+                    raise
+            time.sleep(self.CONNECTION_RETRY_DELAY)
+        assert False, 'this code line should never be reached'
 
     def _declare_exchanges(self):
         raise NotImplementedError
@@ -197,8 +207,7 @@ class AMQPSimpleGetter(BaseAMQPTool):
 
         # normalize the `queue_bindings` argument
         # -- to a list of kwargs for queue_bind()
-        if (isinstance(queue_bindings, collections.Sequence) and
-              not isinstance(queue_bindings, basestring)):
+        if is_seq(queue_bindings):
             queue_bindings = list(queue_bindings)
         else:
             queue_bindings = [queue_bindings]
@@ -208,14 +217,13 @@ class AMQPSimpleGetter(BaseAMQPTool):
 
         # normalize the `exchanges_to_declare` argument
         # -- to a list of kwargs for exchange_declare()
-        if (isinstance(exchanges_to_declare, collections.Sequence) and
-              not isinstance(exchanges_to_declare, basestring)):
+        if is_seq(exchanges_to_declare):
             exchanges_to_declare = list(exchanges_to_declare)
         else:
             exchanges_to_declare = [exchanges_to_declare]
         for i, exchange in enumerate(exchanges_to_declare):
             exchanges_to_declare[i] = (
-                dict(exchange) if isinstance(exchange, collections.Mapping)
+                dict(exchange) if isinstance(exchange, collections_abc.Mapping)
                 else {'exchange': exchange})
 
         self._exchanges_to_declare = exchanges_to_declare
@@ -278,10 +286,18 @@ class AMQPSimplePusher(BaseAMQPTool):
             `serialize` (a callable object or None; default: None):
                 If not None, it should be a callable object that takes
                 one argument: data to be serialized before publishing;
-                the callable should always return a string or the
+                the callable should always return a bytes object or the
                 DoNotPublish sentinel (the latter to suppress publishing
                 of the given data).
-                If None, pushed data items should always be strings.
+
+                If None, pushed data items should always be bytes.
+
+                Note: when we refer to bytes objects here, also str
+                objects are accepted (and automatically encoded to bytes
+                using the UTF-8 encoding), but in the future, most
+                probably, we will change the interface so that only
+                bytes (and the DoNotPublish sentinel when applicable)
+                will be accepted.
 
             `prop_kwargs` (dict or None; default: None):
                 A dict of **kwargs for the pika.BasicProperties constructor.
@@ -298,7 +314,7 @@ class AMQPSimplePusher(BaseAMQPTool):
         """
 
         # normalize the `exchange` argument
-        if isinstance(exchange, basestring):
+        if isinstance(exchange, str):
             exchange = {'exchange': exchange}
 
         # set the `prop_kwargs` argument to default value if not specified
@@ -328,7 +344,7 @@ class AMQPSimplePusher(BaseAMQPTool):
         with self._push_lock:
             if not self._publishing:
                 raise ValueError('cannot publish message as '
-                                 '{0!r} is currently inactive'
+                                 '{0!a} is currently inactive'
                                  .format(self))
             self._do_push(data, routing_key, custom_prop_kwargs)
 
@@ -423,7 +439,7 @@ class AMQPThreadedPusher(AMQPSimplePusher):
                 If AMQP connection cannot be set up.
         """
 
-        self._output_fifo = Queue.Queue(maxsize=output_fifo_max_size)
+        self._output_fifo = queue_lib.Queue(maxsize=output_fifo_max_size)
         self._error_callback = error_callback
         self._publishing_thread_join_timeout = publishing_thread_join_timeout
         self._publishing_thread = None  # to be set in _start_publishing()
@@ -452,7 +468,7 @@ class AMQPThreadedPusher(AMQPSimplePusher):
             try:
                 # put None as a "wake-up!" sentinel
                 self._output_fifo.put_nowait(None)
-            except Queue.Full:
+            except queue_lib.Full:
                 pass
         while True:
             self._publishing_thread_heartbeat_flag = False
@@ -463,7 +479,7 @@ class AMQPThreadedPusher(AMQPSimplePusher):
 
     def _check_state_after_stop(self):
         if self._publishing_thread.is_alive():
-            raise RuntimeError('{0!r} is being shut down but the pushing '
+            raise RuntimeError('{0!a} is being shut down but the pushing '
                                'thread seems to be still alive (though '
                                'probably malfunctioning); there may be some '
                                'pending messages that have not been '
@@ -474,7 +490,7 @@ class AMQPThreadedPusher(AMQPSimplePusher):
         num_of_pending = sum(1 for item in underlying_deque
                              if item is not None)
         if num_of_pending:
-            raise ValueError('{0!r} is being shut down but '
+            raise ValueError('{0!a} is being shut down but '
                              '{1} pending messages have not been '
                              '(and will not be) published!'
                              .format(self, num_of_pending))
@@ -522,6 +538,6 @@ class AMQPThreadedPusher(AMQPSimplePusher):
             except Exception:
                 dump_condensed_debug_msg(
                     'Exception caught when calling '
-                    '{0!r}._error_callback({1!r}):'
+                    '{0!a}._error_callback({1!a}):'
                     .format(self, exc))
                 traceback.print_exc()

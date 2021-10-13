@@ -300,14 +300,18 @@ class ComparatorState(object):
 
 class Comparator(QueuedBase):
 
-    input_queue = {"exchange": "event",
-                   "exchange_type": "topic",
-                   "queue_name": "comparator",
-                   "binding_keys": ["bl.enriched.*.*"]
-                   }
-    output_queue = {"exchange": "event",
-                    "exchange_type": "topic"
-                    }
+    input_queue = {
+        "exchange": "event",
+        "exchange_type": "topic",
+        "queue_name": "comparator",
+        "accepted_event_types": [
+            "bl",
+        ],
+    }
+    output_queue = {
+        "exchange": "event",
+        "exchange_type": "topic",
+    }
 
     def __init__(self, **kwargs):
         config = Config(required={"comparator": ("dbpath", "series_timeout", "cleanup_time")})

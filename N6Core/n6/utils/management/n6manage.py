@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import argparse
 import datetime
@@ -14,7 +14,7 @@ import traceback
 
 from n6lib.common_helpers import ascii_str
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
-from n6lib.manage_api import ManageAPI
+from n6corelib.manage_api import ManageAPI
 
 
 #

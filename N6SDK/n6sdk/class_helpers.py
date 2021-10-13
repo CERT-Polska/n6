@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2014 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import threading
 import functools
-from collections import (
+from collections.abc import (
     Sequence,
     Set,
 )
@@ -21,7 +19,7 @@ def singleton(cls):
         The same class (`cls`).
 
     Trying to instantiate the decorated class more than once causes
-    :exc:`~exceptions.RuntimeError` -- unless, during provious
+    :exc:`~exceptions.RuntimeError` -- unless, during previous
     instantiations, :meth:`__init__` of the decorated class did not
     succeed (caused an exception).
 
@@ -65,7 +63,7 @@ def singleton(cls):
     >>> @singleton
     ... class Y(object):
     ...     def __init__(self, a, b, c=42):
-    ...         print a, b, c
+    ...         print(a, b, c)
     ...
     >>> class Z(Y):
     ...     pass
@@ -73,7 +71,7 @@ def singleton(cls):
     >>> class ZZZ(Y):
     ...     def __init__(self, a, b):
     ...         # will *not* call Y.__init__
-    ...         print 'zzz', a, b
+    ...         print('zzz', a, b)
     ...
     >>> o = Y('spam', b='ham')
     spam ham 42
@@ -91,7 +89,7 @@ def singleton(cls):
     >>> @singleton
     ... class Y2(object):
     ...     def __init__(self, a, b, c=42):
-    ...         print a, b, c
+    ...         print(a, b, c)
     ...
     >>> class Z2(Y2):
     ...     pass
@@ -118,7 +116,7 @@ def singleton(cls):
 
     >>> class A(object):
     ...     def __init__(self, a, b, c=42):
-    ...         print a, b, c
+    ...         print(a, b, c)
     ...
     >>> @singleton
     ... class B(A):
@@ -145,7 +143,7 @@ def singleton(cls):
     def singleton_check(cls):
         with cls._singleton_check_lock:
             if cls._singleton_already_instantiated:
-                raise RuntimeError('an instance of singleton class {0!r} '
+                raise RuntimeError('an instance of singleton class {0!a} '
                                    'has already been created'.format(cls))
             cls._singleton_already_instantiated = True
 
@@ -162,11 +160,10 @@ def singleton(cls):
                     cls._singleton_already_instantiated = False
                 raise
     else:
-        def __init__(*args, **kwargs):
-            self = args[0]  # to avoid arg name clash ('self' may be in kwargs)
+        def __init__(self, /, *args, **kwargs):
             singleton_check(cls)
             try:
-                super(cls, self).__init__(*args[1:], **kwargs)
+                super(cls, self).__init__(*args, **kwargs)
             except:
                 with cls._singleton_check_lock:
                     cls._singleton_already_instantiated = False
@@ -176,7 +173,7 @@ def singleton(cls):
     return cls
 
 
-def attr_required(*attr_names, **kwargs):
+def attr_required(*attr_names, dummy_placeholder=None):
     """
     A method decorator: provides a check for presence of specified attributes.
 
@@ -199,20 +196,20 @@ def attr_required(*attr_names, **kwargs):
     ...
     ...     @attr_required('a')
     ...     def meth_a(self):
-    ...          print 'OK'
+    ...          print('OK')
     ...
     ...     @attr_required('a', 'b')
     ...     def meth_ab(self):
-    ...          print 'Excellent'
+    ...          print('Excellent')
     ...
     ...     @attr_required('z', dummy_placeholder=NotImplemented)
     ...     def meth_z(self):
-    ...          print 'Nice'
+    ...          print('Nice')
     ...
     ...     @classmethod
     ...     @attr_required('c')
     ...     def meth_c(self):
-    ...          print 'Cool'
+    ...          print('Cool')
     ...
     >>> x = XX()
     >>> x.meth_a()
@@ -270,29 +267,24 @@ def attr_required(*attr_names, **kwargs):
       ...
     NotImplementedError: ...
     """
-    dummy_placeholder = kwargs.pop('dummy_placeholder', None)
-    if kwargs:
-        raise TypeError('illegal keyword arguments: ' +
-                        ', '.join(sorted(map(repr, kwargs))))
     def decorator(func):
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            self = args[0]  # to avoid arg name clash ('self' may be in kwargs)
+        def wrapper(self, /, *args, **kwargs):
             for name in attr_names:
                 if getattr(self, name, dummy_placeholder) is dummy_placeholder:
-                    raise NotImplementedError('attribute {0!r} is required to '
-                                              'be present and not to be {1!r}'
+                    raise NotImplementedError('attribute {0!a} is required to '
+                                              'be present and not to be {1!a}'
                                               .format(name, dummy_placeholder))
-            return func(*args, **kwargs)
+            return func(self, *args, **kwargs)
         return wrapper
     return decorator
 
 
 def is_seq(obj):
-    """Is a sequence but *not* a (bytes or unicode) string?"""
-    return isinstance(obj, Sequence) and not isinstance(obj, basestring)
+    """Is a sequence but *not* a :class:`str`, :class:`bytes` or :class:`bytearray`?"""
+    return isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray))
 
 
 def is_seq_or_set(obj):
-    """Is a set or sequence but *not* a (bytes or unicode) string?"""
-    return isinstance(obj, (Sequence, Set)) and not isinstance(obj, basestring)
+    """Is a set or sequence but *not* a :class:`str`, :class:`bytes` or :class:`bytearray`?"""
+    return isinstance(obj, (Sequence, Set)) and not isinstance(obj, (str, bytes, bytearray))

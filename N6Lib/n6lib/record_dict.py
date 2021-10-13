@@ -1,13 +1,11 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 #
 # TODO: more comments + docs
 #
 
 import base64
-import collections
+import collections.abc as collections_abc
 import copy
 import functools
 import json
@@ -17,15 +15,20 @@ import sys
 try:
     from bson.json_util import dumps
 except ImportError:
-    print >> sys.stderr, "Warning: bson is required to run parsers"
+    print('Warning: bson is required to run parsers', file=sys.stderr)
 
-from n6lib.class_helpers import AsciiMixIn, attr_repr
+from n6lib.class_helpers import (
+    AsciiMixIn,
+    attr_repr,
+    is_seq,
+)
 from n6lib.common_helpers import (
     LimitedDict,
     ascii_str,
+    as_bytes,
     ipv4_to_str,
-    provide_surrogateescape,
-    string_as_bytes,
+    make_exc_ascii_str,
+    try_to_normalize_surrogate_pairs_to_proper_codepoints,
 )
 from n6lib.const import (
     CATEGORY_TO_NORMALIZED_NAME,
@@ -33,6 +36,7 @@ from n6lib.const import (
 )
 from n6lib.data_spec import (
     N6DataSpec,
+    FieldValueError,
     FieldValueTooLongError,
 )
 from n6lib.log_helpers import get_logger
@@ -44,9 +48,6 @@ from n6lib.url_helpers import (
 
 LOGGER = get_logger(__name__)
 NONSTANDARD_NAMES_LOGGER = get_logger('NONSTANDARD_NAMES')
-
-
-provide_surrogateescape()
 
 
 #
@@ -138,7 +139,7 @@ def adjuster_factory(adjuster_template_func):
 @adjuster_factory
 def ensure_in(self, value, valid_values):
     if value not in valid_values:
-        raise ValueError('{!r} does not contain value {!r}'
+        raise ValueError('{!a} does not contain value {!a}'
                          .format(valid_values, value))
     return value
 
@@ -146,7 +147,7 @@ def ensure_in(self, value, valid_values):
 @adjuster_factory
 def ensure_in_range(self, value, start, stop):
     if not start <= value < stop:
-        raise ValueError('condition {!r} <= {!r} < {!r} is not met'
+        raise ValueError('condition {!a} <= {!a} < {!a} is not met'
                          .format(start, value, stop))
     return value
 
@@ -154,21 +155,21 @@ def ensure_in_range(self, value, start, stop):
 @adjuster_factory
 def ensure_isinstance(self, value, *type_or_types):
     if not isinstance(value, type_or_types):
-        raise TypeError('{!r} (type: {!r}) is not an instance of {!r}'
+        raise TypeError('{!a} (type: {!a}) is not an instance of {!a}'
                         .format(value, type(value), type_or_types))
     return value
 
 
 @adjuster_factory
 def ensure_validates_by_regexp(self, value, regexp):
-    if not isinstance(value, basestring):
-        raise TypeError('{!r} is not a string'.format(value))
-    if isinstance(regexp, basestring):
-        regexp = re.compile(regexp)
+    if not isinstance(value, (str, bytes, bytearray)):
+        raise TypeError('{!a} is not a string'.format(value))
+    if isinstance(regexp, (str, bytes)):
+        regexp = re.compile(regexp, re.ASCII)
     # note: here we use regexp.search, *not* regexp.match
     if regexp.search(value) is None:
-        raise ValueError('value {0!r} does not match regexp '
-                         '{1.pattern!r} (flags: {1.flags!r})'
+        raise ValueError('value {0!a} does not match regexp '
+                         '{1.pattern!a} (flags: {1.flags!a})'
                          .format(value, regexp))
     return value
 
@@ -179,7 +180,7 @@ def ensure_not_longer_than(self, value, max_length):
     try:
         length = len(value)
     except (TypeError, AttributeError):
-        raise TypeError('{!r} (type: {!r}) does not support `len()`'
+        raise TypeError('{!a} (type: {!a}) does not support `len()`'
                         .format(value, type(value)))
     if length > max_length:
         raise ValueError('value length ({}) is greater than the maximum ({})'
@@ -191,24 +192,38 @@ def ensure_not_longer_than(self, value, max_length):
 def make_adjuster_using_data_spec(self, value, spec_field_name,
                                   on_too_long=None):
     spec_field = getattr(self.data_spec, spec_field_name)
+    if spec_field.sensitive and on_too_long is not None:
+        raise RuntimeError('{!a}.sensitive is true so the `on_too_long` '
+                           'argument should be None (got: on_too_long={!a})'
+                           .format(spec_field, on_too_long))
     try:
         return spec_field.clean_result_value(value)
     except FieldValueTooLongError as exc:
-        if on_too_long is None:
+        # If value might be sensitive we want an exception without any details
+        # (see: `raise FieldValueError...` at the end of this function...).
+        if (not spec_field.sensitive) or getattr(exc, 'safe_for_sensitive', False):
+            if on_too_long is None:
+                raise
+            LOGGER.warning(
+                'calling %a as the on-too-long callback, because: %s',
+                on_too_long, exc)
+            try:
+                assert hasattr(exc, 'checked_value')
+                assert hasattr(exc, 'max_length')
+                assert isinstance(exc.max_length, int) and exc.max_length > 0
+                processed_value = on_too_long(exc.checked_value, exc.max_length)
+            except Exception as e:
+                if not hasattr(e, 'propagate_it_anyway'):
+                    e.propagate_it_anyway = True
+                raise
+            return spec_field.clean_result_value(processed_value)
+    except Exception as exc:
+        # If value might be sensitive we want an exception without any details
+        # (see: `raise FieldValueError...` at the end of this function...).
+        if (not spec_field.sensitive) or getattr(exc, 'safe_for_sensitive', False):
             raise
-        LOGGER.warning(
-            'calling %r as the on-too-long callback, because: %s',
-            on_too_long, exc)
-        try:
-            assert hasattr(exc, 'checked_value')
-            assert hasattr(exc, 'max_length')
-            assert isinstance(exc.max_length, (int, long)) and exc.max_length > 0
-            processed_value = on_too_long(exc.checked_value, exc.max_length)
-        except Exception as exc:
-            if not hasattr(exc, 'propagate_it_anyway'):
-                exc.propagate_it_anyway = True
-            raise
-        return spec_field.clean_result_value(processed_value)
+    assert spec_field.sensitive
+    raise FieldValueError(public_message=spec_field.default_error_msg_if_sensitive)
 
 
 @adjuster_factory
@@ -224,8 +239,7 @@ def make_adjuster_applying_callable(self, value, func, *args, **kwargs):
 
 @adjuster_factory
 def make_multiadjuster(self, value, singular_adjuster=None):
-    if isinstance(value, basestring) or (
-          not isinstance(value, collections.Sequence)):
+    if not is_seq(value):
         value = (value,)
     if singular_adjuster is None:
         return list(value)
@@ -234,12 +248,12 @@ def make_multiadjuster(self, value, singular_adjuster=None):
 
 @adjuster_factory
 def make_dict_adjuster(self, value, **keys_to_adjusters):
-    if isinstance(value, collections.Mapping):
+    if isinstance(value, collections_abc.Mapping):
         return {k: (keys_to_adjusters[k](self, v)
                     if k in keys_to_adjusters
                     else v)
-                for k, v in sorted(value.iteritems())}
-    raise TypeError('{!r} is not a mapping'.format(value))
+                for k, v in sorted(value.items())}
+    raise TypeError('{!a} is not a mapping'.format(value))
 
 
 #
@@ -247,52 +261,45 @@ def make_dict_adjuster(self, value, **keys_to_adjusters):
 
 def rd_adjuster(self, value):
     if not isinstance(value, RecordDict):
-        raise TypeError('{!r} (type: {!r}) is not an instance of {!r}'
+        raise TypeError('{!a} (type: {!a}) is not an instance of {!a}'
                         .format(value, type(value), RecordDict))
     return value
 
 
-@preceded_by(ensure_isinstance(basestring))
-def urlsafe_b64encode_bytes_adjuster(self, value):
-    value = string_as_bytes(value)
-    value = base64.urlsafe_b64encode(value)
-    return string_as_bytes(value)
-
-
-@preceded_by(ensure_isinstance(basestring))
+@preceded_by(ensure_isinstance(str, bytes, bytearray))
 def unicode_adjuster(self, value):
-    if isinstance(value, unicode):
+    if isinstance(value, str):
         return value
-    assert isinstance(value, str)
+    assert isinstance(value, (bytes, bytearray))
     try:
         return value.decode('utf-8')
     except UnicodeDecodeError as exc:
-        raise ValueError("could not decode given str string {!r} using "
-                         "utf-8 encoding ({}); please note that it is "
-                         "parser's responsibility to ensure that input "
-                         "strings passed into unicode adjusters are "
-                         "either *unicode strings* or *utf-8-encoded "
-                         "str strings*".format(value, exc))
+        raise ValueError("could not decode text from binary data {!a} using "
+                         "utf-8 encoding ({}); please note that it is parser's "
+                         "responsibility to ensure that input objects passed "
+                         "into unicode adjusters are either *unicode strings* "
+                         "(`str`) or *utf-8-encoded data* (as objects of type "
+                         "`bytes` or `bytearray`)".format(value, ascii_str(exc)))
 
 
-@preceded_by(ensure_isinstance(basestring))
-def unicode_surrogateescape_adjuster(self, value):
-    if isinstance(value, unicode):
+@preceded_by(ensure_isinstance(str, bytes, bytearray))
+def unicode_surrogate_pass_and_esc_adjuster(self, value):
+    if isinstance(value, str):
         return value
-    assert isinstance(value, str)
-    return value.decode('utf-8', 'surrogateescape')
+    assert isinstance(value, (bytes, bytearray))
+    return value.decode('utf-8', 'utf8_surrogatepass_and_surrogateescape')
 
 
 ipv4_preadjuster = chained(
-    ensure_isinstance(int, long, basestring),
+    ensure_isinstance(int, str),
     make_adjuster_applying_callable(ipv4_to_str))
 
 
-@preceded_by(unicode_surrogateescape_adjuster)
+@preceded_by(unicode_surrogate_pass_and_esc_adjuster)
 def url_preadjuster(self, value):
     match = URL_SCHEME_AND_REST_LEGACY_REGEX.match(value)
     if match is None:
-        raise ValueError('{!r} does not seem to be a valid URL'
+        raise ValueError('{!a} does not seem to be a valid URL'
                          .format(value))
     scheme = match.group('scheme').lower()
     scheme = COMMON_URL_SCHEME_DEOBFUSCATIONS.get(scheme, scheme)
@@ -360,7 +367,7 @@ def trim_domain_seq(value, max_length):
 ### CR: TODO: docstrings for public methods
 ### (especially get_ready_dict et consortes...)
 
-class RecordDict(collections.MutableMapping):
+class RecordDict(collections_abc.MutableMapping):
 
     """
     Record dict class for non-blacklist events.
@@ -441,13 +448,13 @@ class RecordDict(collections.MutableMapping):
         if duplicated:
             raise ValueError('{} has keys declared both '
                              'as required and optional: {}'
-                             .format(self.__class__.__name__,
+                             .format(self.__class__.__qualname__,
                                      ', '.join(sorted(duplicated))))
 
         missing_adjusters = [key for key in self._settable_keys
                              if not hasattr(self, self._adjuster_name(key))]
         if missing_adjusters:
-            raise TypeError('{!r} has no adjusters for keys: {}'
+            raise TypeError('{!a} has no adjusters for keys: {}'
                              .format(self,
                                      ', '.join(sorted(missing_adjusters))))
 
@@ -485,12 +492,13 @@ class RecordDict(collections.MutableMapping):
     def get_ready_json(self):
         # changed from json.dumps on bson.dumps
         ### XXX: why? bson.json_utils.dumps() pre-converts some values, but is it necessary???
+        ###      See #3243 (in particular, #note-7)
         return dumps(self.get_ready_dict())
 
     def iter_db_items(self):
         # to be cloned later (see below)
         item_prototype = {key: value
-                          for key, value in self.get_ready_dict().iteritems()
+                          for key, value in self.get_ready_dict().items()
                           if not key.startswith('_')}  # no internal keys
 
         # pop actual custom items and place them in the "custom" field
@@ -565,14 +573,14 @@ class RecordDict(collections.MutableMapping):
 
     def _get_adjusted_value(self, key, value):
         if key not in self._settable_keys:
-            raise RuntimeError('for {!r}, key {!r} is illegal'
+            raise RuntimeError('for {!a}, key {!a} is illegal'
                                .format(self, key))
 
         adjuster_method_name = self._adjuster_name(key)
         try:
             adjuster = getattr(self, adjuster_method_name)
         except AttributeError:
-            raise RuntimeError('{!r} has no adjuster for key {!r}'
+            raise RuntimeError('{!a} has no adjuster for key {!a}'
                                .format(self, key))
         if adjuster is None:
             # adjuster explicitly set to None -> passing value unchanged
@@ -583,12 +591,11 @@ class RecordDict(collections.MutableMapping):
         except Exception as exc:
             if getattr(exc, 'propagate_it_anyway', False):
                 raise
-            adjuster_error_msg = ('{!r}.{}({value!r}) raised '
-                                  '{exc.__class__.__name__}: {exc}'
+            adjuster_error_msg = ('{!a}.{}({value!a}) raised {exc_str}'
                                   .format(self,
                                           adjuster_method_name,
                                           value=value,
-                                          exc=exc))
+                                          exc_str=make_exc_ascii_str(exc)))
             raise AdjusterError(adjuster_error_msg)
 
     # reimplementation only for speed
@@ -598,13 +605,13 @@ class RecordDict(collections.MutableMapping):
     # reimplementation with slightly different interface
     # and some additional guarantees
     def update(self, iterable_or_mapping=()):
-        iterator = (iterable_or_mapping.iteritems()
-                    if isinstance(iterable_or_mapping, collections.Mapping)
-                    else iter(iterable_or_mapping))
+        # updating in a deterministic order: sorted by key (thanks to
+        # that, in particular, 'category' is set *before* 'name' --
+        # see: adjust_name())
+        sorted_items = sorted(iterable_or_mapping.items()
+                              if isinstance(iterable_or_mapping, collections_abc.Mapping)
+                              else iterable_or_mapping)
         setitem = self.__setitem__
-        # updating in a deterministic order: sorted by key (in particular,
-        # 'category' is set *before* 'name' -- see adjust_name())
-        sorted_items = sorted(iterator)
         for key, value in sorted_items:
             setitem(key, value)
 
@@ -708,15 +715,17 @@ class RecordDict(collections.MutableMapping):
     # without any warning/deprecation/etc.)
     adjust__url_data = make_dict_adjuster(
         url_orig=chained(
-            unicode_surrogateescape_adjuster,
-            urlsafe_b64encode_bytes_adjuster,
+            unicode_surrogate_pass_and_esc_adjuster,
+            make_adjuster_applying_callable(try_to_normalize_surrogate_pairs_to_proper_codepoints),
+            make_adjuster_applying_callable(as_bytes),
+            make_adjuster_applying_callable(base64.urlsafe_b64encode),
+            unicode_adjuster,
             ensure_validates_by_regexp(r'\A[0-9a-zA-Z\-_=]+\Z'),
             ensure_not_longer_than(2 ** 17)),
         url_norm_opts=make_dict_adjuster())
     adjust__url_data_ready = make_dict_adjuster(
         url_orig=chained(
-            ensure_isinstance(basestring),
-            make_adjuster_applying_callable(string_as_bytes),
+            ensure_isinstance(str),
             ensure_validates_by_regexp(r'\A[0-9a-zA-Z\-_=]+\Z'),
             ensure_not_longer_than(2 ** 17)),
         url_norm_opts=make_dict_adjuster())
@@ -758,6 +767,7 @@ class RecordDict(collections.MutableMapping):
             'alternative_fqdns',
             on_too_long=trim_domain_seq))
 
+    adjust_block = make_adjuster_using_data_spec('block')
     adjust_description = make_adjuster_using_data_spec(
         'description', on_too_long=trim)
 
@@ -789,6 +799,9 @@ class RecordDict(collections.MutableMapping):
 
     adjust_referer = make_adjuster_using_data_spec(
         'referer', on_too_long=trim)
+
+    adjust_rt = make_adjuster_using_data_spec(
+        'rt', on_too_long=trim)
 
     adjust_proxy_type = make_adjuster_using_data_spec(
         'proxy_type', on_too_long=trim)
@@ -922,7 +935,7 @@ class RecordDict(collections.MutableMapping):
     def _get_category_std_names(self, category_key):
         while True:
             category_std_names = CATEGORY_TO_NORMALIZED_NAME[category_key]
-            if not isinstance(category_std_names, basestring):
+            if not isinstance(category_std_names, str):
                 return category_std_names
             category_key = category_std_names
 
@@ -953,8 +966,8 @@ class RecordDict(collections.MutableMapping):
                     value_seq.append(singular_value)
                     self[key] = value_seq
                 return appender
-        raise AttributeError('{.__class__.__name__!r} object has '
-                             'no attribute {!r}'.format(self, name))
+        raise AttributeError('{.__class__.__qualname__!a} object has '
+                             'no attribute {!a}'.format(self, name))
 
     @staticmethod
     def _is_multiadjuster(adjuster):
@@ -979,7 +992,7 @@ assert _data_spec is BLRecordDict.data_spec
 _all_keys = RecordDict.required_keys | RecordDict.optional_keys
 assert _all_keys == BLRecordDict.required_keys | BLRecordDict.optional_keys
 
-assert _data_spec.result_field_specs('required').viewkeys() == RecordDict.required_keys
+assert _data_spec.result_field_specs('required').keys() == RecordDict.required_keys
 assert _data_spec.all_result_keys == {
     key for key in _all_keys
     if key not in ('type', 'enriched') and not key.startswith('_')}

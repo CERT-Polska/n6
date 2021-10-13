@@ -1,6 +1,7 @@
-# Copyright (c) 2019 NASK. All rights reserved.
+# Copyright (c) 2019-2021 NASK. All rights reserved.
 
 import datetime
+
 import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
@@ -28,31 +29,34 @@ class RequestPerformer(object):
         large amounts of data in a memory-efficient manner):
 
         with RequestPerformer('GET', 'https://example.com') as perf:
-            for chunk in perf:  # `chunk` is a byte string (str)
+            for chunk in perf:  # each `chunk` is an instance of bytes
                 my_temp_file.write(chunk)
 
-    (3) using the *context manager* interface to initialize the download and
-        use `requests.Response` and/or `requests.Session` objects directly
-        (within its `with` block a `RequestPerformer` instance has the
-        following public attributes: `request` set to `requests.Response`
-        instance, and `session` set to `requests.Session` instance):
+    (3) using the *context manager* interface to initialize the download,
+        and then using directly the following `RequestPerformer` object's
+        public attributes exposed within the `with` block: `response` (a
+        `requests.Response` object) and `session` (a `requests.Session`
+        object); for example:
 
         with RequestPerformer('GET', 'https://example.com') as perf:
-            print perf.response.content   # download all data now!
-            print perf.response.headers   # get headers
-            print perf.session.cookies    # get cookies (as a CookieJar instance)
+            content = perf.response.content   # <- download all data now!
+            response_headers = perf.response.headers  # see docs of `requests.Response`...
+            cookie_jar = perf.session.cookies         # see docs of `requests.Session`...
             # etc...
 
     The (2) and (3) ways can be combined, except that -- if the `stream`
-    keyword argument is true (see below) -- you can **either** use the
-    *iterator* interface [see above: (2)] **or** get directly the `content`
-    attribute of the `response` attribute [see above: (3)], but should
-    **not** do both.
+    keyword argument (see below) is true (which is the default) -- you
+    can **either** use the *iterator* interface [see above: (2)] **or**
+    get directly the `response`'s `content` attribute [see above: (3)],
+    but you should **not** do both.
 
-    Apart from specifying the HTTP method and the URL, you can also pass in a
+
+    Apart from specifying the HTTP method and the URL, you can also provide a
     lot of other arguments (see the constructor args/kwargs described below),
     especially various options related to the `requests` library's stuff
-    (used under the hood). For example:
+    (used under the hood).
+
+    For example:
 
         with RequestPerformer('POST',
                               'https://www.example.com',
@@ -65,19 +69,19 @@ class RequestPerformer(object):
 
     Required constructor args/kwargs:
 
-        `method` (str or unicode):
+        `method` (str):
             The HTTP method name (the `SUPPORTED_HTTP_METHODS` class attribute
             contains its allowed values). To be passed into
             `requests.Session.request()`.
 
-        `url` (str or unicode):
-            The URL to download from (must start with one of the strings
+        `url` (str):
+            The URL to download from (should start with one of the strings
             the `SUPPORTED_URL_PREFIXES` class attribute contains). To be
             passed into `requests.Session.request()`.
 
     Optional constructor kwargs:
 
-        `data` (str or file-like, or dict, or list of 2-tuples;
+        `data` (bytes or file-like, or dict, or list of 2-tuples;
                 default: `None`):
             The data to be optionally sent as the request body. To be
             passed into `requests.Session.request()`.
@@ -94,8 +98,8 @@ class RequestPerformer(object):
         `timeout` (int or float, or 2-tuple of ints/floats;
                    default: `(12.1, 25)`):
             The request timeout specification -- to be passed into
-            `requests.Session.request()`. See also:
-            http://docs.python-requests.org/en/stable/user/advanced/#timeouts.
+            `requests.Session.request()`. See the description:
+            https://requests.readthedocs.io/en/stable/user/advanced/#timeouts.
 
         `retries` (int; default: `0`):
             Maximum number of attempts to retry on request failures (such as
@@ -149,31 +153,31 @@ class RequestPerformer(object):
             of data (in bytes) to be transferred per iteration. Relevant
             only if the `stream` argument is true, otherwise ignored.
             Note: it is not necessarily the length of each yielded data
-            chunk (because of decoding...).
+            chunk (in particular, because of HTTP-level decoding...).
 
         `custom_session_attrs` (dict; default: `None`):
             Custom `requests.Session()` instance attribute values.
             (see:
-            http://docs.python-requests.org/en/master/user/advanced/ and
-            http://docs.python-requests.org/en/master/api/#sessionapi)
+            https://requests.readthedocs.io/en/stable/user/advanced/ and
+            https://requests.readthedocs.io/en/stable/api/#sessionapi)
 
         Other arbitrary kwargs:
             To be passed into `requests.Session.request()`.
 
-    Exceptions raised by the constructor and/or methods:
+    Exceptions raised by the constructor and/or instance interface:
         * ValueError -- for:
             * unsupported `method`/`url` values;
             * `data` being a file-like object whose content's length
               cannot be determined without consuming it, *and*, at the
               same time, non-zero `retries` given.
-        * Any exception that can be raised by the `requests` or `urrlib3`
+        * Any exception that can be raised by the `requests` or `urllib3`
           libraries.
 
 
     For more information about args/kwargs related to the `requests` or
     `urllib3` libraries mentioned above -- see:
-        * http://docs.python-requests.org/en/stable/api/
-        * http://docs.python-requests.org/en/stable/user/advanced/
+        * https://requests.readthedocs.io/en/stable/api/
+        * https://requests.readthedocs.io/en/stable/user/advanced/
         * https://urllib3.readthedocs.io/en/stable/reference/urllib3.util.html#urllib3.util.retry.Retry
     """
 
@@ -253,11 +257,15 @@ class RequestPerformer(object):
             is forbidden (internally it is forcibly set to `False`).
 
         Returns:
-            The downloaded content (str).
+            The downloaded content (bytes).
 
         Raises:
-            * ValueError: for unsupported `method`/`url` values.
-            * Any exception that can be raised by the `requests` or `urrlib3`
+            * ValueError -- for:
+                * unsupported `method`/`url` values;
+                * `data` being a file-like object whose content's length
+                  cannot be determined without consuming it, *and*, at the
+                  same time, non-zero `retries` given.
+            * Any exception that can be raised by the `requests` or `urllib3`
               libraries.
         """
         with RequestPerformer(*args, stream=False, **kwargs) as perf:
@@ -282,7 +290,7 @@ class RequestPerformer(object):
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         return next(self._actual_iterator)
 
     def get_dt_header(self, header_key):
@@ -301,9 +309,9 @@ class RequestPerformer(object):
             with RequestPerformer('GET', 'http://example.com/FOO') as perf:
                 foo_last_modified = perf.get_dt_header('Last-Modified')
             if foo_last_modified is None:
-                print 'I have no idea when FOO was modified.`
+                print('I have no idea when FOO was modified!`)
             else:
-                print 'FOO modification date+time:', foo_last_modified.isoformat()
+                print('FOO modification date+time: ' + foo_last_modified.isoformat())
         """
         raw_value = (self.response.headers.get(header_key) or '').strip()
         if raw_value:
@@ -321,13 +329,13 @@ class RequestPerformer(object):
     def _get_valid_method(self, method):
         method = method.upper()
         if method not in self.SUPPORTED_HTTP_METHODS:
-            raise ValueError('HTTP method {!r} not supported'.format(method))
+            raise ValueError('HTTP method {!a} not supported'.format(method))
         return method
 
     def _get_valid_url(self, url):
         url = self._get_url_with_lowercased_proto(url)
         if not url.startswith(self.SUPPORTED_URL_PREFIXES):
-            raise ValueError('URL prefix {!r} not supported'.format(url))
+            raise ValueError('URL prefix {!a} not supported'.format(url))
         return url
 
     @staticmethod

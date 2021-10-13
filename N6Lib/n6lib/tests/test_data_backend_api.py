@@ -1,12 +1,9 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import copy
 import unittest
 from datetime import datetime as dt
-
-from mock import (
+from unittest.mock import (
     MagicMock,
     patch,
     sentinel as sen,
@@ -19,7 +16,10 @@ from unittest_expander import (
     paramseq,
 )
 
-from n6lib.data_backend_api import _QueryProcessor
+from n6lib.data_backend_api import (
+    N6DataBackendAPI,
+    _EventsQueryProcessor,
+)
 from n6lib.data_spec import N6DataSpec, N6InsideDataSpec
 from n6lib.sqlalchemy_related_test_helpers import sqlalchemy_expr_to_str
 from n6lib.unit_test_helpers import (
@@ -28,19 +28,40 @@ from n6lib.unit_test_helpers import (
 )
 
 
-## TODO: N6DataBackendAPI tests
-## TODO: more _QueryProcessor tests (__init__ etc.)
+## TODO: more N6DataBackendAPI tests
+## TODO: more _EventsQueryProcessor tests (__init__ etc.)
+
+
+class Test_N6DataBackendAPI__delete_opt_prefixed_params(unittest.TestCase):
+
+    def test(self):
+        mock = MagicMock()
+        meth = MethodProxy(N6DataBackendAPI, mock)
+        params = {
+            'name': 'foo-bar',
+            'opt.primary': True,
+            'time.min': [dt(2015, 1, 4)],
+            'time.until': [dt(2015, 1, 5)],
+        }
+        expected_params = {
+            'name': 'foo-bar',
+            'time.min': [dt(2015, 1, 4)],
+            'time.until': [dt(2015, 1, 5)],
+        }
+        meth._delete_opt_prefixed_params(params)
+        self.assertEqual(params, expected_params)
+        self.assertEqual(mock.mock_calls, [])
 
 
 @expand
-class Test_QueryProcessor___get_key_to_query_func(unittest.TestCase):
+class Test_EventsQueryProcessor___get_key_to_query_func(unittest.TestCase):
 
     @foreach(
         param(data_spec_class=N6DataSpec),
         param(data_spec_class=N6InsideDataSpec),
     )
     def test(self, data_spec_class):
-        cls = _QueryProcessor
+        cls = _EventsQueryProcessor
         data_spec = data_spec_class()
         _get_key_to_query_func = cls._get_key_to_query_func.func  # getting it without memoization
         with patch.object(cls, 'queried_model_class') as qmc_mock:
@@ -83,33 +104,13 @@ class Test_QueryProcessor___get_key_to_query_func(unittest.TestCase):
         })
 
 
-class Test_QueryProcessor__delete_opt_prefixed_params(unittest.TestCase):
-
-    def test(self):
-        mock = MagicMock()
-        meth = MethodProxy(_QueryProcessor, mock)
-        params = {
-            'name': 'foo-bar',
-            'opt.primary': True,
-            'time.min': [dt(2015, 1, 4)],
-            'time.until': [dt(2015, 1, 5)],
-        }
-        expected_params = {
-            'name': 'foo-bar',
-            'time.min': [dt(2015, 1, 4)],
-            'time.until': [dt(2015, 1, 5)],
-        }
-        meth.delete_opt_prefixed_params(params)
-        self.assertEqual(params, expected_params)
-        self.assertEqual(mock.mock_calls, [])
-
-
 @expand
-class Test_QueryProcessor__generate_query_results(unittest.TestCase):
+class Test_EventsQueryProcessor__generate_query_results(unittest.TestCase):
 
     _UTCNOW = dt(2015, 1, 3, 17, 18, 19)
 
-    # a helper that makes the expression query reprs for a given time window
+    # a helper that makes the expression query
+    # reprs for a given time window (step)
     def _win(upper_op, upper, lower):
         return [
             ("event.time >= '{0}' AND "
@@ -130,8 +131,8 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
     # typical cases
     cases_time_related_components_of_generated_queries = [
         param(
-            given_params={
-                'time.min': [dt(2015, 1, 3, 16, 17, 18)],
+            given_time_constraints_items={
+                'time.min': dt(2015, 1, 3, 16, 17, 18),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -141,9 +142,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('no time.max/until given, 1 window'),
 
         param(
-            given_params={
-                'time.max': [dt(2015, 1, 5, 14, 15, 16)],
-                'time.min': [dt(2015, 1, 4, 16, 17, 18)],
+            given_time_constraints_items={
+                'time.max': dt(2015, 1, 5, 14, 15, 16),
+                'time.min': dt(2015, 1, 4, 16, 17, 18),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -153,9 +154,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('time.max given, 1 window'),
 
         param(
-            given_params={
-                'time.until': [dt(2015, 1, 5, 14, 15, 16, 999999)],
-                'time.min': [dt(2015, 1, 4, 16, 17, 18)],
+            given_time_constraints_items={
+                'time.until': dt(2015, 1, 5, 14, 15, 16, 999999),
+                'time.min': dt(2015, 1, 4, 16, 17, 18),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<',
@@ -165,8 +166,8 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('time.until given, 1 window'),
 
         param(
-            given_params={
-                'time.min': [dt(2015, 1, 2, 16, 17, 18)],
+            given_time_constraints_items={
+                'time.min': dt(2015, 1, 2, 16, 17, 18),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -180,9 +181,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('no time.max/until given, several windows'),
 
         param(
-            given_params={
-                'time.max': [dt(2015, 1, 5, 14, 15, 16)],
-                'time.min': [dt(2015, 1, 2, 16, 17, 18, 1)],
+            given_time_constraints_items={
+                'time.max': dt(2015, 1, 5, 14, 15, 16),
+                'time.min': dt(2015, 1, 2, 16, 17, 18, 1),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -200,9 +201,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('time.max given, several windows'),
 
         param(
-            given_params={
-                'time.until': [dt(2015, 1, 2, 14, 15, 16)],
-                'time.min': [dt(2014, 12, 30, 16, 17, 18)],
+            given_time_constraints_items={
+                'time.until': dt(2015, 1, 2, 14, 15, 16),
+                'time.min': dt(2014, 12, 30, 16, 17, 18),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<',
@@ -223,8 +224,8 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
     # special cases: time.{max,until} - time.min == multiplicity of window size
     cases_time_related_components_of_generated_queries.extend([
         param(
-            given_params={
-                'time.min': [dt(2015, 1, 2, 18, 18, 19)],
+            given_time_constraints_items={
+                'time.min': dt(2015, 1, 2, 18, 18, 19),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -234,9 +235,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('no time.max/until given, 1 window, delta == window'),
 
         param(
-            given_params={
-                'time.max': [dt(2015, 1, 5, 16, 17, 18)],
-                'time.min': [dt(2015, 1, 4, 16, 17, 18)],
+            given_time_constraints_items={
+                'time.max': dt(2015, 1, 5, 16, 17, 18),
+                'time.min': dt(2015, 1, 4, 16, 17, 18),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -246,9 +247,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('time.max given, 1 window, delta == window'),
 
         param(
-            given_params={
-                'time.until': [dt(2015, 1, 5)],
-                'time.min': [dt(2015, 1, 4)],
+            given_time_constraints_items={
+                'time.until': dt(2015, 1, 5),
+                'time.min': dt(2015, 1, 4),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<',
@@ -258,8 +259,8 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('time.until given, 1 window, delta == window'),
 
         param(
-            given_params={
-                'time.min': [dt(2015, 1, 1, 18, 18, 19)],
+            given_time_constraints_items={
+                'time.min': dt(2015, 1, 1, 18, 18, 19),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -273,9 +274,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('no time.max/until given, several windows, delta == n * window'),
 
         param(
-            given_params={
-                'time.max': [dt(2015, 1, 2, 14, 15, 16, 999999)],
-                'time.min': [dt(2014, 12, 30, 14, 15, 16, 999999)],
+            given_time_constraints_items={
+                'time.max': dt(2015, 1, 2, 14, 15, 16, 999999),
+                'time.min': dt(2014, 12, 30, 14, 15, 16, 999999),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -293,9 +294,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('time.max given, several windows, delta == n * window'),
 
         param(
-            given_params={
-                'time.until': [dt(2015, 1, 5)],
-                'time.min': [dt(2015, 1, 2)],
+            given_time_constraints_items={
+                'time.until': dt(2015, 1, 5),
+                'time.min': dt(2015, 1, 2),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<',
@@ -316,8 +317,8 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
     # special cases: time.min == time.{max,until}
     cases_time_related_components_of_generated_queries.extend([
         param(
-            given_params={
-                'time.min': [dt(2015, 1, 3, 18, 18, 19)],
+            given_time_constraints_items={
+                'time.min': dt(2015, 1, 3, 18, 18, 19),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -327,9 +328,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('time_min == utcnow() + 1h, no time.max/until given'),
 
         param(
-            given_params={
-                'time.max': [dt(2015, 1, 4, 16, 17, 18)],
-                'time.min': [dt(2015, 1, 4, 16, 17, 18)],
+            given_time_constraints_items={
+                'time.max': dt(2015, 1, 4, 16, 17, 18),
+                'time.min': dt(2015, 1, 4, 16, 17, 18),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -339,9 +340,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('time.min == time.max'),
 
         param(
-            given_params={
-                'time.until': [dt(2015, 1, 4, 16, 17, 18, 999999)],
-                'time.min': [dt(2015, 1, 4, 16, 17, 18, 999999)],
+            given_time_constraints_items={
+                'time.until': dt(2015, 1, 4, 16, 17, 18, 999999),
+                'time.min': dt(2015, 1, 4, 16, 17, 18, 999999),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<',
@@ -354,8 +355,8 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
     # special cases: time.min > time.{max,until}
     cases_time_related_components_of_generated_queries.extend([
         param(
-            given_params={
-                'time.min': [dt(2015, 1, 3, 18, 18, 19, 1)],
+            given_time_constraints_items={
+                'time.min': dt(2015, 1, 3, 18, 18, 19, 1),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -365,9 +366,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('time_min > utcnow() + 1h, no time.max/until given'),
 
         param(
-            given_params={
-                'time.max': [dt(2015, 1, 4, 16, 17, 18)],
-                'time.min': [dt(2015, 1, 7, 18, 19, 20)],
+            given_time_constraints_items={
+                'time.max': dt(2015, 1, 4, 16, 17, 18),
+                'time.min': dt(2015, 1, 7, 18, 19, 20),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<=',
@@ -377,9 +378,9 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
         ).label('time.min > time.max'),
 
         param(
-            given_params={
-                'time.until': [dt(2015, 1, 4, 16, 17, 18)],
-                'time.min': [dt(2015, 1, 5, 16, 17, 18)],
+            given_time_constraints_items={
+                'time.until': dt(2015, 1, 4, 16, 17, 18),
+                'time.min': dt(2015, 1, 5, 16, 17, 18),
             },
             expected_query_expr_reprs=_win(
                 upper_op='<',
@@ -391,59 +392,58 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
 
     @foreach(cases_time_related_components_of_generated_queries)
     def test_time_related_components_of_generated_queries(self,
-                                                          given_params,
+                                                          given_time_constraints_items,
                                                           expected_query_expr_reprs):
         mock = MagicMock()
         meth = MethodProxy(
-            _QueryProcessor,
+            _EventsQueryProcessor,
             mock,
             class_attrs=[
                 # for them, the actual members/methods (not mocks) will be used
-                # class constants:
+                # * class constants:
                 'queried_model_class',
-                'client_relationship',
                 'client_asoc_model_class',
-                # methods:
-                'pop_time_min_max_until',
-                'pop_limit',
-                'make_time_cmp_generator',
-                'query__ordering_by',
-                'query__limit',
+                # * methods:
+                '_prepare_result_production_tools',
+                '_fetch_rows_from_db',
+                '_time_comparisons_per_step',
+                '_fetch_rows_for_single_step',
+                '_build_query_base_for_single_step',
+                '_build_actual_query',
             ])
         actual_query_expr_reprs = []
-        and_mock = self._make_the_and_mock(actual_query_expr_reprs)
-        query_mock = self._make_the_query_mock(actual_query_expr_reprs)
-        mock.build_query.return_value = query_mock
+        and_mock = self._make_mock_of_sqlalchemy_and(actual_query_expr_reprs)
+        mock._query_base = self._make_mock_of_query_base(actual_query_expr_reprs)
+        mock._day_step = 1
+        mock._opt_limit = None
+        mock._time_constraints = (
+            given_time_constraints_items['time.min'],
+            given_time_constraints_items.get('time.max'),
+            given_time_constraints_items.get('time.until'))
         with patch('n6lib.data_backend_api.and_', and_mock), \
              patch('n6lib.data_backend_api.utcnow', return_value=self._UTCNOW):
-            list(meth.generate_query_results(
-                given_params,
-                item_number_limit=None,
-                day_step=1))
+            list(meth.generate_query_results())
         self.assertEqual(actual_query_expr_reprs, expected_query_expr_reprs)
 
-
-    def _make_the_and_mock(self, actual_query_expr_reprs):
-        def and_mock_side_effect(*sqlalchemy_conds):
+    def _make_mock_of_sqlalchemy_and(self, actual_query_expr_reprs):
+        def side_effect(*sqlalchemy_conds):
             cond = and_(*sqlalchemy_conds)
-            cond_str = sqlalchemy_expr_to_str(cond)
+            cond_str = sqlalchemy_expr_to_str(cond).replace('`', '')
             actual_query_expr_reprs.append(cond_str)
             return sen.and_
         and_mock = MagicMock()
-        and_mock.side_effect = and_mock_side_effect
+        and_mock.side_effect = side_effect
         return and_mock
 
-
-    def _make_the_query_mock(self, actual_query_expr_reprs):
-        def query_mock_order_by_side_effect(sqlalchemy_expr):
-            expr_str = sqlalchemy_expr_to_str(sqlalchemy_expr)
+    def _make_mock_of_query_base(self, actual_query_expr_reprs):
+        def side_effect_of_order_by(sqlalchemy_expr):
+            expr_str = sqlalchemy_expr_to_str(sqlalchemy_expr).replace('`', '')
             actual_query_expr_reprs.append(expr_str)
             return query_mock
         query_mock = MagicMock()
-        query_mock.order_by.side_effect = query_mock_order_by_side_effect
         query_mock.filter.return_value = query_mock
         query_mock.outerjoin.return_value = query_mock
-        query_mock.options.return_value = query_mock
+        query_mock.order_by.side_effect = side_effect_of_order_by
         return query_mock
 
 
@@ -451,13 +451,13 @@ class Test_QueryProcessor__generate_query_results(unittest.TestCase):
 
 
 @expand
-class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.TestCase):
+class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.TestCase):
 
     @paramseq
     def cases(cls):
         yield param(
             raw_result_dict={
-                # 'SY:'-prefixed `url`, no `custom`/`url_data`
+                # 'SY:'-prefixed `url`, no `custom`/`url_data`, some data
                 # -> nothing
                 'url': u'SY:cośtam',
                 'foo': u'bar',
@@ -466,10 +466,10 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
         )
         yield param(
             raw_result_dict={
-                # 'SY:'-prefixed `url`, `custom` without `url_data`
+                # 'SY:'-prefixed `url`, `custom` without `url_data`, some data
                 # -> nothing
-                'custom': {},
-                'url': 'SY:cośtam',
+                'custom': {'spam': 'ham'},
+                'url': u'SY:cośtam',
                 'foo': 'bar',
             },
             expected_result=None,
@@ -621,7 +621,7 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
             # *and* `url.b64` in params (some matching!)
             # -- so: app-level matching: normalized `url_orig` matched some of `url.b64`
             # -> `url` being normalized `url_orig`, some data, custom without `url_data`
-            params={
+            filtering_params={
                 'url.b64': [
                     u'https://example.com/',
                     u'HTTP://Ćma.EXAMPLE.cOM:80/\udcdd\ud800Ala-ma-kota\udbff\udfff\udccc',
@@ -631,6 +631,9 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
             raw_result_dict={
                 'custom': {
                     'url_data': {
+                        # `url_orig` is URL-safe-base64-encoded:
+                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
                         'url_orig': (u'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
                                      u'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
                         'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
@@ -653,7 +656,7 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
             # *and* *no* `url.b64` in params (so it does not constraints us...)
             # -- so: *no* app-level matching
             # -> `url` being normalized `url_orig`, some data, custom without `url_data`
-            params={
+            filtering_params={
                 'foobar': [
                     u'https://example.com/',
                     u'http://example.ORG:8080/?x=y&ą=ę',
@@ -662,6 +665,9 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
             raw_result_dict={
                 'custom': {
                     'url_data': {
+                        # `url_orig` is URL-safe-base64-encoded:
+                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
                         'url_orig': ('aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
                                      'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
                         'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
@@ -684,7 +690,7 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
             # *and* `url.b64` in params (but none matching!)
             # -- so: app-level matching: normalized `url_orig` did *not* matched any of `url.b64`
             # -> nothing
-            params={
+            filtering_params={
                 'url.b64': [
                     u'https://example.com/',
                     u'http://example.ORG:8080/?x=y&ą=ę',
@@ -693,6 +699,9 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
             raw_result_dict={
                 'custom': {
                     'url_data': {
+                        # `url_orig` is URL-safe-base64-encoded:
+                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
                         'url_orig': (u'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
                                      u'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
                         'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
@@ -710,7 +719,7 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
             # containing some matching (fake) stuff...
             # -- so: app-level matching: fake-normalizer-processed `url_orig` matched something...
             # -> `url` being fake-normalizer-processed `url_orig`, etc. ...
-            params={
+            filtering_params={
                 'url.b64': [
                     u'https://example.com/',
                     u'http://example.ORG:8080/?x=y&ą=ę',
@@ -719,18 +728,21 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
             url_normalization_data_cache={
                 (('epslash', True), ('rmzone', True), ('transcode1st', True)): (
                     # "cached" normalizer (here it is fake, of course):
-                    str.upper,
+                    bytes.upper,
 
                     # "cached" normalized `url.b64` param values (here fake, of course):
                     [
-                        'HTTP://\xc4\x86MA.EXAMPLE.COM:80/\xed\xb3\x9d\xed\xa0\x80'
-                        'ALA-MA-KOTA\xf4\x8f\xbf\xbf\xed\xb3\x8c',
+                        b'HTTP://\xc4\x86MA.EXAMPLE.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        b'ALA-MA-KOTA\xf4\x8f\xbf\xbf\xed\xb3\x8c',
                     ]
                 ),
             },
             raw_result_dict={
                 'custom': {
                     'url_data': {
+                        # `url_orig` is URL-safe-base64-encoded:
+                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
                         'url_orig': (u'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
                                      u'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
                         'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
@@ -744,8 +756,9 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
                 'custom': {
                     'spam': 123,
                 },
-                'url': ('HTTP://\xc4\x86MA.EXAMPLE.COM:80/\xed\xb3\x9d\xed\xa0\x80'
-                        'ALA-MA-KOTA\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                # note: still bytes because of the above fake normalizer (`bytes.upper`)...
+                'url': (b'HTTP://\xc4\x86MA.EXAMPLE.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        b'ALA-MA-KOTA\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 'some-data': u'FOO BAR !@#$%^&*()',
             },
         )
@@ -755,48 +768,48 @@ class Test_QueryProcessor__preprocess_raw_result_dict(TestCaseMixin, unittest.Te
             url_normalization_data_cache={
                 (('epslash', True), ('rmzone', True), ('transcode1st', True)): (
                     # "cached" normalizer (here it is fake, of course):
-                    lambda s: unicode(s.upper()),
+                    lambda b: b.upper().decode('utf-8'),
                     # "cached" normalized `url.b64` param values (here fake, of course):
                     [
-                        'HTTPS://EXAMPLE.COM:',
+                        u'HTTPS://EXAMPLE.COM:',
                     ]
                 ),
             },
             raw_result_dict={
                 'custom': {
                     'url_data': {
+                        # `url_orig` is URL-safe-base64-encoded: b`https://example.com:`
                         'url_orig': ('aHR0cHM6Ly9leGFtcGxlLmNvbTo='),
                         'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
                     },
                     'spam': 123,
                 },
                 'url': 'SY:foo:bar/not-important',
-                'some-data': 'FOO BAR !@#$%^&*()',
+                'some-data': b'FOO BAR !@#$%^&*()',
             },
             expected_result={
                 'custom': {
                     'spam': 123,
                 },
-                'url': u'HTTPS://EXAMPLE.COM:',  # note: unicode because of this fake normalizer...
-                'some-data': 'FOO BAR !@#$%^&*()',
+                'url': u'HTTPS://EXAMPLE.COM:',
+                'some-data': b'FOO BAR !@#$%^&*()',
             },
         )
 
     @foreach(cases)
     def test(self, raw_result_dict, expected_result,
-             params=None,
+             filtering_params=None,
              url_normalization_data_cache=None):
-        params = (
-            copy.deepcopy(params)
-            if params is not None
+        mock = MagicMock()
+        meth = MethodProxy(_EventsQueryProcessor, mock)
+        mock._filtering_params = (
+            copy.deepcopy(filtering_params)
+            if filtering_params is not None
             else {})
-        url_normalization_data_cache = (
+        mock._url_normalization_data_cache = (
             url_normalization_data_cache
             if url_normalization_data_cache is not None
             else {})
         raw_result_dict = copy.deepcopy(raw_result_dict)
-        actual_result = _QueryProcessor.preprocess_raw_result_dict(
-            params,
-            url_normalization_data_cache,
-            raw_result_dict)
+        actual_result = meth._preprocess_result_dict(raw_result_dict)
         self.assertEqualIncludingTypes(actual_result, expected_result)

@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2019-2021 NASK. All rights reserved.
 
 import threading
 
@@ -18,12 +16,12 @@ LOGGER = get_logger(__name__)
 class ContextManagerIsNotReentrantError(TypeError):
 
     """
-    Raised when a client code that uses a *non-reentrant* context manager
-    (whose implementation makes use of `ThreadLocalContextDeposit`) tries
+    Raised when a client code that uses a *non-reentrant* context manager,
+    whose implementation makes use of `ThreadLocalContextDeposit`, tries
     to use that manager as a *reentrant* one.
 
     For more details -- see: `ThreadLocalContextDeposit.on_enter()` (in
-    particular, the description of the `outermost_factory` parameter).
+    particular, the description of the `context_factory` parameter).
     """
 
 
@@ -50,7 +48,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
 
     """
     A utility class that makes it easy to implement context managers
-    that deal with some resources (e.g., with database stuff) in a
+    that need to deal with some resources (e.g., database stuff) in a
     thread-safe way -- by storing and maintaining any context-related
     state *separately* in each thread.
 
@@ -64,6 +62,24 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
 
     Some tools to implement *explicitly non-reentrant* context managers
     are also provided (see also: `ContextManagerIsNotReentrantError`).
+
+    ***
+
+    Here a short note about the terminology is necessary:
+
+    * whenever we say about a *context manager*, we use this term in
+      its well established meaning -- described, for example, here:
+      https://docs.python.org/library/stdtypes.html#context-manager-types
+
+    * whenever we say about a *context data object* or *context data*,
+      or just a *context*, we refer to an object which represents the
+      data/state that needs to be stored during the lifetime of whatever
+      is *entered* and *exited* by your context manager; the type of a
+      *context data object* is not constrained -- it can be anything,
+      depending on the desired semantics and implementation of your
+      context manager (in some cases it can be just `None` -- if no data
+      need to be stored under the hood between your context manager's
+      `__enter__()` and `__exit__(...)` calls).
 
     ***
 
@@ -98,10 +114,24 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
 
     ***
 
-    An overview of the `ThreadLocalContextDeposit`'s public interface
-    (including some corner cases) is presented through the following
-    examples and in the docstrings of the `on_enter()` and `on_exit()`
-    methods.
+    An overview (quite detailed, including some corner cases) of the
+    `ThreadLocalContextDeposit`'s public interface is presented through
+    the following examples and in the docstrings of the `on_enter()` and
+    `on_exit()` methods.
+
+    Note, however, that these examples are somewhat contrived. If you
+    are interested in the overall picture rather than numerous details,
+    taking a look at real-life uses of this class may be more helpful.
+    If so, see how the `__enter__()` and `__exit__()` methods are
+    implemented by each of the following classes:
+
+    * `n6lib.auth_api.AuthAPI` (a reentrant context manager),
+
+    * `n6lib.auth_db.SQLAuthDBConnector` (also a reentrant context
+      manager),
+
+    * `n6corelib.manage_api._manage_api.ManageAPIAuthDBConnector`
+      (a non-reentrant context manager).
 
     ***
 
@@ -260,14 +290,15 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
     ...         finally:
     ...             step = 8
     ...             print_manager_info()
-    ...         print '(NOT PRINTED BECAUSE OF UNCAUGHT EXCEPTION)'
+    ...         print('(NOT PRINTED BECAUSE OF UNCAUGHT EXCEPTION)')
     ...     step = 9
     ...     print_manager_info()
     ...     step = 10
     ...     manager.log(' STOP')
     ...     print_line('final-log', manager.format_my_log())
     ...
-    >>> dummy_session_factory = iter('ABCD').next  # here session is just an uppercase letter (str)
+    >>> from functools import partial as p
+    >>> dummy_session_factory = p(next, iter('ABCD'))  # here session is 'A', 'B', 'C' or 'D' (str)
     >>> dummy_manager = MyMightyDatabaseSessionManager(my_session_factory=dummy_session_factory)
     >>> test_it(dummy_manager)
     #1 current-ses: None
@@ -378,7 +409,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
     ***
 
     Let's take a closer look at some elements of the interface... (But
-    see also the docstrings of `on_enter()` and `on_exit()`!)
+    see also the docs of `on_enter()` and `on_exit()`!)
 
     >>> dep = ThreadLocalContextDeposit(attr_factories={
     ...     # in each thread a separate instance will be created automatically
@@ -537,7 +568,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
         arguments_repr = ('...' if self._repr_token is None
                           else 'repr_token={!r}, ...'.format(self._repr_token))
         return '<{}({}) with {} contexts deposited (for thread {!r})>'.format(
-            type(self).__name__,
+            type(self).__qualname__,
             arguments_repr,
             self.context_count,
             threading.current_thread())
@@ -581,7 +612,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
 
         This method invokes the callback given as one of its arguments
         (see the "Kwargs..." paragraph below) to provide a context data
-        object, then stores it in the deposit as the innermost context,
+        object, then puts it in the deposit as the innermost context,
         and then returns it.
 
         Kwargs (optional, keyword-only):
@@ -600,12 +631,12 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
                 is used in place of it; the dummy factory produces
                 an `int` number equal to the current value of the
                 `context_count` property (see the `context_count`'s
-                docstring).
+                docs).
 
                 `context_factory` can also be set to `NotImplemented`
                 (see: https://docs.python.org/library/constants.html --
                 *not* to be confused with `NotImplementedError`, which
-                is explicitly forbidden to avoid accidental confusion).
+                is explicitly forbidden to avoid accidental confusions).
                 This special value means that when a non-outermost
                 context is to be provided, the exception
                 `ContextManagerIsNotReentrantError` will be raised
@@ -627,11 +658,11 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
 
                 If not given (or given as `None` which is equivalent),
                 and `context_factory` is not given as well or is given
-                as `None` or `NotImplemented`, the default dummy
-                context factory is used place of it; the dummy factory
-                produces an `int` number equal to the current value of
-                the `context_count` property (which in the case of the
-                outermost context must always be `0`).
+                as `None` or `NotImplemented`, the default dummy context
+                factory is used; the dummy factory produces an `int`
+                number equal to the current value of the `context_count`
+                property (which in the case of the outermost context
+                must always be `0`).
 
                 Note: `NotImplemented` is *not* a meaningful value of
                 `outermost_context_factory`.
@@ -643,7 +674,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
             Note: your context manager's `__enter__()` *may*, but *does
             not have to*, be implemented to use that object as the
             return value. What implementation is appropriate depends
-            on the intended semantics of your context manager.
+            on the intended behavior of your context manager.
 
         ***
 
@@ -903,7 +934,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
                 # simultaneous `with` statement per thread will obtain
                 # the following error:
                 raise ContextManagerIsNotReentrantError(
-                    '[error message from {!r}] the context manager being '
+                    '[error message from {!a}] the context manager being '
                     'used is not reentrant, that is, nesting of contexts '
                     '(using the same context manager instance in the same '
                     'thread) is *not* supported (i.e., only one level of '
@@ -966,9 +997,8 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
 
                 If not given (or given as `None` which is equivalent),
                 and `context_finalizer` is not given as well (or is
-                given as `None`), the default dummy finalizer is used
-                in place of it; the dummy finalizer does nothing and
-                returns `None`.
+                given as `None`), the default dummy finalizer is used;
+                the dummy finalizer does nothing and returns `None`.
 
         Returns:
             The finalizer's return value (i.e., the object -- whatever
@@ -982,7 +1012,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
             propagated from the `with` block will be silenced by
             Python's `with`-statement-specific mechanisms). What
             implementation is appropriate depends on the intended
-            semantics of your context manager.
+            behavior of your context manager.
 
         Callback args (obligatory, positional-only):
             `context`:
@@ -1128,7 +1158,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
         After 1st: ctx2 == [-222]
         >>> try:
         ...     cm.__exit__(None, None, None)  # => surplus `on_exit()` call
-        ... except NoContextToExitFrom as exc:
+        ... except NoContextToExitFrom:
         ...     print('Caught EXCEPTION: NoContextToExitFrom...')
         ...
         * at __exit__()'s start: context_count == 0; innermost_context == None
@@ -1347,7 +1377,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
             outermost_context_finalizer = context_finalizer
         context_stack = self._context_stack
         if not context_stack:
-            raise NoContextToExitFrom('{!r}.on_exit(): no context to pop!'.format(self))
+            raise NoContextToExitFrom('{!a}.on_exit(): no context to pop!'.format(self))
         context = context_stack.pop()
         if context_stack:
             if context_finalizer is not None:
@@ -1368,11 +1398,11 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
 def force_exit_on_any_remaining_entered_contexts(context_manager,
                                                  expected_exc_class=NoContextToExitFrom,
                                                  suppressed_exc_class=Exception,
-                                                 max_exit_attempts=10):
+                                                 max_exit_attempts=25):
     """
     Ensure that the given `context_manager` does not have any
     remaining entered contexts -- by calling its `__exit__()`
-    (with `ContextManagerForcedExit` as the thrown exception)
+    (with `ContextManagerForcedExit` as the passed-in exception)
     until `expected_exc_class` is raised (which is then
     silenced), but not more than `max_exit_attempts` times.
 
@@ -1390,11 +1420,11 @@ def force_exit_on_any_remaining_entered_contexts(context_manager,
     ***
 
     This function is intended to be applied to long-living context
-    managers (such as an `AuthQueryAPI` or `AuthManageAPI` instance
-    residing in the Pyramid's registry) to prevent the application
-    from falling into a faulty state after some unexpected/intrusive
-    event (such as an OS signal arrival) preventing some context(s)
-    from being properly `__exit__()`-ed.
+    managers (such as an `AuthManageAPI` instance residing in the
+    Pyramid's registry) to prevent the application from falling into a
+    faulty state after some unexpected/intrusive event (such as an OS
+    signal arrival) that prevented some context(s) from being properly
+    `__exit__()`-ed.
 
     For example, a good candidate for a place where this function
     can be useful is somewhere near the beginning of the activity
@@ -1406,12 +1436,18 @@ def force_exit_on_any_remaining_entered_contexts(context_manager,
     is the `NoContextToExitFrom` exception class. It means that
     this function is particularly convenient when dealing with
     context managers that make use of `ThreadLocalContextDeposit`
-    (see also: the docstrings of the `NoContextToExitFrom` and
+    (see also: the docs of the `NoContextToExitFrom` and
     `ThreadLocalContextDeposit` classes).
 
     ***
 
-    Somewhat contrived example that presents core parts of the
+    `expected_exc_class`, as well as `suppressed_exc_class`, can be set
+    not only to an exception class but also to a non-empty tuple of such
+    classes.
+
+    ***
+
+    Somewhat contrived example that presents the core parts of the
     interface of this function:
 
     >>> class MySillyReentrantCM(object):
@@ -1463,24 +1499,43 @@ def force_exit_on_any_remaining_entered_contexts(context_manager,
     >>> cm.context_count
     2
 
-    >>> force_exit_on_any_remaining_entered_contexts(cm); cm.context_count
+    >>> force_exit_on_any_remaining_entered_contexts(cm, suppressed_exc_class=(ZeroDivisionError,
+    ...                                                                        KeyError))
+    >>> cm.context_count
     0
+
+    >>> cm.__enter__(); cm.__enter__(); cm.__enter__(); cm.context_count
+    3
+    >>> force_exit_on_any_remaining_entered_contexts(cm, expected_exc_class=(FloatingPointError,
+    ...                                                                      NoContextToExitFrom))
+    >>> cm.context_count
+    0
+
     >>> cm.__enter__(); cm.__enter__(); cm.__enter__(); cm.context_count
     3
     >>> force_exit_on_any_remaining_entered_contexts(cm, expected_exc_class=FloatingPointError
     ...                                              )   # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    RuntimeError: ...expected exception FloatingPointError has not been raised
+    RuntimeError: ...none of the expected exceptions (FloatingPointError) ... raised
+
+    >>> force_exit_on_any_remaining_entered_contexts(cm, expected_exc_class=(KeyError, ValueError)
+    ...                                              )   # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    RuntimeError: ...none of the expected exceptions (KeyError, ValueError) ... raised
     """
+    if not isinstance(expected_exc_class, tuple):
+        expected_exc_class = (expected_exc_class,)
     if suppressed_exc_class is None:
-        # no exception will be suppressed (note: `except <empty tuple>:`
-        # means that *no* exceptions will be caught; nice, isn't it? :-))
+        # No exception will be suppressed (note that, in Python, `except
+        # <empty tuple>:` means that *no* exceptions will be caught; did
+        # you know it? :-)).
         suppressed_exc_class = ()
     this_func_name = force_exit_on_any_remaining_entered_contexts.__name__
     exit_exc_name = ContextManagerForcedExit.__name__
     exit_exc = ContextManagerForcedExit('thrown by {}'.format(this_func_name))
-    for _ in xrange(max_exit_attempts):
+    for _ in range(max_exit_attempts):
         try:
             type(context_manager).__exit__(context_manager,
                                            ContextManagerForcedExit, exit_exc, None)
@@ -1490,7 +1545,7 @@ def force_exit_on_any_remaining_entered_contexts(context_manager,
             LOGGER.warning(
                 'When trying (using %s()) to do a forced exit (by '
                 'calling the `__exit__()` method with %s as the '
-                'thrown exception), the context manager %r raised '
+                'thrown exception), the context manager %a raised '
                 'an exception that will be silenced (%s)',
                 this_func_name,
                 exit_exc_name,
@@ -1499,11 +1554,13 @@ def force_exit_on_any_remaining_entered_contexts(context_manager,
     else:
         raise RuntimeError(
             '{}() tried to do a forced exit on the context manager '
-            '{!r} (by calling {} times its `__exit__()` with {} as '
-            'the thrown exception) but the expected exception {} has '
-            'not been raised'.format(
+            '{!a} (by calling {} times its `__exit__()` with {} as '
+            'the thrown exception) but none of the expected '
+            'exceptions ({}) have been raised'.format(
                 this_func_name,
                 context_manager,
                 max_exit_attempts,
                 exit_exc_name,
-                ascii_str(expected_exc_class.__name__)))
+                ascii_str(', '.join(
+                    getattr(exc_cls, '__name__', exc_cls)
+                    for exc_cls in expected_exc_class))))

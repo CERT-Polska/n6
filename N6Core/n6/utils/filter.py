@@ -25,15 +25,14 @@ class Filter(ConfigMixin, QueuedBase):
         'exchange': 'event',
         'exchange_type': 'topic',
         'queue_name': 'filter',
-        'binding_keys': [
-            'event.enriched.*.*',
-            'bl-new.compared.*.*',
-            'bl-update.compared.*.*',
-            'bl-change.compared.*.*',
-            'bl-delist.compared.*.*',
-            'bl-expire.compared.*.*',
-            'suppressed.enriched.*.*',
-            'bl-update.enriched.*.*',
+        'accepted_event_types': [
+            'event',
+            'bl-new',
+            'bl-update',
+            'bl-change',
+            'bl-delist',
+            'bl-expire',
+            'suppressed',
         ],
     }
 

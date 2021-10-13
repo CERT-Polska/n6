@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import ast
 import collections
-import ConfigParser
+import configparser
+import functools
 import json
 import os
 import os.path as osp
@@ -15,12 +14,14 @@ from n6lib.argument_parser import N6ArgumentParser
 from n6lib.class_helpers import get_class_name
 from n6lib.common_helpers import (
     DictWithSomeHooks,
+    as_bytes,
     as_unicode,
     ascii_str,
     import_by_dotted_name,
     memoized,
     reduce_indent,
-    string_to_bool,
+    splitlines_asc,
+    str_to_bool,
 )
 from n6lib.const import ETC_DIR, USER_DIR
 from n6lib.datetime_helpers import (
@@ -35,21 +36,59 @@ LOGGER = get_logger(__name__)
 
 
 
-#
-# 1. Standard stuff (mainly ConfigParser-based)
-#
+###
+# 0. Monkey-patching helpers
+###
 
+# TODO: deprecate and later remove these legacy behaviors...
+def monkey_patch_configparser_to_provide_some_legacy_defaults():
+    """
+    Monkey-patch `__init__()` of `configparser.RawConfigParser` (and of
+    its subclasses) to:
+
+    * make `;`-prefixed inline comments allowed by default, so that all
+      our configurations, no matter whether processed by our stuff or
+      by third-party modules, will still accept such comments (unless
+      explicitly disallowed by setting the `[Raw]ConfigParser`
+      constructor's argument `inline_comment_prefixes` to `None).
+
+    * make duplicate section and option names still allowed by default
+      (unless explicitly disallowed by setting the `[Raw]ConfigParser`
+      constructor's argument `strict` to `True`).
+    """
+
+    FLAG_ATTR = '__n6_monkey_patched_to_apply_some_legacy_defaults'
+
+    orig_init = configparser.RawConfigParser.__init__  # noqa
+    if getattr(orig_init, FLAG_ATTR, False):
+        return
+
+    @functools.wraps(orig_init)
+    def patched_init(*args, **kwargs):
+        kwargs.setdefault('inline_comment_prefixes', (';',))
+        kwargs.setdefault('strict', False)
+        orig_init(*args, **kwargs)
+
+    setattr(patched_init, FLAG_ATTR, True)
+    configparser.RawConfigParser.__init__ = patched_init
+
+
+
+###
+# 1. Standard stuff (mainly `configparser`-based)
+###
 
 class ConfigError(Exception):
 
     """
     A generic, Config-related, exception class.
 
-    >>> print ConfigError('Some Message')
+    >>> print(ConfigError('Some Message'))
     [configuration-related error] Some Message
 
-    >>> print ConfigError('Some arg', 42L, 'Yet another arg')
-    [configuration-related error] ('Some arg', 42L, 'Yet another arg')
+    >>> from decimal import Decimal as D
+    >>> print(ConfigError('Some arg', D(42), 'Yet another arg'))
+    [configuration-related error] ('Some arg', Decimal('42'), 'Yet another arg')
     """
 
     def __str__(self):
@@ -57,7 +96,7 @@ class ConfigError(Exception):
 
 
 
-_KeyError_str_func = getattr(KeyError.__str__, '__func__', None)
+_KeyError_str = getattr(KeyError.__str__, '__func__', KeyError.__str__)
 
 class _KeyErrorSubclassMixin(KeyError):  # a non-public helper
 
@@ -68,8 +107,8 @@ class _KeyErrorSubclassMixin(KeyError):  # a non-public helper
         method = super(_KeyErrorSubclassMixin, self).__str__
         if getattr(method, '__objclass__', None) is KeyError or (
               # for compatibility with non-CPython (e.g. PyPy):
-              _KeyError_str_func is not None and
-              _KeyError_str_func is getattr(method, '__func__', None)):
+              _KeyError_str is not None and
+              _KeyError_str is getattr(method, '__func__', None)):
             method = super(KeyError, self).__str__
         return method()
 
@@ -83,14 +122,15 @@ class NoConfigSectionError(_KeyErrorSubclassMixin, ConfigError):
     >>> exc = NoConfigSectionError('some_sect')
     >>> isinstance(exc, ConfigError) and isinstance(exc, KeyError)
     True
-    >>> print exc
+    >>> print(exc)
     [configuration-related error] no config section `some_sect`
     >>> exc.sect_name
     'some_sect'
 
-    >>> exc2 = NoConfigSectionError('some_sect', 'arg', 42L)
-    >>> print exc2
-    [configuration-related error] ('no config section `some_sect`', 'arg', 42L)
+    >>> from decimal import Decimal as D
+    >>> exc2 = NoConfigSectionError('some_sect', 'arg', D(42))
+    >>> print(exc2)
+    [configuration-related error] ('no config section `some_sect`', 'arg', Decimal('42'))
     >>> exc2.sect_name
     'some_sect'
     """
@@ -110,16 +150,17 @@ class NoConfigOptionError(_KeyErrorSubclassMixin, ConfigError):
     >>> exc = NoConfigOptionError('mysect', 'myopt')
     >>> isinstance(exc, ConfigError) and isinstance(exc, KeyError)
     True
-    >>> print exc
+    >>> print(exc)
     [configuration-related error] no config option `myopt` in section `mysect`
     >>> exc.sect_name
     'mysect'
     >>> exc.opt_name
     'myopt'
 
-    >>> exc2 = NoConfigOptionError('S', 'o', 42L)
-    >>> print exc2
-    [configuration-related error] ('no config option `o` in section `S`', 42L)
+    >>> from decimal import Decimal as D
+    >>> exc2 = NoConfigOptionError('S', 'o', D(42))
+    >>> print(exc2)
+    [configuration-related error] ('no config option `o` in section `S`', Decimal('42'))
     >>> exc2.sect_name
     'S'
     >>> exc2.opt_name
@@ -136,7 +177,7 @@ class NoConfigOptionError(_KeyErrorSubclassMixin, ConfigError):
 
 class Config(DictWithSomeHooks):
 
-    """
+    r"""
     Parse the configuration and provide a dict-like access to it.
 
     Config is a dict subclass.  Generally, its instances behave like a
@@ -150,12 +191,12 @@ class Config(DictWithSomeHooks):
     * the modern (recommended) way -- with so called *configuration
       specification* as the obligatory argument (`config_spec`) and
       a few optional keyword arguments (see the "Modern way of
-      instantiation" docstring section below).
+      instantiation" section below).
 
     * the legacy (obsolete) way -- with the `required` dict (that maps
       required section names to sequences of required option names) as
       the sole (but still *optional*) argument (see the "Legacy way of
-      instantiation" docstring section below).
+      instantiation" section below).
 
 
     Modern way of instantiation (recommended)
@@ -163,13 +204,12 @@ class Config(DictWithSomeHooks):
 
     Args (obligatory):
         `config_spec` (str):
-            The configuration specification in a ConfigParser-like
+            The configuration specification in a `configparser`-like
             format.  It defines: what config sections are to be
             included, what config options are legal, what config options
             are required, how values of particular config options shall
             be converted (e.g., coerced to int or bool...).  See the
-            "Configuration specification format" docstring section
-            below.
+            "Configuration specification format" section below.
 
     Kwargs (optional):
         `settings` (dict or None; default: None):
@@ -177,10 +217,13 @@ class Config(DictWithSomeHooks):
 
             * if it is None (the default value), the configuration will
               be read from /etc/n6/*.conf and ~/.n6/*.conf files
-              (excluding logging.* and logging-*) [so called "N6Core
-              way"];
+              (excluding logging.* and logging-*); this is so called
+              "N6Core way" of obtaining the configuration;
 
-              NOTE that all normal ConfigParser processing is done,
+              NOTE that all normal `configparser` processing is done
+              (in its modern-Python 3.x-specific flavor, except that
+              `;`-prefixed inline comments are still enabled and
+              duplicate section or option names are still allowed);
               especially option names (but *not* section names) are
               normalized to lowercase -- before applying converters
               (see below: the description of the `custom_converters`
@@ -189,22 +232,22 @@ class Config(DictWithSomeHooks):
             * if it is not None, it must be a Pyramid-like settings
               dictionary -- mapping '<section name>.<option name>'
               strings to raw option value strings; the configuration
-              will be taken from the dictionary, *not* from any files
-              [so called "Pyramid way"; typically the content of the
-              `settings` dictionary is the result of parsing the
-              `[app:main]` part of a Pyramid *.ini file in which each
-              option is specified in the `<section name>.<option name> =
-              <option value>` format];
+              will be taken from the dictionary, *not* from any files;
+              this is so called "Pyramid way" of obtaining the
+              configuration; typically the content of the `settings`
+              dictionary is the result of parsing the `[app:main]` part
+              of a Pyramid *.ini file in which each option is specified
+              in the `<section name>.<option name> = <option value>`
+              format;
 
               NOTE: option names taken from a `settings` dict (contrary
               to option names from configuration files parsed with
-              ConfigParser) are *not* normalized to lowercase; on the
-              other hand, any unicode option names are encoded to str
-              using UTF-8 (and non-string keys are just omitted); also,
-              non-str option values (if any) -- before being converted
-              (see below: the description of the `custom_converters`
-              argument) -- are coerced to str (especially, unicode
-              values are encoded to str using UTF-8).
+              `configparser` stuff) are *not* normalized to lowercase;
+              on the other hand, any non-str option values (if any) --
+              before being converted (see below: the description of
+              the `custom_converters` argument) -- are coerced to str
+              (especially, bytes/bytearray values are decoded to str
+              using UTF-8).
 
         `custom_converters` (dict or None; default: None):
             If not None it must be a dictionary that maps custom
@@ -220,14 +263,14 @@ class Config(DictWithSomeHooks):
             it contains are also applied (they can even override
             converters defined in Config.BASIC_CONVERTERS).  See also
             the "Configuration specification format" and "Standard
-            converter specs" docstring sections below.
+            converter specs" sections below.
 
-        `default_converter` (str or callable; default: str()):
+        `default_converter` (str or callable; default: the str() constructor):
             This argument specifies the converter callable (see the
             description of `custom_converters` above) to be used to
             convert values of options that are *not* marked in
-            `config_spec` with any converter name.  If a string (and
-            not a callable) it must be a key in at least one of the
+            `config_spec` with any converter name.  If a str (i.e., not
+            a callable) then it must be a key in at least one of the
             mappings: Config.BASIC_CONVERTERS or `custom_converters`.
 
     Raises:
@@ -253,7 +296,7 @@ class Config(DictWithSomeHooks):
       above).
 
     (Compare the above notes with those in the "Legacy way of
-    instantiation" docstring section below.)
+    instantiation" section below.)
 
 
     Examples:
@@ -327,12 +370,12 @@ class Config(DictWithSomeHooks):
 
     * the value of an option specifies its default value;
 
-    * it can be followed by: `:: <converter_spec>` where
-      <converter_spec> is a name of a value converter (such as
-      'int', 'float', 'bool' etc.);
+    * it can be followed by `:: <converter_spec>` where <converter_spec>
+      is a name of a value converter (such as 'int', 'float', 'bool'
+      etc.);
 
-    * if the default value is not specified (i.e., `no-value option`
-      syntax is used) the `:: <convig_spec>` part can follow just the
+    * if the default value is not specified (i.e., the *no-value* option
+      syntax is used) the `:: <config_spec>` part can follow just the
       option name;
 
     * a `...` marker can be used instead of an option name; if it is
@@ -349,19 +392,19 @@ class Config(DictWithSomeHooks):
 
         SOME_CONFIG_SPEC = '''
         [some_section]
-        some_opt = default val :: unicode  ; default value + converter spec
+        some_opt = default val :: bool   ; default value + converter spec
         another_opt = its default val    ; default value, no converter spec
         required_without_default :: int  ; converter spec, no default value
         another_required_opt             ; no converter spec, no default value
         ...           ; `...` means that other (arbitrary) options are allowed
 
         [another_section]
-        some_required_opt :: unicode
-        yet_another_option : yes :: bool
+        some_required_opt :: bool
+        yet_another_option : yes :: date
         # below: `...` with a converter spec -- means that other (arbitrary)
         # options are allowed and that the specified converter shall be applied
         # to their values
-        ... :: unicode
+        ... :: bool
 
         [yet_another_section]
         some_required_opt
@@ -379,15 +422,20 @@ class Config(DictWithSomeHooks):
 
     Below -- standard converter specs with example conversions:
 
-    * str: 'abc' -> 'abc' (a "do nothing" conversion)
+    * str: 'abc ś' -> 'abc ś'
+           (practically, it is a "do nothing" conversion)
 
-    * unicode: 'abc' -> u'abc'
-               'ś' -> u'ś' (note: using UTF-8)
+    * unicode: 'abc ś' -> 'abc ś'
+               (implementation: n6lib.common_helpers.as_unicode();
+               deprecated, as in Py3 it practically duplicates str)
+
+    * bytes: 'abc ś' -> b'abc \xc5\x9b'
+             (implementation: n6lib.common_helpers.as_bytes())
 
     * bool: 'true' or 't' or 'yes' or 'y' or 'on' or '1' -> True
             'false' or 'f' or 'no' or 'n' or 'off' or '0' -> False
             (case-insensitive so uppercase letters are also OK;
-            implementation: n6lib.common_helpers.string_to_bool())
+            implementation: n6lib.common_helpers.str_to_bool())
 
     * int: '42' -> 42
            '-42' -> -42
@@ -396,18 +444,21 @@ class Config(DictWithSomeHooks):
              '-42.2' -> -42.2
 
     * date: '2010-07-19' -> datetime.date(2010, 7, 19)
-            (implementation: n6lib.datetime_helpers.parse_iso_date()
+            (implementation: n6lib.datetime_helpers.parse_iso_date())
 
     * datetime: '2010-07-19 12:39:45+02:00'
                 -> datetime.datetime(2010, 7, 19, 10, 39, 45)
                 (note: normalizing timezone to UTC; implementation:
-                n6lib.datetime_helpers.parse_iso_datetime_to_utc))
+                n6lib.datetime_helpers.parse_iso_datetime_to_utc())
 
     * list_of_str: 'a, b, c, d, e,'  -> ['a', 'b', 'c', 'd', 'e']
                    'a,b,c,d,e'       -> ['a', 'b', 'c', 'd', 'e']
                    ' a, b,c,d , e, ' -> ['a', 'b', 'c', 'd', 'e']
 
-    * list_of_unicode: ' a, b,c,d , e, ' -> [u'a', u'b', u'c', u'd', u'e']
+    * list_of_unicode: ' a, b,c,d , e, ' -> ['a', 'b', 'c', 'd', 'e']
+                       (deprecated, as in Py3 it practically duplicates list_of_str)
+
+    * list_of_bytes: ' a, b,c,d , e, ' -> [b'a', b'b', b'c', b'd', b'e']
 
     * list_of_bool: 'yes,No , True ,OFF' -> [True, False, True, False]
 
@@ -423,10 +474,25 @@ class Config(DictWithSomeHooks):
                         -> [datetime.datetime(2010, 7, 19, 10, 39, 45),
                             datetime.datetime(2010, 7, 20, 23, 23)]
 
-    * py: "[('a',), {42: None}]" -> [('a',), {42: None}]
-          (implementation uses ast.literal_eval())
+    * importable_dotted_name: 'sqlalchemy.orm.properties.ColumnProperty'
+                              -> <the `ColumnProperty` class from the
+                                 `sqlalchemy.orm.properties` module>
+                              (implementation:
+                              n6lib.common_helpers.import_by_dotted_name())
 
-    * json: '[["a"], {"b": null}]' -> [[u'a'], {u'b': None}]
+    * py: "[('a',), {42: None}]" -> [('a',), {42: None}]
+          (accepts any Python literal;
+          implementation makes use of ast.literal_eval())
+
+    * py_namespaces_dict: "{'spam': [42, 43, 44], 'ham': {'a': 45.6789}"
+                          -> {'spam': [42, 43, 44], 'ham': {'a': 45.6789}
+                          (same as `py` but accepts only a literal of
+                          a dict whose all keys are of the str type;
+                          values can be of any literal-representable
+                          types, except that those being dicts must
+                          obey the same restrictions, recursively...)
+
+    * json: '[["a"], {"b": null}]' -> [['a'], {'b': None}]
             (implementation uses json.loads())
 
     All `list_of_...` converters are implemented using the
@@ -448,7 +514,7 @@ class Config(DictWithSomeHooks):
 
     Raises:
         * SystemExit (!) -- if any required section/option is missing.
-        * ConfigParser.Error (or any of its subclasses) -- if a config
+        * configparser.Error (or any of its subclasses) -- if a config
           file cannot be properly parsed.
 
     NOTE:
@@ -460,7 +526,7 @@ class Config(DictWithSomeHooks):
       performed).
 
     (Compare the above notes with those in the "Modern way of
-    instantiation" docstring section above.)
+    instantiation" section above.)
 
 
     Override config values for particular script run
@@ -473,23 +539,37 @@ class Config(DictWithSomeHooks):
     script run* using the `--n6config-override` command line argument.
 
     Check `n6lib.argument_parser.N6ArgumentParser` for more information.
+
+    **Important proviso**: the *logging configuration* options are read
+    and parsed by a machinery which is completely *separate* from the
+    `n6lib.config.Config`-related stuff -- therefore you **cannot** use
+    the `--n6config-override` command line argument to override those
+    options.
     """
+
+
+    #
+    # Option-value-conversion-related internal helpers
+    #
 
     # internal sentinel object
     __NOT_CONVERTED = object()
 
-    # internal helper
+    # noinspection PyMethodParameters
     def __make_list_converter(item_converter, name=None, delimiter=','):
+
         def converter(s):
             s = s.strip()
             if s.endswith(delimiter):
                 # remove trailing delimiter
                 s = s[:-len(delimiter)].rstrip()
             if s:
+                # noinspection PyCallingNonCallable
                 return [item_converter(item.strip())
                         for item in s.split(delimiter)]
             else:
                 return []
+
         if name is None:
             base_name = getattr(item_converter, '__name__', get_class_name(item_converter))
             name = '__{0}__list__converter'.format(base_name)
@@ -498,31 +578,72 @@ class Config(DictWithSomeHooks):
         converter.delimiter = delimiter
         return converter
 
-    # internal helper
-    def __strip_utf8_literal_eval(s):
-        return ast.literal_eval(s.decode('utf-8').strip())
+    # noinspection PyMethodParameters
+    def __py_literal_converters():
 
+        def py(s):
+            return _literal_eval(as_unicode(s).strip())
+
+        def py_namespaces_dict(s):
+            val = py(s)
+            if not isinstance(val, dict):
+                raise TypeError('not a dict')
+            _verify_namespaces_recursively(val)
+            return val
+
+        _literal_eval = ast.literal_eval
+
+        def _verify_namespaces_recursively(di, ref_word='dict'):
+            assert isinstance(di, dict)
+            items = sorted(di.items())
+            non_str_keys = [key for key, _ in items if not isinstance(key, str)]
+            if non_str_keys:
+                raise _NonStrKey(
+                    'this {} should contain only str keys '
+                    '(but contains some non-str ones: {})'.format(
+                        ref_word,
+                        ', '.join(map(ascii, non_str_keys))))
+            for key, val in items:
+                if isinstance(val, dict):
+                    try:
+                        _verify_namespaces_recursively(val, ref_word='subdict')
+                    except _NonStrKey as exc:
+                        raise _NonStrKey('for key {!a} -> {}'.format(key, exc)) from None
+
+        class _NonStrKey(TypeError):
+            pass
+
+        return {
+            'py': py,
+            'py_namespaces_dict': py_namespaces_dict,
+        }
+
+
+    #
+    # Public interface
+    #
 
     # public constant (should never be modified in-place!)
-    BASIC_CONVERTERS = {
+    BASIC_CONVERTERS = dict({
         'str': str,
+        'bytes': as_bytes,
         'unicode': as_unicode,
-        'bool': string_to_bool,
+        'bool': str_to_bool,
         'int': int,
         'float': float,
         'date': parse_iso_date,
         'datetime': parse_iso_datetime_to_utc,
         'list_of_str': __make_list_converter(str, 'list_of_str'),
+        'list_of_bytes': __make_list_converter(as_bytes, 'list_of_bytes'),
         'list_of_unicode': __make_list_converter(as_unicode, 'list_of_unicode'),
-        'list_of_bool': __make_list_converter(string_to_bool, 'list_of_bool'),
+        'list_of_bool': __make_list_converter(str_to_bool, 'list_of_bool'),
         'list_of_int': __make_list_converter(int, 'list_of_int'),
         'list_of_float': __make_list_converter(float, 'list_of_float'),
         'list_of_date': __make_list_converter(parse_iso_date, 'list_of_date'),
         'list_of_datetime': __make_list_converter(parse_iso_datetime_to_utc, 'list_of_datetime'),
         'importable_dotted_name': import_by_dotted_name,
-        'py': __strip_utf8_literal_eval,
         'json': json.loads,
-    }
+    }, **__py_literal_converters())
 
 
     # public static method
@@ -572,7 +693,7 @@ class Config(DictWithSomeHooks):
             >>> Config.section(config_spec, settings=s)  # doctest: +ELLIPSIS
             Traceback (most recent call last):
               ...
-            ConfigError: ...but no sections found
+            n6lib.config.ConfigError: ...but no sections found
 
             >>> config_spec = '''
             ... [foo]
@@ -581,13 +702,13 @@ class Config(DictWithSomeHooks):
             >>> Config.section(config_spec, settings=s)  # doctest: +ELLIPSIS
             Traceback (most recent call last):
               ...
-            ConfigError: ...but the following sections found: 'bar', 'foo'
+            n6lib.config.ConfigError: ...but the following sections found: 'bar', 'foo'
 
         See also: ConfigMixin.get_config_section().
         """
         self = cls(*args, **kwargs)
         try:
-            [section] = self.itervalues()
+            [section] = self.values()
         except ValueError:
             all_sections = sorted(self)
             sections_descr = (
@@ -596,12 +717,12 @@ class Config(DictWithSomeHooks):
                 if all_sections else 'no sections found')
             raise ConfigError(
                 'expected config spec that defines '
-                'exactly one section but ' + sections_descr)
+                'exactly one section but ' + sections_descr) from None
         return section
 
 
     @classmethod
-    def make(*args, **kwargs):
+    def make(cls, /, *args, **kwargs):
         """
         An alternative (dict-like) constructor.
 
@@ -623,7 +744,7 @@ class Config(DictWithSomeHooks):
             * TypeError -- if any non-str key is detected in the
               resultant mapping or in any of the mappings being its
               values (see below).
-            * TypeError or ValueError (adequeately) -- if the given args
+            * TypeError or ValueError (adequately) -- if the given args
               are not "appropriate for a dict of dicts" (see below).
 
         >>> Config.make()
@@ -672,40 +793,41 @@ class Config(DictWithSomeHooks):
         >>> Config.make(abc=[])
         Config(<{'abc': ConfigSection('abc', {})}>)
 
-        >>> Config.make({'abc': {'k': 'v'}}, abc={'kk': 42L})
-        Config(<{'abc': ConfigSection('abc', {'kk': 42L})}>)
-        >>> Config.make({'abc': {'k': 'v'}}, abc=[('kk', 42L)])
-        Config(<{'abc': ConfigSection('abc', {'kk': 42L})}>)
-        >>> Config.make({'abc': [('k', 'v')]}, abc={'kk': 42L})
-        Config(<{'abc': ConfigSection('abc', {'kk': 42L})}>)
-        >>> Config.make({'abc': [('k', 'v')]}, abc=[('kk', 42L)])
-        Config(<{'abc': ConfigSection('abc', {'kk': 42L})}>)
-        >>> Config.make([('abc', {'k': 'v'})], abc={'kk': 42L})
-        Config(<{'abc': ConfigSection('abc', {'kk': 42L})}>)
-        >>> Config.make([('abc', {'k': 'v'})], abc=[('kk', 42L)])
-        Config(<{'abc': ConfigSection('abc', {'kk': 42L})}>)
-        >>> Config.make([('abc', [('k', 'v')])], abc={'kk': 42L})
-        Config(<{'abc': ConfigSection('abc', {'kk': 42L})}>)
-        >>> Config.make([('abc', [('k', 'v')])], abc=[('kk', 42L)])
-        Config(<{'abc': ConfigSection('abc', {'kk': 42L})}>)
+        >>> from decimal import Decimal as D
+        >>> Config.make({'abc': {'k': 'v'}}, abc={'kk': D(42)})
+        Config(<{'abc': ConfigSection('abc', {'kk': Decimal('42')})}>)
+        >>> Config.make({'abc': {'k': 'v'}}, abc=[('kk', D(42))])
+        Config(<{'abc': ConfigSection('abc', {'kk': Decimal('42')})}>)
+        >>> Config.make({'abc': [('k', 'v')]}, abc={'kk': D(42)})
+        Config(<{'abc': ConfigSection('abc', {'kk': Decimal('42')})}>)
+        >>> Config.make({'abc': [('k', 'v')]}, abc=[('kk', D(42))])
+        Config(<{'abc': ConfigSection('abc', {'kk': Decimal('42')})}>)
+        >>> Config.make([('abc', {'k': 'v'})], abc={'kk': D(42)})
+        Config(<{'abc': ConfigSection('abc', {'kk': Decimal('42')})}>)
+        >>> Config.make([('abc', {'k': 'v'})], abc=[('kk', D(42))])
+        Config(<{'abc': ConfigSection('abc', {'kk': Decimal('42')})}>)
+        >>> Config.make([('abc', [('k', 'v')])], abc={'kk': D(42)})
+        Config(<{'abc': ConfigSection('abc', {'kk': Decimal('42')})}>)
+        >>> Config.make([('abc', [('k', 'v')])], abc=[('kk', D(42))])
+        Config(<{'abc': ConfigSection('abc', {'kk': Decimal('42')})}>)
 
-        >>> Config.make({42L: {'k': 'v'}})
+        >>> Config.make({D(42): {'k': 'v'}})
         Traceback (most recent call last):
           ...
-        TypeError: key 42L is not a str instance
-        >>> Config.make({'abc': {42L: 'v'}})
+        TypeError: key Decimal('42') is not a `str`
+        >>> Config.make({'abc': {D(42): 'v'}})
         Traceback (most recent call last):
           ...
-        TypeError: key 42L is not a str instance
-        >>> Config.make(42L)                             # doctest: +IGNORE_EXCEPTION_DETAIL
-        Traceback (most recent call last):
-          ...
-        TypeError: ...
-        >>> Config.make({'abc': 42L})                    # doctest: +IGNORE_EXCEPTION_DETAIL
+        TypeError: key Decimal('42') is not a `str`
+        >>> Config.make(D(42))                           # doctest: +IGNORE_EXCEPTION_DETAIL
         Traceback (most recent call last):
           ...
         TypeError: ...
-        >>> Config.make({'abc': [42L]})                  # doctest: +IGNORE_EXCEPTION_DETAIL
+        >>> Config.make({'abc': D(42)})                  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+          ...
+        TypeError: ...
+        >>> Config.make({'abc': [D(42)]})                # doctest: +IGNORE_EXCEPTION_DETAIL
         Traceback (most recent call last):
           ...
         TypeError: ...
@@ -719,18 +841,22 @@ class Config(DictWithSomeHooks):
           ...
         ValueError: ...
         """
-        cls = args[0]
         self = cls.__new__(cls)
-        super(Config, self).__init__(*args[1:], **kwargs)
-        for sect_name, opt_name_to_value in self.iteritems():
+        super(Config, self).__init__(*args, **kwargs)
+        for sect_name, opt_name_to_value in self.items():
             sect = ConfigSection(sect_name, opt_name_to_value)
             keys = [sect_name]
-            keys.extend(sect.iterkeys())
+            keys.extend(sect.keys())
             for key in keys:
                 if not isinstance(key, str):
-                    raise TypeError('key {0!r} is not a str instance'.format(key))
+                    raise TypeError('key {0!a} is not a `str`'.format(key))
             self[sect_name] = sect
         return self
+
+
+    #
+    # Non-public implementation details
+    #
 
     #
     # DictWithSomeHooks-specific customizations
@@ -779,29 +905,27 @@ class Config(DictWithSomeHooks):
             except Exception as exc:
                 e = ConfigError('{0}: {1}'.format(get_class_name(exc), ascii_str(exc)))
                 LOGGER.error('%s', e, exc_info=True)
-                raise e
+                raise e from exc
+            finally:
+                e = None  # noqa   # To break a traceback-related reference cycle (if any).
         except ConfigError as err:
             if settings is None:
-                print >>sys.stderr, _N6CORE_CONFIG_ERROR_MSG_PATTERN.format(ascii_str(err))
+                print(_N6CORE_CONFIG_ERROR_MSG_PATTERN.format(ascii_str(err)), file=sys.stderr)
             raise
 
     def _convert_settings_dict(self, settings):
         sect_name_to_opt_dict = {}
-        for key, value in settings.iteritems():
-            if isinstance(key, unicode):
-                key = key.encode('utf-8')
-            elif not isinstance(key, str):
-                LOGGER.warning('Ignoring non-string settings key %r', key)
+        for key, value in settings.items():
+            if not isinstance(key, str):
+                LOGGER.warning('Ignoring non-`str` settings key %a', key)
                 continue
-            if isinstance(value, unicode):
-                value = value.encode('utf-8')
-            elif not isinstance(value, str):
-                if not self._is_standard_pyramid_key_of_nonstring(key):  # <- to reduce log noise
+            if not isinstance(value, str):
+                if not self._is_standard_pyramid_key_of_non_str(key):  # <- to reduce log noise
                     LOGGER.warning(
-                        'Coercing non-string value %r (of setting %s) '
-                        'to str (before further conversion)',
+                        'Coercing non-`str` value %a (of setting %s) '
+                        'to `str` (before further conversion)',
                         value, ascii_str(key))
-                value = str(value)
+                value = as_unicode(value)
             first, dotted, second = key.partition('.')
             if dotted:
                 sect_name = first
@@ -813,13 +937,17 @@ class Config(DictWithSomeHooks):
             opt_name_to_value[opt_name] = value
         return sect_name_to_opt_dict
 
-    def _is_standard_pyramid_key_of_nonstring(self, key):
-        return key.startswith('pyramid.') or key in (
+    def _is_standard_pyramid_key_of_non_str(self, key):
+        return key.startswith(('pyramid.', 'debugtoolbar.')) or key in (
+            'csrf_trusted_origins',
+            'debug_all',
             'debug_authorization',
             'debug_notfound',
             'debug_routematch',
             'debug_templates',
+            'prevent_cachebust',
             'prevent_http_cache',
+            'reload_all',
             'reload_assets',
             'reload_resources',
             'reload_templates',
@@ -880,8 +1008,7 @@ class Config(DictWithSomeHooks):
                 resultant_config_sect[opt_spec.name] = opt_value
 
             free_opt_names = sorted(
-                input_opt_dict.viewkeys() -
-                set(opt_spec.name for opt_spec in sect_spec.opt_specs))
+                input_opt_dict.keys() - set(opt_spec.name for opt_spec in sect_spec.opt_specs))
             if free_opt_names:
                 if sect_spec.free_opts_allowed:
                     if some_declared_opts_are_absent:
@@ -962,8 +1089,8 @@ class Config(DictWithSomeHooks):
             return converter(opt_value)
         except Exception as exc:
             conversion_errors.append(
-                'error when applying config value converter {0!r} '
-                'to {1}={2!r} ({3}: {4})'.format(
+                'error when applying config value converter {0!a} '
+                'to {1}={2!a} ({3}: {4})'.format(
                     converter,
                     opt_descr,
                     opt_value,
@@ -987,7 +1114,7 @@ class Config(DictWithSomeHooks):
             (sect_name, ConfigSection(
                 sect_name,
                 opt_name_to_value))
-            for sect_name, opt_name_to_value in sect_name_to_opt_dict.iteritems())
+            for sect_name, opt_name_to_value in sect_name_to_opt_dict.items())
 
     @staticmethod
     def _get_error_msg_if_missing(sect_name_to_opt_dict, required):
@@ -1020,7 +1147,7 @@ class Config(DictWithSomeHooks):
     @memoized(expires_after=60)
     def _load_n6_config_files(cls):
         sect_name_to_opt_dict = {}
-        config_parser = ConfigParser.SafeConfigParser()
+        config_parser = configparser.ConfigParser()
         config_files = []
         config_files.extend(cls._get_config_file_paths(ETC_DIR))
         config_files.extend(cls._get_config_file_paths(USER_DIR))
@@ -1028,7 +1155,7 @@ class Config(DictWithSomeHooks):
             LOGGER.warning('No config files to read')
             return sect_name_to_opt_dict
 
-        ok_config_files = config_parser.read(config_files)
+        ok_config_files = config_parser.read(config_files, encoding='utf-8')
         err_config_files = set(config_files).difference(ok_config_files)
         if err_config_files:
             LOGGER.warning(
@@ -1047,10 +1174,14 @@ class Config(DictWithSomeHooks):
 
         for sect_name in config_parser.sections():
             opt_name_to_value = dict(config_parser.items(sect_name))
-            sect_name_to_opt_dict[sect_name] = opt_name_to_value
             assert (
                 isinstance(sect_name, str) and
-                all(isinstance(opt_name, str) for opt_name in opt_name_to_value))
+                all(isinstance(opt_name, str) and isinstance(opt_value, str)
+                    for opt_name, opt_value in opt_name_to_value.items()))
+            opt_name_to_value = {
+                opt_name: ('' if opt_value == '""' else opt_value)      # <- TODO: deprecate and later remove this legacy behavior
+                for opt_name, opt_value in opt_name_to_value.items()}
+            sect_name_to_opt_dict[sect_name] = opt_name_to_value
         return sect_name_to_opt_dict
 
     @staticmethod
@@ -1076,9 +1207,10 @@ class Config(DictWithSomeHooks):
         return sorted(config_files)
 
     def _override_config_values_by_cmdlines_arguments(self, config_dir):
-        for key, value in self._config_overridden_dict.iteritems():
+        for key, value in self._config_overridden_dict.items():
             if key in config_dir:
                 config_dir[key].update(value)
+
 
 
 class ConfigSection(DictWithSomeHooks):
@@ -1102,7 +1234,7 @@ class ConfigSection(DictWithSomeHooks):
     >>> len(s)
     1
     >>> s.items()
-    [('some_opt', 'FOO_bar,spam')]
+    dict_items([('some_opt', 'FOO_bar,spam')])
 
     >>> s['some_opt']
     'FOO_bar,spam'
@@ -1121,7 +1253,7 @@ class ConfigSection(DictWithSomeHooks):
     >>> s['another_opt']     # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    NoConfigOptionError: [conf... `another_opt` in section `some_sect`
+    n6lib.config.NoConfigOptionError: [conf... `another_opt` in section `some_sect`
 
     A few more examples:
 
@@ -1133,7 +1265,7 @@ class ConfigSection(DictWithSomeHooks):
     >>> len(another_s)
     0
     >>> another_s.items()
-    []
+    dict_items([])
     >>> another_s == {}
     True
     >>> another_s == {'some_opt': 'FOO_bar,spam'}
@@ -1145,9 +1277,9 @@ class ConfigSection(DictWithSomeHooks):
     >>> len(another_s)
     1
     >>> another_s.keys()
-    ['some_opt']
+    dict_keys(['some_opt'])
     >>> another_s.values()
-    ['FOO_bar,spam']
+    dict_values(['FOO_bar,spam'])
     >>> another_s
     ConfigSection('some_sect', {'some_opt': 'FOO_bar,spam'})
     >>> another_s == {}
@@ -1205,6 +1337,10 @@ class ConfigMixin(object):
 
     -- you can use them *instead* of calling Config stuff directly.
 
+    The get_config_section() method is probably more handy than
+    get_config_full() because in most cases you are interested in a
+    particular (only one) config section.
+
     Both of them make use of the following attributes (which, typically,
     will be class attributes -- but they are got through an instance so
     it is possible to customize them per-instance if needed):
@@ -1216,10 +1352,6 @@ class ConfigMixin(object):
       -- optional;
     * `config_group` (for compatibility with legacy stuff)
       -- optional.
-
-    The get_config_section() method is probably more handy because in
-    most cases you are interested in a particular (only one) config
-    section.
 
     Additionally, there are two public helper methods
 
@@ -1251,7 +1383,7 @@ class ConfigMixin(object):
         >>> # (for these doctests we need to patch the config I/O operations)
         ... example_conf_from_files = {'foo': {'spam': '[null]'},
         ...                            'other': {'ham': 'Abc'}}
-        >>> from mock import patch
+        >>> from unittest.mock import patch
         >>> with patch.object(Config, '_load_n6_config_files',
         ...                   return_value=example_conf_from_files):
         ...     m = MyClass()
@@ -1291,15 +1423,16 @@ class ConfigMixin(object):
     Again, `config_spec` and one config section in use -- but
     additionally with `custom_converters`:
 
+        >>> from decimal import Decimal
         >>> class MyClass(ConfigMixin):
         ...
         ...     config_spec = '''
         ...         [foo]
         ...         bar = 42 :: int
-        ...         spam :: list_of_long
+        ...         spam :: list_of_decimal
         ...     '''
         ...     custom_converters = {
-        ...         'list_of_long': Config.make_list_converter(long),
+        ...         'list_of_decimal': Config.make_list_converter(Decimal),
         ...     }
         ...
         ...     def __init__(self, settings=None):
@@ -1307,7 +1440,7 @@ class ConfigMixin(object):
         ...
         >>> example_conf_from_files = {'foo': {'spam': ' 0 , 123,12345,'},
         ...                            'other': {'ham': 'Abc'}}
-        >>> from mock import patch
+        >>> from unittest.mock import patch
         >>> with patch.object(Config, '_load_n6_config_files',
         ...                   return_value=example_conf_from_files):
         ...     m = MyClass()
@@ -1321,7 +1454,7 @@ class ConfigMixin(object):
         >>> m.config['bar']
         42
         >>> m.config['spam']
-        [0L, 123L, 12345L]
+        [Decimal('0'), Decimal('123'), Decimal('12345')]
         >>> m.is_config_spec_or_group_declared()
         True
 
@@ -1335,7 +1468,7 @@ class ConfigMixin(object):
         >>> m.config['bar']
         42
         >>> m.config['spam']
-        [0L, 123L, 12345L]
+        [Decimal('0'), Decimal('123'), Decimal('12345')]
         >>> m.is_config_spec_or_group_declared()
         True
 
@@ -1360,7 +1493,7 @@ class ConfigMixin(object):
         ...         self.config_full = self.get_config_full(settings)
         ...
         >>> example_conf_from_files = {'foo': {'spam': '[null]'},
-        ...                            'other': {'ham': '{42: u"abc"}'}}
+        ...                            'other': {'ham': '{42: "abc"}'}}
         >>> with patch.object(Config, '_load_n6_config_files',
         ...                   return_value=example_conf_from_files):
         ...     m = MyClass()
@@ -1381,7 +1514,7 @@ class ConfigMixin(object):
         >>> m.config_full['foo']['spam']
         [None]
         >>> m.config_full['other']
-        ConfigSection('other', {'ham': {42: u'abc'}})
+        ConfigSection('other', {'ham': {42: 'abc'}})
         >>> m.is_config_spec_or_group_declared()
         True
 
@@ -1389,7 +1522,7 @@ class ConfigMixin(object):
     (*not* loaded from *.conf files):
 
         >>> example_settings = {'foo.spam': '[null]',
-        ...                     'other.ham': '{42: u"abc"}'}
+        ...                     'other.ham': '{42: "abc"}'}
         >>> m = MyClass(example_settings)
         >>> isinstance(m.config_full, Config)
         True
@@ -1405,7 +1538,7 @@ class ConfigMixin(object):
         >>> m.config_full['foo']['spam']
         [None]
         >>> m.config_full['other']
-        ConfigSection('other', {'ham': {42: u'abc'}})
+        ConfigSection('other', {'ham': {42: 'abc'}})
         >>> m.is_config_spec_or_group_declared()
         True
 
@@ -1469,7 +1602,7 @@ class ConfigMixin(object):
 
 
     First, just 'config_group` + `config_required` (note that
-    `config_spec` -- being omitted here -- defaults to an empty string;
+    `config_spec` -- being omitted here -- defaults to an empty str;
     but also that -- because the section defined as `config_group` is
     not present in the initial `config_spec` -- the section in the
     resultant config spec contains the `...` marker):
@@ -1757,7 +1890,7 @@ class ConfigMixin(object):
         >>> isinstance(config_section, ConfigSection)
         True
         >>> config_full.keys()
-        ['foo']
+        dict_keys(['foo'])
         >>> config_section == config_full['foo']
         True
         >>> sorted(config_section.keys())
@@ -1797,7 +1930,7 @@ class ConfigMixin(object):
         >>> isinstance(config_section, ConfigSection)
         True
         >>> config_full.keys()
-        ['foo', 'other']
+        dict_keys(['foo', 'other'])
         >>> config_full['foo']['bar']
         42
         >>> config_full['foo']['spam']
@@ -1805,7 +1938,7 @@ class ConfigMixin(object):
         >>> config_section == config_full['other']
         True
         >>> config_section.keys()
-        []
+        dict_keys([])
         >>> m.is_config_spec_or_group_declared()
         True
 
@@ -1816,17 +1949,17 @@ class ConfigMixin(object):
     TypeError if `config_spec` is not a str instance:
 
         >>> class MyClass(ConfigMixin):
-        ...     config_spec = u'not an str!!!'
+        ...     config_spec = bytearray(b'not a str!!!')
         ...
         >>> m = MyClass()
         >>> m.get_config_full()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        TypeError: config_spec must be str, not unicode
+        TypeError: config_spec must be str, not bytearray
         >>> m.get_config_section()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        TypeError: config_spec must be str, not unicode
+        TypeError: config_spec must be str, not bytearray
         >>> m.is_config_spec_or_group_declared()
         True
 
@@ -1879,11 +2012,11 @@ class ConfigMixin(object):
         >>> m.get_config_full()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        ConfigError: ... `config_group` ... cannot be inferred ...
+        n6lib.config.ConfigError: ... `config_group` ... cannot be inferred ...
         >>> m.get_config_section()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        ConfigError: ... `config_group` ... cannot be inferred ...
+        n6lib.config.ConfigError: ... `config_group` ... cannot be inferred ...
         >>> m.is_config_spec_or_group_declared()  # note the result here!
         False
 
@@ -1901,11 +2034,11 @@ class ConfigMixin(object):
         >>> m.get_config_full()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        ConfigError: ... `config_group` ... cannot be inferred ...
+        n6lib.config.ConfigError: ... `config_group` ... cannot be inferred ...
         >>> m.get_config_section()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        ConfigError: ... `config_group` ... cannot be inferred ...
+        n6lib.config.ConfigError: ... `config_group` ... cannot be inferred ...
         >>> m.is_config_spec_or_group_declared()
         True
 
@@ -1929,11 +2062,11 @@ class ConfigMixin(object):
         >>> m.get_config_section()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        ConfigError: ...but no sections found
+        n6lib.config.ConfigError: ...but no sections found
         >>> m.get_config_section(example_settings)  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        ConfigError: ...but no sections found
+        n6lib.config.ConfigError: ...but no sections found
         >>> with patch.object(Config, '_load_n6_config_files',
         ...                   return_value=example_conf_from_files):
         ...     config_full = m.get_config_full()
@@ -1946,8 +2079,8 @@ class ConfigMixin(object):
         False
 
     Of course, ConfigError -- as well as TypeError or KeyError -- will
-    occur in all cases when the Config stuff raises them (see the
-    Config docstring for details).
+    occur in all cases when the Config stuff raises them (see the docs
+    of the Config class for details).
     """
 
 
@@ -1966,8 +2099,8 @@ class ConfigMixin(object):
             `config_spec` attribute will be used instead.
 
         Raises:
-            ConfigError, TypeError, ValueError, KeyError (see the
-            docstring of this class).
+            ConfigError, TypeError, ValueError, KeyError (see the docs
+            of this class).
 
         The method makes use of the following attributes:
 
@@ -1975,7 +2108,7 @@ class ConfigMixin(object):
         * optional (modern): `custom_converters`, `default_converter`;
         * optional (legacy): `config_group`, `config_required`.
 
-        (See the docstring of this class for details.)
+        (See the docs of this class for details.)
 
         """
         args, kwargs = self.__get_args_kwargs(settings, **format_kwargs)
@@ -1997,8 +2130,8 @@ class ConfigMixin(object):
             `config_spec` attribute will be used instead.
 
         Raises:
-            ConfigError, TypeError, ValueError, KeyError (see the
-            docstring of this class).
+            ConfigError, TypeError, ValueError, KeyError (see the docs
+            of this class).
 
         The method makes use of the following attributes:
 
@@ -2006,7 +2139,7 @@ class ConfigMixin(object):
         * optional (modern): `custom_converters`, `default_converter`;
         * optional (legacy): `config_group`, `config_required`.
 
-        (See the docstring of this class for details.)
+        (See the docs of this class for details.)
 
         NOTE: this method (unlike get_config_full()) can be called
         *only* if it is clear which is *the* section, i.e., if
@@ -2102,7 +2235,7 @@ class ConfigMixin(object):
             if config_group is None:
                 assert config_required
                 try:
-                    [(config_group, sect_spec)] = sect_name_to_spec.iteritems()
+                    [(config_group, sect_spec)] = sect_name_to_spec.items()
                 except ValueError:
                     all_sections = sorted(sect_name_to_spec)
                     sections_descr = (
@@ -2113,7 +2246,7 @@ class ConfigMixin(object):
                         'attribute `config_required` is specified but '
                         '`config_group` is not and it cannot be inferred '
                         'from `config_spec` because it does not contain '
-                        'exactly one section ({0})'.format(sections_descr))
+                        'exactly one section ({0})'.format(sections_descr)) from None
             else:
                 sect_spec = sect_name_to_spec.get(config_group)
             assert isinstance(config_group, str)
@@ -2167,8 +2300,8 @@ class ConfigMixin(object):
 
     def __get_config_required(self):
         config_required = getattr(self, 'config_required', ()) or ()
-        if isinstance(config_required, basestring):
-            config_required = (str(config_required),)
+        if isinstance(config_required, str):
+            config_required = (config_required,)
         return tuple(map(str, config_required))
 
 
@@ -2189,8 +2322,8 @@ def parse_config_spec(config_spec):
     Returns:
         An object that provides an interface similar to the interface
         provided by the ConfigString class -- but fitted to manipulate
-        a config spec; especially a few additional methods have been
-        added (see the examples below).
+        a config spec; especially, a few additional methods are provided
+        (see the examples below).
 
     >>> parsed = parse_config_spec('''
     ...     [first]
@@ -2503,6 +2636,24 @@ def parse_config_spec(config_spec):
     >>> sect_spec.required    # all included opts have default values defined
     False
 
+    >>> parsed.get_opt_names('first') == [
+    ...     'foo',
+    ...     'bar',
+    ...     'ham',
+    ...     'spam',
+    ...     'glam',
+    ...     '...',
+    ... ]
+    True
+    >>> parsed.get_opt_names('second') == ['bar']
+    True
+    >>> parsed.get_opt_names('') == []
+    True
+    >>> parsed.get_opt_names('nonexistent')          # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    KeyError: 'nonexistent'
+
     >>> parsed.get_all_sect_names()
     ['first', 'second']
 
@@ -2544,9 +2695,144 @@ def parse_config_spec(config_spec):
 
 
 
-#
+def join_config_specs(*config_specs):
+    r"""
+    Join config spec strings (interleaving them with additional newline
+    characters), first reducing their indentation individually, so that
+    the final result can be passed to `parse_config_spec()`.
+
+    Positional *args:
+        Several config spec strings (`str`).
+
+    Returns:
+        A new config spec string (`str`).
+
+    >>> joined = join_config_specs(
+    ...     # Note different levels of indentation in each of these three
+    ...     # config specs (this helper deals with that without a problem).
+    ...     '''
+    ...     [first]
+    ...     foo = 42 :: int  ; comment
+    ...
+    ...     ham::unicode''',
+    ... '''[SPAM_SPAM_SPAM]
+    ... glam ;comment
+    ... # some free options as possible:
+    ... ...
+    ...
+    ... ''',
+    ... '''            [second]
+    ...                bAR = milk://Bar :: url
+    ...                            ''')
+    >>> joined == '''
+    ... [first]
+    ... foo = 42 :: int  ; comment
+    ...
+    ... ham::unicode
+    ... [SPAM_SPAM_SPAM]
+    ... glam ;comment
+    ... # some free options as possible:
+    ... ...
+    ...
+    ...
+    ... [second]
+    ... bAR = milk://Bar :: url
+    ... '''
+    True
+    >>> parsed = parse_config_spec(joined)
+    >>> parsed.get_opt_value('first.foo')
+    '42'
+    >>> parsed.get_opt_value('first.ham') is None
+    True
+    >>> parsed.get_opt_value('SPAM_SPAM_SPAM.glam') is None
+    True
+    >>> parsed.get_opt_value('second.bar')
+    'milk://Bar'
+
+    A few more examples:
+
+    >>> s1 = '''
+    ...      1-indented
+    ...     zero-indented
+    ...                   '''
+    >>> s2 = '''Zero-indented
+    ...   ZERO-indented
+    ...      3-indented
+    ...
+    ... '''
+    >>> s3 = '''  zeRO-indented
+    ...               2-indented
+    ...                                   \t
+    ...             ZeRo-indented
+    ...  \t
+    ...              1-indented'''
+    >>> join_config_specs(s1) == '''
+    ...  1-indented
+    ... zero-indented
+    ... '''
+    True
+    >>> join_config_specs(s1, s2) == '''
+    ...  1-indented
+    ... zero-indented
+    ...
+    ... Zero-indented
+    ... ZERO-indented
+    ...    3-indented
+    ...
+    ... '''
+    True
+    >>> join_config_specs(s1, s2, s3) == '''
+    ...  1-indented
+    ... zero-indented
+    ...
+    ... Zero-indented
+    ... ZERO-indented
+    ...    3-indented
+    ...
+    ...
+    ... zeRO-indented
+    ...   2-indented
+    ...
+    ... ZeRo-indented
+    ...
+    ...  1-indented'''
+    True
+    >>> join_config_specs(s3, s2, s1) == '''zeRO-indented
+    ...   2-indented
+    ...
+    ... ZeRo-indented
+    ...
+    ...  1-indented
+    ... Zero-indented
+    ... ZERO-indented
+    ...    3-indented
+    ...
+    ...
+    ...
+    ...  1-indented
+    ... zero-indented
+    ... '''
+    True
+    >>> join_config_specs()
+    ''
+    >>> join_config_specs('')
+    ''
+    >>> join_config_specs('', '')
+    '\n'
+    >>> join_config_specs(s1, '')
+    '\n 1-indented\nzero-indented\n\n'
+    >>> join_config_specs(' ', s1)
+    '\n\n 1-indented\nzero-indented\n'
+    >>> join_config_specs(s1, '   0-indented \t x ')
+    '\n 1-indented\nzero-indented\n\n0-indented    x '
+    """
+    return '\n'.join(reduce_indent(conf_spec) for conf_spec in config_specs)
+
+
+
+###
 # 2. Other/alternative solutions
-#
+###
 
 class ConfigString(str):
 
@@ -2559,25 +2845,27 @@ class ConfigString(str):
     options (preserving formatting and comments related to
     sections/options that are not touched).
 
-    Note #1: This class uses the *universal newlines* approach to
-    splitting lines originating from an input string; on the other hand,
-    all resultant contents contain '\n'-only (Unix-style) newlines.
+    Note #1: This class uses the *universal newlines* approach for
+    splitting lines originating from an input string, i.e., the
+    following three different newline styles are recognized: `\n`,
+    `\r` and `\r\n`; on the other hand, all resultant contents
+    contain `\n`-only (Unix-style) newlines.
 
-    Note #2: In contrast to other (ConfigParser-related) classes in
-    this module, this class does not accept duplicate section names or
-    duplicate option names (in a particular section).
+    Note #2: Duplicate section names and duplicate option names (in a
+    particular section) are not accepted.
 
-    Note #3: In contrast to other (ConfigParser-related) classes in
+    Note #3: In contrast to other (`configparser`-related) classes in
     this module, this class (as it is in the case of, e.g., the OpenSSL
     configuration format) ignores whitespace characters between a
     section name and the enclosing square brackets.
 
     Compatibility note: For the sake of the syntax change described
     above in the note #3, as well as for simplicity of the
-    implementation, whitespace characters (accepted, in some cases, by
-    stdlib's ConfigParser) are *never* recognized as a part of a section
-    name or an option name.  Some other marginal incompatibilities with
-    ConfigParser stuff are also possible.
+    implementation, whitespace characters (accepted, in some cases,
+    by stdlib's `configparser` stuff) are *never* recognized as a
+    part of a section name or an option name.  Other incompatibilities
+    with `configparser` stuff are also possible (in particular with its
+    modern-Python-3.x-specific flavor).
 
     >>> cs = ConfigString('''
     ... [ first ]
@@ -2759,6 +3047,17 @@ class ConfigString(str):
     >>> cs.get_opt_value('second.Bar')
     'http://\nexample.com/'
 
+    >>> cs.get_opt_names('first') == ['foo', 'ham']
+    True
+    >>> cs.get_opt_names('second') == ['bar']
+    True
+    >>> cs.get_opt_names('') == []
+    True
+    >>> cs.get_opt_names('nonexistent')                 # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    KeyError: 'nonexistent'
+
     >>> cs.get_all_sect_names()
     ['first', 'second']
 
@@ -2830,7 +3129,7 @@ class ConfigString(str):
     ... ; comment ; comment ; comment \t
     ...   ; not a comment  ;  REALLY!
     ...
-    ... REM comment
+    ... # comment
     ...
     ...   example.com/; not-a-comment\t
     ...
@@ -2870,6 +3169,21 @@ class ConfigString(str):
     ...     '  and continuation lines are ignored \t\n')
     True
 
+    >>> cs2.get_opt_names('') == ['bar', 'empty', 'empty2']
+    True
+    >>> cs2.get_opt_names('second') == ['bar']
+    True
+    >>> cs2.get_opt_names('fifth') == [
+    ...     'someoption',
+    ...     'no_value_option',
+    ...     'foo',
+    ... ]
+    True
+    >>> cs2.get_opt_names('nonexistent')                # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    KeyError: 'nonexistent'
+
     >>> cs2.get_all_sect_names()
     ['', 'second', 'fifth']
 
@@ -2890,6 +3204,13 @@ class ConfigString(str):
 
     >>> ConfigString('')
     ConfigString()
+
+    >>> ConfigString().get_opt_names('')
+    []
+    >>> ConfigString().get_opt_names('nonexistent')     # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    KeyError: 'nonexistent'
 
     >>> ConfigString().get_all_sect_names()
     []
@@ -2937,6 +3258,9 @@ class ConfigString(str):
 
     >>> ConfigString('xyz\nabc\r\n\r')
     ConfigString('xyz\nabc\n\n')
+
+    >>> ConfigString('xyz\nabc\n\n').get_opt_names('')
+    ['xyz', 'abc']
 
     >>> ConfigString('xyz\nabc\n\n').get_all_sect_names()
     ['']
@@ -2994,7 +3318,6 @@ class ConfigString(str):
     ValueError: duplicate option name 'a' in section 'first'
     """
 
-
     def __new__(cls, *args, **kwargs):
         s = str(*args, **kwargs)
         lines = cls._get_lines(s)
@@ -3007,10 +3330,11 @@ class ConfigString(str):
 
     #
     # Public interface extensions
+    #
 
     def __repr__(self):
         return '{0}({1})'.format(
-            self.__class__.__name__,
+            self.__class__.__qualname__,
             (super(ConfigString, self).__repr__() if self else ''))
 
 
@@ -3210,6 +3534,21 @@ class ConfigString(str):
         return opt_value
 
 
+    def get_opt_names(self, sect_name):
+        """
+        Get a list of options names in the specified section.
+
+        Raises:
+            KeyError -- instantiated with the section name as the sole
+            argument, if the specified section does not exist.  It does
+            *not* apply to the '' (empty) section name -- referring to
+            the area of the config above any section header; if that
+            area does not contain any options then an empty list is
+            returned.
+        """
+        return self._sect_name_to_index_data[sect_name].get_all_opt_names()
+
+
     def get_all_sect_names(self):
         """
         Get a list of all section names.
@@ -3247,25 +3586,17 @@ class ConfigString(str):
 
     #
     # Non-public constants and helpers
+    #
 
     _COMMENTED_OR_BLANK_LINE_REGEX = re.compile(r'''
         \A
         (?:
             [;\#]
         |
-            [rR]
-            [eE]
-            [mM]
-            (?:
-                \s
-            |
-                \Z
-            )
-        |
             \s*
             \Z
         )
-    ''', re.VERBOSE)
+    ''', re.ASCII | re.VERBOSE)
 
     _SECT_BEG_REGEX = re.compile(r'''
         \A
@@ -3276,7 +3607,7 @@ class ConfigString(str):
         )
         \s*
         \]
-    ''', re.VERBOSE)
+    ''', re.ASCII | re.VERBOSE)
 
     _OPT_BEG_REGEX = re.compile(r'''
         \A
@@ -3297,7 +3628,7 @@ class ConfigString(str):
             )?
         )?
         \Z
-    ''', re.VERBOSE)
+    ''', re.ASCII | re.VERBOSE)
 
 
     class _SectIndexData(object):
@@ -3330,12 +3661,12 @@ class ConfigString(str):
 
         def get_span(self):
             if not self._is_end_completed():
-                raise RuntimeError("{0!r} not completed".format(self))
+                raise RuntimeError("{0!a} not completed".format(self))
             return self._beg, self._end
 
         def get_opt_span(self, opt_name):
             if not self._is_opt_completed(opt_name):
-                raise RuntimeError("{0!r}.{1!r} not completed".format(self, opt_name))
+                raise RuntimeError("{0!a}.{1!a} not completed".format(self, opt_name))
             return self._opt_name_to_span[opt_name]
 
         def get_all_opt_names(self):
@@ -3360,7 +3691,7 @@ class ConfigString(str):
 
     @staticmethod
     def _get_lines(s):
-        lines = s.splitlines()
+        lines = splitlines_asc(s)
         if s.endswith(('\n', '\r')):
             lines.append('')
         return lines
@@ -3378,7 +3709,7 @@ class ConfigString(str):
             if li[0].isspace():  # is a continuation line?
                 if not non_blank_or_comment_encountered:
                     raise ValueError(
-                        'first non-blank config line {0!r} '
+                        'first non-blank config line {0!a} '
                         'looks like a continuation line '
                         '(that is, starts with whitespace '
                         'characters)'.format(li))
@@ -3392,7 +3723,7 @@ class ConfigString(str):
                 cur_sect_name = sect_match.group('sect_name')
                 if cur_sect_name in sect_name_to_index_data:
                     raise ValueError(
-                        'duplicate section name {0!r}'.format(cur_sect_name))
+                        'duplicate section name {0!a}'.format(cur_sect_name))
                 sect_name_to_index_data[cur_sect_name] = cls._SectIndexData(beg=i)
 
             else:
@@ -3400,17 +3731,17 @@ class ConfigString(str):
                 if opt_match:
                     # this line is an option spec (e.g., `name=value`...)
                     opt_name = opt_match.group('opt_name')
-                    opt_name = opt_name.lower()  # <- to mimic ConfigParser stuff
+                    opt_name = opt_name.lower()  # <- to mimic `configparser` stuff
                     sect_idata = sect_name_to_index_data[cur_sect_name]
                     if sect_idata.contains_opt_name(opt_name):
                         raise ValueError(
-                            'duplicate option name {0!r} in section {1!r}'
+                            'duplicate option name {0!a} in section {1!a}'
                             .format(opt_name, cur_sect_name))
                     sect_idata.init_opt(opt_name, beg=i)
 
                 else:
                     raise ValueError(
-                        'config line {0!r} is not valid (note that '
+                        'config line {0!a} is not valid (note that '
                         'section/option names that are empty or '
                         'contain whitespace characters are '
                         'not supported)'.format(li))
@@ -3432,19 +3763,19 @@ class ConfigString(str):
         sect_name, dotted, opt_name = location.partition('.')
         sect_idata = self._sect_name_to_index_data[sect_name]
         if dotted:
-            opt_name = opt_name.lower()  # <- to mimic ConfigParser stuff
+            opt_name = opt_name.lower()  # <- to mimic `configparser` stuff
             span = sect_idata.get_opt_span(opt_name)
         elif opt_required:
             raise ValueError(
                 'the called method requires that the location argument '
-                'specifies an option name (got: {0!r})'.format(location))
+                'specifies an option name (got: {0!a})'.format(location))
         else:
             span = sect_idata.get_span()
         return span
 
 
     def _get_new_combined(self, preserve_to, insert_this, preserve_from):
-        lines_to_insert = insert_this.splitlines()
+        lines_to_insert = splitlines_asc(insert_this)
         new_lines = (
             self._lines[:preserve_to] +
             lines_to_insert +
@@ -3463,13 +3794,17 @@ class ConfigString(str):
 
         opt_value_first_line = opt_match.group('opt_value')
         if opt_value_first_line is None:
+            # TODO: check whether each of the two remarks in this comment
+            #       is still true; it's quite probable they are not (for
+            #       the modern Python 3's version of `configparser`...).
+            #
             # Apparently, it's a `no-value option`.  If it has some
             # continuation lines after it they will be just ignored here
-            # (for ConfigString) -- because ConfigParser classes raise
+            # (for ConfigString) -- because `configparser` classes raise
             # AttributeError in such a case (it's obviously a bug in
-            # ConfigParser).
+            # `configparser`).
             #
-            # ConfigParser classes have also another bug: `no-value`
+            # `configparser` classes have also another bug: `no-value`
             # options have their inline comments appended to their
             # names.  That's why, for ConfigString, `no-value options`
             # with inline comments are just forbidden (cannot be parsed
@@ -3477,8 +3812,12 @@ class ConfigString(str):
             # ValueError).
             return None, opt_match
 
+        # TODO: check whether the following remark is still true;
+        #       probably it is not (for the modern Python 3's version
+        #       of `configparser`...).
+        #
         # Note that we try to mimic the (somewhat buggy) behaviour of
-        # ConfigParser classes (that's why here, for example, we strip
+        # `configparser` classes (that's why here, for example, we strip
         # the first line and only then append continuation lines...).
         opt_value_first_line = self._strip_opt_value(opt_value_first_line)
 
@@ -3652,7 +3991,7 @@ class _OptSpec(collections.namedtuple(
     def __str__(self):
         s = self.name
         if self.default is not None:
-            default = '\n  '.join(filter(None, map(str.strip, self.default.splitlines())))
+            default = '\n  '.join(filter(None, map(str.strip, splitlines_asc(self.default))))
             s += ' = {0}'.format(default or '""')
         if self.converter_spec is not None:
             s += ' :: {0}'.format(self.converter_spec)
@@ -4066,7 +4405,7 @@ class _ConfSpecData(ConfigString):
     ... ; comment ; comment ; comment \t
     ...   ; not a comment  ;  ! :: foo :: xx
     ...
-    ... REM comment
+    ... # comment
     ...     zz
     ...   example.com/; not-a-comment\t :: int
     ...
@@ -4098,7 +4437,7 @@ class _ConfSpecData(ConfigString):
     >>> cs2.get_opt_spec('second.z')
     _OptSpec(name='z', default=None, converter_spec='conv3')
 
-    >>> empty_options = ['empty{}'.format(i) for i in xrange(1, 55)]
+    >>> empty_options = ['empty{}'.format(i) for i in range(1, 55)]
     >>> all(cs2.get_opt_value('second.' + o) == ''
     ...     for o in empty_options)
     True
@@ -4106,7 +4445,7 @@ class _ConfSpecData(ConfigString):
     ...     for o in empty_options)
     True
 
-    >>> empty_int_options = ['empty{}_i'.format(i) for i in xrange(1, 147)]
+    >>> empty_int_options = ['empty{}_i'.format(i) for i in range(1, 147)]
     >>> all(cs2.get_opt_value('second.' + o) == ''
     ...     for o in empty_int_options)
     True
@@ -4353,7 +4692,7 @@ class _ConfSpecData(ConfigString):
             .*
         )?
         \Z
-    ''', re.VERBOSE)
+    ''', re.ASCII | re.VERBOSE)
 
 
     def get_opt_value(self, location_with_opt_name):

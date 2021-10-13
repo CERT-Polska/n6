@@ -1,13 +1,14 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2015-2021 NASK. All rights reserved.
 
 from operator import eq, gt, ge, lt, le, contains
 
 import sqlalchemy
 from pyramid.decorator import reify
 
-from n6lib.class_helpers import attr_required
+from n6lib.class_helpers import (
+    attr_required,
+    properly_negate_eq,
+)
 from n6lib.common_helpers import ip_str_to_int
 
 
@@ -43,13 +44,12 @@ class BaseCond(object):
         arg_reprs = [repr(a) for a in self.args]
         arg_reprs.extend(
             '{}={!r}'.format(k, v)
-            for k, v in sorted(self.kwargs.iteritems()))
+            for k, v in sorted(self.kwargs.items()))
         return '{}({})'.format(
-            self.__class__.__name__,
+            self.__class__.__qualname__,
             ', '.join(arg_reprs))
 
-    def __ne__(self, other):
-        return not self == other
+    __ne__ = properly_negate_eq
 
 
 class MultiCond(BaseCond):
@@ -78,7 +78,7 @@ class AbstractColumnCond(BaseCond):
               label == 'between' and None in op_arg)):
             raise ValueError(
                 'operation arguments being None are not supported '
-                '(the condition object: {!r})'.format(self))
+                '(the condition object: {!a})'.format(self))
 
     def __eq__(self, other):
         return (isinstance(other, AbstractColumnCond) and
@@ -162,7 +162,7 @@ class PredicateColumnCond(_PredicateCondMixin, AbstractColumnCond):
             if val is None:
                 raise ValueError(
                     'values being None are not supported (None found '
-                    'for column {!r} in the record: {!r})'.format(
+                    'for column {!a} in the record: {!a})'.format(
                         column_name, record))
             if reverse_operands:
                 return op_func(op_arg, val)
@@ -255,9 +255,9 @@ class AbstractConditionBuilder(BaseConditionBuilder):
     AbstractAndCond()
     >>> a.and_(42)
     42
-    >>> a.and_(42, 'foo', [u'spam'])
-    AbstractAndCond(42, 'foo', [u'spam'])
-    >>> a.and_(42, 'foo', [u'spam']).label
+    >>> a.and_(42, 'foo', ['spam'])
+    AbstractAndCond(42, 'foo', ['spam'])
+    >>> a.and_(42, 'foo', ['spam']).label
     'AbstractAndCond'
 
     >>> a.or_()
@@ -269,9 +269,9 @@ class AbstractConditionBuilder(BaseConditionBuilder):
     >>> a.or_(43, 'foo', ('spam',)).label
     'AbstractOrCond'
 
-    >>> a.not_([u'bar'])
-    AbstractNotCond([u'bar'])
-    >>> a.not_([u'bar']).label
+    >>> a.not_(['bar'])
+    AbstractNotCond(['bar'])
+    >>> a.not_(['bar']).label
     'AbstractNotCond'
 
     >>> a['a_col'] == 'foo'
@@ -279,14 +279,14 @@ class AbstractConditionBuilder(BaseConditionBuilder):
     >>> (a['a_col'] == 'foo').label
     'eq'
 
-    >>> a['a_col'] > [u'foo']
-    AbstractColumnCond('a_col', <built-in function gt>, [u'foo'])
-    >>> (a['a_col'] > [u'foo']).label
+    >>> a['a_col'] > ['foo']
+    AbstractColumnCond('a_col', <built-in function gt>, ['foo'])
+    >>> (a['a_col'] > ['foo']).label
     'gt'
 
-    >>> a['a_col'] >= {'foo': u'foo'}
-    AbstractColumnCond('a_col', <built-in function ge>, {'foo': u'foo'})
-    >>> (a['a_col'] >= {'foo': u'foo'}).label
+    >>> a['a_col'] >= {'foo': 'foo'}
+    AbstractColumnCond('a_col', <built-in function ge>, {'foo': 'foo'})
+    >>> (a['a_col'] >= {'foo': 'foo'}).label
     'ge'
 
     >>> a['a_col'] < 42
@@ -294,13 +294,13 @@ class AbstractConditionBuilder(BaseConditionBuilder):
     >>> (a['a_col'] < 42).label
     'lt'
 
-    >>> a['a_col'] <= ([u'foo'], 'zzz')
-    AbstractColumnCond('a_col', <built-in function le>, ([u'foo'], 'zzz'))
-    >>> (a['a_col'] <= ([u'foo'], 'zzz')).label
+    >>> a['a_col'] <= (['foo'], 'zzz')
+    AbstractColumnCond('a_col', <built-in function le>, (['foo'], 'zzz'))
+    >>> (a['a_col'] <= (['foo'], 'zzz')).label
     'le'
 
     >>> a['x'].in_(u'y')
-    AbstractColumnCond('x', <built-in function contains>, u'y', reverse_operands=True)
+    AbstractColumnCond('x', <built-in function contains>, 'y', reverse_operands=True)
     >>> a['x'].in_(u'y').label
     'contains'
 
@@ -552,10 +552,6 @@ class PredicateConditionBuilder(AbstractConditionBuilder):
     ... }
 
     >>> (b['foo'] == 'bar').predicate(rec)
-    True
-    >>> (b[u'foo'] == 'bar').predicate(rec)
-    True
-    >>> (b['foo'] == u'bar').predicate(rec)
     True
     >>> (b['foo'].in_(['spam', u'bar'])).predicate(rec)
     True
@@ -1037,7 +1033,7 @@ def _between_op(value, op_arg):
 
 class RecordFacadeForPredicates(object):
 
-    ur"""
+    r"""
     A facade that makes a given (record-)dict compatibile with
     predicate functions generated with PredicateConditionBuilder.
 

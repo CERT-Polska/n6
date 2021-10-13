@@ -7,6 +7,8 @@ import config from '@/config/config.json';
 
 // config file: '@/assets/config.json'
 const { baseURL, authCookieName } = config;
+const INSIDE_RESOURCE_KEY = '/report/inside';
+const SEARCH_RESOURCE_KEY = '/search/events';
 
 export default {
   namespaced: true,
@@ -43,6 +45,8 @@ export default {
     authLogout({ commit }) {
       return new Promise((resolve, reject) => {
         commit('logout');
+        commit('dashboard/removeCachedPayload', null, { root: true });
+        localStorage.removeItem('dashboardPayload');
         axios
           .create({
             withCredentials: true,
@@ -83,5 +87,10 @@ export default {
       state.isFullAccess = false;
       state.isLoggedIn = false;
     },
+  },
+
+  getters: {
+    isInsideAvailable: state => state.availableResources.includes(INSIDE_RESOURCE_KEY),
+    isSearchAvailable: state => state.availableResources.includes(SEARCH_RESOURCE_KEY),
   },
 };

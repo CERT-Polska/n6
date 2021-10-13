@@ -85,7 +85,6 @@ n6parser_packetmailothers               RUNNING   pid 3924, uptime 0:00:15
 n6parser_packetmailratware              RUNNING   pid 3933, uptime 0:00:15
 n6parser_packetmailscanning             RUNNING   pid 3926, uptime 0:00:15
 n6parser_spam404                        RUNNING   pid 3954, uptime 0:00:15
-n6parser_zonehrss                       RUNNING   pid 3952, uptime 0:00:15
 n6recorder                              RUNNING   pid 3930, uptime 0:00:15
 ```
 

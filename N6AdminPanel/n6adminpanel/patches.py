@@ -1,8 +1,7 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2018-2021 NASK. All rights reserved.
 
-from collections import MutableSequence
+from collections.abc import MutableSequence
 
-from flask_admin._compat import iteritems
 from flask_admin.contrib.sqla import form
 from flask_admin.model.fields import InlineModelFormField
 from sqlalchemy import inspect
@@ -25,7 +24,7 @@ class _PatchedInlineModelFormField(InlineModelFormField):
     hidden_field_type = 'HiddenField'
 
     def populate_obj(self, obj, name):
-        for name, field in iteritems(self.form._fields):
+        for name, field in self.form._fields.items():
             if field.type != self.hidden_field_type:
                 field.populate_obj(obj, name)
 
@@ -87,7 +86,7 @@ def patched_populate_obj(self, obj, name):
     """
 
     # treating empty or whitespace-only text as NULL
-    to_be_set = (None if (isinstance(self.data, basestring)
+    to_be_set = (None if (isinstance(self.data, str)
                           and not self.data.strip())
                  else self.data)
 
@@ -129,6 +128,6 @@ def get_patched_init_actions(original_meth):
     def patched_meth(self):
         original_meth(self)
         new_actions_data = {key: (_get_action_meth_wrapper(val[0]), val[1], val[2]) for
-                            key, val in self._actions_data.iteritems()}
+                            key, val in self._actions_data.items()}
         setattr(self, '_actions_data', new_actions_data)
     return patched_meth

@@ -1,14 +1,17 @@
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
+
+# Ensure all monkey-patching provided by `n6lib`
+# and `n6sdk` is applied as early as possible.
+import n6lib  # noqa
 
 import datetime
-import urllib
+from urllib.parse import quote_plus
 utcnow = datetime.datetime.utcnow  # for easier mocking in unit tests
 
 from pyramid.httpexceptions import HTTPTemporaryRedirect
 
-from n6lib.auth_api import AuthAPI
-from n6lib.auth_db.api import AuthQueryAPI
-from n6lib.common_helpers import provide_surrogateescape
+from n6lib.auth_api import AuthAPIWithPrefetching
+from n6lib.auth_db.api import AuthManageAPI
 from n6lib.data_backend_api import (
     N6DataBackendAPI,
     N6TestDataBackendAPI,
@@ -18,18 +21,14 @@ from n6lib.data_spec import (
     N6InsideDataSpec,
 )
 from n6lib.pyramid_commons import (
+    APIKeyOrSSLUserAuthenticationPolicy,
     N6ConfigHelper,
     N6DefaultStreamViewBase,
     SSLUserAuthenticationPolicy,
 )
-from n6lib.pyramid_commons.renderers import StreamRenderer_iodef
 from n6sdk.pyramid_commons import (
     HttpResource,
 )
-
-
-
-provide_surrogateescape()
 
 
 
@@ -133,7 +132,7 @@ class RestAPIViewBase(N6DefaultStreamViewBase):
     def _get_redirect_url(self, template_parts, params):
         template = '&'.join(template_parts)
         quoted_params = {
-            param: urllib.quote_plus(str(value))
+            param: str(quote_plus(str(value)))                                   #3: remove the outer `str...`
             for param, value in params.items()}
         query_str = template.format(**quoted_params)
         return "{}?{}".format(self.request.path_url, query_str)
@@ -148,8 +147,8 @@ STREAM_RENDERERS = [
     'snort-dns', 'snort-http', 'snort-ip', 'snort-ip-bl',
     'suricata-dns', 'suricata-http', 'suricata-ip', 'suricata-ip-bl',
 ]
-if StreamRenderer_iodef is not None:
-    STREAM_RENDERERS.append('iodef')
+
+
 
 DATA_RESOURCES = [
     HttpResource(
@@ -191,9 +190,10 @@ def main(global_config, **settings):
         settings=settings,
         data_backend_api_class=N6DataBackendAPI,
         component_module_name='n6web',
-        auth_api_class=AuthAPI,                 # <- XXX: legacy stuff, to be removed in the future
-        auth_query_api=AuthQueryAPI(settings),  # <- XXX: dummy stuff yet; to be used in the future
-        authentication_policy=SSLUserAuthenticationPolicy(settings),
+        auth_api_class=AuthAPIWithPrefetching,  # <- XXX: legacy stuff, to be removed in the future
+        auth_manage_api=AuthManageAPI(settings),
+        authentication_policy=APIKeyOrSSLUserAuthenticationPolicy(settings),
+        # authentication_policy=SSLUserAuthenticationPolicy(settings),
         resources=DATA_RESOURCES,
     ).make_wsgi_app()
 
@@ -203,8 +203,9 @@ def main_test_api(global_config, **settings):
         settings=settings,
         data_backend_api_class=N6TestDataBackendAPI,
         component_module_name='n6web',
-        auth_api_class=AuthAPI,                 # <- XXX: legacy stuff, to be removed in the future
-        auth_query_api=AuthQueryAPI(settings),  # <- XXX: dummy stuff yet; to be used in the future
-        authentication_policy=SSLUserAuthenticationPolicy(settings),
+        auth_api_class=AuthAPIWithPrefetching,  # <- XXX: legacy stuff, to be removed in the future
+        auth_manage_api=AuthManageAPI(settings),
+        # authentication_policy=SSLUserAuthenticationPolicy(settings),
+        authentication_policy=APIKeyOrSSLUserAuthenticationPolicy(settings),
         resources=DATA_RESOURCES,
     ).make_wsgi_app()

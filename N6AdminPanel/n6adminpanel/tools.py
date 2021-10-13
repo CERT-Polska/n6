@@ -1,11 +1,10 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2018-2021 NASK. All rights reserved.
 
 from flask_admin.tools import (
     CHAR_ESCAPE,
     CHAR_SEPARATOR,
 )
 
-from n6lib.common_helpers import as_unicode
 from n6lib.data_spec import FieldValueError
 
 
@@ -20,26 +19,26 @@ def unescape_html_attr(value):
     Return original value, which had some of its characters escaped
     for it to be safe as an HTML attribute.
     """
-    for esc, orig in ESC_TO_ORIG_CHARS.iteritems():
+    for esc, orig in ESC_TO_ORIG_CHARS.items():
         value = value.replace(esc, orig)
     return value
 
 
 def get_exception_message(exc):
     """
-    Try to get a message from a raised exception.
+    Try to get a message from the given exception.
 
     Args:
         `exc`:
             An instance of a raised exception.
 
     Returns:
-        Message from exception, as unicode, or None.
+        Message from the exception, as a `str`, or None.
     """
     if isinstance(exc, FieldValueError):
         return exc.public_message.rstrip('.') + '.'
-    else:
-        exc_message = getattr(exc, 'message', None)
-        if exc_message and isinstance(exc_message, basestring):
-            return as_unicode(exc_message).rstrip('.') + '.'
+    exc_message = getattr(exc, 'message',
+                          (exc.args[0] if exc.args else None))
+    if exc_message and isinstance(exc_message, str):
+        return exc_message.rstrip('.') + '.'
     return None

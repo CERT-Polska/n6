@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import glob
 import os.path as osp
@@ -8,26 +8,53 @@ from setuptools import setup, find_packages
 import pkgutil
 
 
-setup_dir = osp.dirname(osp.abspath(__file__))
-
-with open(osp.join(setup_dir, '.n6-version')) as f:
-    n6_version = f.read().strip()
-
-
 if "--collectors-only" in sys.argv:
     collectors_only = True
     sys.argv.remove("--collectors-only")
 else:
     collectors_only = False
 
+setup_dir, setup_filename = osp.split(osp.abspath(__file__))
+setup_human_readable_ref = osp.join(osp.basename(setup_dir), setup_filename)
+
+def get_n6_version(filename_base):
+    path_base = osp.join(setup_dir, filename_base)
+    path_glob_pattern = path_base + '*'
+    # The non-suffixed path variant should be
+    # tried only if another one does not exist.
+    matching_paths = sorted(glob.iglob(path_glob_pattern),
+                            reverse=True)
+    try:
+        path = matching_paths[0]
+    except IndexError:
+        sys.exit('[{}] Cannot determine the n6 version '
+                 '(no files match the pattern {!r}).'
+                 .format(setup_human_readable_ref,
+                         path_glob_pattern))
+    try:
+        with open(path) as f:                                             #3: add: `, encoding='ascii'`
+            return f.read().strip()
+    except (OSError, UnicodeError) as exc:
+        sys.exit('[{}] Cannot determine the n6 version '
+                 '(an error occurred when trying to '
+                 'read it from the file {!r} - {}).'
+                 .format(setup_human_readable_ref,
+                         path,
+                         exc))
 
 def setup_data_line_generator(filename_base):
     path_base = osp.join(setup_dir, filename_base)
-    path_glob = path_base + '*'
-    for path in glob.glob(path_glob):
-        with open(path) as f:
-            for raw_line in f:
-                yield raw_line.strip()
+    path_glob_pattern = path_base + '*'
+    # Here we sort the paths just to make the order of operations deterministic.
+    matching_paths = sorted(glob.iglob(path_glob_pattern))
+    for path in matching_paths:
+        try:
+            with open(path) as f:                                         #3: add: `, encoding='ascii'`
+                for raw_line in f:
+                    yield raw_line.strip()
+        except (OSError, UnicodeError) as exc:
+            sys.exit('[{}] Could not read from the file {!r} ({})'
+                     .format(setup_human_readable_ref, path, exc))
 
 def find_scripts():
     console_scripts_list.extend(setup_data_line_generator('console_scripts'))
@@ -48,7 +75,6 @@ def all_subclasses(cls):
                 for indirect in all_subclasses(direct))
 
 def find_parsers():
-    global console_scripts_list
     from n6.parsers.generic import BaseParser
     dirname = "n6/parsers"
     for importer, package_name, _ in pkgutil.iter_modules([dirname]):
@@ -67,7 +93,6 @@ def find_parsers():
         console_scripts_list.append(console_line)
 
 def find_collectors():
-    global console_scripts_list
     from n6.collectors.generic import AbstractBaseCollector
     dirname = "n6/collectors"
     for importer, package_name, _ in pkgutil.iter_modules([dirname]):
@@ -86,7 +111,9 @@ def find_collectors():
         console_scripts_list.append(console_line)
 
 
-requirements = ['n6lib==' + n6_version]
+n6_version = get_n6_version('.n6-version')
+
+requirements = ['n6sdk==' + n6_version, 'n6lib==' + n6_version, 'n6corelib==' + n6_version]
 console_scripts_list = ['n6config = n6.base.config:install_default_config']
 
 if not collectors_only:
@@ -101,8 +128,9 @@ setup(
 
     packages=find_packages(),
     include_package_data=True,
+    python_requires='==2.7.*',
     zip_safe=False,
-    tests_require=['mock==1.0.1', 'unittest_expander'],
+    tests_require=['mock==3.0.5', 'unittest_expander==0.3.1'],
     test_suite='n6.tests',
     install_requires=requirements,
     entry_points={

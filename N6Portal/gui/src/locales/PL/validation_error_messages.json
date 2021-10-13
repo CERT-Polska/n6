@@ -1,0 +1,19 @@
+{
+  "cc": "Pole musi zawierać dwa znaki; pierwszy znak - tylko znaki alfabetyczne, drugi - znaki alfabetyczne lub cyfra '1' lub '2'",
+  "cidr": "Wartość pola musi być poprawnym adresem IP w notacji CIDR",
+  "domainPart": "Pole nie może zaczynać się lub kończyć znakiem \".\"",
+  "email": "Niepoprawny adres e-mail",
+  "fqdn": "Niepoprawna domena",
+  "hexadecimal": "Pole może zawierać jedynie cyfry w systemie szesnastkowym",
+  "ipAddress": "Niepoprawny adres IP",
+  "minLength": "Pole musi zawierać co najmniej ${params.min} znaków",
+  "maxLength": "Pole może zawierać co najwyżej ${params.max} znaków",
+  "maxValue": "Wartość pola nie może przekraczać ${params.max}",
+  "notificationTime": "Wartością pola musi być godzina z minutami, rozdzielone dwukropkiem (format HH:mm)",
+  "integer": "Wartość pola musi być liczbą",
+  "orgId": "Wartość pola musi być domeną internetową organizacji",
+  "required": "Pole wymagane",
+  "source": "Pole może zawierać jedynie małe litery, liczby i myślniki; wartość musi być podzielona na dwie części, rozdzielone kropką",
+  "url": "Niepoprawny URL",
+  "validFile": "Plik CSR jest wymagany"
+}

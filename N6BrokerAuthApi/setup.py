@@ -1,20 +1,46 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
+import glob
 import os.path as osp
+import sys
 
 from setuptools import setup, find_packages
 
 
-setup_dir = osp.dirname(osp.abspath(__file__))
+setup_dir, setup_filename = osp.split(osp.abspath(__file__))
+setup_human_readable_ref = osp.join(osp.basename(setup_dir), setup_filename)
 
-with open(osp.join(setup_dir, '.n6-version')) as f:
-    n6_version = f.read().strip()
+def get_n6_version(filename_base):
+    path_base = osp.join(setup_dir, filename_base)
+    path_glob_pattern = path_base + '*'
+    # The non-suffixed path variant should be
+    # tried only if another one does not exist.
+    matching_paths = sorted(glob.iglob(path_glob_pattern),
+                            reverse=True)
+    try:
+        path = matching_paths[0]
+    except IndexError:
+        sys.exit('[{}] Cannot determine the n6 version '
+                 '(no files match the pattern {!r}).'
+                 .format(setup_human_readable_ref,
+                         path_glob_pattern))
+    try:
+        with open(path) as f:                                             #3: add: `, encoding='ascii'`
+            return f.read().strip()
+    except (OSError, UnicodeError) as exc:
+        sys.exit('[{}] Cannot determine the n6 version '
+                 '(an error occurred when trying to '
+                 'read it from the file {!r} - {}).'
+                 .format(setup_human_readable_ref,
+                         path,
+                         exc))
 
+
+n6_version = get_n6_version('.n6-version')
 
 requires = [
     'n6lib==' + n6_version,
-    'pyramid',
-    'paste',
+    'pyramid==1.10.8',
     'typing',
 ]
 
@@ -30,7 +56,7 @@ setup(
         [paste.app_factory]
         main = n6brokerauthapi:main
     """,
-    tests_require=['mock==1.0.1', 'pytest', 'unittest_expander'],
+    tests_require=['mock==3.0.5', 'unittest_expander==0.3.1'],
     test_suite='n6brokerauthapi.tests',
     description='Authentication and authorization API for RabbitMQ',
     url='https://github.com/CERT-Polska/n6',

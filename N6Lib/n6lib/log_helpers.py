@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
 import contextlib
@@ -10,9 +8,9 @@ import logging
 import logging.config
 import logging.handlers
 import os.path
-import Queue
+import queue
 import re
-import repr as reprlib
+import reprlib
 import sys
 import threading
 import traceback
@@ -23,9 +21,8 @@ from n6lib.amqp_getters_pushers import AMQPThreadedPusher, DoNotPublish
 from n6lib.common_helpers import (
     ascii_str,
     dump_condensed_debug_msg,
-    limit_string,
+    limit_str,
     make_condensed_debug_msg,
-    safe_eval,
 )
 from n6lib.const import (
     ETC_DIR,
@@ -45,15 +42,16 @@ def early_Formatter_class_monkeypatching():  # called in n6lib/__init__.py
     """
     from time import gmtime, strftime
 
-    @functools.wraps(logging.Formatter.formatTime.__func__)
+    @functools.wraps(logging.Formatter.formatTime)
     def formatTime(self, record, datefmt=None):
         converter = self.converter
         ct = converter(record.created)
         if datefmt:
             s = strftime(datefmt, ct)
         else:
-            t = strftime("%Y-%m-%d %H:%M:%S", ct)
-            s = "%s,%03d" % (t, record.msecs)
+            s = strftime(self.default_time_format, ct)
+            if self.default_msec_format:
+                s = self.default_msec_format % (s, record.msecs)
         if converter is gmtime:
             # the ' UTC' suffix is added *only* if it
             # is certain that we have a UTC time
@@ -101,7 +99,6 @@ _loaded_configuration_paths = set()
 
 # TODO: doc
 def configure_logging(suffix=None):
-    logging.config.eval = _security_logging_config_monkeypatched_eval
     file_name = ('logging.conf' if suffix is None
                  else 'logging-{0}.conf'.format(suffix))
     file_paths = [os.path.join(config_dir, file_name)
@@ -109,7 +106,7 @@ def configure_logging(suffix=None):
     for path in file_paths:
         if path in _loaded_configuration_paths:
             _LOGGER.warning('ignored attempt to load logging configuration '
-                            'file %r that has already been used', path)
+                            'file %a that has already been used', path)
             continue
         try:
             _try_reading(path)
@@ -121,24 +118,25 @@ def configure_logging(suffix=None):
 
             except AMQPConnectionError:
                 raise RuntimeError('error while configuring logging, '
-                                   'using settings from configuration file {0!r}:\n'
+                                   'using settings from configuration file {0!a}:\n'
                                    'unable to establish '
                                    'connection with RabbitMQ server\n{1}'
                                    .format(path, traceback.format_exc()))
             except Exception:
                 raise RuntimeError('error while configuring logging, '
-                                   'using settings from configuration file {0!r}:\n{1}'
+                                   'using settings from configuration file {0!a}:\n{1}'
                                    .format(path, traceback.format_exc()))
             else:
-                _LOGGER.info('logging configuration loaded from %r', path)
+                _LOGGER.info('logging configuration loaded from %a', path)
                 _loaded_configuration_paths.add(path)
     if not _loaded_configuration_paths:
         raise RuntimeError('logging configuration not loaded: '
                            'could not open any of the files: {0}'
-                           .format(', '.join(map(repr, file_paths))))
+                           .format(', '.join(map(ascii, file_paths))))
 
 
 # TODO: doc and maybe some tests?
+# TODO: consider rename + move it somewhere else (`script_helpers`...?)
 @contextlib.contextmanager
 def logging_configured(suffix=None):
     configure_logging(suffix)
@@ -147,12 +145,12 @@ def logging_configured(suffix=None):
     except SystemExit as exc:
         if exc.code:
             _LOGGER.critical(
-                "SystemExit(%r) occurred (debug info: %s). Exiting...",
+                "SystemExit(%a) occurred (debug info: %s). Exiting...",
                 exc.code, make_condensed_debug_msg(), exc_info=True)
             dump_condensed_debug_msg()
         else:
             _LOGGER.info(
-                "SystemExit(%r) occurred. Exiting...",
+                "SystemExit(%a) occurred. Exiting...",
                 exc.code)
         raise
     except KeyboardInterrupt:
@@ -170,18 +168,6 @@ def _try_reading(path):
     open(path).close()
 
 
-# TODO?: maybe some tests?
-def _security_logging_config_monkeypatched_eval(expr, namespace_dict):
-    """
-    More secure replacement for eval() used by some logging.config functions.
-    """
-    namespace = dict(namespace_dict)
-    try:
-        return safe_eval(expr, namespace)
-    except ValueError:
-        raise NameError  # to be catched by logging.config machinery
-
-
 #
 # Custom log handlers
 
@@ -192,7 +178,6 @@ class AMQPHandler(logging.Handler):
     LOGRECORD_EXTRA_ATTRS = {
         'py_ver': '.'.join(map(str, sys.version_info)),
         'py_64bits': (sys.maxsize > 2 ** 32),
-        'py_ucs4': (sys.maxunicode > 0xffff),
         'py_platform': sys.platform,
         'hostname': HOSTNAME,
         'script_basename': SCRIPT_BASENAME,
@@ -241,7 +226,7 @@ class AMQPHandler(logging.Handler):
         self._msg_count_max = msg_count_max
 
         # error logging tools
-        self._error_fifo = error_fifo = Queue.Queue()
+        self._error_fifo = error_fifo = queue.Queue()
         self._error_logger_name = error_logger_name
         self._error_logging_thread = threading.Thread(
             target=self._error_logging_loop,
@@ -258,7 +243,7 @@ class AMQPHandler(logging.Handler):
                 error_fifo.put_nowait(error_msg)
             finally:
                 # (to break any traceback-related reference cycle)
-                exc_info = None
+                exc_info = exc = None  # noqa
 
         # pusher instance
         self._pusher = AMQPThreadedPusher(
@@ -291,14 +276,17 @@ class AMQPHandler(logging.Handler):
         record_attrs_proto = self.LOGRECORD_EXTRA_ATTRS
         record_key_max_length = self.LOGRECORD_KEY_MAX_LENGTH
         match_useless_stack_item_regex = re.compile(
-                r'  File "[ \S]*/python[0-9.]+/logging/__init__\.py\w?"'
+                r'  File "[ \S]*/python[0-9.]+/logging/__init__\.py\w?"',
+                re.ASCII,
             ).match
+        # (see: https://github.com/python/cpython/blob/4f161e65a011f287227c944fad9987446644041f/Lib/logging/__init__.py#L1540)
+        stack_info_preamble = 'Stack (most recent call last):\n'
 
         msg_count_window = self._msg_count_window
         msg_count_max = self._msg_count_max
-        cur_window_cell = [None]  # using 1-item list as a cell for a writable non-local variable
+        cur_window = None
         loggername_to_window_and_msg_to_count = defaultdict(
-            lambda: (cur_window_cell[0], defaultdict(
+            lambda: (cur_window, defaultdict(
                 lambda: -msg_count_max)))
 
         def _should_publish(record):
@@ -310,9 +298,10 @@ class AMQPHandler(logging.Handler):
             # further records containing that `msg` and originating from
             # that logger are skipped until *any* record from that
             # logger appears within *another* time window...
+            nonlocal cur_window
             loggername = record.name
             msg = record.msg
-            cur_window_cell[0] = cur_window = record.created // msg_count_window
+            cur_window = record.created // msg_count_window
             window, msg_to_count = loggername_to_window_and_msg_to_count[loggername]
             if window != cur_window:
                 # new time window for this logger
@@ -320,7 +309,7 @@ class AMQPHandler(logging.Handler):
                 #    attribute) the info about skipped messages (if
                 #    any) and update/flush the state mappings
                 msg_skipped_to_count = dict(
-                    (m, c) for m, c in msg_to_count.iteritems()
+                    (m, c) for m, c in msg_to_count.items()
                     if c > 0)
                 if msg_skipped_to_count:
                     record.msg_skipped_to_count = msg_skipped_to_count
@@ -339,12 +328,34 @@ class AMQPHandler(logging.Handler):
             else:
                 return False
 
+        def _try_to_extract_formatted_call_stack(record_attrs):
+            # Provided by standard `logging` stuff if log method was called with `stack_info=True`:
+            stack_info = record_attrs.pop('stack_info', None)
+            # Provided by our `AMQPHandler.emit()` if `levelno` was at least `logging.ERROR` and
+            # `stack_info` was not present:
+            stack_items = record_attrs.pop('formatted_call_stack_items', None)
+            if stack_items:
+                del stack_items[-1]  # (this item is from our `AMQPHandler.emit()`)
+                while stack_items and match_useless_stack_item_regex(stack_items[-1]):
+                    del stack_items[-1]
+                joined = ''.join(stack_items)
+                # (mimicking how `stack_info` is formatted by `logging`)
+                if joined.endswith('\n'):
+                    joined = joined[:-1]
+                formatted_call_stack = stack_info_preamble + joined
+            elif stack_info:
+                # (`stack_info` should already start with `stack_info_preamble`)
+                formatted_call_stack = stack_info
+            else:
+                formatted_call_stack = None
+            return formatted_call_stack
+
         def serialize_record(record):
             if not _should_publish(record):
                 return DoNotPublish
             record_attrs = record_attrs_proto.copy()
-            record_attrs.update((limit_string(ascii_str(key),
-                                              char_limit=record_key_max_length),
+            record_attrs.update((limit_str(ascii_str(key),
+                                           char_limit=record_key_max_length),
                                  value)
                                 for key, value in vars(record).items())
             record_attrs['message'] = record.getMessage()
@@ -353,14 +364,11 @@ class AMQPHandler(logging.Handler):
             if exc_info:
                 if not record_attrs['exc_text']:
                     record_attrs['exc_text'] = formatter.formatException(exc_info)
-                record_attrs['exc_type_repr'] = repr(exc_info[0])
+                record_attrs['exc_type_repr'] = ascii(exc_info[0])
                 record_attrs['exc_ascii_str'] = ascii_str(exc_info[1])
-            stack_items = record_attrs.pop('formatted_call_stack_items', None)
-            if stack_items:
-                del stack_items[-1]  # this item is from this AMQPHandler.emit()
-                while stack_items and match_useless_stack_item_regex(stack_items[-1]):
-                    del stack_items[-1]
-                record_attrs['formatted_call_stack'] = ''.join(stack_items)
+            formatted_call_stack = _try_to_extract_formatted_call_stack(record_attrs)
+            if formatted_call_stack:
+                record_attrs['formatted_call_stack'] = formatted_call_stack
             return json_encode(record_attrs)
 
         return serialize_record
@@ -373,13 +381,18 @@ class AMQPHandler(logging.Handler):
             # (to avoid infinite loop of message emissions...)
             if record.name == self._error_logger_name:
                 return
-        except (KeyboardInterrupt, SystemExit):
+            # (exception here ^ is hardly probable, but you never know...)
+        except RecursionError:  # see: https://bugs.python.org/issue36272 XXX: is it really needed?
             raise
-        except:
-            logging.Handler.handleError(self, record)
+        except Exception:
+            super().handleError(record)
+            # (better trigger the same exception again than continue
+            # if the following condition is true)
+            if record.name == self._error_logger_name:
+                return
 
         try:
-            if record.levelno >= _ERROR_LEVEL_NO:
+            if record.levelno >= _ERROR_LEVEL_NO and not record.stack_info:
                 record.formatted_call_stack_items = traceback.format_stack()
             routing_key = self._rk_template.format(
                 hostname=HOSTNAME,
@@ -391,9 +404,9 @@ class AMQPHandler(logging.Handler):
             except ValueError:
                 if not self._closing:
                     raise
-        except (KeyboardInterrupt, SystemExit):
+        except RecursionError:  # see: https://bugs.python.org/issue36272 XXX: is it really needed?
             raise
-        except:
+        except Exception:
             self.handleError(record)
 
     def close(self):
@@ -402,27 +415,34 @@ class AMQPHandler(logging.Handler):
         # atexit.register() machinery)
         try:
             try:
-                super(AMQPHandler, self).close()
-                self._closing = True
-                self._pusher.shutdown()
+                try:
+                    super(AMQPHandler, self).close()
+                finally:
+                    self._closing = True
+                    self._pusher.shutdown()
             except:
                 dump_condensed_debug_msg(
                     'EXCEPTION DURING EXECUTION OF close() OF THE AMQP LOGGING HANDLER!')
                 raise
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except:
-            exc = sys.exc_info()[1]
+        except Exception as exc:
             self._error_fifo.put(exc)
+        finally:
+            # (to break any traceback-related reference cycle)
+            self = None  # noqa
 
     def handleError(self, record):
         try:
             exc = sys.exc_info()[1]
             self._error_fifo.put(exc)
-        except (KeyboardInterrupt, SystemExit):
+        except RecursionError:  # see: https://bugs.python.org/issue36272 XXX: is it really needed?
             raise
-        except:
-            logging.Handler.handleError(self, record)
+        except Exception:
+            super().handleError(record)
+        else:
+            super().handleError(record)
+        finally:
+            # (to break any traceback-related reference cycle)
+            exc = self = None  # noqa
 
 
 class N6SysLogHandler(logging.handlers.SysLogHandler):
@@ -445,7 +465,7 @@ class NoTracebackFormatter(logging.Formatter):
     ...                            msg='error: %r', args=(42,),
     ...                            exc_info=(ValueError,
     ...                                      ValueError('Traceback!!!!!!!!!!!!'),
-    ...                                      None))
+    ...                                      None))   # TODO: add `stack_info` str do this doctest
 
     >>> std_formatter.format(record)
     '* error: 42 *\nValueError: Traceback!!!!!!!!!!!!'
@@ -454,17 +474,17 @@ class NoTracebackFormatter(logging.Formatter):
     '* error: 42 *'
     """
 
-    # Unfortunatelly overriding formatException() would not be adequate
+    # Unfortunately, overriding formatException() would not be adequate
     # because of a subtle bug in logging.Formatter.format() in the
     # mechanism of caching of record.exc_text...
 
     def format(self, record):
-        # here we substitute logging.Formatter.format()'s functionality
-        # with its fragment (omitting the exc_info stuff):
+        # here we substitute logging.Formatter.format()'s functionality with
+        # its fragment (omitting the `exc_info`/`exc_text`/`stack_info` stuff):
         record.message = record.getMessage()
         if self.usesTime():
             record.asctime = self.formatTime(record, self.datefmt)
-        return self._fmt % record.__dict__
+        return self.formatMessage(record)
 
 
 class CutFormatter(logging.Formatter):
@@ -479,7 +499,7 @@ class CutFormatter(logging.Formatter):
     ...                            msg='error: %r', args=(42,),
     ...                            exc_info=(ValueError,
     ...                                      ValueError('Traceback!!!!!!!!!!!!'),
-    ...                                      None))
+    ...                                      None))   # TODO: add `stack_info` str do this doctest
 
     >>> std_formatter.format(record)
     '* error: 42 *\nValueError: Traceback!!!!!!!!!!!!'
@@ -514,7 +534,7 @@ class NoTracebackCutFormatter(CutFormatter, NoTracebackFormatter):
     ...                            msg='error: %r', args=(42,),
     ...                            exc_info=(ValueError,
     ...                                      ValueError('Traceback!!!!!!!!!!!!'),
-    ...                                      None))
+    ...                                      None))   # TODO: add `stack_info` str do this doctest
 
     >>> std_formatter.format(record)
     '* error: 42 *\nValueError: Traceback!!!!!!!!!!!!'
@@ -535,8 +555,18 @@ class _LogRecordCuttingProxy(object):
         self.__cut_indicator = cut_indicator
         self.__already_cut = {'thread_safe_flag': False}
 
-    def __delattr__(self, name, obj):
-        delattr(self.__record, name, obj)
+    def __repr__(self):
+        return ('{cls.__qualname__}'
+                '({record!r},'
+                ' {msg_length_limit!r},'
+                ' {cut_indicator!r})'.format(
+                        cls=type(self),
+                        record=self.__record,
+                        msg_length_limit=self.__msg_length_limit,
+                        cut_indicator=self.__cut_indicator))
+
+    def __delattr__(self, name):
+        delattr(self.__record, name)
 
     def __setattr__(self, name, obj):
         if name.startswith('_LogRecordCuttingProxy__'):  # mangled name
@@ -545,7 +575,8 @@ class _LogRecordCuttingProxy(object):
             setattr(self.__record, name, obj)
 
     def __getattribute__(self, name):
-        if name.startswith('_LogRecordCuttingProxy__'):  # mangled name
+        if (name.startswith('_LogRecordCuttingProxy__')  # mangled name
+              or name == '__repr__'):
             return object.__getattribute__(self, name)
 
         # for attributes other than `message` act as a transparent proxy
@@ -555,11 +586,12 @@ class _LogRecordCuttingProxy(object):
 
         # if the message has already been cut
         # -- get it quickly; otherwise cut it
-        if not self.__already_cut.pop('thread_safe_flag', True):
+        if hasattr(record, 'message') and not self.__already_cut.pop('thread_safe_flag', True):
             msg_length_limit = self.__msg_length_limit
             if len(record.message) > msg_length_limit:
                 record.message = record.message[:msg_length_limit] + self.__cut_indicator
         if name == '__dict__':
             return record.__dict__
         else:
+            assert name == 'message'
             return record.message

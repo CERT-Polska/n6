@@ -1,0 +1,26 @@
+Dear *n6* User,
+
+Your existing configuration of multi-factor authentication has been deleted.
+
+Next time you log in to the n6 Portal, you will be asked to set up
+multi-factor authentication again. Please follow the instructions
+displayed by the n6 Portal.
+
+
+Best regards,
+
+- the administrators of this *n6* instance
+
+
+
+{#- *** TEMPLATE COMMENTS ***
+
+The rendering context used with this template includes the `data_dict`
+variable which is a dictionary that contains the items described below.
+
+* `user_login`
+* `org_id`
+* `org_actual_name` (may be `None`)
+* `lang` (may be `None`)
+
+-#}

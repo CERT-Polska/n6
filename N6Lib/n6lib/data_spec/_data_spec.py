@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 
 # Terminology: some definitions and synonyms
@@ -42,7 +40,7 @@
 #    certain database record...]
 #
 # * `field key` or `field name`
-#   -- a string being the name of a *data spec*'s attribute whose value
+#   -- a `str` being the name of a *data spec*'s attribute whose value
 #      is a *field*
 #
 #   [there are also some closely related terms, not necessarily formal:
@@ -64,7 +62,7 @@
 #      *not* being None
 #
 # * `raw param value` or `uncleaned param value`
-#   -- a string being a single value of some REST API query parameter
+#   -- a `str` being a single value of some REST API query parameter
 #      (specified by a REST API client) -- ready to be passed into the
 #      clean_param_value() method of the apropriate *param field*
 #   [may also be, less formally, referred to as
@@ -72,7 +70,7 @@
 #    (parts in square brackets may be omitted)]
 #
 # * `cleaned param value`
-#   -- an object (*not* necessarily a string) being the result of
+#   -- an object (*not* necessarily a `str`) being the result of
 #      applying the clean_param_value() method of the apropriate
 #      *param field* to some *raw param value*
 #   [may also be, less formally, referred to as
@@ -105,7 +103,7 @@
 #      *not* being None
 #
 # * `raw result value` or `uncleaned result value`
-#   -- an object (*not* necessarily a string) being a value of a
+#   -- an object (*not* necessarily a `str`) being a value of a
 #      particular event attribute -- ready to be passed into the
 #      clean_result_value() method of the apropriate *result field*
 #   [may also be, less formally, referred to as
@@ -113,7 +111,7 @@
 #    (parts in square brackets may be omitted)]
 #
 # * `cleaned result value`
-#   -- an object (*not* necessarily a string) being the result of
+#   -- an object (*not* necessarily a `str`) being the result of
 #      applying the clean_result_value() method of the apropriate
 #      *result field* to some *raw result value*
 #   [may also be, less formally, referred to as
@@ -141,8 +139,6 @@
 # or just http://n6sdk.readthedocs.io/en/latest/tutorial.html (although
 # the latter may be out of date).
 
-
-import json
 
 from pyramid.decorator import reify
 
@@ -604,13 +600,15 @@ class N6DataSpec(DataSpec):
 
     # * of various specialized field types:
     alternative_fqdns = SomeUnicodeListFieldForN6(in_result='optional')
+    block = FlagFieldForN6(in_result=('optional', 'unrestricted'))
     ip_network = IPv4NetFieldForN6(in_result='optional')
     tags = SomeUnicodeListFieldForN6(in_result='optional')
 
     # * of the SomeUnicodeFieldForN6 type:
     description = SomeUnicodeFieldForN6(in_result='optional')
-    min_amplification = SomeUnicodeFieldForN6(in_result='optional')
     filename = SomeUnicodeFieldForN6(in_result='optional')
+    min_amplification = SomeUnicodeFieldForN6(in_result='optional')
+    rt = SomeUnicodeFieldForN6(in_result='optional')
     x509issuer = SomeUnicodeFieldForN6(in_result=('optional', 'unrestricted'))
     x509subject = SomeUnicodeFieldForN6(in_result=('optional', 'unrestricted'))
 
@@ -636,6 +634,7 @@ class N6DataSpec(DataSpec):
     misp_event_uuid = SomeFieldForN6(in_result='optional')
     product = SomeFieldForN6(in_result=('optional', 'unrestricted'))
     proxy_type = SomeFieldForN6(in_result='optional')
+    # note: yes it's "referer" (single 'r', not a mistake!) - see: https://tools.ietf.org/html/rfc7231#section-5.5.2
     referer = SomeFieldForN6(in_result='optional')
     request = SomeFieldForN6(in_result='optional')
     sender = SomeFieldForN6(in_result='optional')
@@ -665,6 +664,7 @@ class N6DataSpec(DataSpec):
         'additional_data',
         'adip',
         'alternative_fqdns',
+        'block',
         'botid',
         'cert_length',
         'channel',
@@ -698,6 +698,7 @@ class N6DataSpec(DataSpec):
         'referer',
         'registrar',
         'request',
+        'rt',
         'sender',
         'subject_common_name',
         'sysdesc',
@@ -721,11 +722,11 @@ class N6DataSpec(DataSpec):
 
     @reify
     def unrestricted_param_keys(self):
-        return frozenset(self.param_field_specs('unrestricted').viewkeys())
+        return frozenset(self.param_field_specs('unrestricted').keys())
 
     @reify
     def anonymized_param_keys(self):
-        return frozenset(self.param_field_specs('anonymized').viewkeys())
+        return frozenset(self.param_field_specs('anonymized').keys())
 
     @reify
     def restricted_param_keys(self):
@@ -735,11 +736,11 @@ class N6DataSpec(DataSpec):
 
     @reify
     def unrestricted_result_keys(self):
-        return frozenset(self.result_field_specs('unrestricted').viewkeys())
+        return frozenset(self.result_field_specs('unrestricted').keys())
 
     @reify
     def anonymized_result_keys(self):
-        return frozenset(self.result_field_specs('anonymized').viewkeys())
+        return frozenset(self.result_field_specs('anonymized').keys())
 
     @reify
     def restricted_result_keys(self):
@@ -770,23 +771,23 @@ class N6DataSpec(DataSpec):
                     ip=dict(primary_key=True, autoincrement=False))
         """
         from sqlalchemy import Column
-        from n6lib.db_events import TextPickleType
+        from n6lib.db_events import JSONText
 
         seen_col_names = set()
 
         if self.custom_field_keys:
             name = 'custom'
             seen_col_names.add(name)
-            yield name, Column(TextPickleType(pickler=json), nullable=True,
+            yield name, Column(JSONText(), nullable=True,
                                **col_kwargs_updates.get(name, {}))
 
-        for key, field in self.result_field_specs().iteritems():
+        for key, field in self.result_field_specs().items():
             for name, column in self._generate_cols_from_field_spec(
                     key,
                     field,
                     col_kwargs_updates):
                 if name in seen_col_names:
-                    raise ValueError('column name {!r} duplicated'
+                    raise ValueError('column name {!a} duplicated'
                                      .format(name))
                 seen_col_names.add(name)
                 yield name, column
@@ -844,7 +845,7 @@ class N6DataSpec(DataSpec):
         except ValueError:
             return {
                 (k, field)
-                for k, field in all_fields_dict.viewitems()
+                for k, field in all_fields_dict.items()
                 if which in getattr(field, field_additional_info_attr)}
 
 
@@ -924,7 +925,7 @@ class N6DataSpec(DataSpec):
             MD5,
             SHA1,
             SHA256,
-            TextPickleType,
+            JSONText,
         )
 
         if (key in self.sql_relationship_field_keys or
@@ -932,7 +933,7 @@ class N6DataSpec(DataSpec):
             return
 
         if PY_IDENTIFIER_REGEX.search(key) is None:
-            raise ValueError('{!r} is not a valid Python identifier'
+            raise ValueError('{!a} is not a valid Python identifier'
                              .format(key))
 
         col_kwargs = {'nullable': (field.in_result != 'required' and
@@ -940,13 +941,13 @@ class N6DataSpec(DataSpec):
         col_kwargs.update(col_kwargs_updates.get(key, {}))
 
         if isinstance(field, AddressField):
-            for subkey, subfield in field.key_to_subfield.iteritems():
+            for subkey, subfield in field.key_to_subfield.items():
                 for name, column in self._generate_cols_from_field_spec(
                         subkey,
                         subfield,
                         col_kwargs_updates):
                     yield name, column
-            yield key, Column(TextPickleType(pickler=json), **col_kwargs)
+            yield key, Column(JSONText(), **col_kwargs)
         else:
             if isinstance(field, DateTimeField):
                 col_args = [DateTime]
@@ -990,10 +991,10 @@ class N6DataSpec(DataSpec):
                     col_args = [INTEGER(unsigned=True)]
                 else:
                     raise NotImplementedError(
-                        'integer range {!r}..{!r} not supported'
+                        'integer range {!a}..{!a} not supported'
                         .format(field.min_value, field.max_value))
             else:
-                raise NotImplementedError('{!r} not supported'.format(field))
+                raise NotImplementedError('{!a} not supported'.format(field))
             yield key, Column(*col_args, **col_kwargs)
 
 
@@ -1006,7 +1007,7 @@ class N6DataSpec(DataSpec):
         if enabled_to_required is not None:
             forbidden_keys |= self.all_param_keys.difference(enabled_to_required)
             extra_required_keys |= {
-                key for key, required in enabled_to_required.iteritems()
+                key for key, required in enabled_to_required.items()
                 if required}
         kwargs['forbidden_keys'] = forbidden_keys
         kwargs['extra_required_keys'] = extra_required_keys
@@ -1017,7 +1018,7 @@ class N6DataSpec(DataSpec):
             'accepted "dip" in params for non-full-access???')
         deanonymized_params = {}
         anon = self.anonymized_param_keys
-        for key, value_list in params.iteritems():
+        for key, value_list in params.items():
             if key in anon:
                 deanonymizer = getattr(self, 'deanonymize_' + key)
                 deanonymized_value_list = [
@@ -1025,8 +1026,8 @@ class N6DataSpec(DataSpec):
                 ## FIXME?: what to do with a `source` value being None???
                 ## for now we just omit such a value
                 ## => the resultant value list can be empty
-                ##    so that the resultat query contains "source !=
-                ##    source" (which must make the result empty; so,
+                ##    so that the resultat query contains "1 != 1"
+                ##    (which must make the result empty; so,
                 ##    maybe, some short-circuit procedure -- to return
                 ##    an empty result early -- is desired?)
                 deanonymized_params[key] = [
@@ -1059,35 +1060,35 @@ class N6DataSpec(DataSpec):
               # DEBUGGING #3141
               try:
                 new_address = [
-                    {key: value for key, value in addr.iteritems()
+                    {key: value for key, value in addr.items()
                      if value is not None}
                     for addr in address]
                 if new_address != address:
                     LOGGER.warning(
-                        'values being None in the address: %r\n%s',
+                        'values being None in the address: %a\n%s',
                         address, event_tag)
                 address = new_address
               except AttributeError as exc:
                 exc_str = str(exc)
-                if "no attribute 'iteritems'" in exc_str:
-                    raise AttributeError('{0} [`address`: {1!r}]'.format(exc_str, address))
+                if "no attribute 'items'" in exc_str:
+                    raise AttributeError('{0} [`address`: {1!a}]'.format(exc_str, address))
                 else:
                     raise
             else:
-                LOGGER.warning('empty address: %r\n%s', address, event_tag)
+                LOGGER.warning('empty address: %a\n%s', address, event_tag)
                 address = None
         if address_item:
             if address is None:
                 LOGGER.warning(
                     'address does not exist but it should and it should '
-                    'contain at least the item %r\n->address containing '
+                    'contain at least the item %a\n->address containing '
                     'it will be used...\n%s', address_item, event_tag)
                 address = [address_item]
             elif address_item not in address:
                 # intentionally ERROR and not WARNING
                 LOGGER.error(
-                    'data inconsistency detected: item %r is not in the '
-                    'address %r\n%s', address_item, address, event_tag)
+                    'data inconsistency detected: item %a is not in the '
+                    'address %a\n%s', address_item, address, event_tag)
         if address is not None:
             result['address'] = address
 
@@ -1099,7 +1100,7 @@ class N6DataSpec(DataSpec):
     def _result_anonymized(self, result, auth_api):
         anonymized_result = {}
         anon = self.anonymized_result_keys
-        for key, value in result.iteritems():
+        for key, value in result.items():
             if key in anon:
                 anonymizer = getattr(self, 'anonymize_' + key)
                 anon_item = anonymizer(result, auth_api)
@@ -1119,7 +1120,7 @@ class N6DataSpec(DataSpec):
                 del result[key]
             except KeyError:
                 LOGGER.warning(
-                    'cannot delete key %r from result dict '
+                    'cannot delete key %a from result dict '
                     'because it does not contain the key\n%s',
                     key, event_tag)
         orig_address = result.pop('address', None)
@@ -1147,7 +1148,7 @@ class N6DataSpec(DataSpec):
                     del addr[key]
                 except KeyError:
                     LOGGER.warning(
-                        'cannot delete key %r from address item %r '
+                        'cannot delete key %a from address item %a '
                         'because it does not contain the key\n%s',
                         key, orig_addr, event_tag)
             if addr:

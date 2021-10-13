@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
 import datetime
@@ -15,8 +15,9 @@ from cStringIO import StringIO
 
 import mock
 
+from n6lib.class_helpers import FalseIfOwnerClassNameMatchesRegex
 from n6lib.common_helpers import (
-    SimpleNamespace,
+    PlainNamespace,
     reduce_indent,
 )
 from n6lib.config import (
@@ -29,6 +30,10 @@ from n6lib.unit_test_helpers import TestCaseMixin
 
 
 class _BaseCollectorTestCase(TestCaseMixin, unittest.TestCase):
+
+    # Prevent pytest *from treating* those subclasses of this class that
+    # are base (abstract) classes *as concrete test classes*.
+    __test__ = FalseIfOwnerClassNameMatchesRegex(r'\A_.*Base')
 
     # These flags make it possible to turn on/off patching
     # of particular groups of stuff...
@@ -104,7 +109,7 @@ class _BaseCollectorTestCase(TestCaseMixin, unittest.TestCase):
         if self.patch_config:
             fake_of__RawConfigParser_read = self.make_fake_of__RawConfigParser_read(config_content)
             stub_of__Config__get_config_file_paths = self.make_stub_of__Config__get_config_file_paths()
-            self.patch('ConfigParser.RawConfigParser.read',
+            self.patch('configparser.RawConfigParser.read',
                        fake_of__RawConfigParser_read)
             self.patch('n6lib.config.Config._get_config_file_paths',
                        stub_of__Config__get_config_file_paths)
@@ -178,13 +183,13 @@ class _BaseCollectorTestCase(TestCaseMixin, unittest.TestCase):
 
         adjusted_config_content = reduce_indent(config_content or '')
 
-        def fake_of__RawConfigParser_read(self, filenames):
+        def fake_of__RawConfigParser_read(self, filenames, encoding=None):
             if isinstance(filenames, basestring):
                 filenames = [filenames]
             fp = StringIO(adjusted_config_content)
             for name in filenames:
                 # (only for the first of filenames `fp` will offer any content)
-                self.readfp(fp, name)
+                self.read_file(fp, name)
             read_ok = list(filenames)
             return read_ok
 
@@ -212,8 +217,8 @@ class _BaseCollectorTestCase(TestCaseMixin, unittest.TestCase):
             self.clear_amqp_communication_state_attributes()
 
         def stub_of__QueuedBase_run(self):
-            self._connection = SimpleNamespace(add_timeout=_add_timeout,
-                                               outbound_buffer=collections.deque())
+            self._connection = PlainNamespace(add_timeout=_add_timeout,
+                                              outbound_buffer=collections.deque())
             self.output_ready = True
             try:
                 try:
@@ -364,8 +369,12 @@ class _TestMailCollectorsBaseClass(TestCaseMixin, unittest.TestCase):
     appended at the end of headers section, before the actual content.
     """
 
-    _COLLECTOR_SOURCE = 'test'
+    # Prevent pytest *from treating* those subclasses of this class that
+    # are base (abstract) classes *as concrete test classes*.
+    __test__ = FalseIfOwnerClassNameMatchesRegex(r'\A_.*Base')
 
+
+    _COLLECTOR_SOURCE = 'test'
 
     # * required common stuff (must be provided for each case)
     collector_class = None
@@ -543,6 +552,6 @@ class _TestMailCollectorsBaseClass(TestCaseMixin, unittest.TestCase):
         else:
             # Variant II
             expected_mail_subject = self.email_subject
-        # As in EmailMessage.get_subject()
+        # As in ReceivedEmailMessage.get_subject()
         expected_mail_subject = ' '.join(expected_mail_subject.split())
         return expected_mail_subject

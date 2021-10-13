@@ -1,16 +1,21 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2013-2021 NASK. All rights reserved.
+#
+# For some portions of the code (marked in the comments as copied from
+# SQLAlchemy -- which is a library licensed under the MIT license):
+# Copyright (C) 2005-2021 the SQLAlchemy authors and contributors
+# <see SQLAlchemy's AUTHORS file>. SQLAlchemy is a trademark of Michael
+# Bayer (mike(&)zzzcomputing.com). All rights reserved.
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
-
+import json
 import socket
-import types
+from binascii import unhexlify
+from typing import Iterable
 
 import sqlalchemy.types
 from sqlalchemy import (
     Column,
     String,
     DateTime,
-    PickleType,
     Text,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -26,24 +31,25 @@ from sqlalchemy import (
     null,
 )
 
-from zope.sqlalchemy import ZopeTransactionExtension  # @UnresolvedImport
-
 from n6lib.common_helpers import (
     ip_network_tuple_to_min_max_ip,
     ip_str_to_int,
 )
 from n6lib.data_spec import N6DataSpec
+from n6lib.data_spec.typing_helpers import ResultDict
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.log_helpers import get_logger
 from n6lib.url_helpers import make_provisional_url_search_key
+from n6lib.typing_helpers import String as Str
 
 
 LOGGER = get_logger(__name__)
 
 
-DBSession = scoped_session(sessionmaker(extension=ZopeTransactionExtension()))
-Base = declarative_base()
+_DBSession = scoped_session(sessionmaker(autocommit=False))
 
+
+Base = declarative_base()
 
 CustomInteger = sqlalchemy.types.Integer()
 CustomInteger = CustomInteger.with_variant(mysql.INTEGER(unsigned=True), "mysql")
@@ -65,7 +71,7 @@ class IPAddress(sqlalchemy.types.TypeDecorator):
             ## XXX: ensure that process_bind_param() is (not?) called
             ## by the SQLAlchemy machinery when `ip` value is None
             return self.NONE
-        if isinstance(value, (int, long)):
+        if isinstance(value, int):
             return value
         try:
             return ip_str_to_int(value)
@@ -75,7 +81,7 @@ class IPAddress(sqlalchemy.types.TypeDecorator):
     def process_result_value(self, value, dialect):
         if value is None or value == self.NONE:
             return None
-        return socket.inet_ntoa(hex(int(value))[2:].zfill(8).decode('hex'))
+        return socket.inet_ntoa(value.to_bytes(4, 'big'))
 
 
 
@@ -84,15 +90,17 @@ class _HashTypeMixIn(object):
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
+        if not value:
+            raise ValueError
         try:
-            return value.decode('hex')
+            return unhexlify(value)
         except TypeError:
             raise ValueError
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        return value.encode('hex')
+        return value.hex()
 
 
 class MD5(_HashTypeMixIn, sqlalchemy.types.TypeDecorator):
@@ -107,9 +115,54 @@ class SHA256(_HashTypeMixIn, sqlalchemy.types.TypeDecorator):
     impl = sqlalchemy.types.BINARY(32)
 
 
-class TextPickleType(PickleType):
+class JSONText(sqlalchemy.types.TypeDecorator):
+
     impl = Text
 
+    def bind_processor(self, dialect):
+        # Copied from SQLAlchemy's `sqlalchemy.types.PickleType`
+        # and adjusted appropriately.
+
+        impl_processor = self.impl.bind_processor(dialect)
+        dumps = json.dumps
+        if impl_processor:
+
+            def process(value):
+                if value is not None:
+                    value = dumps(value)
+                return impl_processor(value)
+
+        else:
+
+            def process(value):
+                if value is not None:
+                    value = dumps(value)
+                return value
+
+        return process
+
+    def result_processor(self, dialect, coltype):
+        # Copied from SQLAlchemy's `sqlalchemy.types.PickleType`
+        # and adjusted appropriately.
+
+        impl_processor = self.impl.result_processor(dialect, coltype)
+        loads = json.loads
+        if impl_processor:
+
+            def process(value):
+                value = impl_processor(value)
+                if value is None:
+                    return None
+                return loads(value)
+
+        else:
+
+            def process(value):
+                if value is None:
+                    return None
+                return loads(value)
+
+        return process
 
 
 class n6ClientToEvent(Base):
@@ -130,7 +183,7 @@ class n6ClientToEvent(Base):
         ## is commented out:
         #if kwargs:
         #    LOGGER.warning(
-        #        'n6ClientToEvent.__init__() got unexpected **kwargs: %r',
+        #        'n6ClientToEvent.__init__() got unexpected **kwargs: %a',
         #        kwargs)
 
     ## XXX: is this method necessary anymore?
@@ -152,10 +205,12 @@ class n6NormalizedData(Base):
 
     clients = relationship(
         n6ClientToEvent,
+        # XXX: is it necessary anymore?
         primaryjoin=and_(
             #_n6columns['time'] == n6ClientToEvent.time, ### redundant join condition
             _n6columns['id'] == n6ClientToEvent.id),
         #foreign_keys=[n6ClientToEvent.time, n6ClientToEvent.id],
+        # XXX: is it necessary anymore?
         foreign_keys=[n6ClientToEvent.id],
         backref="events")
 
@@ -163,7 +218,7 @@ class n6NormalizedData(Base):
         if kwargs.get('ip') is None:
             # adding the "no IP" placeholder ('0.0.0.0') which should be
             # transformed into 0 in the database (because `ip` cannot be
-            # NULL in our SQL db; and apparently, for unknown reason,
+            # NULL in our SQL db; and apparently, for unknown reason,  # XXX: <- check whether that's true...
             # IPAddress.process_bind_param() is not called by the
             # SQLAlchemy machinery if the value of `ip` is just None)
             kwargs['ip'] = IPAddress.NONE_STR
@@ -185,8 +240,12 @@ class n6NormalizedData(Base):
         kwargs.pop('type', None)    # here we just ignore this arg if present
         if kwargs:
             LOGGER.warning(
-                'n6NormalizedData.__init__() got unexpected **kwargs: %r',
+                'n6NormalizedData.__init__() got unexpected **kwargs: %a',
                 kwargs)
+
+    @classmethod
+    def get_column_mapping_attrs(cls):
+        return [getattr(cls, name) for name in sorted(cls._n6columns)]
 
     @classmethod
     def key_query(cls, key, value):
@@ -195,7 +254,7 @@ class n6NormalizedData(Base):
     @classmethod
     def like_query(cls, key, value):
         mapping = {"url.sub": "url", "fqdn.sub": "fqdn"}
-        return or_(*[getattr(cls, mapping[key]).like("%{}%".format(val))
+        return or_(*[getattr(cls, mapping[key]).like(u"%{}%".format(val))
                      for val in value])
 
     @classmethod
@@ -203,7 +262,7 @@ class n6NormalizedData(Base):
         # *EXPERIMENTAL* (likely to be changed or removed in the future
         # without any warning/deprecation/etc.)
         if key != 'url.b64':
-            raise AssertionError("key != 'url.b64' (but == {!r})".format(key))
+            raise AssertionError("key != 'url.b64' (but == {!a})".format(key))
         db_key = 'url'
         url_search_keys = list(map(make_provisional_url_search_key, value))
         return or_(getattr(cls, db_key).in_(value),
@@ -250,46 +309,54 @@ class n6NormalizedData(Base):
         else:
             raise AssertionError
 
+    def to_raw_result_dict(self):
+        client_org_ids = (c.client for c in self.clients)                                    # noqa
+        return make_raw_result_dict(self, client_org_ids)
 
-    # names of columns whose `type` attribute
-    # is IPAddress or its subclass/instance
-    _ip_column_names = tuple(sorted(
-        name for name, column in _n6columns.iteritems()
-        if isinstance(column.type, IPAddress) or (
-                isinstance(column.type, (type, types.ClassType)) and
-                issubclass(column.type, IPAddress))))
 
-    # possible "no IP" placeholder values (such that they
-    # cause recording `ip` in db as 0) -- excluding None
-    _no_ip_placeholders = frozenset([IPAddress.NONE_STR, IPAddress.NONE, -1])
+# names of columns whose `type` attribute
+# is IPAddress or its subclass/instance
+_IP_COLUMN_NAMES = tuple(sorted(
+    name for name, column in n6NormalizedData._n6columns.items()
+    if (isinstance(column.type, IPAddress)
+        or (isinstance(column.type, type) and issubclass(column.type, IPAddress)))))
 
-    def to_raw_result_dict(self,
-                           # for faster (local) access:
-                           _getattr=getattr,
-                           _ip_column_names=_ip_column_names,
-                           _no_ip_placeholders=_no_ip_placeholders):
 
-        # make the dict, skipping all None values
-        columns = self.__table__.columns
-        result_dict = {
-            name: value
-            for name, value in [
-                (c.name, _getattr(self, c.name))
-                for c in columns]
-            if value is not None}
+# possible "no IP" placeholder values (such that they
+# cause recording `ip` in db as 0) -- excluding None
+_NO_IP_PLACEHOLDERS = frozenset([IPAddress.NONE_STR, IPAddress.NONE, -1])
 
-        # get rid of any "no IP" placeholders (note: probably, this is not
-        # needed when the instance has been obtained by a DB operation so
-        # IPAddress.process_result_value() was used by the SQLAlchemy
-        # machinery)
-        for ip_col_name in _ip_column_names:
-            value = result_dict.get(ip_col_name)
-            if value in _no_ip_placeholders:
-                del result_dict[ip_col_name]
 
-        # set the 'client' item
-        client = [c.client for c in self.clients]
-        if client:
-            result_dict['client'] = client
+def make_raw_result_dict(column_values_source_object,  # getattr() will be used on it to get values
 
-        return result_dict
+                         # a collection of client organization ids (to populate
+                         # the `client` field of the result -- if not empty)
+                         client_org_ids,   # type: Iterable[Str]
+
+                         # not real parameters, just quasi-constants for faster access
+                         _getattr=getattr,
+                         _all_column_objects=n6NormalizedData.__table__.columns,             # noqa
+                         _is_no_ip_placeholder=_NO_IP_PLACEHOLDERS.__contains__):
+
+    # type: (...) -> ResultDict
+
+    # make the dict, skipping all None values
+    result_dict = {
+        name: value
+        for name, value in [
+            (c.name, _getattr(column_values_source_object, c.name))
+            for c in _all_column_objects]
+        if value is not None}
+
+    # get rid of any "no IP" placeholders
+    for ip_col_name in _IP_COLUMN_NAMES:
+        value = result_dict.get(ip_col_name)
+        if _is_no_ip_placeholder(value):                                                     # noqa
+            del result_dict[ip_col_name]
+
+    # set the 'client' item if any org ids given
+    client_org_ids = sorted(client_org_ids)
+    if client_org_ids:
+        result_dict['client'] = client_org_ids
+
+    return result_dict

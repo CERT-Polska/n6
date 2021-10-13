@@ -15,8 +15,10 @@ See also the documentation of the `rabbitmq-auth-backend-http` plugin:
 https://github.com/rabbitmq/rabbitmq-auth-backend-http
 """
 
-# noinspection PyUnresolvedReferences
-import n6lib  # <- 1st import, so that n6lib-specific monkey patching is done as early as possible
+# Ensure all monkey-patching provided by `n6lib`
+# and `n6sdk` is applied as early as possible.
+import n6lib  # noqa
+
 from n6brokerauthapi.views import (
     N6BrokerAuthResourceView,
     N6BrokerAuthTopicView,
@@ -37,9 +39,10 @@ class N6BrokerAuthApiConfigHelper(ConfigMixin, BasicConfigHelper):
         auth_manager_maker_class :: importable_dotted_name
     '''
 
-    def prepare_config(self, config):
-        config.registry.auth_manager_maker = self._get_auth_manager_maker()
-        return super(N6BrokerAuthApiConfigHelper, self).prepare_config(config)
+    def prepare_pyramid_configurator(self, pyramid_configurator):
+        pyramid_configurator.registry.auth_manager_maker = self._get_auth_manager_maker()
+        return super(N6BrokerAuthApiConfigHelper,
+                     self).prepare_pyramid_configurator(pyramid_configurator)
 
     def _get_auth_manager_maker(self):
         settings = self.settings

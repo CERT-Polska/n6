@@ -1,0 +1,2 @@
+#n6collector_xxx = n6datasources.collectors.xxx:main
+#n6parser_xxx = n6datasources.parsers.xxx:main

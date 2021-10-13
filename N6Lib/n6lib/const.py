@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import os.path as osp
 import re
@@ -25,7 +23,16 @@ from n6sdk.data_spec import (
 ###############################################
 
 
-TOPLEVEL_N6_PACKAGES = 'n6', 'n6sdk', 'n6lib', 'n6web', 'n6portal'
+TOPLEVEL_N6_PACKAGES = (
+    'n6',
+    'n6adminpanel',
+    'n6brokerauthapi',
+    'n6corelib',
+    'n6sdk',
+    'n6lib',
+    'n6web',
+    'n6portal',
+)
 
 
 HOSTNAME = socket.gethostname().split('.', 1)[0]
@@ -127,7 +134,7 @@ CATEGORY_TO_NORMALIZED_NAME = {
 NAME_NORMALIZATION = {
     'a': [],
     'b': [
-        (re.compile(r'^b54'), 'citadel'),
+        (re.compile(r'^b54', re.ASCII), 'citadel'),
     ],
     'c': [],
     'd': [],
@@ -136,8 +143,8 @@ NAME_NORMALIZATION = {
     'g': [],
     'h': [],
     'i': [
-        (re.compile(r'^irc$'), 'irc-bot'),
-        (re.compile(r'^irc[\W_]?bot(?:net)?$'), 'irc-bot'),
+        (re.compile(r'^irc$', re.ASCII), 'irc-bot'),
+        (re.compile(r'^irc[\W_]?bot(?:net)?$', re.ASCII), 'irc-bot'),
     ],
     'j': [],
     'k': [],

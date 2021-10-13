@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="N6 Protal" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <link rel="apple-touch-icon" sizes="180x180" href="%PUBLIC_URL%/favicons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="%PUBLIC_URL%/favicons/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="%PUBLIC_URL%/favicons/favicon-16x16.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/favicons/site.webmanifest" />
+    <link rel="mask-icon" href="%PUBLIC_URL%/favicons/safari-pinned-tab.svg" color="#3b3b3b" />
+    <link rel="shortcut icon" href="%PUBLIC_URL%/favicons/favicon.ico" />
+    <meta name="msapplication-TileColor" content="#ffffff" />
+    <meta name="msapplication-config" content="%PUBLIC_URL%/favicons/browserconfig.xml" />
+    <title>N6 Portal</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="preload"
+      as="style"
+      crossorigin
+      href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <style>
+      body {
+        margin: 0;
+      }
+      :root {
+        --loader-width: 4.375rem;
+        --loader-translate: 0.125rem;
+        --loader-total-width: calc(var(--loader-width) + 2 * var(--loader-translate));
+      }
+
+      .loader-wrapper {
+        width: 100%;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        background: #fafbfc;
+      }
+
+      .loader {
+        position: relative;
+      }
+
+      .loader-circle,
+      .loader-circle:before,
+      .loader-circle:after {
+        border-radius: 50%;
+      }
+
+      .loader-circle {
+        color: #9c00f5;
+        position: relative;
+        width: var(--loader-width);
+        height: var(--loader-width);
+        box-shadow: inset 0 0 0 0.625rem;
+        transform: translateZ(0);
+      }
+
+      .loader-circle:before,
+      .loader-circle:after {
+        position: absolute;
+        content: '';
+        background: #fafbfc;
+      }
+
+      .loader-circle:before {
+        width: calc((var(--loader-width) / 2) + (var(--loader-translate) * 2));
+        height: var(--loader-total-width);
+        border-radius: var(--loader-total-width) 0 0 var(--loader-total-width);
+        top: calc(var(--loader-translate) * -1);
+        left: calc(var(--loader-translate) * -1);
+        transform-origin: calc((var(--loader-width) / 2) + var(--loader-translate))
+          calc((var(--loader-width) / 2) + var(--loader-translate));
+        animation: loader-animation 2s infinite ease 1.5s;
+      }
+      .loader-circle:after {
+        width: calc((var(--loader-width) / 2) + (var(--loader-translate) * 2));
+        height: var(--loader-total-width);
+        border-radius: 0 var(--loader-total-width) var(--loader-total-width) 0;
+        top: calc(var(--loader-translate) * -1);
+        left: calc((var(--loader-width) / 2) - var(--loader-translate));
+        transform-origin: var(--loader-translate) calc((var(--loader-width) / 2) + var(--loader-translate));
+        animation: loader-animation 2s infinite ease;
+      }
+
+      @keyframes loader-animation {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root">
+      <div class="loader-wrapper">
+        <div class="loader">
+          <div class="loader-circle"></div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

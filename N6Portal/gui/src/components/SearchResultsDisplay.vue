@@ -47,8 +47,8 @@ export default {
       const truncatedClass = 'SearchResultsDisplay-TableCell--Truncated';
       // Additional properties for column with date
       const dateColumn = {
-        dateInputFormat: 'YYYY-MM-DDTHH:mm:SS',
-        dateOutputFormat: 'YYYY-MM-DD HH:mm:SS',
+        dateInputFormat: 'yyyy-MM-dd\'T\'HH:mm:ssX',
+        dateOutputFormat: 'yyyy-MM-dd HH:mm:ss',
         thClass: 'SearchResultsDisplay-TableHeader--Datetime',
         tdClass: 'SearchResultsDisplay-TableCell--Datetime',
       };
@@ -333,12 +333,7 @@ export default {
 
 .SearchResultsDisplay-Table {
   align-self: flex-start;
-  /* To make it cover the full page */
   width: 100%;
-  flex-grow: 0;
-  flex-basis: 0;
-  flex-shrink: 1;
-  height: 50%;
   // max-height: 100%;
 
   /deep/ .vgt-wrap,

@@ -1,19 +1,17 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import datetime
 import socket
 import unittest
-
-import sqlalchemy.orm.attributes
-import sqlalchemy.orm.collections
-from mock import (
+from unittest.mock import (
     MagicMock,
     call,
     patch,
     sentinel as sen,
 )
+
+import sqlalchemy.orm.attributes
+import sqlalchemy.orm.collections
 from unittest_expander import (
     expand,
     foreach,
@@ -22,6 +20,8 @@ from unittest_expander import (
 
 from n6lib.db_events import (
     IPAddress,
+    _IP_COLUMN_NAMES,
+    _NO_IP_PLACEHOLDERS,
     n6NormalizedData,
 )
 from n6lib.unit_test_helpers import MethodProxy
@@ -32,6 +32,13 @@ from n6lib.unit_test_helpers import MethodProxy
 
 ### TODO:
 #class Test__...
+
+
+class TestAuxiliaryConstants(unittest.TestCase):
+
+    def test(self):
+        self.assertEqual(_IP_COLUMN_NAMES, ('dip', 'ip'))
+        self.assertEqual(_NO_IP_PLACEHOLDERS, {'0.0.0.0', 0, -1})
 
 
 @expand
@@ -154,8 +161,6 @@ class Test__n6NormalizedData(unittest.TestCase):
                 ###'username': '',
                 ###'x509fp_sha1': '',
             })
-        self.assertEqual(n6NormalizedData._ip_column_names, ('dip', 'ip'))
-        self.assertEqual(n6NormalizedData._no_ip_placeholders, {'0.0.0.0', 0, -1})
 
     def _get_sql_repr(self, col):
         type_name = (
@@ -196,12 +201,12 @@ class Test__n6NormalizedData(unittest.TestCase):
             sqlalchemy.orm.collections.InstrumentedList)
         self.assertEqual(obj.clients, [])
         self.client1 = MagicMock()
-        self.client1.client = sen.c1
+        self.client1.client = 'c1'
         self.client2 = MagicMock()
-        self.client2.client = sen.c2
-        obj.clients.append(self.client1)
+        self.client2.client = 'c2'
         obj.clients.append(self.client2)
-        self.assertEqual(obj.clients, [self.client1, self.client2])
+        obj.clients.append(self.client1)
+        self.assertEqual(obj.clients, [self.client2, self.client1])
 
     def test_init_and_attrs_2(self):
         obj = self.obj = n6NormalizedData(
@@ -247,7 +252,10 @@ class Test__n6NormalizedData(unittest.TestCase):
     @patch('n6lib.db_events.or_', return_value=sen.or_result)
     def test__like_query(self, or_mock, key, mapped_to=None,
                          result=None, exc_type=None, **kwargs):
-        value = ['val1', 'val2']
+        value = [
+            u'val',
+            u'ążź',  # (ticket #8043 - `UnicodeEncodeError: 'ascii' codec can't encode...`)
+        ]
         if exc_type is None:
             assert result is not None
             getattr(self.mock, mapped_to).like.side_effect = [sen.term1, sen.term2]
@@ -255,8 +263,8 @@ class Test__n6NormalizedData(unittest.TestCase):
             self.assertIs(act_result, result)
             or_mock.assert_called_once_with(sen.term1, sen.term2)
             self.assertEqual(self.mock.mock_calls, [
-                getattr(call, mapped_to).like('%val1%'),
-                getattr(call, mapped_to).like('%val2%'),
+                getattr(call, mapped_to).like(u'%val%'),
+                getattr(call, mapped_to).like(u'%ążź%'),
             ])
         else:
             with self.assertRaises(exc_type):
@@ -381,7 +389,7 @@ class Test__n6NormalizedData(unittest.TestCase):
             'ip': sen.some_ip_addr,
             'dport': sen.some_port_number,
             'time': datetime.datetime(2014, 3, 31, 23, 7, 42),
-            'client': [sen.c1, sen.c2],
+            'client': ['c1', 'c2'],
         })
 
     def test__to_raw_result_dict__2(self):

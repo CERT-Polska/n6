@@ -3,15 +3,14 @@
 
 # Copyright (c) 2013-2018 NASK. All rights reserved.
 
+# NOTE: more of the config-related stuff is in n6lib.config
+
 import os
 import os.path
 import shutil
 import sys
 
 from n6lib.const import USER_DIR, ETC_DIR
-
-
-# NOTE: more of the config-related stuff is in n6lib.config
 
 
 def install_default_config():

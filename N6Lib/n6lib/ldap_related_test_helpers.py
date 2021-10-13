@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 from n6lib.auth_api import (
     ACCESS_ZONES,
@@ -76,19 +74,19 @@ class _AbstractSearchRawItem(object):
         attrs.setdefault('objectClass', ['top'] + cls.obj_classes)
         attrs.setdefault(rdn_name, [rdn_value])
         if any(not isinstance(val, list)
-               for val in attrs.itervalues()):
-            raise ValueError('attrs dict {0!r} contains some non-list values'
+               for val in attrs.values()):
+            raise ValueError('attrs dict {0!a} contains some non-list values'
                              .format(attrs))
         return (dn, attrs)
 
     @classmethod
     def _format_arg_prefixed_if_needed(cls, format_arg):
         if cls.integer_prefix:
-            if isinstance(format_arg, (int, long)):
+            if isinstance(format_arg, int):
                 format_arg = '{0}{1}'.format(cls.integer_prefix, format_arg)
             elif (isinstance(format_arg, tuple) and
                   format_arg and
-                  isinstance(format_arg[-1], (int, long))):
+                  isinstance(format_arg[-1], int)):
                 format_arg = format_arg[:-1] + (
                     '{0}{1}'.format(cls.integer_prefix, format_arg[-1]),)
         return format_arg
@@ -129,7 +127,7 @@ class _WithChannelMixIn(object):
         if not any(cn == (az + suffix)
                    for az in ACCESS_ZONES
                        for suffix in ('', '-ex')):
-            raise ValueError('illegal cn given: {!r}'.format(cn))
+            raise ValueError('illegal cn given: {!a}'.format(cn))
         return _RC(cls.dn(o_go_format_arg), cn, attrs)
 
 
@@ -163,7 +161,7 @@ class _O(_WithChannelMixIn, _AbstractSearchRawItem):
     def res(cls, o_format_arg, cn, attrs=None):
         if not any(cn == 'res-' + az
                    for az in ACCESS_ZONES):
-            raise ValueError('illegal cn given: {!r}'.format(cn))
+            raise ValueError('illegal cn given: {!a}'.format(cn))
         return _RC(cls.dn(o_format_arg), cn, attrs)
 
 
@@ -243,7 +241,7 @@ class _P(_AbstractSearchRawItem):
         return [
             _S(source_id)
             for source_id in sorted(
-                set(cls.id_to_source_id.itervalues()) |
+                set(cls.id_to_source_id.values()) |
                 {cls.default_source_id})]
 
 

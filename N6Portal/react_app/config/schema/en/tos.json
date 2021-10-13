@@ -1,0 +1,7 @@
+{
+  "terms": "List of terms",
+  "checkboxLabel": "Message shown when user accepts the terms",
+  "header": "Terms of Service headline",
+  "intro": "Precaution",
+  "version": "Version of document"
+}

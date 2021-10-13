@@ -1,0 +1,74 @@
+.page-header {
+  background-color: $light-background;
+  height: $page-nav-mobile-height;
+  margin-bottom: sizeToRem(16);
+  border-bottom: 1px solid $grey-light;
+
+  @include media-breakpoint-up(lg) {
+    margin-bottom: sizeToRem(16);
+    height: $page-nav-height;
+  }
+}
+
+.page-header-nav {
+  height: 100%;
+}
+
+.header-logo {
+  width: $page-mobile-logo-width;
+  @include media-breakpoint-up(lg) {
+    width: $page-logo-width;
+  }
+}
+
+.header-links {
+  margin: 0 0 0 auto;
+
+  & li {
+    display: inline-block;
+    margin-right: sizeToRem(40);
+  }
+}
+
+.header-mobile-dropdown-title {
+  color: $dark;
+}
+
+.header-link {
+  text-decoration: none;
+  color: $dark;
+
+  &:hover {
+    text-decoration: none;
+    color: $dark;
+  }
+
+  &.active {
+    color: $primary;
+  }
+}
+
+.header-user-btn {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  &:hover,
+  &:focus {
+    background: transparent !important;
+  }
+}
+
+.header-dropdown-chevron {
+  transition: transform 0.3s ease;
+
+  &.open {
+    transform: rotate(180deg);
+  }
+}
+
+// fix for blinking scroll bar
+.header-dropdown-menu {
+  transform: translate(0, 30px) !important;
+  right: 0 !important;
+  left: unset !important;
+}

@@ -1,3 +1,5 @@
+# Copyright (c) 2015-2021 NASK. All rights reserved.
+
 import datetime
 
 
@@ -44,21 +46,21 @@ class Report(object):
         '''
         Print formatted report.
         '''
-        print "\n\nAPI Testing report (date {}Z)".format(datetime.datetime.utcnow())
-        for section_no in self._sections.viewkeys():
-            print '\n\nSection no. {}: {}\n'.format(
-                section_no, self._sections[section_no].get('title'))
+        print("\n\nAPI Testing report (date {}Z)".format(datetime.datetime.utcnow()))
+        for section_no in self._sections:
+            print('\n\nSection no. {}: {}\n'.format(
+                section_no, self._sections[section_no].get('title')))
             info = self._sections[section_no].get('info')
-            print '\n'.join(info)
+            print('\n'.join(info))
             errors = self._sections[section_no].get('error')
             if errors:
                 self._errors = True
-                print '\n'.join(errors)
+                print('\n'.join(errors))
             self.section_summary(section_no, errors)
-        print "\n\n\n"
-        print "--------------------"
-        print " SUMMARY:"
-        print "--------------------"
-        print self._summary
+        print("\n\n\n")
+        print("--------------------")
+        print(" SUMMARY:")
+        print("--------------------")
+        print(self._summary)
         if not self.has_errors():
-            print "API validated successfully!\n\n"
+            print("API validated successfully!\n\n")

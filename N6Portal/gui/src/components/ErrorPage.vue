@@ -9,7 +9,7 @@ export default {
 
   props: {
     errorCode: {
-      type: Number,
+      type: [String, Number],
     },
   },
 

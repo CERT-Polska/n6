@@ -1,9 +1,14 @@
 {
   "baseURL": "https://localhost/api",
-  "authCookieName": "auth_tkt",
   "APIURLs": {
-      "eventSearch": "/search/events.json",
-      "insideThreats": "/report/inside.json",
-      "otherThreats": "/report/threats.json"
-  }
+    "eventSearch": "/search/events.json",
+    "insideThreats": "/report/inside.json",
+    "otherThreats": "/report/threats.json",
+    "dashboard": "/dashboard",
+    "register": "/register",
+    "settings": "/org_config"
+  },
+  "authCookieName": "auth_tkt",
+  "dashboardRefreshRateInSeconds": 600,
+  "multivaluedInputLimit": 100
 }

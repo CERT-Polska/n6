@@ -1,9 +1,7 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2014 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 
-import collections
+import collections.abc as collections_abc
 
 from n6sdk.encoding_helpers import ascii_str, as_unicode
 
@@ -17,12 +15,11 @@ class _ErrorWithPublicMessageMixin(object):
     r"""
     A mix-in class that provides the :attr:`public_message` property.
 
-    The value of this property is a unicode string.  It is taken either
+    The value of this property is a :class:`str`.  It is taken either
     from the `public_message` constructor keyword argument (which should
-    be a unicode string or an UTF-8-decodable str string) or -- if the
-    argument was not specified -- from the value of the
-    :attr:`default_public_message` attribute (which should also be a
-    unicode string or an UTF-8-decodable str string).
+    be a :class:`str`) or -- if the argument was not specified -- from
+    the value of the :attr:`default_public_message` attribute (which
+    should also be a :class:`str`).
 
     The public message should be a complete sentence (or several
     sentences): first word capitalized (if not being an identifier
@@ -39,55 +36,34 @@ class _ErrorWithPublicMessageMixin(object):
        See the documentation of the public exception classes provided by
        this module.
 
-    The :class:`str` and :class:`unicode` conversions that are provided
-    by the class use the value of :attr:`public_message`:
+    The :class:`str`conversion implemented by the class uses the value
+    of :attr:`public_message`:
 
     >>> class SomeError(_ErrorWithPublicMessageMixin, Exception):
     ...     pass
     ...
     >>> str(SomeError('a', 'b'))  # using attribute default_public_message
     'Internal error.'
-    >>> str(SomeError('a', 'b', public_message='Sp\xc4\x85m.'))
-    'Sp\xc4\x85m.'
-    >>> str(SomeError('a', 'b', public_message=u'Sp\u0105m.'))
-    'Sp\xc4\x85m.'
-    >>> unicode(SomeError('a', 'b'))  # using attribute default_public_message
-    u'Internal error.'
-    >>> unicode(SomeError('a', 'b', public_message='Sp\xc4\x85m.'))
-    u'Sp\u0105m.'
-    >>> unicode(SomeError('a', 'b', public_message=u'Sp\u0105m.'))
-    u'Sp\u0105m.'
+    >>> str(SomeError('a', 'b', public_message='Sp\u0105m.'))
+    'Sp\u0105m.'
 
     The :func:`repr` conversion results in a programmer-readable
     representation (containing the class name, :func:`repr`-formatted
     constructor arguments and the :attr:`public_message` property):
 
     >>> SomeError('a', 'b')   # using class's default_public_message
-    <SomeError: args=('a', 'b'); public_message=u'Internal error.'>
+    <SomeError: args=('a', 'b'); public_message='Internal error.'>
     >>> SomeError('a', 'b', public_message='Spam.')
-    <SomeError: args=('a', 'b'); public_message=u'Spam.'>
+    <SomeError: args=('a', 'b'); public_message='Spam.'>
     """
 
     #: (overridable in subclasses)
     default_public_message = u'Internal error.'
 
-    def __init__(self, *args, **kwargs):
-        try:
-            public_message = kwargs.pop('public_message')
-        except KeyError:
-            pass
-        else:
+    def __init__(self, *args, public_message=None, **kwargs):
+        if public_message:
             self._public_message = as_unicode(public_message)
-        try:
-            super(_ErrorWithPublicMessageMixin, self).__init__(*args, **kwargs)
-        except TypeError:
-            if kwargs:
-                raise TypeError(
-                    'illegal keyword arguments for {} constructor: {}'.format(
-                        self.__class__.__name__,
-                        ', '.join(sorted(map(repr, kwargs)))))
-            else:
-                raise
+        super(_ErrorWithPublicMessageMixin, self).__init__(*args, **kwargs)
 
     @property
     def public_message(self):
@@ -100,13 +76,10 @@ class _ErrorWithPublicMessageMixin(object):
             return self._public_message
 
     def __str__(self):
-        return self.public_message.encode('utf-8')
-
-    def __unicode__(self):
         return self.public_message
 
     def __repr__(self):
-        return ('<{0.__class__.__name__}: args={0.args!r}; '
+        return ('<{0.__class__.__qualname__}: args={0.args!r}; '
                 'public_message={0.public_message!r}>'.format(self))
 
 
@@ -118,7 +91,8 @@ class _KeyCleaningErrorMixin(object):
 
     * should be initialized with two (positional or keyword) arguments:
       `illegal_keys` and `missing_keys` that should be sets of --
-      respectively -- illegal or missing keys (each key being a string);
+      respectively -- illegal or missing keys (each key being a
+      :class:`str`);
 
     * exposes these arguments as the :attr:`illegal_keys` and
       :attr:`missing_keys` attributes (for possible later inspection).
@@ -216,54 +190,52 @@ class FieldValueTooLongError(FieldValueError):
     ...     checked_value=['foo'], max_length=42)
     Traceback (most recent call last):
       ...
-    TypeError: __init__() needs keyword-only argument field
+    TypeError: __init__() missing 1 required keyword-only argument: 'field'
 
     >>> FieldValueTooLongError(   # doctest: +ELLIPSIS
     ...     field='sth', max_length=42)
     Traceback (most recent call last):
       ...
-    TypeError: __init__() needs keyword-only argument checked_value
+    TypeError: __init__() missing 1 required keyword-only argument: 'checked_value'
 
     >>> FieldValueTooLongError(   # doctest: +ELLIPSIS
     ...     field='sth', checked_value=['foo'])
     Traceback (most recent call last):
       ...
-    TypeError: __init__() needs keyword-only argument max_length
+    TypeError: __init__() missing 1 required keyword-only argument: 'max_length'
     """
 
-    def __init__(self, *args, **kwargs):
-        try:
-            self.field = kwargs.pop('field')
-            self.checked_value = kwargs.pop('checked_value')
-            self.max_length = kwargs.pop('max_length')
-        except KeyError as exc:
-            [kw] = exc.args
-            raise TypeError('__init__() needs keyword-only argument ' + kw)
+    def __init__(self, *args,
+                 field, checked_value, max_length, **kwargs):
+        self.field = field
+        self.checked_value = checked_value
+        self.max_length = max_length
         super(FieldValueTooLongError, self).__init__(*args, **kwargs)
 
 
 class DataAPIError(_ErrorWithPublicMessageMixin, Exception):
 
     """
-    The base class for *data-from-client-or-backend-API*-related
-    exceptions -- raised by: *views*, or the *data specification*
-    machinery, or the *data backend API*.
+    The base class for exceptions raised by *views* or APIs they invoke
+    (in particular, the *data specification* machinery or the *data
+    backend API*) -- "HTTP-4xx-like" or "HTTP-500-like" ones (see the
+    subclasses...).
 
     (They are **not** intended to be raised in :meth:`clean_*_value` of
     :class:`~n6sdk.data_spec.fields.Field` subclasses -- use
     :exc:`FieldValueError` instead.)
 
+    Note: legacy code may instantiate (and raise) :exc:`DataAPIError`
+    **directly** (to indicate some "HTTP-500-like" error), but this
+    should be avoided in a new code.
+
     >>> exc = DataAPIError('a', 'b')
     >>> exc.args
     ('a', 'b')
     >>> exc.public_message   # using attribute default_public_message
-    u'Internal error.'
-    >>> unicode(exc)
-    u'Internal error.'
+    'Internal error.'
     >>> str(exc)
     'Internal error.'
-    >>> u'{}'.format(exc)
-    u'Internal error.'
     >>> '{}'.format(exc)
     'Internal error.'
 
@@ -271,38 +243,49 @@ class DataAPIError(_ErrorWithPublicMessageMixin, Exception):
     >>> exc.args
     ('a', 'b')
     >>> exc.public_message   # the message passed into the constructor
-    u'Spam.'
-    >>> unicode(exc)
-    u'Spam.'
+    'Spam.'
     >>> str(exc)
     'Spam.'
-    >>> u'{}'.format(exc)
-    u'Spam.'
     >>> '{}'.format(exc)
     'Spam.'
     """
 
 
+class DataLookupError(DataAPIError):
+    """
+    The base class for *stuff-the-client-refers-to-not-found*
+    ("HTTP-404-like") exceptions -- raised by *views* or APIs they
+    invoke.
+    """
+    default_public_message = u'Could not find what was referred to.'
+
+
 class AuthorizationError(DataAPIError):
     """
-    Intended to be raised by *views* or the *data backend API* to signal
-    authorization problems.
+    The base class for *rejecting-the-client-request* ("HTTP-403-like")
+    exceptions -- raised by *views* or APIs they invoke.
+
+    This class can also be instantiated (and raised) directly (in
+    particular, to indicate that access to a certain data/resource is
+    *not* granted for the entity represented by the client).
     """
-    default_public_message = u'Access not allowed.'
+    default_public_message = u'Authorization denied.'
 
 
-class TooMuchDataError(DataAPIError):
+class DataFromClientError(DataAPIError):
     """
-    Intended to be raised by *data backend API* when too much data have
-    been requested.
+    The base class for *incorrect-data-from-the-client* ("HTTP-400-like")
+    exceptions -- raised by *views* or APIs they invoke (in particular
+    the *data specification* machinery).
     """
-    default_public_message = u'Too much data requested.'
+    default_public_message = u'Incorrect client-provided data.'
 
 
-class ParamCleaningError(DataAPIError):
+class ParamCleaningError(DataFromClientError):
     """
-    The base class for exceptions raised when query parameter cleaning
-    (or some validation before the actual cleaning) fails.
+    The base class for exceptions (to be treated as "HTTP-400-like"
+    ones) raised when query parameter cleaning (or some validation
+    before the actual cleaning) fails.
 
     Instances of its subclasses are raised by the *data specification*
     machinery.
@@ -327,17 +310,18 @@ class ParamKeyCleaningError(_KeyCleaningErrorMixin, ParamCleaningError):
 
     >>> try:
     ...     raise ParamKeyCleaningError({'zz', 'x'}, {'Ę', 'b'})
-    ... except ParamCleaningError as exc:
-    ...     pass
+    ... except ParamCleaningError as e:
+    ...     exc = e
     ...
     >>> exc.public_message == (
-    ...     u'Illegal query parameters: "x", "zz". ' +
-    ...     u'Required but missing query parameters: "\\u0118", "b".')
+    ...     'Illegal query parameters: "x", "zz". ' +
+    ...     'Required but missing query parameters: "\\u0118", "b".')
     True
     >>> exc.illegal_keys == {'zz', 'x'}
     True
     >>> exc.missing_keys == {'Ę', 'b'}
     True
+    >>> del exc
     """
 
     illegal_keys_msg_template = u'Illegal query parameters: {}.'
@@ -384,19 +368,20 @@ class ParamValueCleaningError(_ValueCleaningErrorMixin, ParamCleaningError):
     ...         ('k1', 'ł-1', err1),
     ...         ('k2', ['ł-2', 'xyz'], err2),
     ...     ])
-    ... except ParamCleaningError as exc:
-    ...     pass
+    ... except ParamCleaningError as e:
+    ...     exc = e
     ...
     >>> exc.public_message == (
-    ...     u'Problem with value(s) ("\\u0142-1") of query parameter "k1". ' +
-    ...     u'Problem with value(s) ("\\u0142-2", "xyz")' +
-    ...     u' of query parameter "k2" (Message).')
+    ...     'Problem with value(s) ("\\u0142-1") of query parameter "k1". ' +
+    ...     'Problem with value(s) ("\\u0142-2", "xyz")' +
+    ...     ' of query parameter "k2" (Message).')
     True
     >>> exc.error_info_seq == [
     ...     ('k1', 'ł-1', err1),
     ...     ('k2', ['ł-2', 'xyz'], err2),
     ... ]
     True
+    >>> del exc
     """
 
     msg_template = (u'Problem with value(s) ({values_repr}) of query '
@@ -407,9 +392,9 @@ class ParamValueCleaningError(_ValueCleaningErrorMixin, ParamCleaningError):
         """The aforementioned property."""
         messages = []
         for key, values, exc in self.error_info_seq:
-            if isinstance(values, basestring):
+            if isinstance(values, str):
                 values = (values,)
-            assert isinstance(values, collections.Sequence)
+            assert isinstance(values, collections_abc.Sequence)
             msg = self.msg_template.format(
                 key=ascii_str(key),
                 values_repr=u', '.join(
@@ -425,7 +410,8 @@ class ParamValueCleaningError(_ValueCleaningErrorMixin, ParamCleaningError):
 
 class ResultCleaningError(DataAPIError):
     """
-    The base class for exceptions raised when result data cleaning fails.
+    The base class for exceptions (to be treated as "HTTP-500-like"
+    ones) raised when result data cleaning fails.
 
     Instances of its subclasses are raised by the *data specification*
     machinery.
@@ -434,7 +420,7 @@ class ResultCleaningError(DataAPIError):
 
        :attr:`default_public_message` (see:
        :exc:`_ErrorWithPublicMessageMixin`) is consciously left as the
-       default and safe ``u'Internal error.'``.
+       default and safe ``'Internal error.'``.
     """
 
 
@@ -450,7 +436,7 @@ class ResultKeyCleaningError(_KeyCleaningErrorMixin, ResultCleaningError):
 
        :attr:`default_public_message` (see:
        :exc:`_ErrorWithPublicMessageMixin`) is consciously left as the
-       default and safe ``u'Internal error.'``.
+       default and safe ``'Internal error.'``.
     """
 
 
@@ -469,7 +455,7 @@ class ResultValueCleaningError(_ValueCleaningErrorMixin, ResultCleaningError):
 
        :attr:`default_public_message` (see:
        :exc:`_ErrorWithPublicMessageMixin`) is consciously left as the
-       default and safe ``u'Internal error.'`` -- so (**unlike** for
+       default and safe ``'Internal error.'`` -- so (**unlike** for
        :exc:`ParamValueCleaningError` and fields'
        :meth:`~.Field.clean_param_value`) no information from underlying
        :exc:`FieldValueError` or other exceptions raised in fields'

@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2016 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 """
 .. note::

@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Copyright (c) 2013-2019 NASK. All rights reserved.
 
 """
@@ -21,6 +19,7 @@ from n6sdk.pyramid_commons._pyramid_commons import (
     AbstractViewBase,
     CommaSeparatedParamValuesViewMixin,
     OmittingEmptyParamsViewMixin,
+    PreparingNoParamsViewMixin,
     SingleParamValuesViewMixin,
     DefaultStreamViewBase,
 
@@ -46,6 +45,7 @@ __all__ = [
     'AbstractViewBase',
     'CommaSeparatedParamValuesViewMixin',
     'OmittingEmptyParamsViewMixin',
+    'PreparingNoParamsViewMixin',
     'SingleParamValuesViewMixin',
     'DefaultStreamViewBase',
 

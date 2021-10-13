@@ -2,7 +2,6 @@
 
 import sortBy from 'lodash-es/sortBy';
 import {
-  alpha,
   integer,
   ipAddress,
   minLength,
@@ -12,7 +11,9 @@ import {
 
 import { weekAgo } from '../helpers/dates';
 import {
+  cc,
   cidr,
+  domainPart,
   fqdn,
   hexadecimal,
   source,
@@ -206,6 +207,9 @@ let criteria = [
     type: 'text',
     validations: {
       required,
+      $each: {
+        domainPart,
+      },
     },
   },
 
@@ -271,12 +275,10 @@ let criteria = [
     id: 'cc',
     type: 'text',
     validations: {
-      $each: {
-        alpha,
-        minLength: minLength(2),
-        maxLength: maxLength(2),
-      },
       required,
+      $each: {
+        cc,
+      },
     },
   },
 

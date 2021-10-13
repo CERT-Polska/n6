@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2020 NASK. All rights reserved.
+# Copyright (c) 2019-2021 NASK. All rights reserved.
 
 import contextlib
 import datetime
@@ -7,6 +7,7 @@ import sys
 
 from sqlalchemy import event
 from sqlalchemy.inspection import inspect
+from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm.mapper import Mapper
 from sqlalchemy.orm.attributes import History
 from sqlalchemy.orm.interfaces import MapperProperty
@@ -32,7 +33,6 @@ from n6lib.common_helpers import (
     DictWithSomeHooks,
     dump_condensed_debug_msg,
     make_condensed_debug_msg,
-    make_exc_ascii_str,
     make_hex_id,
 )
 from n6lib.const import (
@@ -53,43 +53,54 @@ LOGGER = get_logger(__name__)
 class AuditLog(object):
 
     """
-    Trace (using SQLAlchemy hooks) and log changes in the Auth DB.
+    Trace and log changes -- insertions, updates and deletions -- that
+    are applied to the content of Auth DB.
 
     Constructor kwargs:
 
         `session_factory` (required):
-            An argumentless callable that, when called, produces an
+            An argumentless callable that, whenever called, produces an
             instance of an `sqlalchemy.orm.session.Session` subclass
-            specific to this particular `session_factory` object (not
-            of the `sqlalchemy.orm.session.Session` class itself). A
-            typical instance of `sqlalchemy.orm.session.sessionmaker`
-            or `sqlalchemy.orm.scoped_session` is a good candidate for
-            `session_factory`.
+            which is specific to this particular `session_factory`
+            object (i.e., a produced instance is not just an instance
+            of the `sqlalchemy.orm.session.Session` class itself). The
+            callable must be the same object that produces real sessions
+            used to make changes in the Auth DB that are to be traced
+            and logged. (Typically, the callable is an instance of
+            `sqlalchemy.orm.session.sessionmaker` or
+            `sqlalchemy.orm.scoped_session`.)
 
         `external_meta_items_getter` (required):
             An argumentless callable that, when called, returns a
-            JSON-able dict (or equivalent iterable of key-value pairs)
-            whose items will be added to the `meta` subdict of each
-            emitted Audit Log entry. They should, in particular, carry
-            information identifying the user, component or client that
-            (in the context of a particular session/HTTP request/etc.)
-            ordered or triggered the (currently being logged) changes
-            in the Auth DB.
+            JSON-serializable dict (or an equivalent iterable of
+            key-value pairs) whose items will be added to the `meta`
+            subdict of emitted Audit Log entries. Those items should,
+            in particular, carry information identifying the user,
+            component or client that (in the context of a particular
+            session/HTTP request/etc.) ordered or triggered the
+            (currently being logged) changes in the Auth DB.
 
         `logger` (optional):
             If given, it should specify (by name or by instance) the
             logger to be used to emit Audit Log entries (they will be
             emitted using the logger's `info()` method). If not given,
             the default logger, specified by the `DEFAULT_LOGGER_NAME`
-            class attribute, will be used.
+            attribute of the `AuditLog` class, will be used.
 
     Some notes:
 
-    * Supported operations (*insert*, *update* and *delete*) are logged
-      only if they have been committed successfully.
+    * A Database operation is logged only if it has been successfully
+      committed.
 
-    * The *bulk update* and *bulk delete* operations are explicitly
-      forbidden -- they cause `RuntimeError`.
+    * The **only** supported database operations are ORM-based inserts,
+      updates and deletes of singular objects (records). Data modifying
+      *bulk* operations are **not** supported, so they should **never**
+      be performed on the Auth DB. In particular, `<query>.update(...)`
+      and `<query>.delete(...)` are explicitly forbidden: they cause
+      `RuntimeError`. Other *bulk* operations -- such as `<session>.
+      bulk_save_objects(...)`, `<session>.insert_mappings(...)` or
+      `<session>.update_mappings(...)` -- also should **never** be
+      performed, even if they do not cause explicit errors.
 
     * Each log entry is a JSON-formatted single-line string whose
       content (when deserialized with `json.loads()`) is a dictionary
@@ -99,30 +110,31 @@ class AuditLog(object):
       {
           'changed_attrs' {
               'actual_name': 'Foo Bar Example Spam',
-              'org_id': 'org.example.info',
-              'org_id.old': 'spam.example.com',
               'full_access': True,
               'full_access.old': False,
               'inside_subsources: [
                   {
                       'pk': {'id': 123},
-                      'py_repr': "<Subsource: id=123, label=u'foo', source_id=u'some.src'>",
+                      'py_repr': "<Subsource: id=123, label='foo', source_id='some.src'>",
                       'table': 'subsource',
                   },
                   {
                       'pk': {'id': 456},
-                      'py_repr': "<Subsource: id=456, label=u'bar', source_id=u'another.source'>",
+                      'py_repr': "<Subsource: id=456, label='bar', source_id='another.source'>",
                       'table': 'subsource',
                   },
               ],
+              'inside_subsources.old: [],
               'threats_subsources: [],
               'threats_subsources.old: [
                   {
                       'pk': {'id': 123},
-                      'py_repr': "<Subsource: id=123, label=u'foo', source_id=u'some.src'>",
+                      'py_repr': "<Subsource: id=123, label='foo', source_id='some.src'>",
                       'table': 'subsource',
                   },
               ],
+              'org_id': 'org.example.info',
+              'org_id.old': 'spam.example.com',
           },
           'meta': {
               'commit_tag': '2019-12-30T17:50:03.000123Z#9b40092c8511',
@@ -136,7 +148,7 @@ class AuditLog(object):
           },
           'operation': 'update',
           'pk': {'org_id': 'org.example.info'},
-          'py_repr': "<Org org_id=u'org.example.info'>",
+          'py_repr': "<Org org_id='org.example.info'>",
           'table': 'org',
       }
       ```
@@ -163,11 +175,20 @@ class AuditLog(object):
 
     def _get_logger_obj(self, logger):
         return (get_logger(self.DEFAULT_LOGGER_NAME) if logger is None
-                else (get_logger(logger) if isinstance(logger, basestring)
+                else (get_logger(logger) if isinstance(logger, str)
                       else logger))
 
     def _get_relevant_session_type(self, session_factory):
         detected_session_type = type(session_factory())
+        if isinstance(session_factory, scoped_session):
+            # Because we just obtained a session object by calling a
+            # `scoped_session` factory, now we need to ensure that the
+            # obtained session will not stay as the active session in
+            # the current scope (thread), so that the first session
+            # object obtained in the same scope (thread) by application
+            # code will be a *new* session (and, thanks to that, all
+            # appropriate event handlers will be then properly called).
+            session_factory.remove()
         if detected_session_type is not Session and issubclass(detected_session_type, Session):
             return detected_session_type
         else:
@@ -175,21 +196,26 @@ class AuditLog(object):
                 '`session_factory` needs to be an object that, when '
                 'called, returns a session object whose type is *not* '
                 '`sqlalchemy.orm.session.Session` but *is* a (direct '
-                'or indirect) subclass of it. We insist on that '
-                'because then such sessions can be distinguished from '
-                'any other sessions; so that, when it comes to event '
-                'handling, *only* events from sessions of "our" type '
-                'are considered. Hint: a typical *instance* of '
-                '`sqlalchemy.orm.session.sessionmaker` (or of '
-                '`sqlalchemy.orm.scoped_session`), when called, '
-                'produces sessions of a type (being a subclass of '
-                '`Session`) specific to that instance; so such an '
-                'instance meets the above requirement out-of-the-box. '
+                'or indirect) subclass of it. Note: the Audit Log\'s '
+                'machinery assumes that: 1) that subclass is specific '
+                'to this particular `session_factory` object; 2) the '
+                'object is *the one* that is really used to produce '
+                'sessions which are used to modify the content of the '
+                'Auth DB. We insist on that because then such sessions '
+                'can be easily distinguished from any other sessions; '
+                'so that, when it comes to event handling, *only* '
+                'events from sessions that have been made by "our" '
+                'factory are considered by the Audit Log machinery. '
+                '(Typically, `session_factory` is an instance of '
+                '`sqlalchemy.orm.session.sessionmaker` or of '
+                '`sqlalchemy.orm.scoped_session`; note that such an '
+                'instance, when called, produces a session whose type '
+                'is the `Session` subclass specific to that instance.) '
                 'TL;DR: don\'t know what `session_factory` should be? '
-                'Use an instance of `sessionmaker` or an instance of '
-                '`scoped_session` (of course, the one that is really '
-                'used to produce sessions to be used to modify the '
-                'content of Auth DB.')
+                'Use the same instance of `sessionmaker` (or of '
+                '`scoped_session`) that produces sessions used to make '
+                'changes in the Auth DB that you want to be logged by '
+                'the Audit Log machinery.')
 
     def _register_event_handlers(self):
         session_type = self._relevant_session_type
@@ -205,13 +231,13 @@ class AuditLog(object):
     def _register_event_handlers_for_unsupported_operations(self):
         # Let's ensure that the *bulk delete* and *bulk update*
         # operations -- which cannot be easily tracked, so should not
-        # be used at all with Auth DB -- will not pass unnoticed, but
-        # will cause an explicit error.
+        # be used at all with the Auth DB -- will not pass unnoticed,
+        # but will cause an explicit error.
         session_type = self._relevant_session_type
         event.listen(session_type, 'after_bulk_delete', self._after_bulk_delete)
         event.listen(session_type, 'after_bulk_update', self._after_bulk_update)
 
-    # * Handlers of SQLAlchemy ORM events:
+    # * Handling SQLAlchemy ORM events:
 
     def _after_transaction_create(self, session, transaction):
         assert isinstance(session, self._relevant_session_type)
@@ -259,7 +285,7 @@ class AuditLog(object):
             'strange: has the `after_commit` event been triggered '
             'for a transaction that is *neither* the outermost one '
             '*nor* a nested savepoint one? (this should not happen!)')
-        self._move_entry_builders_to_nearest_real_ancestor_of(transaction)
+        self._move_stored_entry_builders_to_nearest_real_ancestor_transaction(transaction)
 
     def _after_transaction_end(self, session, transaction):
         assert isinstance(session, self._relevant_session_type)
@@ -268,11 +294,11 @@ class AuditLog(object):
 
     def _after_bulk_delete(self, delete_context):
         assert isinstance(delete_context.session, self._relevant_session_type)
-        raise RuntimeError('bulk deletes are not supported by {!r}'.format(self))
+        raise RuntimeError('bulk deletes are not supported by {!a}'.format(self))
 
     def _after_bulk_update(self, update_context):
         assert isinstance(update_context.session, self._relevant_session_type)
-        raise RuntimeError('bulk updates are not supported by {!r}'.format(self))
+        raise RuntimeError('bulk updates are not supported by {!a}'.format(self))
 
     # * Preloading values/histories of model instance attributes:
 
@@ -299,8 +325,8 @@ class AuditLog(object):
         model_instance_wrapper = _ModelInstanceWrapper(model_instance)
         if not model_instance_wrapper.is_mapper_same_as(mapper):
             raise NotImplementedError(
-                'The given mapper object {!r} is not the mapper of the '
-                'model instance {!r}. Do you use some advanced or hackish '
+                'The given mapper object {!a} is not the mapper of the '
+                'model instance {!a}. Do you use some advanced or hackish '
                 'techniques that could cause so? Then you need to adjust '
                 'the implementation appropriately... But do we really need '
                 'that?! Let\'s keep things simple!'.format(
@@ -398,7 +424,7 @@ class AuditLog(object):
         assert isinstance(transaction, SessionTransaction)
         entry_builders = getattr(transaction, self._ENTRY_BUILDERS_ATTR_NAME, None)
         assert isinstance(entry_builders, list), (
-            'the given transaction object does *not* have the {!r} '
+            'the given transaction object does *not* have the {!a} '
             'attribute set to a list'.format(self._ENTRY_BUILDERS_ATTR_NAME))
         if entry_builders:
             assert self._is_real_transaction(transaction)
@@ -415,9 +441,8 @@ class AuditLog(object):
         entry_builders = self._get_entry_builders_list_from(current_real_transaction)
         entry_builders.append(builder)
 
-    def _move_entry_builders_to_nearest_real_ancestor_of(self, source_transaction):
-        source_parent_transaction = self._get_parent_of(source_transaction)
-        target_transaction = self._search_for_nearest_real_transaction(source_parent_transaction)
+    def _move_stored_entry_builders_to_nearest_real_ancestor_transaction(self, source_transaction):
+        target_transaction = self._search_for_nearest_real_transaction(source_transaction.parent)
         self._move_entry_builders(source_transaction, target_transaction)
 
     def _move_entry_builders(self, source_transaction, target_transaction):
@@ -440,7 +465,7 @@ class AuditLog(object):
         return current_transaction
 
     def _is_real_transaction(self, transaction):
-        return isinstance(transaction, SessionTransaction) and (
+        return (
             self._does_represent_nested_db_savepoint(transaction) or
             self._does_represent_actual_db_transaction(transaction))
 
@@ -450,16 +475,7 @@ class AuditLog(object):
     def _does_represent_actual_db_transaction(self, transaction):
         # In other words: "Is it -- in the stack of
         # transaction objects -- the outermost one?".
-        return self._get_parent_of(transaction) is None
-
-    def _get_parent_of(self, transaction):
-        # Note: using the `_parent` attribute of a `SessionTransaction`
-        # object is officially documented as a workaround -- acceptable
-        # when using versions of SQLAlchemy older than the version
-        # 1.0.16 (which introduced the `parent` public attribute; see:
-        # https://docs.sqlalchemy.org/en/latest/orm/session_api.html#sqlalchemy.orm.session.SessionTransaction.parent).
-        # noinspection PyProtectedMember
-        return transaction._parent
+        return transaction.parent is None
 
     def _search_for_nearest_real_transaction(self, transaction):
         # Let's walk through the stack of `SessionTransaction` objects
@@ -475,16 +491,10 @@ class AuditLog(object):
         # constructs).
         while True:
             assert isinstance(transaction, SessionTransaction)
-            if self._does_represent_nested_db_savepoint(transaction):
-                break
-            parent_transaction = self._get_parent_of(transaction)
-            if parent_transaction is None:
-                break
-            assert not self._is_real_transaction(transaction)
+            if self._is_real_transaction(transaction):
+                return transaction
             assert self._get_entry_builders_list_from(transaction) == []
-            transaction = parent_transaction
-        assert self._is_real_transaction(transaction)
-        return transaction
+            transaction = transaction.parent
 
 
 class _ModelInstanceWrapper(object):
@@ -501,7 +511,7 @@ class _ModelInstanceWrapper(object):
 
     def __init__(self, model_instance):
         if not isinstance(model_instance, Base):
-            raise TypeError('{!r} is not an instance of {!r}'.format(model_instance, Base))
+            raise TypeError('{!a} is not an instance of {!a}'.format(model_instance, Base))
         self._model_instance = model_instance
         self._mapper = model_instance.__class__.__mapper__
         assert isinstance(self._mapper, Mapper)
@@ -539,7 +549,7 @@ class _ModelInstanceWrapper(object):
         return {
             'table': self._get_table_name(),
             'pk': dict(self._iter_pk_attrs()),
-            'py_repr': repr(self._model_instance),
+            'py_repr': ascii(self._model_instance),
         }
 
     def iter_nonvoid_attrs(self):
@@ -566,7 +576,7 @@ class _ModelInstanceWrapper(object):
 
     def __repr__(self):
         return '{class_name}({model_instance!r})'.format(
-            class_name=self.__class__.__name__,
+            class_name=self.__class__.__qualname__,
             model_instance=self._model_instance)
 
     #
@@ -595,15 +605,7 @@ class _ModelInstanceWrapper(object):
             assert (isinstance(self_state, InstanceState) and
                     isinstance(other_state, InstanceState))
             return self_state == other_state
-        return False
-
-    def __ne__(self, other):
-        return not (self == other)
-
-    # Because we have the equality test implemented (see:  `__eq__()`)
-    # and we don't need the hashability feature, let's be on a safe
-    # side and have this feature explicitly disabled.
-    __hash__ = None
+        return NotImplemented
 
     def _get_table_name(self):
         # type: () -> String
@@ -623,16 +625,7 @@ class _ModelInstanceWrapper(object):
         prop = self._mapper.get_property_by_column(column_obj)
         assert isinstance(prop, MapperProperty) and hasattr(prop, 'key')
         attr_name = prop.key
-        if attr_name != column_obj.name:
-            raise NotImplementedError(
-                'The property key (model attribute name) {!r} is not equal '
-                'to the corresponding database column name {!r}. SQLAlchemy '
-                'supports such cases but n6\'s Auth DB and Audit Log do not. '
-                'If you insist that such cases should be supported, you need '
-                'to implement all needed stuff (in particular, to make Audit '
-                'Log messages include information that attribute x refers '
-                'to column y...). But do we really need that?! Let\'s keep '
-                'things simple!'.format(attr_name, column_obj.name))
+        assert attr_name == column_obj.name  # (see `AuthDBCustomDeclarativeMeta`...)
         return attr_name
 
     def _iter_all_attr_name_state_pairs(self):
@@ -679,7 +672,7 @@ class _ModelInstanceWrapper(object):
         # type: (Any) -> None
         if not isinstance(collection, list):
             raise NotImplementedError(
-                '{!r} is *not* a list, and non-list collection attributes '
+                '{!a} is *not* a list, and non-list collection attributes '
                 'are *unsupported*. If you insist that they should be '
                 'supported, you need to adjust the implementation of Audit '
                 'Log appropriately. But do we really need that?! Let\'s '
@@ -710,17 +703,17 @@ class _ModelInstanceWrapper(object):
         if value is None:
             return None
         if name in self._HIDDEN_STRING_ATTR_NAMES:
-            if not isinstance(value, basestring):
+            if not isinstance(value, str):
                 raise TypeError(
-                    'any non-`None` value of the {!r} attribute of a '
+                    'any non-`None` value of the {!a} attribute of a '
                     'model instance is expected to be a string (got a '
-                    'value of the type {!r})'.format(name, type(value)))
+                    'value of the type {!a})'.format(name, type(value)))
             return self._HIDDEN_STRING_ATTR_VALUE_PLACEHOLDER
         if isinstance(value, _ModelInstanceWrapper):
             return value.get_identifying_data_dict()
         if isinstance(value, list):
             return [self._make_jsonable_from_attr_value(name, val) for val in value]
-        if isinstance(value, (basestring, bool, int, long, float)):
+        if isinstance(value, (str, bool, int, float)):
             return value
         if isinstance(value, datetime.datetime):
             return {'dt': value.isoformat()}
@@ -728,7 +721,7 @@ class _ModelInstanceWrapper(object):
             return {'d': value.isoformat()}
         if isinstance(value, datetime.time):
             return {'t': value.isoformat()}
-        return {'py_repr': repr(value)}
+        return {'py_repr': ascii(value)}
 
     _HIDDEN_STRING_ATTR_NAMES = frozenset({'password'})
     _HIDDEN_STRING_ATTR_VALUE_PLACEHOLDER = '***'
@@ -771,7 +764,7 @@ class _AuditLogEntryBuilder(DictWithSomeHooks):
         'update': {'changed_attrs'},
         'delete': set(),
     }
-    assert OPERATION_TO_REQUIRED_FINAL_KEYS.viewkeys() == VALID_OPERATIONS
+    assert OPERATION_TO_REQUIRED_FINAL_KEYS.keys() == VALID_OPERATIONS
 
     # * helper useful when populating with items:
 
@@ -798,15 +791,15 @@ class _AuditLogEntryBuilder(DictWithSomeHooks):
         missing_keys = required_keys.difference(self)
         if missing_keys:
             raise ValueError('the following required keys are missing: {}'.format(
-                ', '.join(map(repr, sorted(missing_keys)))))
+                ', '.join(map(ascii, sorted(missing_keys)))))
 
     def _verify_and_get_operation(self):
         key = 'operation'
         try:
             operation = self[key]
         except KeyError:
-            raise ValueError('the required key {!r} is missing'.format(key))
+            raise ValueError('the required key {!a} is missing'.format(key))
         if operation not in self.VALID_OPERATIONS:
-            raise ValueError('{}={!r} is not valid'.format(key, operation))
+            raise ValueError('{}={!a} is not valid'.format(key, operation))
         assert operation in self.OPERATION_TO_REQUIRED_FINAL_KEYS
         return operation

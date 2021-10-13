@@ -22,7 +22,7 @@ class _DenyAccess(Exception):
 
     def __init__(self, error_log_message=None):
         super(_DenyAccess, self).__init__(error_log_message)
-        self.error_log_message = None
+        self.error_log_message = error_log_message
 
 
 class _N6BrokerAuthViewBase(SingleParamValuesViewMixin, AbstractViewBase):
@@ -40,7 +40,7 @@ class _N6BrokerAuthViewBase(SingleParamValuesViewMixin, AbstractViewBase):
             try:
                 return super(_N6BrokerAuthViewBase, self).__call__()
             except ParamCleaningError as exc:
-                raise _DenyAccess(error_log_message = exc.public_message)
+                raise _DenyAccess(error_log_message=exc.public_message)
         except _DenyAccess as deny_exc:
             if deny_exc.error_log_message:
                 self._log(logging.ERROR, deny_exc.error_log_message)
@@ -85,13 +85,13 @@ class _N6BrokerAuthViewBase(SingleParamValuesViewMixin, AbstractViewBase):
                 if required}
 
     def allow_response(self):
-        return self.plain_text_response('allow')
+        return self.text_response('allow')
 
     def allow_administrator_response(self):
-        return self.plain_text_response('allow administrator')
+        return self.text_response('allow administrator')
 
     def deny_response(self):
-        return self.plain_text_response('deny')
+        return self.text_response('deny')
 
     def safe_name(self, name):
         return "'{}'".format(ascii_str(name))

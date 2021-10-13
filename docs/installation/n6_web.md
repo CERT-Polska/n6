@@ -1,5 +1,8 @@
 # HTTP Services
 
+**TBD: the following description needs an update regarding the
+components that now work under Python 3.9.**
+
 > **Note**: to complete any of the steps described below you need to have:
 >
 > * installed the relevant *n6* component(s); see: section [Installation of n6 components](n6_core.md)
@@ -119,7 +122,7 @@ Copy and replace `config.json` in `N6Portal/gui/src/config/`:
 (env)$ cp -f /home/dataman/n6/etc/web/conf/gui-config.json /home/dataman/n6/N6Portal/gui/src/config/config.json
 ```
 
-### GUI customization
+### GUI customization [at least some parts are to be deprecated]
 
 #### Customize the text of registration terms
 
@@ -148,7 +151,7 @@ A feature to allow to choose custom languages, or keep one language only, is to 
 Right now, if you do not need Polish localization, you can for example edit out the
 language-switching buttons.
 
-### Deployment
+### Deployment [at least some parts are to be deprecated]
 
 Install dependencies and build GUI application:
 
@@ -178,7 +181,7 @@ $ systemctl restart apache2
 The *n6* Portal should be accessible via `https://server_IP_or_FQDN/`
 (where `server_IP_or_FQDN` is the address of your Apache server).
 
-### Troubleshooting
+### Troubleshooting [at least some parts are to be deprecated]
 
 **[ERROR]: Certificate not found. Add it in the browser to log in**
 

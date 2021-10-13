@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import datetime
 import hashlib
@@ -17,24 +17,22 @@ from unittest_expander import (
     expand,
     foreach,
     param,
+    paramseq,
 )
 
-from n6lib.common_helpers import SimpleNamespace
+from n6corelib.email_message import ReceivedEmailMessage
+from n6lib.common_helpers import PlainNamespace
 from n6lib.config import (
     ConfigError,
     ConfigSection,
 )
-from n6lib.csv_helpers import split_csv_row
-from n6lib.email_message import EmailMessage
-from n6lib.unit_test_helpers import (
-    AnyDictIncluding,
-    patch_always,
-)
+from n6lib.csv_helpers import extract_field_from_csv_row
+from n6lib.unit_test_helpers import patch_always
 from n6.base.queue import QueuedBase
 from n6.collectors.generic import (
     BaseCollector,
-    BaseOneShotCollector,
     BaseEmailSourceCollector,
+    BaseOneShotCollector,
     BaseTimeOrderedRowsCollector,
     BaseUrlDownloaderCollector,
 )
@@ -59,7 +57,7 @@ MOCKED_CONFIG = {
         'some_opt': '[{"a": "bcd"}]',
     },
 }
-MOCKED_SUPER_CLS = SimpleNamespace(__init__=Mock())
+MOCKED_SUPER_CLS = PlainNamespace(__init__=Mock())
 SAMPLE_EMAIL_MESSAGE = sentinel.email_msg
 SAMPLE_INPUT_DATA = sentinel.input_data
 SAMPLE_MESSAGE_ID = sentinel.message_id
@@ -441,7 +439,7 @@ class TestBaseCollector(unittest.TestCase):
 
     def test__get_output_message_id(self):
         source = 'my_src_label.my_src_channel'
-        created_timestamp = int(1234.56789098765432)
+        created_timestamp = 1234
         created_timestamp_str = '1234'
         output_data_body = '1234'
         mock = Mock(__class__=BaseCollector)
@@ -463,7 +461,7 @@ class TestBaseOneShotCollector(unittest.TestCase):
         self.assertTrue(issubclass(BaseOneShotCollector, BaseCollector))
 
     def test__init(self):
-        super_cls_mock = SimpleNamespace(__init__=Mock())
+        super_cls_mock = PlainNamespace(__init__=Mock())
         with patch_always('n6.collectors.generic.super',
                           return_value=super_cls_mock) as super_mock:
             # instantiation
@@ -524,7 +522,7 @@ class TestBaseEmailSourceCollector(unittest.TestCase):
                          {'input_data':
                           {'raw_email': sentinel.stdin_read_result}})
 
-    @patch.object(EmailMessage, 'from_string',
+    @patch.object(ReceivedEmailMessage, 'from_string',
                   return_value=SAMPLE_EMAIL_MESSAGE)
     def test__process_input_data(self, EM_from_string_mock):
         mock = Mock(__class__=BaseEmailSourceCollector)
@@ -606,7 +604,8 @@ class TestBaseUrlDownloaderCollector___try_to_set_http_last_modified(unittest.Te
                          expected__http_last_modified)
 
 
-class TestXXX(_BaseCollectorTestCase):
+@expand
+class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
 
     class ExampleTimeOrderedRowsCollector(BaseTimeOrderedRowsCollector):
 
@@ -616,89 +615,711 @@ class TestXXX(_BaseCollectorTestCase):
             cache_dir :: str
         '''
 
-        example_orig_data = None  # to be set on instance by test code...
+        example_orig_data = None  # to be set on instance by test code
 
         def obtain_orig_data(self):
             return self.example_orig_data
 
-        def clean_row_time(self, raw_row_time):
-            return raw_row_time.strip().strip('"')
+        def pick_raw_row_time(self, row):
+            return extract_field_from_csv_row(row, column_index=1)
 
-        def extract_raw_row_time(self, row):
-            fields = split_csv_row(row)
-            return fields[1].strip()
+        def clean_row_time(self, raw_row_time):
+            return raw_row_time
 
         def get_source_channel(self, **kwargs):
             return 'my-channel'
 
-        # XXX: to be removed (rather...)
-        def get_output_prop_kwargs(self, **kwargs):
-            output_prop_kwargs = super(TestXXX.ExampleTimeOrderedRowsCollector,
-                                       self).get_output_prop_kwargs(**kwargs)
-            output_prop_kwargs['headers'].setdefault('meta', {})['proba'] = '123'
-            return output_prop_kwargs
-
-
-    def test(self):
-        config_content = '''
-            [xyz_my_channel]
-            source = xyz
-            cache_dir = /who/cares
-        '''
-        initial_state = {
-            'newest_row_time': '2019-07-02',
-            'newest_rows': {'"sss", "2019-07-02"'},
-        }
-        orig_data = (
-            '# halo, mówię...\n'
-            '"ham", "2019-07-11"\n'
-            '"spam", "2019-07-11"\n'
-            '\t\n'
-            '"zzz", "2019-07-10"\n'
-            '"egg", "2019-07-02"\n'
-            '"sss", "2019-07-02"\n'
-            '\n'
-            '"bar", "2019-07-01"\n'
-            '"foo", "2019-06-30"\n'
-        )
-        expected_publish_output_calls = [
-            call(
-                # routing_key
-                'xyz.my-channel',
-
-                # body
-                (
-                    '"ham", "2019-07-11"\n'
-                    '"spam", "2019-07-11"\n'
-                    '"zzz", "2019-07-10"\n'
-                    '"egg", "2019-07-02"'
-                ),
-
-                # prop_kwargs
-                {
-                    'timestamp': ANY,
-                    'message_id': ANY,
-                    'type': 'file',
-                    'content_type': 'text/csv',
-                    'headers': AnyDictIncluding(**{
-                        'meta': {
-                            'proba': '123',
-                        }
-                    }),
-                },
+    @paramseq
+    def cases():
+        yield param(
+            # Initial state (one row)
+            # and expected saved state (one row)
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-10',
+                'newest_rows': {'"zzz","2019-07-10"'},
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"ham","2019-07-13"\n'
+                '\t\n'
+                '"spam","2019-07-11"\n'
+                '"zzz","2019-07-10"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
             ),
-        ]
-        expected_saved_state = {
-            'newest_row_time': '2019-07-11',
-            'newest_rows': {'"ham", "2019-07-11"', '"spam", "2019-07-11"'},
-        }
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
 
+                    # body
+                    (
+                        '"ham","2019-07-13"\n'
+                        '"spam","2019-07-11"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-13',
+                'newest_rows': {'"ham","2019-07-13"'},
+            }
+        )
+
+        yield param(
+            # Mostly the same as the first test case, but instead
+            # of `date/time-based` order we have ids (just to show that
+            # it might work in the same way as with `date/time-based`
+            # order)
+            # ---
+            # Initial state (one row)
+            # and expected saved state (one row)
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '5',
+                'newest_rows': {'"zzz","5"'},
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"ham","7"\n'
+                '\t\n'
+                '"spam","6"\n'
+                '"zzz","5"\n'
+                '"egg","4"\n'
+                '"sss","3"\n'
+                '\n'
+                '"bar","2"\n'
+                '"foo","1"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"ham","7"\n'
+                        '"spam","6"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '7',
+                'newest_rows': {'"ham","7"'},
+            }
+        )
+
+        yield param(
+            # Initial state (one row) and
+            # expected saved state (two rows)
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"ham","2019-07-11"\n'
+                '\t\n'
+                '"spam","2019-07-11"\n'
+                '"zzz","2019-07-10"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"ham","2019-07-11"\n'
+                        '"spam","2019-07-11"\n'
+                        '"zzz","2019-07-10"\n'
+                        '"egg","2019-07-02"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-11',
+                'newest_rows': {
+                    '"ham","2019-07-11"',
+                    '"spam","2019-07-11"'
+                },
+            }
+        )
+
+        yield param(
+            # Initial state (one row) but without expected saved state
+            # (no new data)
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-10',
+                'newest_rows': {'"zzz","2019-07-10"'},
+            },
+            orig_data=(
+                '"zzz","2019-07-10"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[],
+            expected_saved_state=sentinel.NO_STATE)
+
+        yield param(
+            # Initial state (two rows)
+            # and expected saved state (one row)
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-10',
+                'newest_rows': {
+                    '"spam","2019-07-10"',
+                    '"zzz","2019-07-10"'
+                },
+            },
+            orig_data=(
+                '"ham","2019-07-11"\n'
+                '"spam","2019-07-10"\n'
+                '"zzz","2019-07-10"\n'
+                '\t\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"ham","2019-07-11"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-11',
+                'newest_rows': {
+                    '"ham","2019-07-11"'
+                },
+            }
+        )
+
+        yield param(
+            # Initial state (two rows) and
+            # expected saved state (also two rows)
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {
+                    '"sss","2019-07-02"',
+                    '"egg","2019-07-02"'
+                },
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"ham","2019-07-11"\n'
+                '"spam","2019-07-11"\n'
+                '\t\n'
+                '"zzz","2019-07-02"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"ham","2019-07-11"\n'
+                        '"spam","2019-07-11"\n'
+                        '"zzz","2019-07-02"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-11',
+                'newest_rows': {
+                    '"ham","2019-07-11"',
+                    '"spam","2019-07-11"'
+                },
+            }
+        )
+
+        yield param(
+            # Initial state (two rows)
+            # but without expected saved state
+            # (no new data)
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {
+                    '"sss","2019-07-02"',
+                    '"egg","2019-07-02"'
+                },
+            },
+            orig_data=(
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[],
+            expected_saved_state=sentinel.NO_STATE)
+
+        yield param(
+            # Without initial state but with expected saved state
+            # (e.g.first run) - one row
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state=sentinel.NO_STATE,
+            orig_data=(
+                '"zzz","2019-07-10"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"zzz","2019-07-10"\n'
+                        '"egg","2019-07-02"\n'
+                        '"sss","2019-07-02"\n'
+                        '"bar","2019-07-01"\n'
+                        '"foo","2019-06-30"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-10',
+                'newest_rows': {'"zzz","2019-07-10"'},
+            }
+        )
+
+        yield param(
+            # Without initial state but with expected saved state
+            # (e.g.first run) - two rows
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state=sentinel.NO_STATE,
+            orig_data=(
+                '"zzz","2019-07-10"\n'
+                '"egg","2019-07-10"\n'
+                '"sss","2019-07-02"\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"zzz","2019-07-10"\n'
+                        '"egg","2019-07-10"\n'
+                        '"sss","2019-07-02"\n'
+                        '"bar","2019-07-01"\n'
+                        '"foo","2019-06-30"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-10',
+                'newest_rows': {
+                    '"zzz","2019-07-10"',
+                    '"egg","2019-07-10"'
+                },
+            }
+        )
+
+        yield param(
+            # Without initial state (e.g. first run) and without
+            # expected saved state (no data at all - just empty string)
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state=sentinel.NO_STATE,
+            orig_data='',
+            expected_publish_output_calls=[],
+            expected_saved_state=sentinel.NO_STATE)
+
+        yield param(
+            # Initial state one row, another row with the same date
+            # in orig data - we expect to get this row
+            # Expected saved state - old row + new row
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"egg","2019-07-02"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {
+                    '"egg","2019-07-02"',
+                    '"sss","2019-07-02"'
+                },
+            }
+        )
+
+        yield param(
+            # Initial state one row, orig data consists of two
+            # additional (new) rows with the same date as "state row"
+            # - we expect to get only these two new rows
+            # Expected saved state - old row + new row
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"ham","2019-07-02"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"ham","2019-07-02"\n'
+                        '"egg","2019-07-02"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {
+                    '"egg","2019-07-02"',
+                    '"sss","2019-07-02"',
+                    '"ham","2019-07-02"'
+                },
+            }
+        )
+
+        yield param(
+            # Initial state two rows, orig data consists of one
+            # additional (new) row with the same date as "state row"
+            # - we expect to get only this new row
+            # Expected saved state - old rows + new row
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {
+                    '"egg","2019-07-02"',
+                    '"sss","2019-07-02"'
+                },
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"ham","2019-07-02"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"ham","2019-07-02"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {
+                    '"egg","2019-07-02"',
+                    '"sss","2019-07-02"',
+                    '"ham","2019-07-02"'
+                },
+            }
+        )
+
+        yield param(
+            # Initial state one row, another row with the same date
+            # in orig data - we expect to get this row
+            # Expected state: new row (different, later date)
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"zzz","2019-07-10"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"zzz","2019-07-10"\n'
+                        '"egg","2019-07-02"'
+                    ),
+
+                    # prop_kwargs
+                    {
+                        'timestamp': ANY,
+                        'message_id': ANY,
+                        'type': 'file',
+                        'content_type': 'text/csv',
+                        'headers': ANY,
+                    },
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-10',
+                'newest_rows': {'"zzz","2019-07-10"'},
+            }
+        )
+
+        yield param(
+            # Order of rows does not satisfy our requirements (data
+            # from source is not sorted, `older` rows are mixed with
+            # newer -- see `BaseTimeOrderedRowsCollector`'s
+            # documentation, for more details.
+            # We expect to obtain ValueError.
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-10',
+                'newest_rows': {'"zzz","2019-07-10"'},
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"spam","2019-07-11"\n'
+                '"ham","2019-07-13"\n'
+                '\t\n'
+                '"zzz","2019-07-10"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=None,
+            expected_saved_state=None,
+            expected_error=ValueError
+        )
+
+    @foreach(cases)
+    def test(self,
+             config_content,
+             initial_state,
+             orig_data,
+             expected_publish_output_calls,
+             expected_saved_state,
+             expected_error=None):
         collector = self.prepare_collector(self.ExampleTimeOrderedRowsCollector,
                                            config_content=config_content,
                                            initial_state=initial_state)
         collector.example_orig_data = orig_data
-
-        collector.run_handling()
-
-        self.assertEqual(self.publish_output_mock.mock_calls, expected_publish_output_calls)
-        self.assertEqual(self.saved_state, expected_saved_state)
+        if expected_error:
+            with self.assertRaises(expected_error):
+                collector.run_handling()
+        else:
+            collector.run_handling()
+            self.assertEqual(self.publish_output_mock.mock_calls, expected_publish_output_calls)
+            self.assertEqual(self.saved_state, expected_saved_state)

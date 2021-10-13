@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
+import collections.abc as collections_abc
 import copy
-import cPickle
+import pickle
 import datetime
 import itertools
 import operator
@@ -12,9 +11,8 @@ import random
 import re
 import sys
 import unittest
-from UserDict import IterableUserDict
-
-from mock import (
+from collections import UserDict
+from unittest.mock import (
     MagicMock,
     Mock,
     call,
@@ -23,7 +21,12 @@ from mock import (
 )
 
 from n6lib.class_helpers import AsciiMixIn
-from n6lib.common_helpers import CIDict, picklable
+from n6lib.common_helpers import (
+    CIDict,
+    as_bytes,
+    as_unicode,
+    picklable,
+)
 from n6lib.const import (
     CATEGORY_ENUMS,
     CONFIDENCE_ENUMS,
@@ -60,7 +63,7 @@ from n6lib.record_dict import (
     # generic and auxiliary adjusters:
     rd_adjuster,
     unicode_adjuster,
-    unicode_surrogateescape_adjuster,
+    unicode_surrogate_pass_and_esc_adjuster,
     ipv4_preadjuster,
     url_preadjuster,
 
@@ -156,26 +159,50 @@ class TestAdjusterFactories(unittest.TestCase):
         with self.assertRaises(TypeError):
             adj(sen.self, 2.0)
 
-    def test__ensure_validates_by_regexp__with_re_pattern(self):
-        adj = ensure_validates_by_regexp('456')
-        self._test_regexp_validation(adj)
+    def test__ensure_validates_by_regexp__with_re_pattern_str(self):
+        adj = ensure_validates_by_regexp(u'456')
+        self._test_regexp_validation_str(adj)
 
-    def test__ensure_validates_by_regexp__with_re_compiled(self):
-        adj = ensure_validates_by_regexp(re.compile('456'))
-        self._test_regexp_validation(adj)
+    def test__ensure_validates_by_regexp__with_re_compiled_str(self):
+        adj = ensure_validates_by_regexp(re.compile(u'456'))
+        self._test_regexp_validation_str(adj)
 
-    def _test_regexp_validation(self, adj):
-        result = adj(sen.self, '123456789')
-        self.assertEqual(result, '123456789')
+    def _test_regexp_validation_str(self, adj):
         result = adj(sen.self, u'123456789')
         self.assertEqual(result, u'123456789')
         with self.assertRaises(ValueError):
-            adj(sen.self, '56789')
+            adj(sen.self, u'56789')
         with self.assertRaises(TypeError):
             adj(sen.self, 56789)
+        with self.assertRaises(TypeError):
+            adj(sen.self, b'123456789')
+        with self.assertRaises(TypeError):
+            adj(sen.self, bytearray(b'123456789'))
+
+    def test__ensure_validates_by_regexp__with_re_pattern_bytes(self):
+        adj = ensure_validates_by_regexp(b'456')
+        self._test_regexp_validation_bytes(adj)
+
+    def test__ensure_validates_by_regexp__with_re_compiled_bytes(self):
+        adj = ensure_validates_by_regexp(re.compile(b'456'))
+        self._test_regexp_validation_bytes(adj)
+
+    def _test_regexp_validation_bytes(self, adj):
+        result = adj(sen.self, b'123456789')
+        self.assertEqual(result, b'123456789')
+        ba = bytearray(b'123456789')
+        result = adj(sen.self, ba)
+        self.assertIs(result, ba)
+        with self.assertRaises(ValueError):
+            adj(sen.self, b'56789')
+        with self.assertRaises(TypeError):
+            adj(sen.self, 56789)
+        with self.assertRaises(TypeError):
+            adj(sen.self, u'123456789')
 
     def test__make_adjuster_using_data_spec__mocked_field__not_too_long(self):
         rd_mock = MagicMock()
+        rd_mock.data_spec.foo.sensitive = False
         rd_mock.data_spec.foo.clean_result_value.return_value = sen.result
         adj = make_adjuster_using_data_spec('foo')
         result = adj(rd_mock, sen.input)
@@ -190,6 +217,7 @@ class TestAdjusterFactories(unittest.TestCase):
             dict(on_too_long=None),
         ]:
             rd_mock = MagicMock()
+            rd_mock.data_spec.foo.sensitive = False
             rd_mock.data_spec.foo.clean_result_value.side_effect = FieldValueTooLongError(
                 field=sen.x,
                 checked_value=sen.y,
@@ -209,6 +237,7 @@ class TestAdjusterFactories(unittest.TestCase):
             checked_value=sen.input_from_exc,
             max_length=17)
         rd_mock = MagicMock()
+        rd_mock.data_spec.foo.sensitive = False
         rd_mock.data_spec.foo.clean_result_value.side_effect = [clean_exc, sen.result]
         adj = make_adjuster_using_data_spec('foo', on_too_long=on_too_long_callable)
         with patch('n6lib.record_dict.LOGGER') as LOGGER_mock:
@@ -229,6 +258,7 @@ class TestAdjusterFactories(unittest.TestCase):
             checked_value=sen.input_from_exc,
             max_length=17)
         rd_mock = MagicMock()
+        rd_mock.data_spec.foo.sensitive = False
         rd_mock.data_spec.foo.clean_result_value.side_effect = [clean_exc, sen.result]
         adj = make_adjuster_using_data_spec('foo', on_too_long=on_too_long_callable)
         with patch('n6lib.record_dict.LOGGER') as LOGGER_mock:
@@ -248,12 +278,12 @@ class TestAdjusterFactories(unittest.TestCase):
         adj = make_adjuster_using_data_spec('source')
         result = adj(rd, '0123456789abcde.-edcba9876543210')
         self.assertEqual(result, u'0123456789abcde.-edcba9876543210')
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
         with self.assertRaises(FieldValueTooLongError):
             adj(rd, '0123456789abcde.-edcba9876543210' + 'a')
         result = adj(rd, 'x.y')
         self.assertEqual(result, u'x.y')
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
 
         # too_long=<a callable object>
         adj = make_adjuster_using_data_spec(
@@ -261,13 +291,13 @@ class TestAdjusterFactories(unittest.TestCase):
             on_too_long=lambda value, max_length: '{}.-long'.format(max_length))
         result = adj(rd, '0123456789abcde.-edcba9876543210' + 'a')
         self.assertEqual(result, u'32.-long')
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
         result = adj(rd, 'x.' + 'y' * 30)
         self.assertEqual(result, u'x.' + u'y' * 30)
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
         result = adj(rd, 'x.y')
         self.assertEqual(result, u'x.y')
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
 
     def test__make_adjuster_applying_value_method(self):
         adj = make_adjuster_applying_value_method('lower')
@@ -287,18 +317,18 @@ class TestAdjusterFactories(unittest.TestCase):
 
     def test__make_multiadjuster(self):
         adj = make_multiadjuster(chained(
-                ensure_isinstance(str),
+                ensure_isinstance(bytes),
                 make_adjuster_applying_value_method('lower')))
         # passing singular value
-        result = adj(sen.self, 'ABC')
-        self.assertEqual(result, ['abc'])
+        result = adj(sen.self, b'ABC')
+        self.assertEqual(result, [b'abc'])
         with self.assertRaises(TypeError):
             adj(sen.self, u'ABC')
         # passing sequence of values
-        result = adj(sen.self, ('ABC', 'DEF'))
-        self.assertEqual(result, ['abc', 'def'])
+        result = adj(sen.self, (b'ABC', b'DEF'))
+        self.assertEqual(result, [b'abc', b'def'])
         with self.assertRaises(TypeError):
-            adj(sen.self, ('ABC', u'DEF'))
+            adj(sen.self, (b'ABC', u'DEF'))
         # ...and with argumentless version:
         adj = make_multiadjuster()
         # passing singular value
@@ -322,6 +352,8 @@ class TestAdjusterFactories(unittest.TestCase):
         self.assertEqual(result, dict(foo=2, SPAM='bar', another=42.0))
         with self.assertRaises(ValueError):
             adj(sen.self, dict(foo=22222222, SPAM='BAR', another=42.0))
+        with self.assertRaises(TypeError):
+            adj(sen.self, dict(foo=2, SPAM=bytearray(b'BAR'), another=42.0))
         # passing not-a-dict
         with self.assertRaises(TypeError):
             adj(sen.self, [('foo', 2), ('SPAM', 'BAR'), ('another', 42.0)])
@@ -337,14 +369,17 @@ class TestGenericAdjusters(unittest.TestCase):
         self.assertEqual(result, rd)
 
     def test__unicode_adjuster(self):
-        # unicode unchanged
+        # str unchanged
         result = unicode_adjuster(sen.self, u'ąBć #')
         self.assertEqual(result, u'ąBć #')
-        self.assertIsInstance(result, unicode)
-        # UTF-8-encoded str -> unicode
-        result = unicode_adjuster(sen.self, 'ąBć #')
+        self.assertIsInstance(result, str)
+        # UTF-8-encoded bytes/bytearray -> str
+        result = unicode_adjuster(sen.self, u'ąBć #'.encode('utf-8'))
         self.assertEqual(result, u'ąBć #')
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
+        result = unicode_adjuster(sen.self, bytearray(u'ąBć #'.encode('utf-8')))
+        self.assertEqual(result, u'ąBć #')
+        self.assertIsInstance(result, str)
         # illegal (non-UTF-8-or-ASCII) encoding
         with self.assertRaises(ValueError):
             unicode_adjuster(sen.self, u'ąBć #'.encode('latin2'))
@@ -354,32 +389,106 @@ class TestGenericAdjusters(unittest.TestCase):
         with self.assertRaises(TypeError):
             unicode_adjuster(sen.self, None)
 
-    def test__unicode_surrogateescape_adjuster(self):
-        # unicode unchanged
-        result = unicode_surrogateescape_adjuster(sen.self, u'ąBć #')
+    def test__unicode_surrogate_pass_and_esc_adjuster(self):
+        # str unchanged
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, u'ąBć #')
         self.assertEqual(result, u'ąBć #')
-        self.assertIsInstance(result, unicode)
-        # UTF-8-encoded str -> unicode
-        result = unicode_surrogateescape_adjuster(sen.self, 'ąBć #')
+        self.assertIsInstance(result, str)
+        # UTF-8-encoded bytes/bytearray -> str
+        b1 = u'ąBć #'.encode('utf-8')
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, b1)
         self.assertEqual(result, u'ąBć #')
-        self.assertIsInstance(result, unicode)
-        # non-UTF-8-or-ASCII encoding -> unicode with binary mess embedded
-        result = unicode_surrogateescape_adjuster(sen.self, '\xb1B\xe6 #')
+        self.assertIsInstance(result, str)
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, bytearray(b1))
+        self.assertEqual(result, u'ąBć #')
+        self.assertIsInstance(result, str)
+        # bytes/bytearray including non-UTF-8 mess -> str with binary mess encoded as surrogates
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, b'\xb1B\xe6 #')
         self.assertEqual(result, u'\udcb1B\udce6 #')
-        self.assertIsInstance(result, unicode)
-        # unicode with binary mess embedded -> unchanged
-        result = unicode_surrogateescape_adjuster(sen.self, u'\udcb1B\udce6 #')
+        self.assertIsInstance(result, str)
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, bytearray(b'\xb1B\xe6 #'))
         self.assertEqual(result, u'\udcb1B\udce6 #')
-        self.assertIsInstance(result, unicode)
-        # already UTF-8-encoded (from unicode with binary mess embedded) -> unicode
-        result = unicode_surrogateescape_adjuster(sen.self, '\xed\xb2\xb1B\xed\xb3\xa6 #')
+        self.assertIsInstance(result, str)
+        # str with binary mess embedded -> unchanged
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, u'\udcb1B\udce6 #')
         self.assertEqual(result, u'\udcb1B\udce6 #')
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
+        # quasi-UTF-8-encoded bytes/bytearray (with binary mess encoded as surrogates) -> str...
+        b2 = b'\xed\xb2\xb1B\xed\xb3\xa6 #'
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, b2)
+        self.assertEqual(result, u'\udcb1B\udce6 #')
+        self.assertIsInstance(result, str)
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, bytearray(b2))
+        self.assertEqual(result, u'\udcb1B\udce6 #')
+        self.assertIsInstance(result, str)
+        # str with (more eventful) binary mess embedded -> unchanged
+        weird_string = (
+            u'\udcdd\udced\udced\udcb2'  # mess converted to surrogates
+            u'\udcb1'        # surrogate '\udcb1'
+            u'\udced\udcb2'  # mess converted to surrogates
+            u'\udced'        # mess converted to surrogate
+            u'B'             # proper code point (ascii 'B')
+            u'\ud7ff'        # proper code point '\ud7ff' (smaller than smallest surrogate)
+            u'\udced\udca0'  # mess converted to surrogates
+            u'\x7f'          # proper code point (ascii DEL)
+            u'\ud800'        # surrogate '\ud800' (smallest one)
+            u'\udfff'        # surrogate '\udfff' (biggest one)
+            u'\udcee\udcbf\udcc0'  # mess converted to surrogates
+            u'\ue000'        # proper code point '\ue000' (bigger than biggest surrogate)
+            u'\udce6'        # mess converted to surrogate
+            u'\udced'        # mess converted to surrogate
+            u'\udced\udcb3'  # mess converted to surrogates
+            u'\udce6'        # surrogate '\udce6'
+            u'\udc80'        # mess converted to surrogate
+            u'#'             # proper code point (ascii '#')
+            u'\udcf0'        # mess converted to surrogate
+            u'\udcf0\udc90'  # mess converted to surrogates
+            u'\udcf0\udc90\udc8f'  # mess converted to surrogates
+            u'\U000103ff'    # proper code point '\U000103ff' (non-BMP one)
+            u'\udcf0\udc90\udc8f'  # mess converted to surrogates
+            u' '             # proper code point (ascii ' ')
+            u'\udced\udcb3')  # mess converted to surrogates
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, weird_string)
+        self.assertEqual(result, weird_string)
+        self.assertIsInstance(result, str)
+        # bytes/bytearray incl. non-UTF-8 mess + quasi-UTF-8 with mess encoded as surrogates -> str
+        weird_bytes = (
+            b'\xdd\xed\xed\xb2'  # mess
+            b'\xed\xb2\xb1'  # encoded surrogate '\udcb1'
+            b'\xed\xb2'      # mess
+            b'\xed'          # mess
+            b'B'             # encoded proper code point (ascii 'B')
+            b'\xed\x9f\xbf'  # encoded proper code point '\ud7ff' (smaller than smallest surrogate)
+            b'\xed\xa0'      # mess
+            b'\x7f'          # encoded proper code point (ascii DEL)
+            b'\xed\xa0\x80'  # encoded surrogate '\ud800' (smallest one)
+            b'\xed\xbf\xbf'  # encoded surrogate '\udfff' (biggest one)
+            b'\xee\xbf\xc0'  # mess
+            b'\xee\x80\x80'  # encoded proper code point '\ue000' (bigger than biggest surrogate)
+            b'\xe6'          # mess
+            b'\xed'          # mess
+            b'\xed\xb3'      # mess
+            b'\xed\xb3\xa6'  # encoded surrogate '\udce6'
+            b'\x80'          # mess
+            b'#'             # encoded proper code point (ascii '#')
+            b'\xf0'          # mess
+            b'\xf0\x90'      # mess
+            b'\xf0\x90\x8f'  # mess
+            b'\xf0\x90\x8f\xbf'  # encoded proper code point '\U000103ff' (non-BMP one)
+            b'\xf0\x90\x8f'  # mess
+            b' '             # encoded proper code point (ascii ' ')
+            b'\xed\xb3')     # mess (starts like a proper surrogate but is too short)
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, weird_bytes)
+        self.assertEqual(result, weird_string)
+        self.assertIsInstance(result, str)
+        result = unicode_surrogate_pass_and_esc_adjuster(sen.self, bytearray(weird_bytes))
+        self.assertEqual(result, weird_string)
+        self.assertIsInstance(result, str)
         # illegal types
         with self.assertRaises(TypeError):
-            unicode_surrogateescape_adjuster(sen.self, datetime.datetime.now())
+            unicode_surrogate_pass_and_esc_adjuster(sen.self, datetime.datetime.now())
         with self.assertRaises(TypeError):
-            unicode_surrogateescape_adjuster(sen.self, None)
+            unicode_surrogate_pass_and_esc_adjuster(sen.self, None)
 
     def test__ipv4_preadjuster(self):
         result = ipv4_preadjuster(sen.self, '100.101.102.103')
@@ -400,39 +509,43 @@ class TestGenericAdjusters(unittest.TestCase):
             ipv4_preadjuster(sen.self, 168436695123456789)
         with self.assertRaises(TypeError):
             ipv4_preadjuster(sen.self, datetime.datetime.now())
+        with self.assertRaises(TypeError):
+            ipv4_preadjuster(sen.self, b'100.101.102.103')
+        with self.assertRaises(TypeError):
+            ipv4_preadjuster(sen.self, 1684366951.0)
 
     def test__url_preadjuster(self):
         result = url_preadjuster(sen.self, u'HTTP://www.EXAMPLĘ.com')
         self.assertEqual(result, u'http://www.EXAMPLĘ.com')
-        self.assertIsInstance(result, unicode)
-        result = url_preadjuster(sen.self, 'HTTP://www.EXAMPLĘ.com')
+        self.assertIsInstance(result, str)
+        result = url_preadjuster(sen.self, u'HTTP://www.EXAMPLĘ.com'.encode('utf-8'))
         self.assertEqual(result, u'http://www.EXAMPLĘ.com')
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
         result = url_preadjuster(sen.self, u'hxxp://www.EXAMPLĘ.com')
         self.assertEqual(result, u'http://www.EXAMPLĘ.com')
-        self.assertIsInstance(result, unicode)
-        result = url_preadjuster(sen.self, 'hXXps://www.EXAMPLĘ.com')
+        self.assertIsInstance(result, str)
+        result = url_preadjuster(sen.self, bytearray(u'hXXps://www.EXAMPLĘ.com'.encode('utf-8')))
         self.assertEqual(result, u'https://www.EXAMPLĘ.com')
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
         result = url_preadjuster(sen.self, u'FXP://www.EXAMPLĘ.com')
         self.assertEqual(result, u'ftp://www.EXAMPLĘ.com')
-        self.assertIsInstance(result, unicode)
-        result = url_preadjuster(sen.self, 'blAbla+HA-HA.ojoj:()[]!@#:%^&*shKi→ś')
+        self.assertIsInstance(result, str)
+        result = url_preadjuster(sen.self, u'blAbla+HA-HA.ojoj:()[]!@#:%^&*shKi→ś'.encode('utf-8'))
         self.assertEqual(result, u'blabla+ha-ha.ojoj:()[]!@#:%^&*shKi→ś')
-        self.assertIsInstance(result, unicode)
-        result = url_preadjuster(sen.self, 'url:// \xee oraz \xdd')
+        self.assertIsInstance(result, str)
+        result = url_preadjuster(sen.self, b'url:// \xee oraz \xdd')
         self.assertEqual(result, u'url:// \udcee oraz \udcdd')  # surrogate-escaped
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
         result = url_preadjuster(sen.self, u'url:// \udcee oraz \udcdd')  # surrogate-escaped
         self.assertEqual(result, u'url:// \udcee oraz \udcdd')        # the same
-        self.assertIsInstance(result, unicode)
+        self.assertIsInstance(result, str)
         for bad_value in [
-                ''
-                'example.com',
-                'http-//example.com/',
+                b''
+                b'example.com',
+                bytearray(b'http-//example.com/'),
                 u'http : //example.com ',
                 u'h??p://example.com/',
-                'ħŧŧþ://example.com/',
+                u'ħŧŧþ://example.com/'.encode('utf-8'),
                 u'ħŧŧþ://example.com/',
         ]:
             with self.assertRaises(ValueError):
@@ -452,6 +565,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         type=TYPE_ENUMS,
     )
     datetime_field_keys = 'time', 'until', 'expires', '_bl-time'
+    flag_field_keys = 'block',
     md5_hexdigest_field_keys = 'id', 'rid', 'md5', 'replaces', '_bl-series-id'
     unsigned_16bit_int_field_keys = 'sport', 'dport'
     unlimited_int_field_keys = '_bl-series-no', '_bl-series-total'
@@ -473,7 +587,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         self.some_md5_mixedcase = 2 * '1234567890aBcDEf'
         self.some_md5 = self.some_md5_mixedcase.lower()
 
-        assert self.only_required.viewkeys() == self.rd_class.required_keys
+        assert self.only_required.keys() == self.rd_class.required_keys
         self.with_optional = dict(
             self.only_required,
             dip='127.0.0.3',
@@ -482,7 +596,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         self.with_custom = dict(
             self.only_required,
             dip='127.0.0.3',
-            additional_data='additional-\xdd-data',
+            additional_data=b'additional-\xdd-data',
             ip_network=('33.144.255.177', 25),
         )
         self.with_custom_2 = self.rd_with_custom = self.rd_class(
@@ -551,8 +665,8 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
 
     def test__init(self):
         for arg in (self.with_address1_singular,                      # mapping
-                    self.with_address1_singular.iteritems(),          # iterator
-                    list(self.with_address1_singular.iteritems())):   # sequence
+                    iter(self.with_address1_singular.items()),        # iterator
+                    list(self.with_address1_singular.items())):       # sequence
             rd = self.rd_class(arg)
             self.assertEqual(rd, self.with_address1)
             self.assertFalse(rd.log_nonstandard_names)
@@ -635,7 +749,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                             self.with_address2,
                             log_nonstandard_names=log_nonstandard_names,
                             context_manager_error_callback=callback)
-                        rd2 = cPickle.loads(cPickle.dumps(rd, pickle_proto))
+                        rd2 = pickle.loads(pickle.dumps(rd, pickle_proto))
                         assert rd2 is not rd
                         self.assertIs(type(rd2), cls)
                         self.assertEqual(rd, rd2)
@@ -675,7 +789,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         required_keys = list(self.only_required)
         for keys in itertools.chain.from_iterable(
                 itertools.combinations(required_keys, i)
-                for i in xrange(len(required_keys))):
+                for i in range(len(required_keys))):
             init_mapping = {k: self.only_required[k] for k in keys}
             rd = self.rd_class(init_mapping)
             assert rd == init_mapping
@@ -777,8 +891,8 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             rd = self.rd_class(data)
             iterator = rd.iter_db_items()
             db_items = list(iterator)
-            self.assertIsInstance(iterator, collections.Iterator)
-            self.assertItemsEqual(db_items, expected_db_items)
+            self.assertIsInstance(iterator, collections_abc.Iterator)
+            self.assertCountEqual(db_items, expected_db_items)
             if data.get('address'):
                 self.assertEqual(len(db_items), len(data['address']))
             else:
@@ -798,7 +912,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 result_and_input_values = values
             else:
                 assert not any(isinstance(v, S) for v in values)
-                result_and_input_values = zip(values, values)
+                result_and_input_values = list(zip(values, values))
         else:
             result_and_input_values = [(values, values)]
         for result_val, input_values in result_and_input_values:
@@ -826,8 +940,8 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         for key in self.md5_hexdigest_field_keys:
             self._test_setitem_valid(key, (
                 S(u'0123456789abcdef' * 2, (
-                    '0123456789abcdef' * 2,
-                    '0123456789aBCDEF' * 2,
+                    b'0123456789abcdef' * 2,
+                    bytearray(b'0123456789aBCDEF') * 2,
                 )),
                 S(u'0123456789abcdef' * 2, (
                     u'0123456789abcdef' * 2,
@@ -835,7 +949,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 )),
             ))
             self._test_setitem_adjuster_error(key, (
-                '0123456789ABCDEF' * 2 + '0',    # too long
+                b'0123456789ABCDEF' * 2 + b'0',  # too long
                 (u'0123456789ABCDEF' * 2)[:-1],  # too short
                 u'0123456789abcdef' * 4,         # too long (sha256-like value)
                 u'0123456789abcdef0123' * 2,     # too long (sha1-like value)
@@ -847,8 +961,8 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
     def test__setitem__sha1(self):
         self._test_setitem_valid('sha1', (
             S(u'0123456789abcdef0123' * 2, (
-                '0123456789abcdef0123' * 2,
-                '0123456789aBCDEF0123' * 2,
+                bytearray(b'0123456789abcdef0123') * 2,
+                b'0123456789aBCDEF0123' * 2,
             )),
             S(u'0123456789abcdef0123' * 2, (
                 u'0123456789abcdef0123' * 2,
@@ -856,20 +970,20 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             )),
         ))
         self._test_setitem_adjuster_error('sha1', (
-            u'0123456789ABCDEF0123' * 2 + '0',  # too long
-            ('0123456789ABCDEF0123' * 2)[:-1],  # too short
-            u'0123456789abcdef' * 2,            # too short (md5-like value)
-            u'0123456789abcdef' * 4,            # too long (sha256-like value)
-            '0123456789abcdeX0123' * 2,         # illegal chars
-            0x123456789abcdef,                  # bad type
+            u'0123456789ABCDEF0123' * 2 + '0',   # too long
+            (b'0123456789ABCDEF0123' * 2)[:-1],  # too short
+            u'0123456789abcdef' * 2,             # too short (md5-like value)
+            u'0123456789abcdef' * 4,             # too long (sha256-like value)
+            b'0123456789abcdeX0123' * 2,         # illegal chars
+            0x123456789abcdef,                   # bad type
             None,
         ))
 
     def test__setitem__sha256(self):
         self._test_setitem_valid('sha256', (
             S(u'0123456789abcdef' * 4, (
-                '0123456789abcdef' * 4,
-                '0123456789aBCDEF' * 4,
+                b'0123456789abcdef' * 4,
+                bytearray(b'0123456789aBCDEF') * 4,
             )),
             S(u'0123456789abcdef' * 4, (
                 u'0123456789abcdef' * 4,
@@ -877,55 +991,58 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             )),
         ))
         self._test_setitem_adjuster_error('sha256', (
-            u'0123456789ABCDEF' * 4 + '0',  # too long
-            ('0123456789ABCDEF' * 4)[:-1],  # too short
-            u'0123456789abcdef' * 2,        # too short (md5-like value)
-            u'0123456789abcdef0123' * 2,    # too short (sha1-like value)
-            '0123456789abcdeX' * 4,         # illegal chars
-            0x123456789abcdef,              # bad type
+            u'0123456789ABCDEF' * 4 + '0',   # too long
+            (b'0123456789ABCDEF' * 4)[:-1],  # too short
+            u'0123456789abcdef' * 2,         # too short (md5-like value)
+            bytearray(b'0123456789abcdef0123') * 2,     # too short (sha1-like value)
+            u'0123456789abcdeX' * 4,         # illegal chars
+            0x123456789abcdef,               # bad type
             None,
         ))
 
     def test__setitem__source(self):
         self._test_setitem_valid('source', (
             S(u'foo-foo.bar', (
-                'foo-foo.bar',
                 u'foo-foo.bar',
+                b'foo-foo.bar',
+                bytearray(b'foo-foo.bar'),
             )),
             S(u'-spam.ha--m--', (
-                '-spam.ha--m--',
                 u'-spam.ha--m--',
+                b'-spam.ha--m--',
+                bytearray(b'-spam.ha--m--'),
             )),
             S(u'x.' + 30 * u'y', (  # 32-characters-long
-                'x.' + 30 * u'y',
-                u'x.' + 30 * u'y'
+                u'x.' + 30 * u'y',
+                b'x.' + 30 * b'y',
+                bytearray(b'x.' + 30 * b'y'),
             )),
         ))
         self._test_setitem_adjuster_error('source', (
-            'foo-foo',            # no dot
+            b'foo-foo',           # no dot
             u'foo-foo.bar.spam',  # more than one dot
-            'Foo-FOO.bar',        # illegal characters (here: uppercase letters)
+            bytearray(b'Foo-FOO.bar'),       # illegal characters (here: uppercase letters)
             u'foo_foo.bar',       # illegal character (here: underscore)
-            'foo-foo.',           # no characters after the dot
+            b'foo-foo.',          # no characters after the dot
             u'.bar',              # no characters before the dot
-            '.',                  # lone dot
-            u'x.' + 31 * u'y'     # too long (33 characters)
-            '',                   # empty string
-            123,                  # not a string
+            b'.',                 # lone dot
+            u'x.' + 31 * u'y',    # too long (33 characters)
+            b'',                  # empty
+            u'',                  # empty
+            123,                  # not a str/bytes/bytearray
             None,
         ))
 
     def test__setitem__enum_fields(self):
-        for key, enums in sorted(self.enum_collections.iteritems()):
+        for key, enums in sorted(self.enum_collections.items()):
             assert isinstance(enums, tuple) and all(isinstance(v, str) for v in enums)
             self._test_setitem_valid(key, tuple(
-                S(result=unicode(v),
-                  inputs=(v, unicode(v)))
-                for v in enums
-            ))
+                S(as_unicode(v), (as_unicode(v), as_bytes(v), bytearray(as_bytes(v))))
+                for v in enums))
             self._test_setitem_adjuster_error(key, (
-                'foo',
                 u'bar',
+                b'foo',
+                bytearray(b'foo'),
                 enums[0] + 'x',
                 123,
                 None,
@@ -933,65 +1050,68 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
 
     def test__setitem__count(self):
         self._test_setitem_valid('count', (
-            S(0, (0, 0L, '0', u'0', '00000')),
-            S(10, (10, 10L, '10', u'10', '00010')),
-            S(32767, (32767, 32767L, '32767', u'32767')),
+            S(0, (0, b'0', u'0', u'00000')),
+            S(10, (10, bytearray(b'10'), u'10', u'00010')),
+            S(32767, (32767, b'32767', u'32767')),
         ))
         self._test_setitem_adjuster_error('count', (
-            -1, -1L, '-1', u'-1',
-            32768, 32768L, '32768', u'32768',
-            'aaa', '0x10', '', None, datetime.datetime.now(),
+            -1, b'-1', u'-1',
+            32768, b'32768', u'32768',
+            u'aaa', bytearray(b'aaa'), u'0x10', b'\x10', u'', b'',
+            None, datetime.datetime.now(),
         ))
 
     def test__setitem__count_actual(self):
         self._test_setitem_valid('count_actual', (
-            S(0, (0, 0L, '0', u'0', '00000')),
-            S(10, (10, 10L, '10', u'10', '00010')),
-            S(9007199254740991, (9007199254740991, 9007199254740991L,
-                                 '9007199254740991', u'9007199254740991')),
+            S(0, (0, bytearray(b'0'), u'0', u'00000')),
+            S(10, (10, b'10', u'10', u'00010')),
+            S(9007199254740991, (9007199254740991, u'9007199254740991',
+                                 b'9007199254740991', bytearray(b'9007199254740991'))),
         ))
         self._test_setitem_adjuster_error('count_actual', (
-            -1, -1L, '-1', u'-1',
-            9007199254740992, 9007199254740992L, '9007199254740992', u'9007199254740992',
-            'aaa', '0x10', '', None, datetime.datetime.now(),
+            -1, b'-1', u'-1',
+            9007199254740992, b'9007199254740992', u'9007199254740992',
+            b'aaa', bytearray(b'0x10'), u'', b'\x10',
+            None, datetime.datetime.now(),
         ))
 
     def test__setitem__unsigned_16bit_int_fields(self):
         for key in self.unsigned_16bit_int_field_keys:
             self._test_setitem_valid(key, (
-                S(0, (0, 0L, '0', u'0', '00000')),
-                S(10, (10, 10L, '10', u'10', '00010')),
-                S(65535, (65535, 65535L, '65535', u'65535')),
+                S(0, (0, b'0', u'0', u'00000')),
+                S(10, (10, b'10', u'10', u'00010')),
+                S(65535, (65535, b'65535', u'65535')),
             ))
             self._test_setitem_adjuster_error(key, (
-                -1, -1L, '-1', u'-1',
-                65536, 65536L, '65536', u'65536',
-                'aaa', '0x10', '', None, datetime.datetime.now(),
+                -1, b'-1', u'-1',
+                65536, b'65536', u'65536',
+                u'aaa', b'0x10', u'', b'\x10',
+                None, datetime.datetime.now(),
             ))
 
     def test__setitem__unlimited_int_fields(self):
         for key in self.unlimited_int_field_keys:
             self._test_setitem_valid(key, (
-                S(0, (0, 0L, '0', u'0', '00000')),
-                S(10, (10, 10L, '10', u'10', '00010')),
-                S(655357, (655357, 655357L, '655357', u'655357')),
-                S(int(sys.maxint - 1), int(sys.maxint - 1)),
-                S(int(sys.maxint), int(sys.maxint)),
-                S(int(sys.maxint + 1), int(sys.maxint + 1)),
-                S(int(-sys.maxint - 1), int(-sys.maxint - 1)),
-                S(int(-sys.maxint), int(-sys.maxint)),
-                S(int(-sys.maxint + 1), int(-sys.maxint + 1)),
-                S(6553500000000111111112222222233333333L, (
-                    6553500000000111111112222222233333333L,
-                    '6553500000000111111112222222233333333',
+                S(0, (0, b'0', u'0', u'00000')),
+                S(10, (10, b'10', u'10', u'00010')),
+                S(655357, (655357, bytearray(b'655357'), u'655357')),
+                S(int(sys.maxsize - 1), int(sys.maxsize - 1)),
+                S(int(sys.maxsize), int(sys.maxsize)),
+                S(int(sys.maxsize + 1), int(sys.maxsize + 1)),
+                S(int(-sys.maxsize - 1), int(-sys.maxsize - 1)),
+                S(int(-sys.maxsize), int(-sys.maxsize)),
+                S(int(-sys.maxsize + 1), int(-sys.maxsize + 1)),
+                S(6553500000000111111112222222233333333, (
+                    6553500000000111111112222222233333333,
+                    b'6553500000000111111112222222233333333',
                     u'6553500000000111111112222222233333333')),
-                S(-6553500000000111111112222222233333333L, (
-                    -6553500000000111111112222222233333333L,
-                    '-6553500000000111111112222222233333333',
+                S(-6553500000000111111112222222233333333, (
+                    -6553500000000111111112222222233333333,
+                    bytearray(b'-6553500000000111111112222222233333333'),
                     u'-6553500000000111111112222222233333333')),
             ))
             self._test_setitem_adjuster_error(key, (
-                'aaa', '0x10', '', None, datetime.datetime.now(),
+                b'aaa', u'0x10', b'', None, datetime.datetime.now(),
             ))
 
     def test__setitem__datetime_fields(self):
@@ -999,9 +1119,9 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             self._test_setitem_valid(key, (
                 S('2013-06-13 10:02:00', (
                     datetime.datetime(2013, 6, 13, 10, 2),
-                    '2013-06-13 10:02:00',
+                    b'2013-06-13 10:02:00',
                     u'2013-06-13T10:02',
-                    '2013-06-13 10:02Z',
+                    bytearray(b'2013-06-13 10:02Z'),
                     u'2013-06-13T10:02:00.0000000000000000000000000000000Z',
                 )),
                 S('2013-06-13 10:02:04',
@@ -1014,12 +1134,43 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 S('2013-06-13 08:02:04.123400',
                         u'2013-06-13T10:02:04.1234+02:00'),
                 S('2013-06-13 11:32:00',
-                        '2013-06-13 10:02:00-01:30'),
+                        b'2013-06-13 10:02:00-01:30'),
             ))
             self._test_setitem_adjuster_error(key, (
-                '2013-06-13 25:02',
-                '2013-06-13  10:02:04',
+                u'2013-06-13 25:02',
+                b'2013-06-13  10:02:04',
                 123,
+                None,
+            ))
+
+    def test__setitem__flag_fields(self):
+        for key in self.flag_field_keys:
+            self._test_setitem_valid(key, (
+                S(True, 'true'),
+                S(True, 'TRUE'),
+                S(True, 'True'),
+                S(True, '1'),
+                S(True, 'y'),
+                S(True, 'yes'),
+                S(True, 'on'),
+                S(True, 't'),
+                S(True, True),
+                S(False, 'false'),
+                S(False, 'FALSE'),
+                S(False, 'False'),
+                S(False, 'f'),
+                S(False, '0'),
+                S(False, 'off'),
+                S(False, 'no'),
+                S(False, 'n'),
+                S(False, False),
+            ))
+            self._test_setitem_adjuster_error(key, (
+                'this_is_not_a_flag',
+                'ffalse',
+                'TTrue',
+                '1235',
+                1235,
                 None,
             ))
 
@@ -1031,17 +1182,16 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             )),
             S([{u'ip': u'1.2.3.4'}], (
                 [{'ip': '1.2.3.4'}],
-                ({'ip': '1.2.3.4'},),
                 {'ip': '1.2.3.4'},
-                [IterableUserDict({'ip': '1.2.3.4'})],
-                IterableUserDict({'ip': '1.2.3.4'}),
+                [UserDict({'ip': '1.2.3.4'})],
+                UserDict({'ip': '1.2.3.4'}),
             )),
             S([{u'ip': u'100.101.102.103', u'cc': u'PL', u'asn': 123}], (
-                [{'ip': '100.101.102.103', 'cc': 'PL', 'asn': 123}],
-                ({'ip': u' 100.101. 102 .103 ', 'cc': 'pl', 'asn': '123'},),
-                {'ip': 1684366951, 'cc': 'pL', 'asn': '0.123'},
-                [IterableUserDict({'ip': 1684366951, 'cc': 'pL', 'asn': '0.123'})],
-                IterableUserDict({'ip': 1684366951, 'cc': 'pL', 'asn': '0.123'}),
+                [{'ip': '100.101.102.103', 'cc': b'PL', 'asn': 123}],
+                ({'ip': u' 100.101. 102 .103 ', 'cc': bytearray(b'pl'), 'asn': u'123'},),
+                {'ip': 1684366951, 'cc': u'pL', 'asn': b'0.123'},
+                [UserDict({'ip': 1684366951, 'cc': u'pL', 'asn': u'ASN\t0.123'})],
+                UserDict({'ip': 1684366951, 'cc': b'pL', 'asn': bytearray(b'0.123')}),
             )),
             S([
                 {u'ip': u'1.2.3.4', u'cc': u'PL', u'asn': 123},
@@ -1053,18 +1203,24 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 {u'ip': u'1.2.3.10', u'cc': u'PL', u'asn': 0xffff0000},
                 {u'ip': u'111.122.133.144', u'cc': u'US', u'asn': 1234567},
                 {u'ip': u'111.122.133.145', u'cc': u'US', u'asn': 1234567},
-                {u'ip': u'111.122.133.146', u'cc': u'US', u'asn': 809087598},
+                {u'ip': u'111.122.133.146', u'cc': u'US', u'asn': 1234567},
+                {u'ip': u'111.122.133.147', u'cc': u'US', u'asn': 1234567},
+                {u'ip': u'111.122.133.148', u'cc': u'US', u'asn': 809087598},
+                {u'ip': u'111.122.133.149', u'cc': u'US', u'asn': 809087598},
             ], [
-                {'ip': u'1.2.3.4', 'cc': 'PL', u'asn': 123L},
-                {u'ip': u'1.2.3.5', 'cc': 'PL', 'asn': 0},
-                {'ip': '1.2.3.6', 'cc': u'PL', 'asn': '0.0'},
-                {u'ip': '1.2.3.7', 'cc': 'PL', u'asn': u'0.1'},
-                {'ip': u'1.2.3.8', 'cc': 'PL', 'asn': '1.0'},
-                {u'ip': u'1.2.3.9', 'cc': u'PL', 'asn': '0.65535'},
-                {'ip': '1.2.3.10', 'cc': 'PL', u'asn': u'65535.0'},
-                {u'ip': '111.122.133.144', 'cc': 'US', 'asn': 1234567},
-                {'ip': u'111.122.133.145', 'cc': u'US', 'asn': '1234567'},
-                {u'ip': u'111.122.133.146', u'cc': u'US', u'asn': u'12345.45678'},
+                {'ip': u'1.2.3.4', 'cc': b'PL', u'asn': 123},
+                {'ip': u'1.2.3.5', 'cc': bytearray(b'PL'), 'asn': 0},
+                {'ip': u'1.2.3.6', 'cc': u'PL', 'asn': b'0.0'},
+                {'ip': u'1.2.3.7', 'cc': b'PL', u'asn': u'as0.1'},
+                {'ip': u'1.2.3.8', 'cc': b'PL', 'asn': b'1.0'},
+                {'ip': u'1.2.3.9', 'cc': u'PL', 'asn': bytearray(b'0.65535')},
+                {'ip': u'1.2.3.10', 'cc': 'PL', u'asn': u'65535.0'},
+                {'ip': u'111.122.133.144', 'cc': b'US', 'asn': 1234567},
+                {'ip': u'111.122.133.145', 'cc': u'US', 'asn': b'1234567'},
+                {'ip': u'111.122.133.146', 'cc': u'US', 'asn': u'1234567'},
+                {'ip': u'111.122.133.147', 'cc': b'US', 'asn': b'As1234567'},
+                {'ip': u'111.122.133.148', u'cc': u'US', u'asn': u'as12345.45678'},
+                {'ip': u'111.122.133.149', u'cc': u'US', u'asn': bytearray(b'12345.45678')},
             ]),
         ))
         self._test_setitem_adjuster_error('address', (
@@ -1089,6 +1245,8 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             [{'ip': '100.101.102.103', 'cc': 'PL', 'asn': '65536.0'}],
             {'ip': '100.101.102.103', 'cc': 'PL', 'asn': 'asdf'},
             [{'ip': '100.101.102.103', 'cc': 'PL', 'asn': '0.0.0'}],
+            [{'ip': '100.101.102.103', 'cc': 'PL', 'asn': 'as.0.0'}],
+            [{'ip': '100.101.102.103', 'cc': 'PL', 'asn': ' as 0.0'}],
             {'ip': '100.101.102.103', 'cc': 'PL', 'asn': '-1'},
             [{'ip': '100.101.102.103', 'cc': 'PL', 'asn': 'asdf'}],
             {'ip': '100.101.102.103', 'cc': 'PL', 'asn': '0.-1'},
@@ -1106,20 +1264,19 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
 
     def test__setitem__dip(self):
         self._test_setitem_valid('dip', (
-            S(u'0.0.0.0', (0, 0L, '0.0.0.0', u'0.0.0.0')),
-            S(u'0.0.0.10', (10, 10L, '0.0.0.10', u'0.0.0.10')),
+            S(u'0.0.0.0', (0, u'0.0.0.0')),
+            S(u'0.0.0.10', (10, u'0.0.0.10')),
             S(u'100.101.102.103', (
-                '100.101.102.103',
                 u'100.101.102.103',
-                ' 100 . 101 . 102.103',
-                u' 100.101. 102 .103 ',
+                u' 100 . 101 . 102.103',
+                ' 100.101. 102 .103 ',
                 ' 100 . 101\t.\n102 . 103 ',
                 1684366951,
             )),
         ))
         self._test_setitem_adjuster_error('dip', (
             '1684366951',
-            u'100.101.102.103.100',
+            '100.101.102.103.100',
             '100.101.102.1030',
             u'100.101.102',
             168436695123456789,
@@ -1127,6 +1284,8 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             datetime.datetime.now(),
             '10',
             '',
+            bytearray(b'0.0.0.10'),
+            b'',
             None,
         ))
 
@@ -1134,51 +1293,56 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         self._test_setitem_valid('url', (
             S(u'http://www.EXAMPLĘ.com', (
                 u'HTTP://www.EXAMPLĘ.com',
-                'HTTP://www.EXAMPLĘ.com',
+                u'HTTP://www.EXAMPLĘ.com'.encode('utf-8'),
                 u'hxxp://www.EXAMPLĘ.com',
-                'hXXp://www.EXAMPLĘ.com',
+                u'hXXp://www.EXAMPLĘ.com'.encode('utf-8'),
+                bytearray(u'hXXp://www.EXAMPLĘ.com'.encode('utf-8')),
             )),
             S(u'https://www.EXAMPLĘ.com', (
                 u'HTTPS://www.EXAMPLĘ.com',
-                'htTPS://www.EXAMPLĘ.com',
+                u'htTPS://www.EXAMPLĘ.com'.encode('utf-8'),
                 u'hxxps://www.EXAMPLĘ.com',
-                'hXXpS://www.EXAMPLĘ.com',
+                bytearray(u'hXXpS://www.EXAMPLĘ.com'.encode('utf-8')),
             )),
             S(u'ftp://www.EXAMPLĘ.com', (
                 u'FXP://www.EXAMPLĘ.com',
-                'ftp://www.EXAMPLĘ.com',
+                u'ftp://www.EXAMPLĘ.com'.encode('utf-8'),
+                bytearray(u'ftp://www.EXAMPLĘ.com'.encode('utf-8')),
             )),
             S(u'blabla+ha-ha.ojoj:()[]!@#:%^&*shKi→ś', (
-                'blAbla+HA-HA.ojoj:()[]!@#:%^&*shKi→ś',
-                u'blabla+ha-ha.ojoj:()[]!@#:%^&*shKi→ś',
+                u'blAbla+HA-HA.ojoj:()[]!@#:%^&*shKi→ś',
+                u'blabla+ha-ha.ojoj:()[]!@#:%^&*shKi→ś'.encode('utf-8'),
+                bytearray(u'blAbla+HA-HA.ojoj:()[]!@#:%^&*shKi→ś'.encode('utf-8')),
             )),
             S(u'url:// \udcee oraz \udcdd', (
-                'url:// \xee oraz \xdd',
                 u'url:// \udcee oraz \udcdd',
+                b'url:// \xee oraz \xdd',
+                bytearray(b'url:// \xee oraz \xdd'),
             )),
             S(u'url:' + 2044 * u'\udcdd', (
-                'url:' + 2044 * '\xdd',
                 u'url:' + 2044 * u'\udcdd',
-                'url:' + 2045 * '\xdd',       # too long -> cut right
-                u'url:' + 2045 * u'\udcdd',   # too long -> cut right
-                'url:' + 20000 * '\xdd',      # too long -> cut right
-                u'url:' + 20000 * u'\udcdd',  # too long -> cut right
+                b'url:' + 2044 * b'\xdd',
+                u'url:' + 2045 * u'\udcdd',            # too long -> cut right
+                b'url:' + 2045 * b'\xdd',              # too long -> cut right
+                u'url:' + 20000 * u'\udcdd',           # too long -> cut right
+                bytearray(b'url:' + 20000 * b'\xdd'),  # too long -> cut right
             )),
         ))
 
     def test__setitem__url__skipping_invalid(self):
         rd = self.rd_class()
         for invalid in [
-                ''
-                'example.com',
-                'http-//example.com/',
+                u'',
+                b'',
+                bytearray(b''),
+                u'example.com',
+                b'example.com',
+                bytearray(b'http-//example.com/'),
                 u'http : //example.com ',
                 u'http : //example.com ' + 3000 * u'x:',
                 u'h??p://example.com/',
-                'ħŧŧþ://example.com/',
                 u'ħŧŧþ://example.com/',
-                '',
-                'example.com',
+                u'ħŧŧþ://example.com/'.encode('utf-8'),
                 u'http : //example.com ',
                 datetime.datetime.now(),
                 None,
@@ -1190,59 +1354,73 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         self._test_setitem_valid('fqdn', (
             S(u'www.example.com', (
                 u'www.example.com',
-                'www.EXAMPLE.com',
+                b'www.EXAMPLE.com',
                 u'www.EXAMPLE.com',
+                bytearray(b'www.example.com'),
             )),
             S(u'com', (
-                'CoM',
+                b'CoM',
                 u'CoM',
-                'com'
+                bytearray(b'com'),
             )),
             S(u'www.xn--xmpl-bta2jf.com', (
-                # internationalized domain names (unicode or UTF-8-decodable str)...
-                'www.ĘxĄmplę.Com',
+                # internationalized domain names (str or UTF-8-decodable bytes/bytearray)...
                 u'www.ęxąmplę.Com',
+                u'www.ĘxĄmplę.Com'.encode('utf-8'),
+                bytearray(u'www.ęxĄmplĘ.Com'.encode('utf-8')),
             )),
             S(u'www.{}.com'.format('a' * 63), (
-                'www.{}.com'.format('a' * 63),
-                'www.{}.com'.format('A' * 63),
                 u'www.{}.com'.format('a' * 63),
                 u'www.{}.com'.format('A' * 63),
+                u'www.{}.com'.format('a' * 63).encode('utf-8'),
+                bytearray(u'www.{}.com'.format('A' * 63).encode('utf-8')),
             )),
             S(u'www.-_mahnamana_muppetshow_.-com', (
-                'www.-_Mahnamana_MuppetShow_.-com',
                 u'www.-_Mahnamana_MuppetShow_.-com',
+                b'www.-_Mahnamana_MuppetShow_.-com',
+                bytearray(b'www.-_Mahnamana_MuppetShow_.-com'),
             )),
-            S(u'x.' * 126 + u'pl', (       # result length: 254
-                'x.' * 126 + 'pl',         # input length: 254
-                u'x.' * 126 + u'pl',
+            S(u'x.' * 126 + u'pl', (         # result length: 254
+                u'x.' * 126 + u'pl',         # input length: 254
+                b'x.' * 126 + b'pl',
+                bytearray(b'x.' * 126 + b'pl'),
                 # too long -> cut from left, then strip the leading '.':
-                'x.' * 127 + 'pl',         # input length: 256
-                u'x.' * 127 + u'pl',
-                'x.' * 1000 + 'pl',        # input length: some big even number
-                u'x.' * 1000 + u'pl',
+                u'x.' * 127 + u'pl',         # input length: 256
+                b'x.' * 127 + b'pl',
+                bytearray(b'x.' * 127 + b'pl'),
+                u'x.' * 1000 + u'pl',        # input length: some big even number
+                b'x.' * 1000 + b'pl',
+                bytearray(b'x.' * 1000 + b'pl'),
             )),
-            S(u'x.' * 124 + u'xn--2da', (  # result length: 255
-                'x.' * 124 + 'ą',          # input length: 255
-                u'x.' * 124 + u'ą',
+            S(u'x.' * 124 + u'xn--2da', (    # result length: 255
+                u'x.' * 124 + u'ą',          # input length: 255
+                b'x.' * 124 + u'ą'.encode('utf-8'),
+                bytearray(b'x.' * 124 + u'ą'.encode('utf-8')),
                 # too long -> cut from left (no leading '.' to strip in this case):
-                'x.' * 125 + 'ą',          # input length: 257
-                u'x.' * 125 + u'ą',
-                'x.' * 1000 + 'ą',         # input length: some big odd number
-                u'x.' * 1000 + u'ą',
+                u'x.' * 125 + u'ą',          # input length: 257
+                b'x.' * 125 + u'ą'.encode('utf-8'),
+                bytearray(b'x.' * 125 + u'ą'.encode('utf-8')),
+                u'x.' * 1000 + u'ą',          # input length: some big odd number
+                b'x.' * 1000 + u'ą'.encode('utf-8'),
+                bytearray(b'x.' * 1000 + u'ą'.encode('utf-8')),
             )),
         ))
 
     def test__setitem__fqdn__skipping_invalid(self):
         rd = self.rd_class()
         for invalid in [
-                '',
+                u'',
+                b'',
+                bytearray(b''),
                 u'www...example.com',
-                ' www.example.com',
+                b' www.example.com',
+                bytearray(b' www.example.com'),
                 u'example.com ',
-                'exam\xee\xddple.com',  # non-utf-8 data
-                'exam\xee\xddple.com'.decode('utf-8', 'surrogateescape'),
+                b'exam\xee\xddple.com',  # non-utf-8 data
+                bytearray(b'exam\xee\xddple.com'),
+                b'exam\xee\xddple.com'.decode('utf-8', 'surrogateescape'),
                 u'www.{}.com'.format('e' * 64),  # single label too long
+                bytearray('www.{}.com'.format('e' * 64).encode('utf-8')),
                 datetime.datetime.now(),
                 None,
         ]:
@@ -1256,15 +1434,15 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 (),
             )),
             S([u''], (
-                '',
+                b'',
                 u'',
-                [''],
+                [bytearray(b'')],
                 (u'',),
             )),
             S([u'abc żó#'], (
-                'abc żó#',
+                bytearray(u'abc żó#'.encode('utf-8')),
                 u'abc żó#',
-                ('abc żó#',),
+                (u'abc żó#'.encode('utf-8'),),
                 [u'abc żó#'],
             )),
             S([u'\udcee \udcdd'], (
@@ -1273,20 +1451,21 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             )),
             S([u'abc żó#', u'\udcee \udcdd'], (
                 [u'abc żó#', u'\udcee \udcdd'],
-                ['abc żó#', u'\udcee \udcdd'],
+                [u'abc żó#'.encode('utf-8'), u'\udcee \udcdd'],
                 [u'\udcee \udcdd', u'abc żó#'],
-                [u'\udcee \udcdd', 'abc żó#'],
+                [u'\udcee \udcdd', bytearray(u'abc żó#'.encode('utf-8'))],
             )),
             S([u'a', u'x' * 32], (
-                ['a', 'x' * 32],
+                [b'a', b'x' * 32],
                 [u'a', u'x' * 32],
-                ['x' * 32, u'a'],
-                [u'x' * 32, 'a'],
+                [bytearray(b'x' * 32), u'a'],
+                [u'x' * 32, b'a'],
             )),
         ))
         self._test_setitem_adjuster_error('client', (
-            '\xee \xdd',        # <- non-utf-8 str
-            ['a', 'x' * 33],    # <- too long item
+            b'\xee \xdd',       # <- non-utf-8 mess
+            [b'a', b'x' * 33],  # <- too long item
+            [u'a', bytearray(b'x' * 33)],  # <- too long item
             [u'a', u'x' * 33],  # <- too long item
             {u'abc żó#'},
             123,
@@ -1297,22 +1476,22 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
 
     def test__setitem__target(self):
         self._test_setitem_valid('target', (
-            S(u'', ('', u'')),
-            S(u'abc żó#', ('abc żó#', u'abc żó#')),
+            S(u'', (u'', b'', bytearray(b''))),
+            S(u'abc żó#', (u'abc żó#', u'abc żó#'.encode('utf-8'))),
             S(u'\udcee \udcdd', u'\udcee \udcdd'),
             S(u'A' + 99 * u'ż', (
-                'A' + 99 * 'ż',
+                b'A' + 99 * u'ż'.encode('utf-8'),
                 u'A' + 99 * u'ż',
                 # too long -> cut right
-                'A' + 100 * 'ż',
+                bytearray(b'A' + 100 * u'ż'.encode('utf-8')),
                 u'A' + 100 * u'ż',
-                'A' + 1000 * 'ż',
+                b'A' + 1000 * u'ż'.encode('utf-8'),
                 u'A' + 1000 * u'ż',
             )),
         ))
         self._test_setitem_adjuster_error('target', (
-            '\xee \xdd',  # <- non-utf-8 str
-            ['abc żó#'],
+            bytearray(b'\xee \xdd'),  # <- non-utf-8 mess
+            [u'abc żó#'.encode('utf-8')],
             {u'abc żó#'},
             123,
             None,
@@ -1329,11 +1508,14 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             0,
             '1',
             '0',
+            b'1',
+            b'0',
             'true',
             'false',
             'True',
             'False',
             '',
+            bytearray(b''),
             None,
         ))
 
@@ -1344,11 +1526,11 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
 
     def test__setitem___group(self):
         self._test_setitem_valid('_group', (
-            S(u'', ('', u'')),
-            S(u'abc-def$%^&*', ('abc-def$%^&*', u'abc-def$%^&*')),
+            S(u'', (u'', b'', bytearray(b''))),
+            S(u'abc-def$%^&*', (u'abc-def$%^&*', b'abc-def$%^&*', bytearray(b'abc-def$%^&*'))),
         ))
         self._test_setitem_adjuster_error('_group', (
-            '\xdd',
+            b'\xdd',
             123,
             None,
             ['a'],
@@ -1357,7 +1539,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         ))
 
     def test__setitem__enriched(self):
-        nondict_mapping = CIDict({'1.2.3.4': ['asn', 'cc']})
+        nondict_mapping = CIDict({'1.2.3.4': ['asn', b'cc']})
         nondict_mapping_empty = CIDict()
         self._test_setitem_valid('enriched', (
             S(([], {}), (
@@ -1367,21 +1549,26 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             )),
             S(([u'fqdn'], {}), (
                 [['fqdn'], {}],
-                ((u'fqdn',), {}),
+                ((b'fqdn',), {}),
                 [('fqdn',), nondict_mapping_empty],
             )),
             S(([], {u'1.2.3.4': [u'asn', u'cc']}), (
-                ((), {u'1.2.3.4': ['cc', 'asn']}),
-                ([], {'1.2.3.4': [u'asn', 'cc', 'asn']}),
+                ((), {'1.2.3.4': [b'cc', b'asn']}),
+                ([], {b'1.2.3.4': [u'asn', 'cc', 'asn']}),
                 [(), nondict_mapping],
             )),
             S(([u'fqdn'], {u'1.2.3.4': [u'asn', u'cc']}), (
-                (['fqdn'], {u'1.2.3.4': ['asn', 'cc']}),
-                (('fqdn',), {'1.2.3.4': [u'cc', u'asn', 'asn']}),
-                [(u'fqdn',), nondict_mapping],
+                (['fqdn'], {'1.2.3.4': ['asn', 'cc']}),
+                [('fqdn',), {'1.2.3.4': ['cc', 'asn', b'asn']}],
+                ([b'fqdn'], {'1.2.3.4': ['asn', b'cc']}),
+                [['fqdn'], {b'1.2.3.4': ['asn', 'cc']}],
+                (['fqdn'], {'1.2.3.4': [bytearray(b'asn'), bytearray(b'cc')]}),
+                [[bytearray(b'fqdn')], {b'1.2.3.4': [b'asn', b'cc']}],
+                (('fqdn',), nondict_mapping),
             )),
             S(([u'fqdn'], {u'1.2.3.44': [u'cc'], u'5.6.7.8': [u'asn', u'cc', u'ip']}), (
-                ([u'fqdn'], {u'1.2.3.44': [u'cc', 'cc'], u'5.6.7.8': [u'cc', u'asn', u'ip']}),
+                [[b'fqdn'], {b'1.2.3.44': [b'cc', u'cc'], b'5.6.7.8': [b'cc', u'asn', b'ip']}],
+                ([u'fqdn'], {u'1.2.3.44': [u'cc', u'cc'], u'5.6.7.8': [u'cc', u'asn', u'ip']}),
                 [('fqdn',), CIDict({'1.2.3.44': ['cc'], '5.6.7.8': ('ip', 'ip', 'cc', 'asn')})],
             )),
         ))
@@ -1409,90 +1596,91 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
     def test__setitem__adip(self):
         self._test_setitem_valid('adip', (
             S(u'x.0.0.0', (
-                'x.0.0.0',
-                'X.0.0.0',
+                b'x.0.0.0',
+                b'X.0.0.0',
                 u'x.0.0.0',
                 u'X.0.0.0',
             )),
             S(u'x.255.255.255', (
-                'x.255.255.255',
-                'X.255.255.255',
+                b'x.255.255.255',
+                bytearray(b'X.255.255.255'),
                 u'x.255.255.255',
                 u'X.255.255.255',
             )),
             S(u'x.2.133.4', (
-                'x.2.133.4',
-                'X.2.133.4',
+                b'x.2.133.4',
+                b'X.2.133.4',
                 u'x.2.133.4',
                 u'X.2.133.4',
             )),
             S(u'x.x.33.244', (
-                'x.x.33.244',
-                'x.X.33.244',
-                'X.x.33.244',
-                'X.X.33.244',
+                b'x.x.33.244',
+                b'x.X.33.244',
+                b'X.x.33.244',
+                b'X.X.33.244',
                 u'x.x.33.244',
                 u'x.X.33.244',
                 u'X.x.33.244',
                 u'X.X.33.244',
             )),
             S(u'x.x.x.255', (
-                'x.x.x.255',
+                b'x.x.x.255',
                 u'X.X.X.255',
-                'x.X.x.255',
+                b'x.X.x.255',
                 u'X.X.x.255',
             )),
             S(u'x.251.x.94', (
-                'x.251.x.94',
+                b'x.251.x.94',
                 u'x.251.X.94',
-                'X.251.x.94',
+                b'X.251.x.94',
                 u'X.251.X.94',
             )),
             S(u'x.x.x.x', (
                 u'x.x.x.x',
-                'X.X.X.X',
+                b'X.X.X.X',
                 u'x.x.X.X',
-                'X.x.X.x',
+                bytearray(b'X.x.X.x'),
             )),
         ))
         self._test_setitem_adjuster_error('adip', (
             # non anonymized
-            '1.2.3.4',
+            b'1.2.3.4',
             u'255.255.255.255',
-            '0.0.0.0',
+            bytearray(b'0.0.0.0'),
             u'192.168.10.255',
             # too big numbers
             u'x.x.x.910',
-            'x.256.33.44',
+            b'x.256.33.44',
             u'X.1000.1000.1000',
             # various defects
-            '11.x.22.33',
+            b'11.x.22.33',
             u'11.22.x.x',
-            'xx.11.22.33',
+            b'xx.11.22.33',
             u'xx.11.xx.33',
-            '11223344',
+            b'11223344',
             u'x223344',
-            '11.22.33',
+            b'11.22.33',
             u'x.22.33',
-            '.x.22.33.44',
+            bytearray(b'.x.22.33.44'),
             u'x.22...33.44',
-            'x.22.33.44.',
+            b'x.22.33.44.',
             u'x.22.33.44.55',
-            'x.022.33.44',
+            b'x.022.33.44',
             u'xx.1.2.3',
-            'x.2.00.3',
+            b'x.2.00.3',
             u'x.2.3.00',
-            'x.22.033.44',
+            b'x.22.033.44',
             u' x.22.33.44',
-            'x.22.33.44 ',
+            b'x.22.33.44 ',
             u'x.22. 33.44',
-            'x.22 .33.44',
+            b'x.22 .33.44',
             u'x.22.33.44/28',
-            'x.-22.33.44',
+            b'x.-22.33.44',
             u'example.com',
-            'X.2.133.4.',
+            b'X.2.133.4.',
             u'y.2.133.4',
             '',
+            bytearray(b''),
             '1684366951',
             1684366951,
             None,
@@ -1501,25 +1689,25 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
 
     def test__setitem__additional_data(self):
         self._test_setitem_valid('additional_data', (
-            S(u'', ('', u'')),
-            S(u'AbĆ', ('AbĆ', u'AbĆ')),
-            S(u'\udcdd', ('\xdd', '\xed\xb3\x9d', u'\udcdd')),
+            S(u'', (u'', b'', bytearray(b''))),
+            S(u'AbĆ', (u'AbĆ', u'AbĆ'.encode('utf-8'), bytearray(u'AbĆ'.encode('utf-8')))),
+            S(u'\udcdd', (u'\udcdd', b'\xdd', b'\xed\xb3\x9d', bytearray(b'\xdd'))),
             S(u'a' + u'\udcdd' * 2999, (
-                'a' + '\xdd' * 2999,
-                'a' + '\xed\xb3\x9d' * 2999,
+                b'a' + b'\xdd' * 2999,
+                b'a' + b'\xed\xb3\x9d' * 2999,
                 u'a' + u'\udcdd' * 2999,
                 # too long -> cut from right
-                'a' + '\xdd' * 3000,
-                'a' + '\xed\xb3\x9d' * 3000,
+                b'a' + b'\xdd' * 3000,
+                bytearray(b'a' + b'\xed\xb3\x9d' * 3000),
                 u'a' + u'\udcdd' * 3000,
-                'a' + '\xdd' * 10000,
-                'a' + '\xed\xb3\x9d' * 10000,
+                b'a' + b'\xdd' * 10000,
+                b'a' + b'\xed\xb3\x9d' * 10000,
                 u'a' + u'\udcdd' * 10000,
             )),
         ))
         self._test_setitem_valid('additional_data', (
             # values of other types passed untouched
-            ['\xdd' * 10000],
+            [b'\xdd' * 10000],
             123,
             None,
             datetime.datetime.now(),
@@ -1527,69 +1715,77 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
 
     def test__setitem__alternative_fqdns(self):
         self._test_setitem_valid('alternative_fqdns', (
-            S([u''], ('', u'', [''], [u''])),
-            S([u'AbĆ'], ('AbĆ', u'AbĆ', ['AbĆ'], [u'AbĆ'])),
+            S([u''], (b'', u'', [bytearray(b'')], [u''])),
+            S([u'AbĆ'], (
+                u'AbĆ',
+                bytearray(u'AbĆ'.encode('utf-8')),
+                [u'AbĆ'],
+                [u'AbĆ'.encode('utf-8')])),
             S([u'\udcdd'], (
-                '\xdd',
-                '\xed\xb3\x9d',
+                b'\xdd',
+                bytearray(b'\xed\xb3\x9d'),
                 u'\udcdd',
-                ['\xdd'],
-                ['\xed\xb3\x9d'],
+                [bytearray(b'\xdd')],
+                [b'\xed\xb3\x9d'],
                 [u'\udcdd'],
             )),
             S([u'abc', u'\udcdd'], (
-                ['abc', '\xdd'],
-                (u'abc', '\xed\xb3\x9d'),
-                ('abc', u'\udcdd'),
+                [b'abc', b'\xdd'],
+                [bytearray(b'abc'), bytearray(b'\xdd')],
+                (u'abc', b'\xed\xb3\x9d'),
+                (b'abc', u'\udcdd'),
                 [u'abc', u'\udcdd'],
             )),
             S([u'abc', u'\udcdd' * 2999 + u'a'], (
-                ['abc', '\xdd' * 2999 + 'a'],
-                [u'abc', '\xed\xb3\x9d' * 2999 + 'a'],
-                ['abc', u'\udcdd' * 2999 + u'a'],
+                [b'abc', b'\xdd' * 2999 + b'a'],
+                [u'abc', bytearray(b'\xed\xb3\x9d' * 2999 + b'a')],
+                [b'abc', u'\udcdd' * 2999 + u'a'],
                 # too long -> cut from left...
-                ['abc', '\xdd' * 3000 + 'a'],
-                [u'abc', '\xed\xb3\x9d' * 3000 + 'a'],
-                ['abc', u'\udcdd' * 3000 + u'a'],
+                [b'abc', b'\xdd' * 3000 + b'a'],
+                [u'abc', b'\xed\xb3\x9d' * 3000 + b'a'],
+                [b'abc', u'\udcdd' * 3000 + u'a'],
                 [u'abc', u'\udcdd' * 10000 + u'a'],
-                ['abc', '\xed\xb3\x9d' * 10000 + 'a'],
-                ['abc', '\xed\xb3\x9d' * 10001 + 'a'],
-                ['abc', '\xed\xb3\x9d' * 10002 + 'a'],
+                [b'abc', b'\xed\xb3\x9d' * 10000 + b'a'],
+                [bytearray(b'abc'), bytearray(b'\xed\xb3\x9d' * 10001 + b'a')],
+                [b'abc', b'\xed\xb3\x9d' * 10002 + b'a'],
             )),
-            S([u'x.' * 1498 + u'com'],  # result length: 2999
+            S([u'x.' * 1498 + u'com'],               # result length: 2999
               (
-                'x.' * 1498 + 'com',    # input length: 2999
+                b'x.' * 1498 + b'com',               # input length: 2999
                 u'x.' * 1498 + u'com',
                 # too long -> cut from left, then strip the leading '.'
-                'x.' * 1499 + 'com',    # input length: 3001
+                b'x.' * 1499 + b'com',               # input length: 3001
                 u'x.' * 1499 + u'com',
-                'x.' * 10000 + 'com',   # input length: some big odd number
+                bytearray(b'x.' * 10000 + b'com'),   # input length: some big odd number
                 u'x.' * 10000 + u'com',
             )),
         ))
         self._test_setitem_adjuster_error('alternative_fqdns', (
             123,
             [u'abc', 123],
-            [123, 'abc'],
+            [123, b'abc'],
             None,
             datetime.datetime.now(),
         ))
 
     def test__setitem__description(self):
         self._test_setitem_valid('description', (
-            S(u'', ('', u'')),
-            S(u'AbĆ', ('AbĆ', u'AbĆ')),
-            S(u'\udcdd', ('\xdd', '\xed\xb3\x9d', u'\udcdd')),
+            S(u'', (u'', b'', bytearray(b''))),
+            S(u'AbĆ', (u'AbĆ', u'AbĆ'.encode('utf-8'), bytearray(u'AbĆ'.encode('utf-8')))),
+            S(u'\udcdd', (b'\xdd', b'\xed\xb3\x9d', u'\udcdd')),
             S(u'a' + u'\udcdd' * 2999, (
-                'a' + '\xdd' * 2999,
-                'a' + '\xed\xb3\x9d' * 2999,
+                b'a' + b'\xdd' * 2999,
+                b'a' + b'\xed\xb3\x9d' * 2999,
+                bytearray(b'a' + b'\xed\xb3\x9d' * 2999),
                 u'a' + u'\udcdd' * 2999,
                 # too long -> cut from right
-                'a' + '\xdd' * 3000,
-                'a' + '\xed\xb3\x9d' * 3000,
+                b'a' + b'\xdd' * 3000,
+                b'a' + b'\xed\xb3\x9d' * 3000,
+                bytearray(b'a' + b'\xed\xb3\x9d' * 3000),
                 u'a' + u'\udcdd' * 3000,
-                'a' + '\xdd' * 10000,
-                'a' + '\xed\xb3\x9d' * 10000,
+                b'a' + b'\xdd' * 10000,
+                bytearray(b'a' + b'\xdd' * 10000),
+                b'a' + b'\xed\xb3\x9d' * 10000,
                 u'a' + u'\udcdd' * 10000,
             )),
         ))
@@ -1602,61 +1798,77 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
     def test__setitem__ip_network(self):
         self._test_setitem_valid('ip_network', (
             S(u'1.101.2.102/4', (
-                '1.101.2.102/4',
+                b'1.101.2.102/4',
                 u'1.101.2.102/4',
-                ('1.101.2.102', 4),
-                [u'1.101.2.102', 4L],
-                ('1.101.2.102', '4'),
+                (b'1.101.2.102', 4),
+                [u'1.101.2.102', 4],
+                (b'1.101.2.102', b'4'),
+                (u'1.101.2.102', u'4'),
+                (u'1.101.2.102', b'4'),
+                (u'1.101.2.102', bytearray(b'4')),
+                (bytearray(b'1.101.2.102'), b'4'),
+                (bytearray(b'1.101.2.102'), u'4'),
+                (bytearray(b'1.101.2.102'), bytearray(b'4')),
             )),
             S(u'0.0.0.0/0', (
-                '0.0.0.0/0',
+                b'0.0.0.0/0',
                 u'0.0.0.0/0',
-                ('0.0.0.0', 0),
-                [u'0.0.0.0', 0L],
-                ('0.0.0.0', u'0'),
+                (bytearray(b'0.0.0.0'), 0),
+                [u'0.0.0.0', 0],
+                (b'0.0.0.0', u'0'),
             )),
             S(u'255.255.255.255/32', (
-                '255.255.255.255/32',
+                b'255.255.255.255/32',
                 u'255.255.255.255/32',
-                ('255.255.255.255', 32),
-                [u'255.255.255.255', 32L],
-                ('255.255.255.255', u'32'),
+                (bytearray(b'255.255.255.255'), 32),
+                [u'255.255.255.255', 32],
+                (b'255.255.255.255', u'32'),
             )),
         ))
         self._test_setitem_adjuster_error('ip_network', (
-            'x.256.256.256/32',
+            b'x.256.256.256/32',
             u'256.256.256.256/32',
-            '255.255.255.255/33',
+            b'255.255.255.255/33',
             u'255.255.255.255/x',
-            '255.255. 255.255/32',
+            b'255.255. 255.255/32',
             u'\t255.255.255.255/32',
-            '255.255.255.255 /32',
+            b'255.255.255.255 /32',
             u'255.255.255.255/ 32',
-            ' 255.255.255.255/32',
+            bytearray(b' 255.255.255.255/32'),
             u'255.255.255.255/32 ',
-            '255.255.255.0255/32',
+            b'255.255.255.0255/32',
             u'255.255.255.255/032',
-            '255.255.255.0xff/32',
+            b'255.255.255.0xff/32',
             u'255.255.255.255/0x20',
-            '255.255.255.255/00',
+            b'255.255.255.255/00',
             u'255.255.255.255/',
-            '255.255.255.255',
-            u'255.255.255/32'
-            '255.255.255.255.255/32'
+            b'255.255.255.255',
+            u'255.255.255/32',
+            b'255.255.255.255.255/32',
             u'/32',
-            '255/32',
+            b'255/32',
             u'32',
-            '',
+            b'',
+            u'',
             (u'256.256.256.256', 32),
-            ('255.255.255.255', 33),
-            (u'255.255.255.255', '0x4'),
-            ('255.255.255.255', '04'),
+            (b'255.255.255.255', 33),
+            (u'255.255.255.255', b'0x4'),
+            (b'255.255.255.255', u'04'),
+            (u'255.255.255.255', u'04'),
+            (b'255.255.255.255', b'04'),
+            (bytearray(b'123.166.77.88.99'), 4),
             (u'123.166.77.88.99', 4),
-            ('166.77.88', 4),
+            (b'166.77.88', 4),
             (u'1.2.3.25 ', 12),
-            ('1.2.3.0xff', 22),
-            ('', 22),
-            ('1.2.3.4', ''),
+            (b'1.2.3.0xff', 22),
+            (b'', 22),
+            (u'', 22),
+            (b'1.2.3.4', b''),
+            (bytearray(b'1.2.3.4'), bytearray(b'')),
+            (b'1.2.3.4', u''),
+            (u'1.2.3.4', u''),
+            (u'1.2.3.4', b''),
+            (u'1.2.3.4', bytearray(b'')),
             (123, 22),
             123,
             None,
@@ -1665,21 +1877,21 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
 
     def test__setitem__min_amplification(self):
         self._test_setitem_valid('min_amplification', (
-            S(u'', ('', u'')),
-            S(u'AbĆ', ('AbĆ', u'AbĆ')),
-            S(u'\udcdd', ('\xdd', '\xed\xb3\x9d', u'\udcdd')),
+            S(u'', (u'', b'', bytearray(b''))),
+            S(u'AbĆ', (u'AbĆ', u'AbĆ'.encode('utf-8'), bytearray(u'AbĆ'.encode('utf-8')))),
+            S(u'\udcdd', (b'\xdd', b'\xed\xb3\x9d', u'\udcdd')),
             S(u'a' + u'\udcdd' * 2999, (
-                'a' + '\xdd' * 2999,
-                'a' + '\xed\xb3\x9d' * 2999,
+                bytearray(b'a' + b'\xdd' * 2999),
+                b'a' + b'\xed\xb3\x9d' * 2999,
                 u'a' + u'\udcdd' * 2999,
                 # too long -> cut from right
-                'a' + '\xdd' * 3000,
-                'a' + '\xed\xb3\x9d' * 3000,
+                bytearray(b'a' + b'\xdd' * 3000),
+                b'a' + b'\xed\xb3\x9d' * 3000,
                 u'a' + u'\udcdd' * 3000,
-                'a' + '\xdd' * 10000,
-                'a' + '\xed\xb3\x9d' * 10000,
-                'a' + '\xed\xb3\x9d' * 10001,
-                'a' + '\xed\xb3\x9d' * 10002,
+                b'a' + b'\xdd' * 10000,
+                bytearray(b'a' + b'\xed\xb3\x9d' * 10000),
+                b'a' + b'\xed\xb3\x9d' * 10001,
+                bytearray(b'a' + b'\xed\xb3\x9d' * 10002),
                 u'a' + u'\udcdd' * 10000,
             )),
         ))
@@ -1690,26 +1902,26 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         ))
 
     def test__setitem__urls_matched(self):
-        urls1 = ['http://żażółć.com/?=\xdd', u'ftp://foo/ł']
+        urls1 = [u'http://żażółć.com/?='.encode('utf-8') + b'\xdd', u'ftp://foo/ł']
         cleaned_urls1 = [u'ftp://foo/ł', u'http://żażółć.com/?=\udcdd']
-        urls2 = (10000 * 'u',)
+        urls2 = (10000 * bytearray(b'u'),)
         cleaned_urls2 = [10000 * u'u']
         self._test_setitem_valid('urls_matched', (
             S({u'o1': cleaned_urls1, u'o2': cleaned_urls2}, (
                 {'o1': urls1, 'o2': urls2},
                 {u'o1': urls1, 'o2': urls2},
                 {u'o1': urls1, u'o2': urls2},
-                IterableUserDict({'o1': urls1, u'o2': urls2}),
+                UserDict({'o1': urls1, u'o2': urls2}),
             )),
         ))
         self._test_setitem_adjuster_error('urls_matched', (
             {},
-            IterableUserDict(),
+            UserDict(),
             {'o1': urls1, 'o2': []},
             {'o1': urls1, 33 * 'o': urls2},
             {'o1': urls1, None: urls2},
             urls1,
-            set({'foo', 'bar'}),
+            {'foo', 'bar'},
             123,
             None,
             datetime.datetime.now(),
@@ -1728,10 +1940,10 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 rd = self.rd_class(
                     {'category': category},
                     log_nonstandard_names=True)
-                for name in ['citadel', u'citadel', 'CItaDEl', u'CItaDEl']:
+                for name in [b'citadel', u'citadel', bytearray(b'CItaDEl'), u'CItaDEl']:
                     rd['name'] = name
-                    self.assertEqual(rd['name'], 'citadel')
-                    self.assertIsInstance(rd['name'], unicode)
+                    self.assertEqual(rd['name'], u'citadel')
+                    self.assertIsInstance(rd['name'], str)
                 self.assertEqual(logger.mock_calls, [])
 
             # with regexp-based normalization
@@ -1739,13 +1951,13 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 rd = self.rd_class(
                     {'category': category},
                     log_nonstandard_names=True)
-                for name in ['irc-bot', 'IRC-Bot',
+                for name in [b'irc-bot', b'IRC-Bot',
                              u'irc-botnet', u'IRC-BotNet',
-                             'ircboTnet', 'ircbot', 'iRc',
+                             b'ircboTnet', bytearray(b'ircbot'), b'iRc',
                              u'irc_bot', u'irc&botNET']:
                     rd['name'] = name
                     self.assertEqual(rd['name'], 'irc-bot')
-                    self.assertIsInstance(rd['name'], unicode)
+                    self.assertIsInstance(rd['name'], str)
                 self.assertEqual(logger.mock_calls, [])
 
             # non-standard name -> logging warning
@@ -1755,20 +1967,25 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 rd = self.rd_class(
                     {'category': category},
                     log_nonstandard_names=True)
-                for name in ['citaDDDel', u'ciTAdddEL', '  irc-bot  ',
-                             u'IRC--Bół', 'tralalalala', u'irc--bół']:
+                for name in [b'citaDDDel', u'ciTAdddEL', bytearray(b'  irc-bot  '),
+                             u'IRC--Bół', b'tralalalala', u'irc--bół']:
                     rd['name'] = name
-                    self.assertEqual(rd['name'], name.lower())
-                    self.assertIsInstance(rd['name'], unicode)
+                    self.assertEqual(rd['name'], as_unicode(name).lower())
+                    self.assertIsInstance(rd['name'], str)
 
                 # ...and also for non-standard very long names:
-                for name in ['MAX-łong' * 31 + 'MAX-łon',            # max length
+                for name in [u'MAX-łong' * 31 + u'MAX-łon',          # max length
+                             u'MAX-łong'.encode('utf-8') * 31 + u'MAX-łon'.encode('utf-8'),
+                             bytearray(u'MAX-łong'.encode('utf-8') * 31
+                                       + u'MAX-łon'.encode('utf-8')),
                              u'MAX-łong' * 31 + u'MAX-łonG',         # too long
-                             'MAX-łong' * 31 + 'MAX-łonG',           # too long
-                             u'max-łong' * 31 + u'max-łonGGGGGGG']:  # too long
+                             u'MAX-łong'.encode('utf-8') * 31 + u'MAX-łonG'.encode('utf-8'),
+                             bytearray(u'MAX-łong'.encode('utf-8') * 31
+                                       + u'MAX-łonG'.encode('utf-8')),
+                             u'max-łong' * 31 + u'max-łonGGGGGGG']:
                     rd['name'] = name
                     self.assertEqual(rd['name'], u'max-łong' * 31 + u'max-łon')
-                    self.assertIsInstance(rd['name'], unicode)
+                    self.assertIsInstance(rd['name'], str)
 
                 self.assertEqual(logger.mock_calls, [
                     # NOTE: repeated names are not logged
@@ -1797,18 +2014,23 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 rd = self.rd_class(
                     {'category': category},
                     log_nonstandard_names=False)
-                for name in ['citaDDDel', u'ciTAdddEL', '  irc-bot  ',
-                             u'IRC--Bół', 'tralalalala', u'irc--bół']:
+                for name in [b'citaDDDel', u'ciTAdddEL', bytearray(b'  irc-bot  '),
+                             u'IRC--Bół', b'tralalalala', u'irc--bół']:
                     rd['name'] = name
-                    self.assertEqual(rd['name'], name.lower())
-                    self.assertIsInstance(rd['name'], unicode)
-                for name in ['MAX-łong' * 31 + 'MAX-łon',            # max length
+                    self.assertEqual(rd['name'], as_unicode(name.lower()))
+                    self.assertIsInstance(rd['name'], str)
+                for name in [u'MAX-łong' * 31 + u'MAX-łon',          # max length
+                             u'MAX-łong'.encode('utf-8') * 31 + u'MAX-łon'.encode('utf-8'),
+                             bytearray(u'MAX-łong'.encode('utf-8') * 31
+                                       + u'MAX-łon'.encode('utf-8')),
                              u'MAX-łong' * 31 + u'MAX-łonG',         # too long
-                             'MAX-łong' * 31 + 'MAX-łonG',           # too long
+                             u'MAX-łong'.encode('utf-8') * 31 + u'MAX-łonG'.encode('utf-8'),
+                             bytearray(u'MAX-łong'.encode('utf-8') * 31
+                                       + u'MAX-łonG'.encode('utf-8')),
                              u'max-łong' * 31 + u'max-łonGGGGGGG']:  # too long
                     rd['name'] = name
                     self.assertEqual(rd['name'], u'max-łong' * 31 + u'max-łon')
-                    self.assertIsInstance(rd['name'], unicode)
+                    self.assertIsInstance(rd['name'], str)
                 self.assertEqual(logger.mock_calls, [])
 
             # for long names, but with regexp-based normalization
@@ -1822,9 +2044,11 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 rd = self.rd_class(
                     {'category': category},
                     log_nonstandard_names=True)
-                for name in ['MAX-long' * 31 + 'MAX-lon',            # max length (255)
+                for name in [u'MAX-long' * 31 + u'MAX-lon',          # max length (255)
+                             b'MAX-long' * 31 + b'MAX-lon',          # max length (255 again)
+                             bytearray(b'MAX-long' * 31 + b'MAX-lon'),  # max length (255 again)
                              u'MAX-long' * 31 + u'MAX-lonG',         # too long (256)
-                             'max-LONG' * 31 + 'MAX-lonG',           # too long (256 again)
+                             b'max-LONG' * 31 + b'MAX-lonG',         # too long (256 again)
                              u'Max-long' * 31 + u'max-lonGGGGGGG',   # too long (262)
                              'short']:
                     with patch.dict(
@@ -1836,13 +2060,13 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                                     (re.compile(r'\A[\-a-z]{262}\Z'), 'Length:262.'),
                                 ],
                                 's': [
-                                    (re.compile('\Ashort\Z'), 'Length:5.' * 300),
+                                    (re.compile(r'\Ashort\Z'), 'Length:5.' * 300),
                                 ],
                             }):
                         rd['name'] = name
                         self.assertTrue(rd['name'].startswith('Length:{}.'.format(len(name))))
                         self.assertTrue(len(rd['name']) <= 255)
-                        self.assertIsInstance(rd['name'], unicode)
+                        self.assertIsInstance(rd['name'], str)
                 self.assertEqual(logger.mock_calls, [
                     # NOTE: repeated names are not logged
                     # (it's checked after applying lower(), max-length-cut etc.)
@@ -1865,7 +2089,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 rd = self.rd_class(
                     {'category': category},
                     log_nonstandard_names=True)
-                for name in [True, 'blablabla\xee', '', u'']:
+                for name in [True, b'blablabla\xee', b'', u'']:
                     rd['name'] = name
                     self.assertNotIn('name', rd)
                 self.assertEqual(logger.mock_calls, [])
@@ -1877,28 +2101,37 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             # valid name -> setting without normalization
             rd = self.rd_class({'category': category})
             for name in [
-                    'spyeye', u'spyeye',
-                    'SPYeye', u'spYEYe',
-                    255 * 'X', 255 * u'X']:
+                    b'spyeye',
+                    u'spyeye',
+                    bytearray(b'SPYeye'),
+                    u'spYEYe',
+                    255 * b'X',
+                    255 * u'X']:
                 rd['name'] = name
-                self.assertEqual(rd['name'], name)
-                self.assertIsInstance(rd['name'], unicode)
+                self.assertEqual(rd['name'], as_unicode(name))
+                self.assertIsInstance(rd['name'], str)
 
             # too long name -> right-cutting
             rd = self.rd_class({'category': category})
             for name, resultant_name in [
-                    (255 * 'Ł' + 'A', 255 * u'Ł'),
-                    (255 * u'Ł' + u'A', 255 * u'Ł'),
-                    (300 * 'błablaB', 36 * u'błablaB' + u'bła')]:
+                    (255 * u'Ł'.encode('utf-8') + b'A',
+                     255 * u'Ł'),
+
+                    (255 * u'Ł' + u'A',
+                     255 * u'Ł'),
+
+                    (bytearray(300 * u'błablaB'.encode('utf-8')),
+                     36 * u'błablaB' + u'bła')]:
+
                 assert len(resultant_name) == 255
-                assert isinstance(resultant_name, unicode)
+                assert isinstance(resultant_name, str)
                 rd['name'] = name
                 self.assertEqual(rd['name'], resultant_name)
-                self.assertIsInstance(rd['name'], unicode)
+                self.assertIsInstance(rd['name'], str)
 
             # invalid name (bad type, non-utf8, empty) -> skipping
             rd = self.rd_class({'category': category})
-            for name in [True, 'blablabla\xee', '', u'']:
+            for name in [True, b'blablabla\xee', b'', u'']:
                 rd['name'] = name
                 self.assertNotIn('name', rd)
 
@@ -1926,7 +2159,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
     def test_no_appender_for_nonmultiadjusted_attr(self):
         rd = self.rd_class()
         with self.assertRaises(AttributeError):
-            rd.append_dip
+            rd.append_dip  # noqa
 
     def _asserts_for_reused_context_manager(self, rd):
         entered_again = False

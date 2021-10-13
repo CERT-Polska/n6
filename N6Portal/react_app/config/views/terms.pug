@@ -1,0 +1,161 @@
+html
+  head
+    title= "n6 Portal GUI configurator"
+    link(rel="stylesheet" type="text/css" href="style.css")
+    script(src='app.js')
+  body
+    h1= "n6 Portal GUI configurator"
+    div#infoMsg.hidden
+    div#errorMsg.hidden
+    div.formWrapper
+      h2= "English"
+      form(id="termsFormEn")
+    div.formWrapper
+      h2= "Polish"
+      form(id="termsFormPl")
+    div#buttons
+      button(type="button")#sendBtn= "Save current locale"
+      button(type="button")#resetBtn= "Reset forms"
+      button(type="button")#previousBtn= "Go to previous screen"
+  script.
+    setFormListeners();
+    document.querySelector('#previousBtn').addEventListener('click', onPrevious, false);
+
+    const trashIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler ' +
+            'icon-tabler-trash" width="24" height="24" viewBox="0 0 24 24" stroke-width="1.5" ' +
+            'stroke="#ff2825" fill="none" stroke-linecap="round" stroke-linejoin="round">\n' +
+            '  <path stroke="none" d="M0 0h24v24H0z" fill="none"/>\n' +
+            '  <line x1="4" y1="7" x2="20" y2="7" />\n' +
+            '  <line x1="10" y1="11" x2="10" y2="17" />\n' +
+            '  <line x1="14" y1="11" x2="14" y2="17" />\n' +
+            '  <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" />\n' +
+            '  <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />\n' +
+            '</svg>';
+
+    function _fillSection(data, formId) {
+      // TODO: make the function more versatile, remove hardcoded field
+      // names, get field names from '_required' schema field etc.
+      let formObj = document.querySelector(formId);
+      for (const key in data['_schema']) {
+        if (key === 'terms') {
+          // multi-valued input
+          let mainContainer = document.createElement('div');
+          mainContainer.classList.add('multiContainer');
+          formObj.appendChild(mainContainer);
+          let newLabel = document.createElement('label');
+          newLabel.textContent = data['_schema'][key];
+          mainContainer.appendChild(newLabel);
+          if (!data.hasOwnProperty(key) || !Array.isArray(data[key]) || data[key].length === 0) {
+            // add empty field if the fetched value is empty
+            let container = document.createElement('div');
+            container.classList.add('multiField');
+            mainContainer.appendChild(container);
+            addInputPair(container, '#1', `${key}[0]`, '', 'textarea', 'multiInput');
+          } else {
+            for (const i in data[key]) {
+              // container for a label-input pair
+              let container = document.createElement('div');
+              container.classList.add('multiField');
+              mainContainer.appendChild(container);
+              addInputPair(container, `#${Number.parseInt(i) + 1}`, `${key}[${i}]`,
+                      data[key][i], 'textarea', 'multiInput');
+              if (i > 0) {
+                let delIcon = document.createElement('svg');
+                delIcon.innerHTML = trashIcon;
+                delIcon.addEventListener('click', onDel, false);
+                container.appendChild(delIcon);
+              }
+            }
+          }
+          let addBtn = document.createElement('button');
+          addBtn.textContent = 'Add next field';
+          addBtn.type = 'button';
+          mainContainer.appendChild(addBtn);
+          addBtn.addEventListener('click', onAdd, false);
+        } else if (key === 'version') {
+          addInputPair(formObj, data['_schema'][key], key, data[key], 'input', 'disabledField', true);
+        } else {
+          // use multi-line textarea HTML elements only for some
+          // of form fields
+          let inputType = key === 'precaution' ? 'textarea' : 'input';
+          addInputPair(formObj, data['_schema'][key], key, data[key], inputType);
+        }
+      }
+    }
+
+    function fillForm(data) {
+      _fillSection(data['en'], '#termsFormEn');
+      _fillSection(data['pl'], '#termsFormPl');
+    }
+
+    function getFormData() {
+      makeGetRequest('/getLocale');
+    }
+
+    function onSave() {
+      let payload = {
+        en: getPayloadFromFormData('#termsFormEn'),
+        pl: getPayloadFromFormData('#termsFormPl'),
+      };
+      fetch('/saveLocale', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+      .then((response) => {
+        if (response.ok) {
+          onReset();
+          response.text().then((text) => showInfoMessage(text));
+        } else {
+          response.text().then((text) => showErrorMsg(text));
+        }
+      })
+      .catch((e) => {
+        showErrorMsg('There was a connection error while attempting to save changes');
+        console.error(e);
+      });
+    }
+
+    function onReset() {
+      clearNode('#termsFormEn');
+      clearNode('#termsFormPl');
+      getFormData();
+    }
+
+    function onAdd() {
+      let fields = this.parentElement.querySelectorAll('textarea');
+      let lastField = fields[fields.length-1];
+      let labels = this.parentElement.querySelectorAll('label');
+      let lastLabel = labels[labels.length-1];
+      if (lastField.value) {
+        let container = document.createElement('div');
+        container.classList.add('multiField');
+        let labelIndex = Number.parseInt(lastLabel.textContent.replace('#', '')) + 1;
+        let generalName = lastField.name.replace(inputArrayRe, '');
+        let newLabel = document.createElement('label');
+        newLabel.textContent = `#${labelIndex}`;
+        let newInput = document.createElement('textarea');
+        newInput.name = `${generalName}[${labelIndex-1}]`;
+        newInput.value = '';
+        newInput.classList.add('multiInput');
+        let delIcon = document.createElement('svg');
+        delIcon.innerHTML = trashIcon;
+        delIcon.addEventListener('click', onDel, false);
+        container.appendChild(newLabel);
+        container.appendChild(newInput);
+        container.appendChild(delIcon);
+        this.parentElement.insertBefore(container, this);
+      }
+    }
+
+    function onDel() {
+      let container = this.parentElement;
+      let parent = container.parentElement;
+      parent.removeChild(container);
+    }
+
+    function onPrevious() {
+      window.location.href = '/';
+    }

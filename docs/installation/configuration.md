@@ -1,8 +1,11 @@
-# Configuration of *n6* components
+# Configuration of _n6_ components
+
+**TBD: the following description needs an update regarding the
+components that now work under Python 3.9.**
 
 ## Generating pipeline components' configuration files
 
-To create configuration files required for the *n6* pipeline (`N6Core`)
+To create configuration files required for the _n6_ pipeline (`N6Core`)
 components to work, run the command:
 
 ```bash
@@ -70,7 +73,6 @@ With the configuration above, _syslog_ handler is set to _WARNING_, _stream_ han
 to _INFO_, and the logger overall is set to _INFO_ logging level. You can change logging levels
 for each handler separately or for the logger globally.
 
-
 ## Enricher
 
 The Enricher uses a DNS resolver to enrich data by adding IP addresses converted from FQDNs,
@@ -100,7 +102,7 @@ Note that you can download GeoIP database files from:
 ## RabbitMQ
 
 _n6_ configuration for RabbitMQ lies in section `rabbitmq`, in the file:  
-`/home/dataman/.n6/00_global.conf` 
+`/home/dataman/.n6/00_global.conf`
 
 Let us change option `port=5671` to `port=5672` in the section.
 
@@ -126,7 +128,6 @@ spam404-com.scam-list
 
 You can close the parser with `CTRL + c`. It will gracefully close the connection and exit.
 
-
 ## SQL databases (MariaDB)
 
 MySQL setup configuration can be found in `/etc/mysql/my.cnf`. _n6_ provides its own configuration
@@ -144,7 +145,7 @@ Remove plugins from user:
 # mysql -p -u root -e 'update mysql.user set plugin=" " where User="root";flush privileges;'
 ```
 
-Now, it's time to adjust relevant *n6* configuration files...
+Now, it's time to adjust relevant _n6_ configuration files...
 
 ### Event DB
 
@@ -154,7 +155,7 @@ hostname and database name):
 
 ```ini
 [recorder]
-uri = mysql://root:yourMysqlPassword@localhost/n6?charset=utf8&use_unicode=1
+uri = mysql://root:yourMysqlPassword@localhost/n6
 echo = 0
 wait_timeout = 28800
 ```
@@ -251,12 +252,11 @@ User "login@example.com"
 
 **IMPORTANT - Positional arguments of the _n6populate_auth_db_ script:**
 
-* ORG_ID (here: `example.com`) must match the subject's `O` field in the X.509 client
-certificate used for certificate-based  authentication against *n6 REST API* and *n6 Portal*.
-* USER_LOGIN (here: `login@example.com`) must match the subject's `CN` field in the
-X.509 client certificate used for certificate-based authentication against *n6 REST API*
-and *n6 Portal*.
-
+- ORG_ID (here: `example.com`) must match the subject's `O` field in the X.509 client
+  certificate used for certificate-based authentication against _n6 REST API_ and _n6 Portal_.
+- USER_LOGIN (here: `login@example.com`) must match the subject's `CN` field in the
+  X.509 client certificate used for certificate-based authentication against _n6 REST API_
+  and _n6 Portal_.
 
 ## Archive DB (MongoDB)
 
@@ -266,13 +266,13 @@ To start with, make sure that `mongod` process is running:
 $ systemctl status mongod
 ```
 
-Now, run `mongo`: 
+Now, run `mongo`:
 
 ```bash
 $ mongo
 ```
 
-In order to create users and database for *n6* data, copy-paste content of
+In order to create users and database for _n6_ data, copy-paste content of
 the `n6/etc/mongo/initdb/create_users.js` file, like below:
 
 ```sql
@@ -302,7 +302,7 @@ security:
 ```
 
 Restart the MongoDB server. To run `mongod` during system startup you need to create
-a symlink to the *.service_ file for `systemd`:
+a symlink to the \*.service\_ file for `systemd`:
 
 ```bash
 $ systemctl enable mongod
@@ -324,7 +324,7 @@ $ systemctl status mongod
            └─12803 /usr/bin/mongod --config /etc/mongod.conf
 ```
 
-**Adjust the *n6 Archive Raw* configuration in** `/home/dataman/.n6/02_archiveraw.conf`
+**Adjust the _n6 Archive Raw_ configuration in** `/home/dataman/.n6/02_archiveraw.conf`
 
 ```ini
 [archiveraw]
@@ -336,7 +336,7 @@ count_try_connection=1000
 uri = mongodb://admin:password@%(mongohost)s:%(mongoport)s/?authSource=n6&authMechanism=SCRAM-SHA-1
 ```
 
-To test the *n6 Archive Raw* component, _rabbitmq-server_ and _mongod_ services have to be
+To test the _n6 Archive Raw_ component, _rabbitmq-server_ and _mongod_ services have to be
 configured and running. Then run:
 
 ```bash
@@ -346,7 +346,6 @@ configured and running. Then run:
 The `n6archiveraw` process stops on `SIGINT` (`CTRL + c`) or `SIGTERM` signal. After a few seconds,
 all messages from the `dba` queue should be consumed by `n6archiveraw`.
 
-
 Now, as a `dataman` user, run some n6 collector (for example the _AbuseChSSLBlacklistCollector_):
 
 ```bash
@@ -355,8 +354,8 @@ Now, as a `dataman` user, run some n6 collector (for example the _AbuseChSSLBlac
 
 A collector should collect data, send gathered data to the message broker (RabbitMQ) and quit.
 If you look into the RabbitMQ Management GUI, there should appear one or more messages in
-the *n6 Archive Raw* `dba` inner queue.
-The *n6 Archive Raw* component consumes messages from its inner queue and archives them
+the _n6 Archive Raw_ `dba` inner queue.
+The _n6 Archive Raw_ component consumes messages from its inner queue and archives them
 in the MongoDB database.
 
 There should be logs similar to examples below:
@@ -386,7 +385,7 @@ $ mongo -u admin -p password --authenticationDatabase n6
 If you see similar output like the example above, then `n6archiveraw`, `mongod`, `rabbitmq-server`
 services work as expected!
 
-### Troubleshooting: [ERROR] Failed to unlink socket file /tmp/mongodb-27017 
+### Troubleshooting: [ERROR] Failed to unlink socket file /tmp/mongodb-27017
 
 There might be an issue with starting the `mongod` process.
 Check the `/var/log/mongodb/mongod.log` file for the following error messages:

@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2020 NASK. All rights reserved.
 
 import sys
-
-import pytz
 
 from n6.parsers.generic import (
     TabDataParser,
     entry_point_factory,
 )
-from n6lib.datetime_helpers import parse_iso_datetime
+from n6lib.datetime_helpers import (
+    ReactionToProblematicTime,
+    parse_iso_datetime,
+    datetime_with_tz_to_utc,
+)
 from n6lib.log_helpers import get_logger
 
 
@@ -29,8 +31,11 @@ class _PacketmailBaseParser(TabDataParser):
 
     @staticmethod
     def _convert_cet_to_utc(cet_date):
-        offset = pytz.timezone('Europe/Berlin').localize(cet_date).utcoffset()
-        return cet_date - offset
+        return datetime_with_tz_to_utc(
+            cet_date,
+            'Europe/Berlin',
+            on_ambiguous_time=ReactionToProblematicTime.PICK_THE_LATER,
+            on_non_existent_time=ReactionToProblematicTime.PICK_THE_LATER)
 
 
 class PacketmailScanningParser(_PacketmailBaseParser):

@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 
 # Terminology: some definitions and synonyms
@@ -10,14 +8,11 @@
 
 
 import base64
-import collections
 import string
-import urllib
+import urllib.parse
 
-from n6lib.common_helpers import (
-    ascii_str,
-    string_as_bytes,
-)
+from n6lib.common_helpers import ascii_str
+from n6lib.class_helpers import is_seq_or_set
 from n6lib.const import CLIENT_ORGANIZATION_MAX_LENGTH
 from n6sdk.data_spec.fields import (
     Field,
@@ -83,8 +78,8 @@ class FieldForN6(Field):
             ai_validator_meth(additional_info)
         except ValueError as exc:
             raise ValueError(
-                '{}.__init__() got {}={!r}; {}'.format(
-                    self.__class__.__name__,
+                '{}.__init__() got {}={!a}; {}'.format(
+                    self.__class__.__qualname__,
                     arg_name,
                     arg_value,
                     exc))
@@ -93,11 +88,10 @@ class FieldForN6(Field):
         super(FieldForN6, self).handle_in_arg(arg_name, main_qualifier)
 
     def _get_main_qualifier_and_additional_info(self, arg_value):
-        if (isinstance(arg_value, (collections.Set, collections.Sequence)) and
-              not isinstance(arg_value, basestring)):
-            # the `in_params`/`in_result` field constructor argument is
-            # a set or a sequence (but not a string) -- so we expect that
-            # it contains the main qualifier (one of VALID_MAIN_QUALIFIERS)
+        if is_seq_or_set(arg_value):
+            # the `in_params`/`in_result` field constructor argument is a
+            # set or a sequence (but not a str/bytes/bytearray) -- so we expect
+            # that it contains the main qualifier (one of VALID_MAIN_QUALIFIERS)
             # and possibly also other items (which we will isolate and place
             # in the `additional_info` frozenset)
             (main_qualifier,
@@ -109,7 +103,7 @@ class FieldForN6(Field):
                 raise ValueError(
                     "if not None it should be a valid main qualifier "
                     "(one of: {}) or a set/sequence containing it".format(
-                        ', '.join(sorted(map(repr, VALID_MAIN_QUALIFIERS)))))
+                        ', '.join(sorted(map(ascii, VALID_MAIN_QUALIFIERS)))))
             main_qualifier = arg_value
             additional_info = frozenset()
         assert main_qualifier is None and not additional_info or (
@@ -126,11 +120,11 @@ class FieldForN6(Field):
             if found_main_qual:
                 raise ValueError(
                     "multiple main qualifiers: {} (expected only one)".format(
-                        ', '.join(sorted(map(repr, found_main_qual)))))
+                        ', '.join(sorted(map(ascii, found_main_qual)))))
             else:
                 raise ValueError(
                     "no main qualifier (expected one of: {})".format(
-                        ', '.join(sorted(map(repr, VALID_MAIN_QUALIFIERS)))))
+                        ', '.join(sorted(map(ascii, VALID_MAIN_QUALIFIERS)))))
         additional_info = frozenset(arg_value) - found_main_qual
         return main_qualifier, additional_info
 
@@ -147,14 +141,14 @@ class FieldForN6(Field):
         illegal_items = a_set - VALID_ACCESS_QUALIFIERS
         if illegal_items:
             raise ValueError('illegal item(s): {}'.format(
-                ', '.join(sorted(map(repr, illegal_items)))))
+                ', '.join(sorted(map(ascii, illegal_items)))))
 
     def _ensure_no_multiple_access_qualifiers(self, a_set):
         found_access_qual = a_set & VALID_ACCESS_QUALIFIERS
         if len(found_access_qual) > 1:
             raise ValueError(
                 "multiple access qualifiers: {} (expected only one)".format(
-                    ', '.join(sorted(map(repr, found_access_qual)))))
+                    ', '.join(sorted(map(ascii, found_access_qual)))))
 
 
 # n6lib versions of field classes defined in SDK:
@@ -251,7 +245,7 @@ class _ClientOrgIdFieldForN6(UnicodeLimitedFieldForN6):
 class _InsideCritURLFieldForN6(UnicodeFieldForN6):
     # consciously *not* related to URLFieldForN6
     encoding = 'utf-8'
-    decode_error_handling = 'surrogateescape'
+    decode_error_handling = 'utf8_surrogatepass_and_surrogateescape'
 
 class _ListOfInsideCritURLsFieldForN6(ResultListFieldMixin, _InsideCritURLFieldForN6):
     sort_result_list = True
@@ -270,16 +264,23 @@ class URLBase64FieldForN6(UnicodeField, FieldForN6):
     # want the length limit; probably, in the future, the limit will
     # be removed also from URLFieldForN6)
 
+    # Note: Here the following two `bytes->str` decoding options apply
+    # *only* to an URL when it has already been *decoded* from Base64.
     encoding = 'utf-8'
-    decode_error_handling = 'surrogateescape'
+    decode_error_handling = 'utf8_surrogatepass_and_surrogateescape'
 
     _URLSAFE_B64_VALID_CHARACTERS = frozenset(string.ascii_letters + '0123456789' + '-_=')
     assert len(_URLSAFE_B64_VALID_CHARACTERS) == 65  # 64 encoding chars and padding char '='
 
     def _fix_value(self, value):
+        if isinstance(value, (bytes, bytearray)):
+            # (note: eventually, only a subset of ASCII will be accepted anyway...)
+            value = value.decode('utf-8', 'surrogatepass')
+        assert isinstance(value, str)     # (already guaranteed thanks to `UnicodeField`s stuff...)
         value = self._stubbornly_unquote(value)
         value = self._urlsafe_b64decode(value)
         value = super(URLBase64FieldForN6, self)._fix_value(value)
+        assert isinstance(value, str)     # (already guaranteed thanks to `UnicodeField`s stuff...)
         return value
 
     def _stubbornly_unquote(self, value):
@@ -298,10 +299,10 @@ class URLBase64FieldForN6(UnicodeField, FieldForN6):
         # `urllib.unquote()` or `urllib.unquote_plus()` here -- because
         # URL-safe-Base64-encoding does *not* allow plus signs (and we
         # also *forbid* spaces, even as "ignorable fillers").
-        for _ in xrange(10):
+        for _ in range(10):
             # ^ limited number of steps because we do not like allowing
             #   API clients to make us go into an infinite loop... :-]
-            value = urllib.unquote_plus(value)
+            value = urllib.parse.unquote_plus(value)
             if '%' not in value and '+' not in value:
                 break
         return value
@@ -313,11 +314,10 @@ class URLBase64FieldForN6(UnicodeField, FieldForN6):
             # characters *but* we want to be *more strict*
             if not self._URLSAFE_B64_VALID_CHARACTERS.issuperset(value):
                 raise ValueError
-            # `base64.urlsafe_b64decode()` (contrary to `base64.standard_b64decode()`)
-            # does *not* accept unicode strings (even not pure-ASCII ones) :-/
-            value = string_as_bytes(value)
             value = base64.urlsafe_b64decode(value)
-        except (ValueError, TypeError):  # (TypeError is raised on incorrect Base64 padding)
+        except ValueError:
+            # (^ also `binascii.Error` may be raised but
+            # it is a subclass of `ValueError` anyway)
             raise FieldValueError(public_message=(
                 '"{}" is not a valid URL-safe-Base64-encoded string '
                 '[see: RFC 4648, section 5]'.format(ascii_str(value))))
@@ -340,13 +340,14 @@ class URLsMatchedFieldForN6(DictResultFieldForN6):
         return value
 
     def _adjust_key(self, key):
+        key = super()._adjust_key(key)
         return self._client_org_id_field.clean_result_value(key)
 
 
 class SomeUnicodeFieldForN6(UnicodeLimitedFieldForN6):
 
     encoding = 'utf-8'
-    decode_error_handling = 'surrogateescape'
+    decode_error_handling = 'utf8_surrogatepass_and_surrogateescape'
     max_length = 3000
 
     def clean_param_value(self, value):
@@ -360,8 +361,7 @@ class SomeUnicodeListFieldForN6(ResultListFieldMixin, SomeUnicodeFieldForN6):
 class SomeFieldForN6(SomeUnicodeFieldForN6):
 
     def clean_result_value(self, value):
-        if isinstance(value, basestring):
-            # apply cleaning only if it is a str/unicode string
+        if isinstance(value, (str, bytes, bytearray)):
             value = super(SomeFieldForN6, self).clean_result_value(value)
         return value
 
@@ -391,5 +391,5 @@ class EnrichedFieldForN6(FieldForN6):
             self._ipv4_field.clean_result_value(ip): sorted(set(
                 self._address_key_field.clean_result_value(name)
                 for name in addr_keys))
-            for ip, addr_keys in ip_to_enriched_address_keys_raw.iteritems()}
+            for ip, addr_keys in ip_to_enriched_address_keys_raw.items()}
         return (enriched_keys, ip_to_enriched_address_keys)

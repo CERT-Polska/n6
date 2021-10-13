@@ -1,15 +1,32 @@
-x.x.x (20xx-xx-xx)
-==================
+Unreleased
+==========
 
-**Deprecation warning**: using *n6sdk* as a standalone library is now
-deprecated.
+* Many changes/updates, just as a part of development of *n6* (see the
+  warning below).
+* The *n6sdk*'s *scaffolds*-related stuff has been removed.
 
-Use *n6lib* instead (and/or other sub-packages of *n6*, which is now an
-open-source project; see: https://github.com/CERT-Polska/n6 and
-https://n6.readthedocs.io/).
+.. warning::
 
-Most probably, in the future, *n6sdk* will be incorporated into the
-*n6lib* sub-package of the *n6* project.
+   **It is deprecated** to use *n6sdk* as a standalone library.  Instead,
+   please use *n6lib* and/or other sub-packages of *n6* -- which is now
+   an open-source project; see: https://github.com/CERT-Polska/n6.
+
+   Also, **beware** that the separate *n6sdk*'s documentation
+   (residing in the ``N6SDK/docs`` directory, and still available at
+   https://n6sdk.readthedocs.io/) is **not updated anymore**.  Please
+   refer to the current documentation of *n6* -- available at
+   https://n6.readthedocs.io/.
+
+   In the future, most probably, we will erase *n6sdk* completely as a
+   separate package, incorporating its most important parts into *n6lib*
+   (possibly revamping the stuff being incorporated in a
+   backwards-incompatible way).
+
+   Other parts of *n6sdk* will just be removed.  In particular, the
+   ``n6sdk_api_test`` script (together with the ``n6sdk._api_test_tool``
+   module containing its implementation) will be erased -- *without*
+   incorporating it into *n6lib* (however, if you find that script useful,
+   please let us know -- we might re-release it as a separate tool).
 
 
 0.6.2 (2016-05-11)

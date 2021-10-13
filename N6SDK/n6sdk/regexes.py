@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2014 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 """
 This module contains several regular expression objects (most of
@@ -14,7 +12,7 @@ import re
 #: Two-character country code.
 #:
 #: Used by :class:`n6sdk.data_spec.fields.CCField`.
-CC_SIMPLE_REGEX = re.compile(r'\A[A-Z][A-Z12]\Z')
+CC_SIMPLE_REGEX = re.compile(r'\A[A-Z][A-Z12]\Z', re.ASCII)
 
 
 #: Domain name -- with the underscore character allowed
@@ -32,7 +30,7 @@ DOMAIN_ASCII_LOWERCASE_REGEX = re.compile(r'''
     (?!\d+\Z)         # top-level label cannot consist of digits only
     [\-0-9a-z_]{1,63}
     \Z
-''', re.VERBOSE)
+''', re.ASCII | re.VERBOSE)
 
 
 #: Domain name -- more strict (hopefully RFC-compliant) variant.
@@ -53,7 +51,7 @@ DOMAIN_ASCII_LOWERCASE_STRICT_REGEX = re.compile(r'''
         [0-9a-z]      # label is not allowed to end with '-'
     )?
     \Z
-''', re.VERBOSE)
+''', re.ASCII | re.VERBOSE)
 
 
 #: IPv4 address in decimal dotted-quad notation.
@@ -83,7 +81,7 @@ IPv4_STRICT_DECIMAL_REGEX = re.compile(r'''
         )
     ){4}
     \Z
-''', re.VERBOSE)
+''', re.ASCII | re.VERBOSE)
 
 
 #: Anonymized IPv4 address.
@@ -118,7 +116,7 @@ IPv4_ANONYMIZED_REGEX = re.compile(r'''
         )
     ){4}
     \Z
-''', re.VERBOSE)
+''', re.ASCII | re.VERBOSE)
 
 
 #: IPv4 network specification in CIDR notation.
@@ -155,14 +153,14 @@ IPv4_CIDR_NETWORK_REGEX = re.compile(r'''
         [12]?[0-9]   # 0..29
     )
     \Z
-''', re.VERBOSE)
+''', re.ASCII | re.VERBOSE)
 
 
 # values of the `source` field must match this
-SOURCE_REGEX = re.compile(r'\A[\-0-9a-z]+\.[\-0-9a-z]+\Z')
+SOURCE_REGEX = re.compile(r'\A[\-0-9a-z]+\.[\-0-9a-z]+\Z', re.ASCII)
 
 
-PY_IDENTIFIER_REGEX = re.compile(r'\A[a-zA-Z_][a-zA-Z0-9_]*\Z')
+PY_IDENTIFIER_REGEX = re.compile(r'\A[a-zA-Z_][a-zA-Z0-9_]*\Z', re.ASCII)
 
 
 #: E-mail address (very rough validation).
@@ -174,7 +172,7 @@ EMAIL_SIMPLIFIED_REGEX = re.compile(r'''
     @
     [^@\s]+
     \Z
-''', re.VERBOSE | re.UNICODE)
+''', re.UNICODE | re.VERBOSE)
 
 
 #: International Bank Account Number.
@@ -186,7 +184,7 @@ IBAN_REGEX = re.compile(r'''
     [0-9]{2}
     [0-9A-Z]{8,30}
     \Z
-''', re.VERBOSE)
+''', re.ASCII | re.VERBOSE)
 
 
 ISO_DATE_REGEX = re.compile(
@@ -223,7 +221,7 @@ ISO_DATE_REGEX = re.compile(
         )
     )
     \Z
-    ''', re.VERBOSE)
+    ''', re.ASCII | re.VERBOSE)
 
 
 ISO_TIME_REGEX = re.compile(
@@ -269,10 +267,10 @@ ISO_TIME_REGEX = re.compile(
         )
     )?
     \Z
-    ''', re.VERBOSE)
+    ''', re.ASCII | re.VERBOSE)
 
 
 ISO_DATETIME_REGEX = re.compile(
-    r'{date}[T\s]{time}'.format(date=ISO_DATE_REGEX.pattern.rstrip(' \\Z\r\n'),
-                                time=ISO_TIME_REGEX.pattern.lstrip(' \\A\r\n')),
-    re.VERBOSE)
+    r'{date}[T\s]{time}'.format(date=ISO_DATE_REGEX.pattern.rstrip('Z\\ \r\n'),
+                                time=ISO_TIME_REGEX.pattern.lstrip('A\\ \r\n')),
+    re.ASCII | re.VERBOSE)

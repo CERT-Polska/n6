@@ -1,0 +1,2 @@
+ARG DOCKER_IMAGE=mailhog/mailhog
+FROM $DOCKER_IMAGE

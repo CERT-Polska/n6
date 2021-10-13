@@ -1,20 +1,19 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
-
-
+import datetime
 import functools
 import itertools
 import logging
+import re
+from json import dumps as json_dumps
 
 from pyramid.config import Configurator
 from pyramid.httpexceptions import (
     HTTPException,
     HTTPBadRequest,
     HTTPForbidden,
-    HTTPNoContent,
     HTTPNotFound,
-    HTTPServerError,
+    HTTPInternalServerError,
 )
 from pyramid.response import Response
 from pyramid.security import (
@@ -26,16 +25,18 @@ from pyramid.security import (
 
 from n6sdk.class_helpers import attr_required
 from n6sdk.data_spec import BaseDataSpec
+from n6sdk.datetime_helpers import datetime_utc_normalize
 from n6sdk.encoding_helpers import (
     ascii_str,
-    py_identifier_str,
+    ascii_py_identifier_str,
 )
 from n6sdk.exceptions import (
-    DataAPIError,
     AuthorizationError,
+    DataAPIError,
+    DataFromClientError,
+    DataLookupError,
     ParamCleaningError,
     ResultCleaningError,
-    TooMuchDataError
 )
 from n6sdk.pyramid_commons import renderers as standard_stream_renderers
 
@@ -60,42 +61,55 @@ def exc_to_http_exc(exc):
     :exc:`pyramid.httpexceptions.HTTPException` instance.
     """
     if isinstance(exc, HTTPException):
+        # (Already a Pyramid HTTP exception
+        # -> let's log it and keep intact.)
         code = getattr(exc, 'code', None)
-        if isinstance(code, (int, long)) and 200 <= code < 500:
+        if isinstance(code, int) and 200 <= code < 500:
+            # HTTP >=200 and <500
             LOGGER.debug(
-                'HTTPException: %r ("%s", code: %s)',
+                'HTTPException: %a ("%s", code: %s)',
                 exc, ascii_str(exc), code)
         else:
+            # HTTP >=500 or unexpected/undefined
             LOGGER.error(
-                'HTTPException: %r ("%s", code: %r)',
+                'HTTPException: %a ("%s", code: %a)',
                 exc, ascii_str(exc), code,
                 exc_info=True)
         http_exc = exc
-    elif isinstance(exc, AuthorizationError):
-        LOGGER.debug(
-            'Authorization not successful: %r (public message: "%s")',
-            exc, ascii_str(exc.public_message))
-        http_exc = HTTPForbidden(exc.public_message)
-    elif isinstance(exc, ParamCleaningError):
-        LOGGER.debug(
-            'Request parameters not valid: %r (public message: "%s")',
-            exc, ascii_str(exc.public_message))
+    elif isinstance(exc, DataFromClientError):
+        # HTTP 400
+        if isinstance(exc, ParamCleaningError):
+            LOGGER.debug(
+                'Request parameters not valid: %a (public message: "%s")',
+                exc, ascii_str(exc.public_message))
+        else:
+            LOGGER.debug(
+                'Request-content-related error: %a (public message: "%s")',
+                exc, ascii_str(exc.public_message))
         http_exc = HTTPBadRequest(exc.public_message)
-    elif isinstance(exc, TooMuchDataError):
+    elif isinstance(exc, AuthorizationError):
+        # HTTP 403
         LOGGER.debug(
-            'Too much data requested: %r (public message: "%s")',
+            'Authorization denied: %a (public message: "%s")',
             exc, ascii_str(exc.public_message))
         http_exc = HTTPForbidden(exc.public_message)
+    elif isinstance(exc, DataLookupError):
+        # HTTP 404
+        LOGGER.debug(
+            'Could not find the requested stuff: %a (public message: "%s")',
+            exc, ascii_str(exc.public_message))
+        http_exc = HTTPNotFound(exc.public_message)
     else:
+        # HTTP 500
         if isinstance(exc, DataAPIError):
             if isinstance(exc, ResultCleaningError):
                 LOGGER.error(
-                    'Result cleaning error: %r (public message: "%s")',
+                    'Result cleaning error: %a (public message: "%s")',
                     exc, ascii_str(exc.public_message),
                     exc_info=True)
             else:
                 LOGGER.error(
-                    '%r (public message: "%s")',
+                    '%a (public message: "%s")',
                     exc, ascii_str(exc.public_message),
                     exc_info=True)
             public_message = (
@@ -104,11 +118,11 @@ def exc_to_http_exc(exc):
                 else exc.public_message)
         else:
             LOGGER.error(
-                'Non-HTTPException/DataAPIError exception: %r',
+                'Non-HTTPException/DataAPIError exception: %a',
                 exc,
                 exc_info=True)
             public_message = None
-        http_exc = HTTPServerError(public_message)
+        http_exc = HTTPInternalServerError(public_message)
     return http_exc
 
 
@@ -164,8 +178,14 @@ class StreamResponse(Response):
 
 class AbstractViewBase(object):
 
-    # to be specified as a keyword argument for concrete_view_class()
+    # Must be specified as a keyword argument to concrete_view_class().
     resource_id = None
+
+    # In subclasses (or their instances) the following attribute can be
+    # set to True -- then, for the particular view, only params from the
+    # request body will be considered, and params from the query string
+    # will be ignored.
+    params_only_from_body = False
 
     @classmethod
     def validate_url_pattern(cls, url_pattern):
@@ -175,7 +195,7 @@ class AbstractViewBase(object):
         """
 
     @classmethod
-    def concrete_view_class(cls, resource_id, config):
+    def concrete_view_class(cls, resource_id, pyramid_configurator):
         """
         Create a concrete view subclass (for a particular REST API resource).
 
@@ -183,11 +203,11 @@ class AbstractViewBase(object):
         :meth:`HttpResource.configure_views`).
 
         Kwargs:
-            `resource_id` (string):
+            `resource_id` (str):
                 The identifier of the HTTP resource (as given as the
                 `resource_id` argument for the :class:`HttpResource`
                 constructor).
-            `config` (mapping):
+            `pyramid_configurator` (mapping):
                 The pyramid.config.Configurator instance used to
                 configure the whole application (it is not used in
                 :meth:`concrete_view_class` of the standard *n6sdk* view
@@ -204,7 +224,10 @@ class AbstractViewBase(object):
 
         view_class.__name__ = '_{0}_subclass_for_{1}'.format(
               cls.__name__,
-              py_identifier_str(resource_id).lstrip('_'))
+              ascii_py_identifier_str(resource_id).lstrip('_'))
+        view_class.__qualname__ = '.'.join(
+              view_class.__qualname__.split('.')[:-1]
+              + [view_class.__name__])
 
         return view_class
 
@@ -213,7 +236,7 @@ class AbstractViewBase(object):
         """
         Get name(s) of the HTTP method(s) that are supported by default.
 
-        This method should return a string or a sequence of strings.
+        This method should return a str or a sequence of str objects.
         The method can be overridden or extended in subclasses.  The
         default implementation returns the ``'GET'`` string.
         """
@@ -231,20 +254,31 @@ class AbstractViewBase(object):
         return dict(self.iter_deduplicated_params())
 
     def iter_deduplicated_params(self):
-        chain_iterables = itertools.chain.from_iterable
-        params = self.request.params
+        params = self.get_params_from_request()
         for key in params:
+            if not isinstance(key, str):
+                raise AssertionError('{!a} is not a str'.format(key))
             values = params.getall(key)
-            if not (values and all(isinstance(val, basestring) for val in values)):
+            if not (values
+                    and isinstance(values, list)
+                    and all(isinstance(val, str) for val in values)):
                 raise AssertionError(
-                    '{}={!r}, *not* being a non-empty sequence '
-                    'of strings!'.format(ascii_str(key), values))
-            yield key, list(chain_iterables(self.iter_values_from_param_value(val)
-                                            for val in values))
+                    '{}={!a}, *not* being a non-empty list '
+                    'of str!'.format(ascii_str(key), values))
+            yield key, self.preprocess_param_values(key, values)
 
-    def iter_values_from_param_value(self, value):
-        if not isinstance(value, basestring):
-            raise TypeError('{!r} is not a string'.format(value))
+    def get_params_from_request(self):
+        if self.params_only_from_body:
+            return self.request.POST
+        else:
+            return self.request.params
+
+    def preprocess_param_values(self, key, values):
+        chain_iterables = itertools.chain.from_iterable
+        return list(chain_iterables(self.iter_values_from_param_value(key, val)
+                    for val in values))
+
+    def iter_values_from_param_value(self, key, value):
         yield value
 
     def make_response(self):
@@ -253,53 +287,219 @@ class AbstractViewBase(object):
     #
     # Utility methods (can be useful in some subclasses)
 
-    def json_response(self, json, **response_kwargs):
-        self.__ensure_no_unwanted_kwargs(response_kwargs, 'body', 'app_iter')
-        return Response(json=json, **response_kwargs)
+    def json_response(self,
+                      json,
+                      content_type='application/json',
+                      headerlist=None,
+                      **response_kwargs):
+        self.__ensure_no_unwanted_kwargs(response_kwargs, ['body', 'app_iter', 'json_body'])
+        self.__ensure_no_content_type_in_headerlist(headerlist)
+        data = self.prepare_jsonable_data(json)
+        body = json_dumps(data)
+        return self.__make_response(body, content_type, headerlist, **response_kwargs)
 
-    def plain_text_response(self, body, charset='UTF-8', **response_kwargs):
-        self.__ensure_no_unwanted_kwargs(response_kwargs, 'content_type')
-        self.__ensure_no_content_type_in_headerlist(response_kwargs)
-        # We do not use the `content_type` keyword argument as it is ignored
-        # by the `Response` constructor if non-None `headerlist` is given.
-        response = Response(body, charset=charset, **response_kwargs)
-        content_type = 'text/plain'
-        if charset:
-            content_type = '{}; {}'.format(content_type, charset)
-        response.content_type = content_type
-        return response
+    def cleaned_json_response(self,
+                              json,
+                              data_spec,
+                              **json_response_kwargs):
+        cleaned_json = data_spec.clean_result_dict(json)
+        return self.json_response(cleaned_json, **json_response_kwargs)
 
+    def text_response(self,
+                      body,
+                      content_type='text/plain; charset=utf-8',
+                      headerlist=None,
+                      **response_kwargs):
+        self.__ensure_no_unwanted_kwargs(response_kwargs, ['app_iter', 'json', 'json_body'])
+        self.__ensure_no_content_type_in_headerlist(headerlist)
+        return self.__make_response(body, content_type, headerlist, **response_kwargs)
+
+    #
+    # Auxiliary hooks (can be extended/overridden in some subclasses)
+
+    def prepare_jsonable_data(self, data):
+        jsonable_data = self.__with_times_and_datetimes_converted_to_strings(data)
+        return jsonable_data
 
     #
     # Internal helpers
 
-    def __ensure_no_unwanted_kwargs(self, response_kwargs, *unwanted_kwarg_names):
+    # * `Response`-constructor-arguments consistency checks:
+
+    def __ensure_no_unwanted_kwargs(self, response_kwargs, unwanted_kwarg_names):
         for name in unwanted_kwarg_names:
             if response_kwargs.get(name) is not None:
                 raise TypeError('unexpected keyword argument: {}'.format(name))
 
-    def __ensure_no_content_type_in_headerlist(self, response_kwargs):
-        headerlist = response_kwargs.get('headerlist')
+    def __ensure_no_content_type_in_headerlist(self, headerlist):
+        # (just for clarity/coherence of the interface)
         if headerlist:
-            found_content_types = [k for k, _ in headerlist
-                                   if k.lower() == 'content-type']
-            if found_content_types:
+            found_content_type_headers = [k for k, _ in headerlist
+                                          if k.lower() == 'content-type']
+            if found_content_type_headers:
                 raise ValueError(
-                    '`headerlist` contains header(s) that should not '
-                    'be placed in it: {}'.format(
-                        ', '.join(map(repr, found_content_types))))
+                    'the `headerlist` argument contains header(s) '
+                    'that should not be placed in it: {} (use the '
+                    '`content_type` argument instead)'.format(
+                        ', '.join(map(ascii, found_content_type_headers))))
+
+    # * Making the actual `Response` instance:
+
+    def __make_response(self,
+                        body,
+                        content_type,
+                        headerlist=None,
+                        **response_kwargs):
+        charset = response_kwargs.pop('charset', None)
+        content_type, charset = self.__get_complete_content_type_and_charset(content_type, charset)
+        body = self.__get_encoded_body(body, content_type, charset)
+        # Let's make the behavior of the `pyramid.response.Response`
+        # constructor consistent regardless of the presence of the
+        # `headerlist` argument.
+        if headerlist is None:
+            headerlist = []
+        # Note: when calling the `Response` constructor we do not pass
+        # `content_type` as the keyword argument because it is ignored
+        # when a non-None 'headerlist' argument is specified...
+        response = Response(
+            body=body,
+            headerlist=headerlist,
+            **response_kwargs)
+        # ...so, instead of that, we set the `content_type` property on
+        # the ready `Response` instance.
+        response.content_type = content_type
+        return response
+
+    def __get_complete_content_type_and_charset(self, content_type, charset):
+        content_type, charset = self.__get_disjoint_content_type_and_charset(content_type, charset)
+        if charset:
+            content_type = '{}; charset={}'.format(content_type, charset)
+        assert self.__WITH_CHARSET_REGEX.search(content_type) or not charset
+        return content_type, charset
+
+    def __get_disjoint_content_type_and_charset(self, content_type, charset):
+        charset_match = self.__WITH_CHARSET_REGEX.search(content_type)
+        if charset_match:
+            if charset:
+                # (just for clarity/coherence of the interface)
+                raise ValueError(
+                    "the `content_type` argument ({!a}) should not include "
+                    "the 'charset=...' part when the `charset` argument "
+                    "({!a}) is given".format(content_type, charset))
+            charset = charset_match.group('charset').rstrip(' \t')
+            before_charset = content_type[:charset_match.start()]
+            after_charset = content_type[charset_match.end():]
+            if after_charset or '\\' in charset:
+                # To support such cases properly we would need more
+                # complicated parsing of `content_type` (with its
+                # `charset` part). In practice, we do not need that,
+                # so let's just raise the following error (instead of
+                # producing possibly wrong results silently).
+                raise NotImplementedError(
+                    "the `content_type` argument ({!a}) contains "
+                    "some stuff after the 'charset=...' part, or "
+                    "that 'charset=...' part contains some backslash "
+                    "character(s) - unfortunately we do not support "
+                    "such cases".format(content_type))
+            content_type = before_charset.rstrip(' \t')
+        assert not self.__WITH_CHARSET_REGEX.search(content_type)
+        return content_type, charset
+
+    __WITH_CHARSET_REGEX = re.compile(
+        # (compatible with the Pyramid's internal way of charset   # <- TODO analyze: is necessary?
+        # extraction; that's why here it is without re.ASCII...)
+        r';\s*charset=(?P<charset>[^;]*)',
+        re.IGNORECASE)
+
+    def __get_encoded_body(self, body, content_type, charset):
+        if isinstance(body, str):
+            if charset:
+                body_encoding = charset.strip('"')
+            elif self.__JSON_CONTENT_TYPE_REGEX.search(content_type):
+                body_encoding = 'utf-8'
+            else:
+                raise ValueError(
+                    'the `body` argument is a Unicode string but the '
+                    'response charset is not specified and cannot be '
+                    'implied from the {!a} content-type; to prevent '
+                    'this error you need to provide an already encoded '
+                    'body or specify the charset'.format(content_type))
+            body = body.encode(body_encoding)
+        assert not isinstance(body, str)
+        return body
+
+    __JSON_CONTENT_TYPE_REGEX = re.compile(
+        r'\A'
+        r'application/json'
+        r'[ \t]*'
+        r'(?:'
+        r'\Z'
+        r'|'
+        r';)',
+        re.ASCII | re.IGNORECASE)
+
+    # * JSON-serializable data preparation:
+
+    def __with_times_and_datetimes_converted_to_strings(self, data):
+        if isinstance(data, dict):
+            return {k: self.__with_times_and_datetimes_converted_to_strings(v)
+                    for k, v in data.items()}
+        if isinstance(data, (list, tuple)):
+            return list(map(self.__with_times_and_datetimes_converted_to_strings, data))
+        if isinstance(data, datetime.datetime):
+            return self._datetime_to_str(data)
+        if isinstance(data, datetime.time):
+            return self._time_do_str(data)
+        return data
+
+    def _datetime_to_str(self, dt):
+        return datetime_utc_normalize(dt).isoformat() + "Z"
+
+    def _time_do_str(self, t):
+        if t.tzinfo is not None:
+            raise ValueError(
+                'automatic to-str conversion of time objects with a '
+                'non-None `tzinfo` attribute is not supported (got: '
+                '{!a})'.format(t))
+        s = t.isoformat()
+        assert self.__TIME_ISOFORMAT_REGEX.search(s)              # 'HH:MM:SS' or 'HH.MM.SS.mmmmmm'
+        if s.endswith(':00'):
+            assert self.__TIME_ISOFORMAT_00_SEC_REGEX.search(s)   # 'HH:MM:00'
+            s = s[:-3]
+            assert self.__TIME_WITH_TRIMMED_SEC_REGEX.search(s)   # 'HH:MM'
+        return s
+
+    # (just for assertions; see the `_time_do_str()` method defined above)
+    __TIME_ISOFORMAT_REGEX = re.compile(r'\A[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{6})?\Z', re.ASCII)
+    __TIME_ISOFORMAT_00_SEC_REGEX = re.compile(r'\A[0-9]{2}:[0-9]{2}:0{2}\Z', re.ASCII)
+    __TIME_WITH_TRIMMED_SEC_REGEX = re.compile(r'\A[0-9]{2}:[0-9]{2}\Z', re.ASCII)
 
 
 class CommaSeparatedParamValuesViewMixin(object):
 
-    def iter_values_from_param_value(self, value):
+    # In a subclass it can be set to a container (e.g., a `frozenset`)
+    # of param names (or to a property that provides such a container)
+    # -- then the operation of *separation-by-comma* will be performed
+    # only for the specified params (instead of performing it for all
+    # params).
+    comma_separated_only_for = None
+
+    def iter_values_from_param_value(self, key, value):
+        sep_only_for = self.comma_separated_only_for
         assert isinstance(self, AbstractViewBase)
-        assert isinstance(value, basestring)
-        for val in super(CommaSeparatedParamValuesViewMixin,
-                         self).iter_values_from_param_value(value):
-            assert isinstance(val, basestring)
-            for val_part in val.split(','):
-                yield val_part
+        assert isinstance(key, str)
+        assert isinstance(value, str)
+        iter_values = super(CommaSeparatedParamValuesViewMixin,
+                            self).iter_values_from_param_value(key, value)
+        if sep_only_for is None or (key in sep_only_for):
+            for val in iter_values:
+                assert isinstance(val, str)
+                for val_part in val.split(','):
+                    yield val_part
+        else:
+            for val in iter_values:
+                assert isinstance(val, str)
+                yield val
 
 
 class OmittingEmptyParamsViewMixin(object):
@@ -309,8 +509,8 @@ class OmittingEmptyParamsViewMixin(object):
         params = super(OmittingEmptyParamsViewMixin, self).iter_deduplicated_params()
         for param_name, values in params:
             if not (isinstance(values, list)
-                    and all(isinstance(val, basestring) for val in values)):
-                raise TypeError('{}={!r}, not being a list of strings'
+                    and all(isinstance(val, str) for val in values)):
+                raise TypeError('{}={!a}, not being a list of str'
                                 .format(ascii_str(param_name), values))
             nonempty_values = list(filter(None, values))
             if nonempty_values:
@@ -329,6 +529,12 @@ class SingleParamValuesViewMixin(object):
                     'value of the parameter "{}".'.format(ascii_str(param_name))))
             yield (param_name,
                    values[0])   # <- here: the value itself (not a list of values)
+
+
+class PreparingNoParamsViewMixin(object):
+
+    def prepare_params(self):
+        return {}
 
 
 class DefaultStreamViewBase(CommaSeparatedParamValuesViewMixin, AbstractViewBase):
@@ -369,7 +575,7 @@ class DefaultStreamViewBase(CommaSeparatedParamValuesViewMixin, AbstractViewBase
         super(DefaultStreamViewBase, cls).validate_url_pattern(url_pattern)
         if not url_pattern.endswith('.{renderer}'):
             LOGGER.error("url_pattern must contain '.{renderer}' suffix")
-            raise HTTPServerError
+            raise HTTPInternalServerError
 
     @classmethod
     def concrete_view_class(cls, data_spec, data_backend_api_method, renderers,
@@ -387,12 +593,12 @@ class DefaultStreamViewBase(CommaSeparatedParamValuesViewMixin, AbstractViewBase
                 adjust query parameters and output data.  (As given as
                 the `data_spec` item of the `view_properties` argument
                 for the :class:`HttpResource` costructor.)
-            `data_backend_api_method` (string):
+            `data_backend_api_method` (str):
                 The name of the data backend api method to be called by
                 the view.  (As given as the `data_backend_api_method`
                 item of the `view_properties` argument for the
                 :class:`HttpResource` costructor.)
-            `renderers` (string or iterable of strings):
+            `renderers` (str or iterable of str):
                 Names of available stream renderers (each of them should
                 have been registered -- see the documentation of
                 :func:`register_stream_renderer`).  (As given as the
@@ -417,13 +623,13 @@ class DefaultStreamViewBase(CommaSeparatedParamValuesViewMixin, AbstractViewBase
                 'of a BaseDataSpec subclass is needed')
 
         renderers = (
-            frozenset([renderers]) if isinstance(renderers, basestring)
+            frozenset([renderers]) if isinstance(renderers, str)
             else frozenset(renderers))
-        illegal_renderers = renderers - registered_stream_renderers.viewkeys()
+        illegal_renderers = renderers - registered_stream_renderers.keys()
         if illegal_renderers:
             raise ValueError(
                 'the following stream renderers have not been registered: ' +
-                ', '.join(sorted(map(repr, illegal_renderers))))
+                ', '.join(sorted(map(ascii, illegal_renderers))))
 
         view_class = super(DefaultStreamViewBase,
                            cls).concrete_view_class(**kwargs)
@@ -468,21 +674,29 @@ class DefaultStreamViewBase(CommaSeparatedParamValuesViewMixin, AbstractViewBase
         clean_result_dict = self.data_spec.clean_result_dict
         clean_result_dict_kwargs = self.get_clean_result_dict_kwargs()
         try:
-            for result_dict in self.call_api_method(api_method):
-                try:
-                    cleaned_result = clean_result_dict(
-                        result_dict,
-                        **clean_result_dict_kwargs)
-                except ResultCleaningError as exc:
-                    if self.break_on_result_cleaning_error:
-                        raise
+            result_iterable = self.call_api_method(api_method)
+            try:
+                for result_dict in result_iterable:
+                    try:
+                        cleaned_result = clean_result_dict(
+                            result_dict,
+                            **clean_result_dict_kwargs)
+                    except ResultCleaningError as exc:
+                        if self.break_on_result_cleaning_error:
+                            raise
+                        else:
+                            LOGGER.error(
+                                'Some results not yielded due '
+                                'to the cleaning error: %a', exc)
                     else:
-                        LOGGER.error(
-                            'Some results not yielded due '
-                            'to the cleaning error: %r', exc)
-                else:
-                    if cleaned_result is not None:
-                        yield cleaned_result
+                        if cleaned_result is not None:
+                            yield cleaned_result
+            finally:
+                close = getattr(result_iterable, 'close', None)
+                if close is not None:
+                    # Apparently, `result_iterable` is an iterable
+                    # object which is closable (e.g., a generator).
+                    close()
         except Exception as exc:
             raise self.adjust_exc(exc)
 
@@ -509,10 +723,10 @@ class HttpResource(object):
     A class of containers of REST API resource properties.
 
     Required constructor arguments (all of them are keyword-only!):
-        `resource_id` (string):
+        `resource_id` (str):
             The identifier of the HTTP resource.
             It will be used as the Pyramid route name.
-        `url_pattern` (string):
+        `url_pattern` (str):
             A URL path pattern.  Example value:
             ``"/some-url-path/incidents.{renderer}"``.
 
@@ -523,8 +737,8 @@ class HttpResource(object):
         `view_properties` (:class:`dict`):
             A dictionary of keyword arguments that will be automatically
             passed in -- in addition to `resource_id` (see above) and
-            `config` (the pyramid.config.Configurator instance used to
-            configure the application) -- to the
+            `pyramid_configurator` (the pyramid.config.Configurator
+            instance used to configure the application) -- to the
             :meth:`concrete_view_class` class method of the `view_base`
             class; the set of obligatory keys depends on the `view_base`
             class -- for example, for :class:`DefaultStreamViewBase`
@@ -535,14 +749,14 @@ class HttpResource(object):
             details).  Default value: empty :class:`dict` (note,
             however, that it must not be empty for the default
             `view_base` class).
-        `http_methods` (string, or iterable of strings, or ``None``):
+        `http_methods` (str, or iterable of str, or ``None``):
             Name(s) of HTTP method(s) enabled for the resource; if
             ``None`` then the name(s) will be determined by calling
             the :meth:`~AbstractViewBase.get_default_http_methods`
             of the concrete view class; default: ``None``.
         `parmission`:
             An object representing a Pyramid permission; default:
-            string ``"dummy_permission"``.
+            the ``"dummy_permission"`` string.
 
     .. seealso::
 
@@ -557,6 +771,7 @@ class HttpResource(object):
                  view_base=DefaultStreamViewBase,
                  view_properties=None,
                  http_methods=None,
+                 http_cache=0,
                  permission=DUMMY_PERMISSION,
                  **kwargs):
         self.resource_id = resource_id
@@ -566,10 +781,11 @@ class HttpResource(object):
             else view_properties)
         self.view_base = view_base
         self.http_methods = http_methods
+        self.http_cache = http_cache
         self.permission = permission
         return super(HttpResource, self).__init__(**kwargs)
 
-    def configure_views(self, config):
+    def configure_views(self, pyramid_configurator):
         """
         Automatically called by :meth:`ConfigHelper.make_wsgi_app` or
         :meth:`ConfigHelper.complete`.
@@ -577,20 +793,21 @@ class HttpResource(object):
         route_name = self.resource_id
         view_class = self.view_base.concrete_view_class(
             resource_id=self.resource_id,
-            config=config,
+            pyramid_configurator=pyramid_configurator,
             **self.view_properties)
         view_class.validate_url_pattern(self.url_pattern)
         http_methods = (
             view_class.get_default_http_methods() if self.http_methods is None
             else self.http_methods)
         actual_http_methods = (
-            (http_methods,) if isinstance(http_methods, basestring)
+            (http_methods,) if isinstance(http_methods, str)
             else tuple(http_methods))
-        config.add_route(route_name, self.url_pattern)
-        config.add_view(
+        pyramid_configurator.add_route(route_name, self.url_pattern)
+        pyramid_configurator.add_view(
             view=view_class,
             route_name=route_name,
             request_method=actual_http_methods,
+            http_cache=self.http_cache,
             permission=self.permission)
 
 
@@ -620,8 +837,9 @@ class BasicConfigHelper(object):
                 settings=settings,
                 resources=RESOURCES,
             )
-            ...  # <- here you can call any methods of the helper.config object
-            ...  #    which is a pyramid.config.Configurator instance
+            ...  # <- Here you can call any methods of the
+            ...  #    helper.pyramid_configurator object which
+            ...  #    is a pyramid.config.Configurator instance.
             return helper.make_wsgi_app()
 
     Note: all constructor arguments should be specified as keyword arguments.
@@ -648,35 +866,36 @@ class BasicConfigHelper(object):
             root_factory = self.default_root_factory
         self.root_factory = root_factory
         self.rest_configurator_kwargs = rest_configurator_kwargs
-        self.config = self.prepare_config(self.make_config())
+        self.pyramid_configurator = self.prepare_pyramid_configurator(
+            self.make_pyramid_configurator())
         self._completed = False
 
     def make_wsgi_app(self):
         if not self._completed:
             self.complete()
-        return self.config.make_wsgi_app()
+        return self.pyramid_configurator.make_wsgi_app()
 
     # overridable/extendable methods (hooks):
 
     def prepare_settings(self, settings):
         return dict(settings)
 
-    def prepare_config(self, config):
-        return config
-
-    def make_config(self):
+    def make_pyramid_configurator(self):
         return Configurator(
               settings=self.settings,
               root_factory=self.root_factory,
               **self.rest_configurator_kwargs)
 
+    def prepare_pyramid_configurator(self, pyramid_configurator):
+        return pyramid_configurator
+
     def complete(self):
-        self.config.add_view(view=self.exception_view, context=Exception)
-        self.config.add_view(view=self.exception_view, context=HTTPException)
+        self.pyramid_configurator.add_view(view=self.exception_view, context=Exception)
+        self.pyramid_configurator.add_view(view=self.exception_view, context=HTTPException)
         for res in self.resources:
-            res.configure_views(self.config)
+            res.configure_views(self.pyramid_configurator)
         if self.static_view_config:
-            self.config.add_static_view(**self.static_view_config)
+            self.pyramid_configurator.add_static_view(**self.static_view_config)
         self._completed = True
 
     @classmethod
@@ -714,8 +933,9 @@ class ConfigHelper(BasicConfigHelper):
                 authentication_policy=MyCustomAuthenticationPolicy(settings),
                 resources=RESOURCES,
             )
-            ...  # <- here you can call any methods of the helper.config object
-            ...  #    which is a pyramid.config.Configurator instance
+            ...  # <- Here you can call any methods of the
+            ...  #    helper.pyramid_configurator object which
+            ...  #    is a pyramid.config.Configurator instance.
             return helper.make_wsgi_app()
 
     Note: all constructor arguments should be specified as keyword arguments.
@@ -734,11 +954,11 @@ class ConfigHelper(BasicConfigHelper):
                                            authentication_policy=authentication_policy,
                                            **rest_init_kwargs)
 
-    def prepare_config(self, config):
-        config.registry.data_backend_api = self.make_data_backend_api()
-        config.add_request_method(self.authentication_policy.get_auth_data,
-                                  'auth_data', reify=True)
-        return config
+    def prepare_pyramid_configurator(self, pyramid_configurator):
+        pyramid_configurator.registry.data_backend_api = self.make_data_backend_api()
+        pyramid_configurator.add_request_method(self.authentication_policy.get_auth_data,
+                                                'auth_data', reify=True)
+        return pyramid_configurator
 
     def make_data_backend_api(self):
         return self.data_backend_api_class(settings=self.settings)
@@ -806,7 +1026,7 @@ def register_stream_renderer(name, renderer_factory=None, allow_replace=False):
             register_stream_renderer,
             name, allow_replace=allow_replace)
     if name in registered_stream_renderers and not allow_replace:
-        raise RuntimeError('renderer {0!r} already registered'.format(name))
+        raise RuntimeError('renderer {0!a} already registered'.format(name))
     registered_stream_renderers[name] = renderer_factory
     return renderer_factory
 
@@ -840,8 +1060,8 @@ latest/narr/security.html#creating-your-own-authentication-policy
 
         This function is used as a `request` method that provides the
         :attr:`auth_data` `request` attribute (see:
-        :meth:`ConfigHelper.prepare_config` above), which means that
-        this function is called *after* :meth:`unauthenticated_userid`
+        :meth:`ConfigHelper.prepare_pyramid_configurator` above), which means
+        that this function is called *after* :meth:`unauthenticated_userid`
         and *before* :meth:`authenticated_userid`.
 
         It should be implemented as a *static method*.
@@ -880,7 +1100,7 @@ latest/narr/security.html#creating-your-own-authentication-policy
         """
         return []
 
-    def remember(self, request, principal, **kw):
+    def remember(self, request, userid, **kw):
         """
         Can be left dummy if users are recognized externally, e.g. by SSL cert.
         """

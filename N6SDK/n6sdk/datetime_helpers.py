@@ -1,11 +1,9 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2016 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 #
 # For some parts of the source code of the FixedOffsetTimezone class:
 # Copyright (c) 2001-2014 Python Software Foundation. All rights reserved.
 # (For more information -- see the FixedOffsetTimezone's docstring and
-# the https://docs.python.org/2.7/license.html web page.)
+# the https://docs.python.org/license.html web page.)
 
 
 import calendar
@@ -18,6 +16,8 @@ from n6sdk.regexes import (
 )
 
 
+# TODO: replace this with `datetime.timezone` or redefine in terms of it...
+# TODO: provide `fold` and any other modern-datetime.tzinfo stuff...
 class FixedOffsetTimezone(datetime.tzinfo):
 
     """
@@ -39,7 +39,7 @@ class FixedOffsetTimezone(datetime.tzinfo):
 
     >>> dt = datetime.datetime(2014, 5, 31, 1, 2, 3, tzinfo=tz)
     >>> dt.utcoffset()
-    datetime.timedelta(0, 10800)
+    datetime.timedelta(seconds=10800)
     >>> dt.dst()
     datetime.timedelta(0)
     >>> dt.tzname()
@@ -48,6 +48,8 @@ class FixedOffsetTimezone(datetime.tzinfo):
     datetime.datetime(2014, 5, 30, 21, 2, 3, tzinfo=FixedOffsetTimezone(-60))
     """
 
+    # FIXME: to make instances picklable a non-argument constructor call needs to be allowed...
+    #        (see: https://docs.python.org/3.9/library/datetime.html#datetime.tzinfo)
     def __init__(self, offset):
         self.__ZERO = datetime.timedelta(0)
         self.__offset = offset
@@ -61,7 +63,7 @@ class FixedOffsetTimezone(datetime.tzinfo):
         return self
 
     def __repr__(self):
-        return '{0}({1!r})'.format(self.__class__.__name__,
+        return '{0}({1!r})'.format(self.__class__.__qualname__,
                                    self.__offset)
 
     def utcoffset(self, dt):
@@ -74,31 +76,87 @@ class FixedOffsetTimezone(datetime.tzinfo):
         return self.__ZERO
 
 
-### XXX: ticket #3022
-def datetime_to_utc_timestamp(dt):
+def int_timestamp_from_datetime(dt):
     """
-    Convert a :class:`datetime.datetime` to a UTC timestamp.
+    Convert a :class:`datetime.datetime` to an `int` representing the
+    corresponding UNIX timestamp without the fractional part (i.e., the
+    *microsecond* part is omitted).
 
     Args:
-        `dt`: A :class:`datetime.datetime` instance (naive or TZ-aware).
+        `dt`:
+            A :class:`datetime.datetime` instance: a naive or TZ-aware
+            one. **Note:** if it is naive, it will be interpreted as an
+            UTC date+time (*not* as a local date+time) -- that is an
+            important difference between this function and the standard
+            :meth:`datetime.datetime.timestamp` method.
+
+    Returns:
+        The equivalent timestamp as an :class:`int` number.
+
+    >>> naive_dt = datetime.datetime(2013, 6, 6, 12, 13, 57, 751219)
+    >>> t = int_timestamp_from_datetime(naive_dt)
+    >>> t
+    1370520837
+    >>> datetime.datetime.utcfromtimestamp(t)
+    datetime.datetime(2013, 6, 6, 12, 13, 57)
+
+    >>> tzinfo = FixedOffsetTimezone(120)
+    >>> tz_aware_dt = datetime.datetime(2013, 6, 6, 14, 13, 57, 654321,
+    ...                                 tzinfo=tzinfo)
+    >>> t2 = int_timestamp_from_datetime(tz_aware_dt)
+    >>> t2
+    1370520837
+    >>> t2 == t
+    True
+    >>> utc_naive_dt = datetime.datetime.utcfromtimestamp(t2)
+    >>> utc_naive_dt == naive_dt.replace(microsecond=0)
+    True
+    >>> utc_tzinfo = FixedOffsetTimezone(0)  # just UTC
+    >>> utc_tz_aware_dt = utc_naive_dt.replace(tzinfo=utc_tzinfo)
+    >>> utc_tz_aware_dt.hour
+    12
+    >>> tz_aware_dt.hour
+    14
+    >>> utc_tz_aware_dt == tz_aware_dt.replace(microsecond=0)
+    True
+    """
+    return calendar.timegm(dt.utctimetuple())
+
+
+def timestamp_from_datetime(dt):
+    """
+    Convert a :class:`datetime.datetime` to a `float` representing the
+    corresponding UNIX timestamp.
+
+    Args:
+        `dt`:
+            A :class:`datetime.datetime` instance: a naive or TZ-aware
+            one. **Note:** if it is naive, it will be interpreted as an
+            UTC date+time (*not* as a local date+time) -- that is the
+            difference between this function and the standard
+            :meth:`datetime.datetime.timestamp` method.
 
     Returns:
         The equivalent timestamp as a :class:`float` number.
 
-    >>> naive_dt = datetime.datetime(2013, 6, 6, 12, 13, 57, 251211)
-    >>> t = datetime_to_utc_timestamp(naive_dt)
+    >>> naive_dt = datetime.datetime(2013, 6, 6, 12, 13, 57, 751219)
+    >>> t = timestamp_from_datetime(naive_dt)
     >>> t
-    1370520837.251211
+    1370520837.751219
     >>> datetime.datetime.utcfromtimestamp(t)
-    datetime.datetime(2013, 6, 6, 12, 13, 57, 251211)
+    datetime.datetime(2013, 6, 6, 12, 13, 57, 751219)
 
     >>> tzinfo = FixedOffsetTimezone(120)
-    >>> tz_aware_dt = datetime.datetime(2013, 6, 6, 14, 13, 57, 251211,
+    >>> tz_aware_dt = datetime.datetime(2013, 6, 6, 14, 13, 57, 751219,
     ...                                 tzinfo=tzinfo)
-    >>> t2 = datetime_to_utc_timestamp(tz_aware_dt)
+    >>> t2 = timestamp_from_datetime(tz_aware_dt)
+    >>> t2
+    1370520837.751219
     >>> t2 == t
     True
     >>> utc_naive_dt = datetime.datetime.utcfromtimestamp(t2)
+    >>> utc_naive_dt == naive_dt
+    True
     >>> utc_tzinfo = FixedOffsetTimezone(0)  # just UTC
     >>> utc_tz_aware_dt = utc_naive_dt.replace(tzinfo=utc_tzinfo)
     >>> utc_tz_aware_dt.hour
@@ -108,12 +166,11 @@ def datetime_to_utc_timestamp(dt):
     >>> utc_tz_aware_dt == tz_aware_dt
     True
     """
-    tt = dt.utctimetuple()
+    int_timestamp = int_timestamp_from_datetime(dt)
     fractional_part = dt.microsecond / 1000000.0
-    return calendar.timegm(tt) + fractional_part
+    return int_timestamp + fractional_part
 
 
-### XXX: ticket #3022
 def datetime_utc_normalize(dt):
     """
     Normalize a :class:`datetime.datetime` to a naive UTC one.
@@ -122,19 +179,22 @@ def datetime_utc_normalize(dt):
         `dt`: A :class:`datetime.datetime` instance (naive or TZ-aware).
 
     Returns:
-        An equivalent :class:`datetime.datetime` instance (a naive one).
+        An equivalent *naive* :class:`datetime.datetime` instance.
 
-    >>> naive_dt = datetime.datetime(2013, 6, 6, 12, 13, 57, 251211)
+    >>> naive_dt = datetime.datetime(2013, 6, 6, 12, 13, 57, 751219)
     >>> datetime_utc_normalize(naive_dt)
-    datetime.datetime(2013, 6, 6, 12, 13, 57, 251211)
+    datetime.datetime(2013, 6, 6, 12, 13, 57, 751219)
 
     >>> tzinfo = FixedOffsetTimezone(120)
-    >>> tz_aware_dt = datetime.datetime(2013, 6, 6, 14, 13, 57, 251211,
+    >>> tz_aware_dt = datetime.datetime(2013, 6, 6, 14, 13, 57, 751219,
     ...                                 tzinfo=tzinfo)
     >>> datetime_utc_normalize(tz_aware_dt)
-    datetime.datetime(2013, 6, 6, 12, 13, 57, 251211)
+    datetime.datetime(2013, 6, 6, 12, 13, 57, 751219)
     """
-    return datetime.datetime.utcfromtimestamp(datetime_to_utc_timestamp(dt))
+    int_timestamp = int_timestamp_from_datetime(dt)
+    utc_dt_without_microsecond = datetime.datetime.utcfromtimestamp(int_timestamp)
+    utc_dt_with_microsecond = utc_dt_without_microsecond.replace(microsecond=dt.microsecond)
+    return utc_dt_with_microsecond
 
 
 # TODO -- better tests:
@@ -145,7 +205,7 @@ def parse_iso_date(s, prestrip=True):
     Parse *ISO-8601*-formatted date.
 
     Args:
-        `s`: *ISO-8601*-formatted date as a string.
+        `s`: *ISO-8601*-formatted date as a `str`.
 
     Kwargs:
         `prestrip` (default: :obj:`True`):
@@ -171,17 +231,17 @@ def parse_iso_date(s, prestrip=True):
     >>> parse_iso_date('2013-W24-3')
     datetime.date(2013, 6, 12)
     >>> datetime.date(2013, 6, 12).isocalendar()    # checking this was OK...
-    (2013, 24, 3)
+    datetime.IsoCalendarDate(year=2013, week=24, weekday=3)
 
     >>> parse_iso_date('2013-W01-1')
     datetime.date(2012, 12, 31)
     >>> datetime.date(2012, 12, 31).isocalendar()   # checking this was OK...
-    (2013, 1, 1)
+    datetime.IsoCalendarDate(year=2013, week=1, weekday=1)
 
     >>> parse_iso_date('2011-W52-7')
     datetime.date(2012, 1, 1)
     >>> datetime.date(2012, 1, 1).isocalendar()     # checking this was OK...
-    (2011, 52, 7)
+    datetime.IsoCalendarDate(year=2011, week=52, weekday=7)
 
     >>> parse_iso_date('2013-001')
     datetime.date(2013, 1, 1)
@@ -244,7 +304,7 @@ def parse_iso_date(s, prestrip=True):
     match = ISO_DATE_REGEX.match(s)
     if match:
         return _make_date_from_match(match)
-    raise ValueError('could not parse {!r} as ISO date'.format(s))
+    raise ValueError('could not parse {!a} as ISO date'.format(s))
 
 
 # TODO: tests
@@ -253,7 +313,7 @@ def parse_iso_time(s, prestrip=True):
     Parse *ISO-8601*-formatted time.
 
     Args:
-        `s`: *ISO-8601*-formatted time as a string.
+        `s`: *ISO-8601*-formatted time as a `str`.
 
     Kwargs:
         `prestrip` (default: :obj:`True`):
@@ -281,7 +341,7 @@ def parse_iso_time(s, prestrip=True):
     match = ISO_TIME_REGEX.match(s)
     if match:
         return _make_time_from_match(match)
-    raise ValueError('could not parse {!r} as ISO time'.format(s))
+    raise ValueError('could not parse {!a} as ISO time'.format(s))
 
 
 # TODO: tests
@@ -290,7 +350,7 @@ def parse_iso_datetime(s, prestrip=True):
     Parse *ISO-8601*-formatted combined date and time.
 
     Args:
-        `s`: *ISO-8601*-formatted combined date and time -- as a string.
+        `s`: *ISO-8601*-formatted combined date and time -- as a `str`.
 
     Kwargs:
         `prestrip` (default: :obj:`True`):
@@ -317,18 +377,17 @@ def parse_iso_datetime(s, prestrip=True):
         if match.group('hour') == '24':
             d += datetime.timedelta(1)
         return datetime.datetime.combine(d, t)
-    raise ValueError('could not parse {!r} as ISO combined date + time'
+    raise ValueError('could not parse {!a} as ISO combined date + time'
                      .format(s))
 
 
 # TODO: more tests (and convert doctests into unittests)
-### XXX: ticket #3022
 def parse_iso_datetime_to_utc(s, prestrip=True):
     """
     Parse *ISO-8601*-formatted combined date and time, and normalize it to UTC.
 
     Args:
-        `s`: *ISO-8601*-formatted combined date and time -- as a string.
+        `s`: *ISO-8601*-formatted combined date and time -- as a `str`.
 
     Kwargs:
         `prestrip` (default: :obj:`True`):
@@ -427,11 +486,11 @@ def _make_date_from_match(match):
         year = int(g['year'])
         ordinalday = int(g['ordinalday'])
         if not 1 <= ordinalday <= 366:
-            raise ValueError('ordinal day number {!r} is out of '
+            raise ValueError('ordinal day number {!a} is out of '
                              'range 001..366'.format(ordinalday))
         if ordinalday == 366 and not calendar.isleap(year):
-            raise ValueError('ordinal day number {!r} is out of range '
-                             'for year {!r} (which is not a leap year)'
+            raise ValueError('ordinal day number {!a} is out of range '
+                             'for year {!a} (which is not a leap year)'
                              .format(ordinalday, year))
         return date_by_ordinalday(year, ordinalday)
 
@@ -460,7 +519,7 @@ def _make_time_from_match(match):
         if 'tzminute' in g:
             tzminute = int(g['tzminute'])
             if tzminute > 59:
-                raise ValueError('minute part {!r} in time zone designator '
+                raise ValueError('minute part {!a} in time zone designator '
                                  'is out of range 00..59'.format(tzminute))
             if utc_offset >= 0:
                 utc_offset += tzminute
@@ -492,10 +551,10 @@ def date_by_isoweekday(isoyear, isoweek, isoweekday):
         (see: http://en.wikipedia.org/wiki/ISO_week_date).
     """
     if not 1 <= isoweek <= 53:
-        raise ValueError('ISO week number {!r} is out of range 01..53'
+        raise ValueError('ISO week number {!a} is out of range 01..53'
                          .format(isoweek))
     if not 1 <= isoweekday <= 7:
-        raise ValueError('ISO week day number {!r} is out of range 1..7'
+        raise ValueError('ISO week day number {!a} is out of range 1..7'
                          .format(isoweekday))
     year_specific_correction = datetime.date(isoyear, 1, 4).isoweekday() + 3
     ordinalday = 7 * isoweek + isoweekday - year_specific_correction
@@ -503,8 +562,8 @@ def date_by_isoweekday(isoyear, isoweek, isoweekday):
     d_isocalendar = d.isocalendar()
     if d_isocalendar != (isoyear, isoweek, isoweekday):
         assert isoweek == 53 and d_isocalendar == (isoyear + 1, 1, isoweekday)
-        raise ValueError('ISO week number {!r} is out of range for ISO-week-'
-                         'numbering year {!r}'.format(isoweek, isoyear))
+        raise ValueError('ISO week number {!a} is out of range for ISO-week-'
+                         'numbering year {!a}'.format(isoweek, isoyear))
     return d
 
 
@@ -516,7 +575,7 @@ def _test_date_by_isoweekday():
     >>> _test_date_by_isoweekday()
     """
     from random import randint as r
-    for i in xrange(100000):
+    for i in range(100000):
         isoyear = r(1, 9998)
         isoweek = r(1, 53)
         isoweekday = r(1, 7)

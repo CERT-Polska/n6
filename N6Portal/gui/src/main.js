@@ -5,14 +5,9 @@ import { VTooltip } from 'v-tooltip';
 import App from './App';
 import router from './router';
 import store from './store';
-import VueFlashMessage from 'vue-flash-message';
-import 'vue-flash-message/dist/vue-flash-message.min.css';
+import Notifications from 'vue-notification';
 
-Vue.use(VueFlashMessage, {
-  messageOptions: {
-    timeout: 4000,
-  },
-});
+Vue.use(Notifications);
 
 Vue.config.productionTip = false;
 

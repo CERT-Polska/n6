@@ -1,12 +1,14 @@
 FROM n6_base
 
+ARG action=develop
+
 COPY --chown=dataman:dataman . n6
 
 RUN \
     . ~/env/bin/activate; \
     # install n6 modules
     cd ~/n6 && \
-    ./do_setup.py -a develop N6Lib N6Core; \
+    ./do_setup.py -a $action N6Lib-py2 N6CoreLib N6Core; \
     # configure supervisord
     cd ~ && mkdir -p supervisord/log supervisord/programs && \
     cd n6/etc/supervisord && \
@@ -16,6 +18,12 @@ RUN \
     # n6 configs
     yes | n6config; \
     cp -f ~/n6/etc/n6/*.conf /etc/n6/;
+
+# Install web components in Python 3 environment.
+RUN . ~/env_py3k/bin/activate; \
+    /bin/bash -c \
+    'cd ~/n6; \
+    ./do_setup.py -a $action N6Lib N6SDK N6DataPipeline N6DataSources ;'
 
 # Some helpful links:
 # RabbitMQ management: https://localhost:15671

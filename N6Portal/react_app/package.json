@@ -1,0 +1,157 @@
+{
+  "name": "n6-portal-front",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "axios": "^0.21.1",
+    "bootstrap": "^4.5.3",
+    "classnames": "^2.3.1",
+    "date-fns": "^2.21.3",
+    "env-cmd": "^10.1.0",
+    "express": "^4.17.1",
+    "focus-visible": "^5.2.0",
+    "get-user-locale": "^1.4.0",
+    "jwt-decode": "^3.1.2",
+    "object-hash": "^2.2.0",
+    "pug": "^3.0.2",
+    "qrcode": "^1.4.4",
+    "qs": "^6.10.1",
+    "react": "^17.0.2",
+    "react-bootstrap": "^1.4.0",
+    "react-csv": "^2.0.3",
+    "react-dom": "^17.0.2",
+    "react-error-boundary": "^3.1.3",
+    "react-hook-form": "^7.9.0",
+    "react-input-mask": "^2.0.4",
+    "react-intl": "^5.17.4",
+    "react-query": "^3.16.0",
+    "react-router-dom": "^5.2.0",
+    "react-scripts": "^4.0.3",
+    "react-select": "^4.3.0",
+    "react-table": "^7.6.3",
+    "react-toastify": "^7.0.4",
+    "react-use": "^17.2.4",
+    "react-virtualized-auto-sizer": "^1.0.5",
+    "react-window": "^1.8.6",
+    "sanitize-html": "^2.3.3",
+    "use-lilius": "^1.1.1",
+    "validator": "^13.6.0",
+    "web-vitals": "^1.1.2"
+  },
+  "scripts": {
+    "start": "env-cmd -f ./.env.json react-scripts start",
+    "build": "env-cmd -f ./.env.json react-scripts build",
+    "build-prod": "env-cmd -f ./.env.json GENERATE_SOURCEMAP=false react-scripts build",
+    "config": "node config/run_app_server.js",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "lint": "eslint --ext js,ts,tsx src"
+  },
+  "prettier": {
+    "trailingComma": "none",
+    "tabWidth": 2,
+    "semi": true,
+    "singleQuote": true,
+    "printWidth": 120
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest",
+      "plugin:jsx-a11y/recommended",
+      "plugin:prettier/recommended",
+      "plugin:@typescript-eslint/recommended"
+    ],
+    "plugins": [
+      "jsx-a11y",
+      "react-hooks"
+    ],
+    "rules": {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
+      "no-console": "warn",
+      "import/order": [
+        "error",
+        {
+          "groups": [
+            "builtin",
+            "external",
+            "internal"
+          ],
+          "pathGroups": [
+            {
+              "pattern": "react",
+              "group": "external",
+              "position": "before"
+            }
+          ],
+          "pathGroupsExcludedImportTypes": [
+            "react"
+          ]
+        }
+      ]
+    },
+    "settings": {
+      "import/resolver": {
+        "node": {
+          "extensions": [
+            ".js",
+            ".jsx",
+            ".ts",
+            ".tsx"
+          ],
+          "moduleDirectory": [
+            "node_modules",
+            "src/"
+          ]
+        }
+      }
+    }
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "pretty-quick --staged"
+    }
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "@hookform/devtools": "^3.0.2",
+    "@testing-library/jest-dom": "^5.11.4",
+    "@testing-library/react": "^11.2.5",
+    "@testing-library/user-event": "^12.7.1",
+    "@types/jest": "^26.0.15",
+    "@types/node": "^12.0.0",
+    "@types/qrcode": "^1.4.0",
+    "@types/qs": "^6.9.6",
+    "@types/react": "^17.0.5",
+    "@types/react-csv": "^1.1.1",
+    "@types/react-dom": "^17.0.3",
+    "@types/react-input-mask": "^3.0.0",
+    "@types/react-router-dom": "^5.1.6",
+    "@types/react-select": "^4.0.15",
+    "@types/react-table": "^7.0.29",
+    "@types/react-virtualized-auto-sizer": "^1.0.0",
+    "@types/react-window": "^1.8.3",
+    "@types/sanitize-html": "^2.3.1",
+    "@types/validator": "^13.1.3",
+    "eslint-config-prettier": "^8.3.0",
+    "eslint-plugin-prettier": "^3.4.0",
+    "eslint-plugin-react-hooks": "^4.2.0",
+    "husky": "^4.3.5",
+    "prettier": "^2.2.1",
+    "pretty-quick": "^3.1.0",
+    "sass": "^1.32.12",
+    "typescript": "^4.2.3"
+  }
+}

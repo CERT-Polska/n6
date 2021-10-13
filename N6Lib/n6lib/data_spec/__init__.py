@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Copyright (c) 2013-2018 NASK. All rights reserved.
 
 # this package provides our inner versions (beyond the SDK) of data spec

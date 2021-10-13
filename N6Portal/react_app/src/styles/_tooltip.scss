@@ -1,0 +1,24 @@
+.n6-tooltip-button {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  margin-left: sizeToRem(6);
+  display: inline;
+  width: sizeToRem(36);
+}
+
+.n6-tooltip-icon {
+  width: sizeToRem(16);
+  height: sizeToRem(16);
+  margin-bottom: sizeToRem(2);
+}
+
+.n6-tooltip-wrapper {
+  border: 1px solid $n6-tooltip-border-color;
+  background-color: $n6-tooltip-bg;
+  box-shadow: $n6-tooltip-box-shadow;
+
+  .arrow {
+    display: none !important;
+  }
+}

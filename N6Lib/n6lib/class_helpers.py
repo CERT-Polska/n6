@@ -1,8 +1,6 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
-
-import functools
+import re
 import sys
 import types
 
@@ -114,42 +112,47 @@ ALL_MAGIC_METHOD_NAMES = (ORDINARY_MAGIC_METHOD_NAMES |
 
 
 
-def subclass_with_mixin(mixin_cls, decorated_cls=None):
-    """
-    Create a subclass of `decorated_cls` with `mixin_cls` mixed-in.
+class FalseIfOwnerClassNameMatchesRegex(object):
 
-    >>> import abc
-    >>> class MixIn(object):
-    ...     x = 789
-    ...     def m(self):
-    ...         return super(MixIn, self).m() + 1
-    ...
-    >>> @subclass_with_mixin(MixIn)
-    ... class C(object):
-    ...     __metaclass__ = abc.ABCMeta
-    ...     def m(self):
-    ...         return 42
-    ...
-    >>> obj = C()
-    >>> obj.m()
-    43
-    >>> C.x
-    789
-    >>> C.__mro__  # doctest: +ELLIPSIS
-    (<class '...C'>, <class '...MixIn'>, <class '...C'>, <type 'object'>)
-    >>> type(C)
-    <class 'abc.ABCMeta'>
     """
-    if decorated_cls is None:
-        return functools.partial(subclass_with_mixin, mixin_cls)
-    metaclass = type(decorated_cls)
-    name = decorated_cls.__name__
-    base_classes = (mixin_cls, decorated_cls)
-    attributes = {'__doc__': decorated_cls.__doc__,
-                  '__module__': decorated_cls.__module__}
-    if '__slots__' in vars(decorated_cls):
-        attributes['__slots__'] = ()
-    return metaclass(name, base_classes, attributes)
+    >>> class A(object):
+    ...     a = FalseIfOwnerClassNameMatchesRegex('A')
+    ...     b = FalseIfOwnerClassNameMatchesRegex('B')
+    ...
+    >>> A.a
+    False
+    >>> A().a
+    False
+    >>> A.b
+    True
+    >>> A().b
+    True
+    >>> class B(A):
+    ...     pass
+    ...
+    >>> B.a
+    True
+    >>> B().a
+    True
+    >>> B.b
+    False
+    >>> B().b
+    False
+    """
+
+    def __init__(self, regex):
+        if isinstance(regex, str):
+            regex = re.compile(regex)
+        if not hasattr(regex, 'search') or not hasattr(regex, 'match'):
+            raise TypeError('{!a} does not look like a regex object')
+        self.__regex = regex
+
+    def __get__(self, instance, owner=None):
+        if owner is None:
+            return True
+        assert hasattr(owner, '__name__')
+        return not self.__regex.search(owner.__name__)
+
 
 
 def all_subclasses(cls):
@@ -185,13 +188,57 @@ def attr_repr(*attr_names):
     >>> a
     <A x=1, y='qwerty'>
     """
-    format_repr = ('<{0.__class__.__name__} ' +
+    format_repr = ('<{0.__class__.__qualname__} ' +
                    ', '.join('%s={0.%s!r}' % (name, name)
                              for name in attr_names) +
                    '>').format
+    format_repr_fallback = object.__repr__
+
     def __repr__(self):
-        return format_repr(self)
+        # noinspection PyBroadException
+        try:
+            return format_repr(self)
+        except Exception:
+            return format_repr_fallback(self)
+
     return __repr__
+
+
+def properly_negate_eq(self, other):
+    """
+    A general-purpose implementation of the `__ne__()` (*not equal*)
+    special method that makes use of an existing implementation of the
+    `__eq__()` (*equal*) special method, negating its result unless the
+    result is `NotImplemented` (then just returning `NotImplemented`).
+
+    That is the same what Python 3's `object.__ne__()` does, so -- in
+    Python 3 -- when you implement equality comparisons in your class
+    you typically need to provide the `__eq__()` method and nothing
+    more. However, occasionally -- quite likely when subclasses, mixins
+    and all that inheritance-related mess come into play -- it may be
+    necessary to explicitly provide the behavior described above by
+    assigning this function to the `__ne__` attribute of your class, to
+    override some other implementation of `__ne__()` (provided by some
+    class that contributes to the inheritance hierarchy) which shadowed
+    the original `object.__ne__()`.
+
+    Example use:
+
+        class MyFancyEqualityMixin(object):
+
+            def __eq__(self, other):
+                if ...some checks and decision...:
+                    return ...True|False... # We say: "OK, the answer is..."
+                return NotImplemented       # We say: "Don't know. Maybe `other` knows?"
+
+            __ne__ = properly_negate_eq     # Negate __eq__() but say "Don't know..." if necessary.
+    """
+    # Note: After migration to Python 3 we can replace the following
+    # code just with: `return object.__ne__(self, other)`.
+    equal = self.__eq__(other)
+    if equal is NotImplemented:
+        return equal
+    return not equal
 
 
 def get_class_name(instance_or_class):
@@ -213,56 +260,8 @@ def get_class_name(instance_or_class):
     """
     return (
         instance_or_class.__name__
-        if isinstance(instance_or_class, (type, types.ClassType))
+        if isinstance(instance_or_class, type)
         else instance_or_class.__class__.__name__)
-
-
-def instance(cls, constructor_args=(), constructor_kwargs=None):
-    """
-    A class decorator that instantiates the class.
-
-    >>> @instance
-    ... class Something(object):
-    ...     def __init__(self):
-    ...         self.x = 42
-    ...     def __getitem__(self, key):
-    ...         return key.upper()
-    ...
-    >>> Something.x
-    42
-    >>> Something['foo']
-    'FOO'
-    >>> Something.__class__.__name__
-    'Something'
-
-    >>> @instance.initialized_with(43, ham='spam')
-    ... class Something2(object):
-    ...     def __init__(self, x, ham):
-    ...         self.x = x
-    ...         self.our_ham = ham
-    ...     def __getitem__(self, key):
-    ...         return key.upper()
-    ...
-    >>> Something2.x
-    43
-    >>> Something2.our_ham
-    'spam'
-    >>> Something2['foo']
-    'FOO'
-    >>> Something2.__class__.__name__
-    'Something2'
-    """
-    if constructor_kwargs is None:
-        constructor_kwargs = {}
-    return cls(*constructor_args, **constructor_kwargs)
-
-def __initialized_with(*constructor_args, **constructor_kwargs):
-    return functools.partial(
-        instance,
-        constructor_args=constructor_args,
-        constructor_kwargs=constructor_kwargs)
-
-instance.initialized_with = __initialized_with
 
 
 

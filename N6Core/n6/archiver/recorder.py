@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2014 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 """
-The *recorder* component -- adds n6 events to the database.
+The *recorder* component -- adds n6 events to the Event DB.
 """
 
 ### TODO: this module is to be replaced with a new implementation...
@@ -14,81 +14,138 @@ import logging
 import os
 import sys
 
-import n6.archiver.mysqldb_patch
-
-from sqlalchemy import create_engine
-from sqlalchemy.exc import IntegrityError, OperationalError
+import MySQLdb.cursors
+import sqlalchemy.event
+from sqlalchemy import (
+    create_engine,
+    text as sqla_text,
+)
+from sqlalchemy.exc import (
+    IntegrityError,
+    OperationalError,
+    SQLAlchemyError,
+)
 
 from n6.base.queue import QueuedBase
+from n6lib.common_helpers import str_to_bool
 from n6lib.config import Config
-from n6lib.data_backend_api import N6DataBackendAPI
+from n6lib.data_backend_api import (
+    N6DataBackendAPI,
+    transact,
+)
+from n6lib.data_spec.fields import SourceField
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
-from n6lib.db_events import n6ClientToEvent, n6NormalizedData
-from n6lib.log_helpers import get_logger, logging_configured
-from n6lib.record_dict import RecordDict, BLRecordDict
-from n6lib.transaction_helpers import transact
+from n6lib.db_events import (
+    n6ClientToEvent,
+    n6NormalizedData,
+)
+from n6lib.log_helpers import (
+    get_logger,
+    logging_configured,
+)
+from n6lib.record_dict import (
+    RecordDict,
+    BLRecordDict,
+)
 from n6lib.common_helpers import (
+    ascii_str,
     make_exc_ascii_str,
     replace_segment,
 )
 
 
-### MySQLdb warnings monkey-patching:
-### to write to stderr only, set:
-# n6.archiver.mysqldb_patch.warning_standard = True
-# n6.archiver.mysqldb_patch.warning_details_to_logs = False
-### to write to logs only, set:
-# n6.archiver.mysqldb_patch.warning_standard = False
-# n6.archiver.mysqldb_patch.warning_details_to_logs = True
-
-logging.basicConfig()
-
-## many logs from db:
-#logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
-
 LOGGER = get_logger(__name__)
 
+DB_WARN_LOGGER_LEGACY_NAME = 'n6.archiver.mysqldb_patch'  # TODO later: change or make configurable
+DB_WARN_LOGGER = get_logger(DB_WARN_LOGGER_LEGACY_NAME)
 
-class PublishError(Exception):
-    """Exeption used by SourceTransfer class"""
+
+class N6RecorderCursor(MySQLdb.cursors.Cursor):
+
+    # Note: the places where our `__log_warnings_from_database()` method
+    # is invoked are analogous to the places where appropriate warnings-
+    # -related stuff was invoked by the default cursor (a client-side one)
+    # provided by the version 1.3.14 of the *mysqlclient* library -- see:
+    # https://github.com/PyMySQL/mysqlclient/blob/1.3.14/MySQLdb/cursors.py
+    # -- which was the last version before removing the warnings-related
+    # stuff from that library (now we use a newer version, without that
+    # stuff).
+    #
+    # In practice, from the following three methods extended by us,
+    # rather only `execute()` is really relevant for us (note that it is
+    # also called by the `executemany()` method which, therefore, does
+    # not need to be extended).
+
+    def execute(self, query, args=None):
+        ret = super(N6RecorderCursor, self).execute(query, args)
+        self.__log_warnings_from_database('QUERY', query, args)
+        return ret
+
+    def callproc(self, procname, args=()):
+        ret = super(N6RecorderCursor, self).callproc(procname, args)
+        self.__log_warnings_from_database('PROCEDURE CALL', procname, args)
+        return ret
+
+    def nextset(self):
+        ret = super(N6RecorderCursor, self).nextset()
+        if ret is not None:
+            self.__log_warnings_from_database('ON NEXT RESULT SET')
+        return ret
+
+    __cur_warning_count = None
+
+    def __log_warnings_from_database(self, caption, query_or_proc=None, args=None):
+        conn = self.connection
+        if conn is None or not conn.warning_count():
+            return
+        for level, code, msg in conn.show_warnings():
+            log_msg = '[{}] {} (code: {}), {}'.format(ascii_str(level),
+                                                      ascii_str(msg),
+                                                      ascii_str(code),
+                                                      caption)
+            if query_or_proc or args:
+                log_msg_format = (log_msg.replace('%', '%%')
+                                  + ': %r, '
+                                  + 'ARGS: %r')
+                DB_WARN_LOGGER.warning(log_msg_format, query_or_proc, args)
+            else:
+                DB_WARN_LOGGER.warning(log_msg)
 
 
 class Recorder(QueuedBase):
     """Save record in zbd queue."""
-    input_queue = {"exchange": "event",
-                   "exchange_type": "topic",
-                   "queue_name": 'zbd',
-                   "binding_keys": ['event.filtered.*.*',
-                                    'bl-new.filtered.*.*',
-                                    'bl-change.filtered.*.*',
-                                    'bl-delist.filtered.*.*',
-                                    'bl-expire.filtered.*.*',
-                                    'bl-update.filtered.*.*',
-                                    'suppressed.filtered.*.*',
-                                    ]
-                   }
 
-    output_queue = {"exchange": "event",
-                    "exchange_type": "topic"
-                    }
+    _MIN_WAIT_TIMEOUT = 3600
+    _MAX_WAIT_TIMEOUT = _DEFAULT_WAIT_TIMEOUT = 28800
 
-    SQL_WAIT_TIMEOUT = "SET SESSION wait_timeout = {wait}"
+    input_queue = {
+        "exchange": "event",
+        "exchange_type": "topic",
+        "queue_name": "zbd",
+        "accepted_event_types": [
+            "event",
+            "bl-new",
+            "bl-change",
+            "bl-delist",
+            "bl-expire",
+            "bl-update",
+            "suppressed",
+        ],
+    }
+
+    output_queue = {
+        "exchange": "event",
+        "exchange_type": "topic",
+    }
 
     def __init__(self, **kwargs):
         LOGGER.info("Recorder Start")
-        config = Config(required={"recorder": ("uri", "echo")})
+        config = Config(required={"recorder": ("uri",)})
         self.config = config["recorder"]
-        self.rows = None
         self.record_dict = None
-        self.source = None
-        self.dir_name = None
-        self.wait_timeout = int(self.config.get("wait_timeout", 28800))
-        engine = create_engine(self.config["uri"], echo=bool((int(self.config["echo"]))))
-        self.session_db = N6DataBackendAPI.configure_db_session(engine)
-        self.set_session_wait_timeout()
         self.records = None
         self.routing_key = None
-
+        self.session_db = self._setup_db()
         self.dict_map_fun = {
             "event.filtered": (RecordDict.from_json, self.new_event),
             "bl-new.filtered": (BLRecordDict.from_json, self.blacklist_new),
@@ -101,28 +158,89 @@ class Recorder(QueuedBase):
         # keys in each of the tuples being values of `dict_map_fun`
         self.FROM_JSON = 0
         self.HANDLE_EVENT = 1
-
         super(Recorder, self).__init__(**kwargs)
+
+    def _setup_db(self):
+        wait_timeout = int(self.config.get("wait_timeout", self._DEFAULT_WAIT_TIMEOUT))
+        wait_timeout = min(max(wait_timeout, self._MIN_WAIT_TIMEOUT), self._MAX_WAIT_TIMEOUT)
+        # (`pool_recycle` should be significantly less than `wait_timeout`)
+        pool_recycle = wait_timeout // 2
+        engine = create_engine(
+            self.config["uri"],
+            connect_args=dict(
+                charset=self.config.get(
+                    "connect_charset",
+                    N6DataBackendAPI.EVENT_DB_LEGACY_CHARSET),
+                use_unicode=True,
+                binary_prefix=True,
+                cursorclass=N6RecorderCursor),
+            pool_recycle=pool_recycle,
+            echo=str_to_bool(self.config.get("echo", "false")))
+        self._install_session_variables_setter(
+            engine,
+            wait_timeout=wait_timeout,
+            time_zone="'+00:00'")
+        session_db = N6DataBackendAPI.configure_db_session(engine)
+        session_db.execute(sqla_text("SELECT 1"))  # Let's crash early if db is misconfigured.
+        return session_db
+
+    def _install_session_variables_setter(self, engine, **session_variables):
+        setter_sql = 'SET ' + ' , '.join(
+            'SESSION {} = {}'.format(name, value)
+            for name, value in session_variables.iteritems())
+
+        @sqlalchemy.event.listens_for(engine, 'connect')
+        def set_session_variables(dbapi_connection, connection_record):
+            """
+            Execute
+            "SET SESSION <var1> = <val1>, SESSION <var2> = <val2>, ..."
+            to set the specified variables.
+
+            To be called automatically whenever a new low-level
+            connection to the database is established.
+
+            WARNING: for simplicity, the variable names and values are
+            inserted "as is", *without* any escaping -- we assume we
+            can treat them as *trusted* data.
+            """
+            with dbapi_connection.cursor() as cursor:
+                cursor.execute(setter_sql)
+
+    @classmethod
+    def get_arg_parser(cls):
+        parser = super(Recorder, cls).get_arg_parser()
+        parser.add_argument("--n6recorder-blacklist", type=SourceField().clean_result_value,
+                            help="the identifier of a blacklist source (in the "
+                                 "format: 'source-label.source-channel'); if given, "
+                                 "this recorder instance will consume and store "
+                                 "*only* events from this blacklist source")
+        parser.add_argument("--n6recorder-non-blacklist", action="store_true",
+                            help="if given, this recorder instance will consume "
+                                 "and store *only* events from *all* non-blacklist "
+                                 "sources (note: then the '--n6recorder-blacklist' "
+                                 "option, if given, is just ignored)")
+        return parser
 
     def ping_connection(self):
         """
         Required to maintain the connection to MySQL.
         Perform ping before each query to the database.
         OperationalError if an exception occurs, remove sessions, and connects again.
-        Set the wait_timeout(Mysql session variable) for the session on self.wait_timeout.
         """
         try:
-            self.session_db.execute("SELECT 1")
+            self.session_db.execute(sqla_text("SELECT 1"))
         except OperationalError as exc:
             # OperationalError: (2006, 'MySQL server has gone away')
             LOGGER.warning("Database server went away: %r", exc)
             LOGGER.info("Reconnect to server")
             self.session_db.remove()
-            self.set_session_wait_timeout()
-
-    def set_session_wait_timeout(self):
-        """set session wait_timeout in mysql SESSION  VARIABLES"""
-        self.session_db.execute(Recorder.SQL_WAIT_TIMEOUT.format(wait=self.wait_timeout))
+            try:
+                self.session_db.execute(sqla_text("SELECT 1"))
+            except SQLAlchemyError as exc:
+                LOGGER.error(
+                    "Could not reconnect to the MySQL database: %s",
+                    make_exc_ascii_str(exc))
+                sys.exit(1)
 
     @staticmethod
     def get_truncated_rk(rk, parts):
@@ -207,6 +325,7 @@ class Recorder(QueuedBase):
                 with transact:
                     self.session_db.add_all(items)
             else:
+                assert transact.is_entered
                 self.session_db.add_all(items)
         except IntegrityError as exc:
             str_exc = make_exc_ascii_str(exc)
@@ -429,6 +548,12 @@ class Recorder(QueuedBase):
 
 
 def main():
+    parser = Recorder.get_arg_parser()
+    args = Recorder.parse_only_n6_args(parser)
+    if args.n6recorder_non_blacklist:
+        monkey_patch_non_bl_recorder()
+    elif args.n6recorder_blacklist is not None:
+        monkey_patch_bl_recorder(args.n6recorder_blacklist)
     with logging_configured():
         if os.environ.get('n6integration_test'):
             # for debugging only
@@ -439,6 +564,35 @@ def main():
             d.run()
         except KeyboardInterrupt:
             d.stop()
+
+
+def monkey_patch_non_bl_recorder():
+    Recorder.input_queue = {
+        "exchange": "event",
+        "exchange_type": "topic",
+        "queue_name": 'zbd-non-blacklist',
+        "binding_keys": [
+            'event.filtered.*.*',
+            'suppressed.filtered.*.*',
+        ]
+    }
+
+
+def monkey_patch_bl_recorder(source):
+    Recorder.input_queue = {
+        "exchange": "event",
+        "exchange_type": "topic",
+        "queue_name": 'zbd-bl-{}'.format(source.replace(".", "-")),
+        "binding_keys": [
+            x.format(source) for x in [
+                'bl-new.filtered.{}',
+                'bl-change.filtered.{}',
+                'bl-delist.filtered.{}',
+                'bl-expire.filtered.{}',
+                'bl-update.filtered.{}',
+            ]
+        ]
+    }
 
 
 if __name__ == "__main__":

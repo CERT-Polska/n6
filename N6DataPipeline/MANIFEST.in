@@ -1,0 +1,2 @@
+include *.txt *.md *.rst requirements
+recursive-include n6datapipeline/data *

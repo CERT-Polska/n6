@@ -1,15 +1,11 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
-
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
 import copy
 import datetime
 import decimal
 import unittest
-
-from mock import sentinel as sen
+from unittest.mock import sentinel as sen
 
 from n6sdk.data_spec.fields import (
     Field,
@@ -64,7 +60,7 @@ class FieldTestMixin(TestCaseMixin):
 
     def test__clean_param_value(self):
         for init_kwargs, given, expected in self.cases__clean_param_value():
-            assert isinstance(given, basestring)
+            assert isinstance(given, str)
             init_kwargs = dict(self.INIT_KWARGS_BASE or {}, **init_kwargs)
             f = self.CLASS(**init_kwargs)
             if isinstance(expected, type) and issubclass(
@@ -231,11 +227,11 @@ class TestDateTimeField(FieldTestMixin, unittest.TestCase):
             expected=datetime.datetime(2014, 3, 31, 23, 7, 42),
         )
         yield case(
-            given=u'2015-05-02T24:00',
+            given='2015-05-02T24:00',
             expected=datetime.datetime(2015, 5, 3, 0, 0),
         )
         yield case(
-            given=u'2015-05-01',
+            given='2015-05-01',
             expected=FieldValueError,
         )
         yield case(
@@ -267,6 +263,10 @@ class TestDateTimeField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
+            given='ąę',
+            expected=FieldValueError,
+        )
+        yield case(
             given='',
             expected=FieldValueError,
         )
@@ -278,6 +278,12 @@ class TestDateTimeField(FieldTestMixin, unittest.TestCase):
     def cases__clean_result_value(self):
         for c in self.cases__clean_param_value():
             yield c
+            yield c._replace(given=c.given.encode('utf-8'))
+            yield c._replace(given=bytearray(c.given.encode('utf-8')))
+        yield case(
+            given=b'\xdd',
+            expected=FieldValueError,
+        )
         dt = datetime.datetime(2014, 3, 31, 23, 7, 42, 123456)
         tz_dt = datetime.datetime(2014, 4, 1, 1, 7, 42, 123456,
                                   tzinfo=FixedOffsetTimezone(120))  # (+02:00)
@@ -300,7 +306,7 @@ class TestFlagField(FieldTestMixin, unittest.TestCase):
     CLASS = FlagField
 
     def cases__clean_param_value(self):
-        raw_value_types = (str, unicode)
+        raw_value_types = (str,)
         for c in self._common_cases(raw_value_types, exc_class=FieldValueError):
             yield c
         yield case(
@@ -308,8 +314,14 @@ class TestFlagField(FieldTestMixin, unittest.TestCase):
             expected=True,
         )
         yield case(
-            given=u'',
+            init_kwargs={'enable_empty_param_as_true': True},
+            given='',
             expected=True,
+        )
+        yield case(
+            init_kwargs={'enable_empty_param_as_true': False},
+            given='',
+            expected=ValueError,  # [sic]
         )
 
     def cases__clean_result_value(self):
@@ -324,7 +336,7 @@ class TestFlagField(FieldTestMixin, unittest.TestCase):
                 return isinstance(other, SomeClass) and self._s == other._s
             def __ne__(self, other):
                 return not (self == other)
-        raw_value_types = (str, unicode, SomeClass)
+        raw_value_types = (str, bytes, bytearray, SomeClass)
         for c in self._common_cases(raw_value_types, exc_class=ValueError):
             yield c
         yield case(
@@ -336,10 +348,6 @@ class TestFlagField(FieldTestMixin, unittest.TestCase):
             expected=True,
         )
         yield case(
-            given=1L,
-            expected=True,
-        )
-        yield case(
             given=False,
             expected=False,
         )
@@ -348,8 +356,12 @@ class TestFlagField(FieldTestMixin, unittest.TestCase):
             expected=False,
         )
         yield case(
-            given=0L,
-            expected=False,
+            given=b'',
+            expected=ValueError,
+        )
+        yield case(
+            given='',
+            expected=ValueError,
         )
         yield case(
             given=[1, 2, 3],
@@ -361,6 +373,11 @@ class TestFlagField(FieldTestMixin, unittest.TestCase):
         )
 
     def _common_cases(self, raw_value_types, exc_class):
+        def as_tp_instance(tp, val):
+            if tp in (bytes, bytearray):
+                return tp(str(val).encode('utf-8'))
+            return tp(val)
+
         for tp in raw_value_types:
             # correct input cases:
             for raw_value_base, cleaned_value in [
@@ -394,7 +411,7 @@ class TestFlagField(FieldTestMixin, unittest.TestCase):
                 ('ofF', False),
             ]:
                 yield case(
-                    given=tp(raw_value_base),
+                    given=as_tp_instance(tp, raw_value_base),
                     expected=cleaned_value,
                 )
             # erroneous input cases:
@@ -407,7 +424,7 @@ class TestFlagField(FieldTestMixin, unittest.TestCase):
                 '-1',
             ]:
                 yield case(
-                    given=tp(raw_value_base),
+                    given=as_tp_instance(tp, raw_value_base),
                     expected=exc_class,
                 )
 
@@ -418,132 +435,327 @@ class TestUnicodeField(FieldTestMixin, unittest.TestCase):
 
     def cases__clean_param_value(self):
         yield case(
-            given=u'ascii',
-            expected=u'ascii',
-        )
-        yield case(
             given='ascii',
-            expected=u'ascii',
-        )
-        yield case(
-            given=u'kąŧ¹²³',
-            expected=u'kąŧ¹²³',
+            expected='ascii',
         )
         yield case(
             given='kąŧ¹²³',
-            expected=u'kąŧ¹²³',
-        )
-        yield case(
-            given=u'123abc   '*100000,
-            expected=u'123abc   '*100000,
+            expected='kąŧ¹²³',
         )
         yield case(
             given='123abc   '*100000,
-            expected=u'123abc   '*100000,
-        )
-        yield case(
-            given=u' ',
-            expected=u' ',
+            expected='123abc   '*100000,
         )
         yield case(
             given=' ',
-            expected=u' ',
-        )
-        yield case(
-            given=u'',
-            expected=u'',
+            expected=' ',
         )
         yield case(
             given='',
-            expected=u'',
-        )
-        yield case(
-            init_kwargs={'disallow_empty': False},
-            given=u'',
-            expected=u'',
+            expected='',
         )
         yield case(
             init_kwargs={'disallow_empty': False},
             given='',
-            expected=u'',
-        )
-        yield case(
-            init_kwargs={'disallow_empty': True},
-            given=u'',
-            expected=FieldValueError,
+            expected='',
         )
         yield case(
             init_kwargs={'disallow_empty': True},
             given='',
             expected=FieldValueError,
         )
+        some_chars = ''.join(map(chr, (list(range(1000)) + list(range(2 ** 16, 2 ** 16 + 1000)))))
         yield case(
-            given=''.join(map(chr, range(32, 127))),
-            expected=u''.join(map(chr, range(32, 127))),
+            given=some_chars,
+            expected=some_chars,
         )
         yield case(
-            given='\x01',
-            expected=u'\x01',
+            init_kwargs={'encoding': 'utf-8'},  # note: `encoding` is irrelevant to `str` input
+            given='fąfara',
+            expected='fąfara',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii'},  # note: `encoding` is irrelevant to `str` input
+            given='fąfara',
+            expected='fąfara',
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8'},  # note: `encoding` is irrelevant to `str` input
+            given='dd\udcdd\udcee',
+            expected='dd\udcdd\udcee',
+        )
+
+    def cases__clean_result_value(self):
+        yield case(
+            given='ascii',
+            expected='ascii',
+        )
+        yield case(
+            given=b'ascii',
+            expected='ascii',
+        )
+        yield case(
+            given=bytearray(b'ascii'),
+            expected='ascii',
+        )
+        yield case(
+            given='kąŧ¹²³',
+            expected='kąŧ¹²³',
+        )
+        yield case(
+            given=b'k\xc4\x85\xc5\xa7\xc2\xb9\xc2\xb2\xc2\xb3',
+            expected='kąŧ¹²³',
+        )
+        yield case(
+            given=bytearray(b'k\xc4\x85\xc5\xa7\xc2\xb9\xc2\xb2\xc2\xb3'),
+            expected='kąŧ¹²³',
+        )
+        yield case(
+            given='123abc   '*100000,
+            expected='123abc   '*100000,
+        )
+        yield case(
+            given=b'123abc   '*100000,
+            expected='123abc   '*100000,
+        )
+        yield case(
+            given=bytearray(b'123abc   '*100000),
+            expected='123abc   '*100000,
+        )
+        yield case(
+            given=' ',
+            expected=' ',
+        )
+        yield case(
+            given=b' ',
+            expected=' ',
+        )
+        yield case(
+            given=bytearray(b' '),
+            expected=' ',
+        )
+        yield case(
+            given='',
+            expected='',
+        )
+        yield case(
+            given=b'',
+            expected='',
+        )
+        yield case(
+            given=bytearray(b''),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'disallow_empty': False},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'disallow_empty': False},
+            given=b'',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'disallow_empty': False},
+            given=bytearray(b''),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'disallow_empty': True},
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'disallow_empty': True},
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        some_chars = ''.join(map(chr, (list(range(1000)) + list(range(2 ** 16, 2 ** 16 + 1000)))))
+        yield case(
+            given=some_chars,
+            expected=some_chars,
+        )
+        yield case(
+            given=some_chars.encode('utf-8'),
+            expected=some_chars,
+        )
+        yield case(
+            given=bytearray(some_chars.encode('utf-8')),
+            expected=some_chars,
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8'},    # note: `encoding` is irrelevant to `str` input
+            given='fąfara',
+            expected='fąfara',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii'},    # note: `encoding` is irrelevant to `str` input
+            given='fąfara',
+            expected='fąfara',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii'},    # note: `encoding` is irrelevant to `str` input
+            given='dd\udcdd\udcee',
+            expected='dd\udcdd\udcee',
         )
         yield case(
             init_kwargs={'encoding': 'utf-8'},
-            given=u'fąfara',
-            expected=u'fąfara',
+            given=b'f\xc4\x85fara',
+            expected='fąfara',
         )
         yield case(
             init_kwargs={'encoding': 'utf-8'},
-            given='fąfara',
-            expected=u'fąfara',
+            given=bytearray(b'f\xc4\x85fara'),
+            expected='fąfara',
         )
         yield case(
             init_kwargs={'encoding': 'latin-1'},
-            given=u'fąfara',
-            expected=u'fąfara',
+            given=b'f\xc4\x85fara',
+            expected='f\xc4\x85fara',
         )
         yield case(
             init_kwargs={'encoding': 'latin-1'},
-            given='fąfara',
-            expected=u'f\xc4\x85fara',
+            given=bytearray(b'f\xc4\x85fara'),
+            expected='f\xc4\x85fara',
         )
         yield case(
             init_kwargs={'encoding': 'ascii'},
-            given='dd\xdd\xee',
+            given=b'f\xc4\x85fara',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii'},
+            given=bytearray(b'f\xc4\x85fara'),
             expected=FieldValueError,
         )
         yield case(
             init_kwargs={'encoding': 'ascii', 'decode_error_handling': 'replace'},
-            given='dd\xdd\xee',
-            expected=u'dd\ufffd\ufffd',
+            given=b'f\xc4\x85fara',
+            expected='f\ufffd\ufffdfara',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii', 'decode_error_handling': 'replace'},
+            given=bytearray(b'f\xc4\x85fara'),
+            expected='f\ufffd\ufffdfara',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii', 'decode_error_handling': 'ignore'},
+            given=b'f\xc4\x85fara',
+            expected='ffara',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii', 'decode_error_handling': 'ignore'},
+            given=bytearray(b'f\xc4\x85fara'),
+            expected='ffara',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii'},
+            given=b'dd\xdd\xee',                              # non-UTF-8
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii'},
+            given=bytearray(b'dd\xdd\xee'),                   # non-UTF-8
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii', 'decode_error_handling': 'replace'},
+            given=b'dd\xdd\xee',                              # non-UTF-8
+            expected='dd\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii', 'decode_error_handling': 'replace'},
+            given=bytearray(b'dd\xdd\xee'),                   # non-UTF-8
+            expected='dd\ufffd\ufffd',
         )
         yield case(
             init_kwargs={'encoding': 'utf-8'},
-            given='dd\xdd\xee',
+            given=b'dd\xdd\xee',                              # non-UTF-8
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8'},
+            given=bytearray(b'dd\xdd\xee'),                   # non-UTF-8
             expected=FieldValueError,
         )
         yield case(
             init_kwargs={'encoding': 'utf-8', 'decode_error_handling': 'ignore'},
-            given='dd\xdd\xee',
-            expected=u'dd',
+            given=b'dd\xdd\xee',                              # non-UTF-8
+            expected='dd',
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8', 'decode_error_handling': 'ignore'},
+            given=bytearray(b'dd\xdd\xee'),                   # non-UTF-8
+            expected='dd',
         )
         yield case(
             init_kwargs={'encoding': 'utf-8', 'decode_error_handling': 'surrogateescape'},
-            given='dd\xdd\xee',                  # non-UTF-8
-            expected=u'dd\udcdd\udcee',
+            given=b'dd\xdd\xee',                              # non-UTF-8
+            expected='dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8', 'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'dd\xdd\xee'),                   # non-UTF-8
+            expected='dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8', 'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'dd\xdd\xee',                              # non-UTF-8
+            expected='dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8', 'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'dd\xdd\xee'),                   # non-UTF-8
+            expected='dd\udcdd\udcee',
         )
         yield case(
             init_kwargs={'encoding': 'utf-8'},
-            given='dd\xed\xb3\x9d\xed\xb3\xae',  # already UTF-8
-            expected=u'dd\udcdd\udcee',
+            given=b'dd\xed\xb3\x9d\xed\xb3\xae',              # quasi-UTF-8 with lone surrogates
+            expected=FieldValueError,
         )
         yield case(
             init_kwargs={'encoding': 'utf-8'},
-            given=u'dd\udcdd\udcee',             # unicode
-            expected=u'dd\udcdd\udcee',
+            given=bytearray(b'dd\xed\xb3\x9d\xed\xb3\xae'),   # quasi-UTF-8 with lone surrogates
+            expected=FieldValueError,
         )
-
-    def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            init_kwargs={'encoding': 'utf-8', 'decode_error_handling': 'ignore'},
+            given=b'dd\xed\xb3\x9d\xed\xb3\xae',              # non-UTF-8 with lone surrogates
+            expected='dd',
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8', 'decode_error_handling': 'ignore'},
+            given=bytearray(b'dd\xed\xb3\x9d\xed\xb3\xae'),   # quasi-UTF-8 with lone surrogates
+            expected='dd',
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8', 'decode_error_handling': 'surrogatepass'},
+            given=b'dd\xed\xb3\x9d\xed\xb3\xae',              # non-UTF-8 with lone surrogates
+            expected='dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8', 'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'dd\xed\xb3\x9d\xed\xb3\xae'),   # quasi-UTF-8 with lone surrogates
+            expected='dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8',
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'dd\xed\xb3\x9d\xed\xb3\xae',              # quasi-UTF-8 with lone surrogates
+            expected='dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'encoding': 'utf-8',
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'dd\xed\xb3\x9d\xed\xb3\xae'),   # quasi-UTF-8 with lone surrogates
+            expected='dd\udcdd\udcee',
+        )
         yield case(
             given=123,
             expected=TypeError,
@@ -565,26 +777,22 @@ class TestHexDigestField(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             given='024a00e7c2ef04ee5b0f767ba73ee397',
-            expected=u'024a00e7c2ef04ee5b0f767ba73ee397',
+            expected='024a00e7c2ef04ee5b0f767ba73ee397',
         )
         yield case(
-            given='025a00e7c2ef04ee5b0f767ba73ee397',
-            expected=u'025a00e7c2ef04ee5b0f767ba73ee397',
+            given='026A00E7C2EF04EE5B0F767BA73EE397',
+            expected='026a00e7c2ef04ee5b0f767ba73ee397',
         )
         yield case(
-            given=u'026A00E7C2EF04EE5B0F767BA73EE397',
-            expected=u'026a00e7c2ef04ee5b0f767ba73ee397',
-        )
-        yield case(
-            given=u'023A00E7C2EF04ee5B0F767BA73EE397',
-            expected=u'023a00e7c2ef04ee5b0f767ba73ee397',
+            given='023A00E7C2EF04ee5B0F767BA73EE397',
+            expected='023a00e7c2ef04ee5b0f767ba73ee397',
         )
         yield case(
             given='023A00E7C2EF04EE5B0F767BA73EE397' + '0',     # too long
             expected=FieldValueError,
         )
         yield case(
-            given=u'023A00E7C2EF04EE5B0F767BA73EE39',          # too short
+            given='023A00E7C2EF04EE5B0F767BA73EE39',            # too short
             expected=FieldValueError,
         )
         yield case(
@@ -592,7 +800,7 @@ class TestHexDigestField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'023A00E7C2EF04EE5B0F767BA73EE397Z',    # illegal chars
+            given='023A00E7C2EF04ZZ5B0F767GG73EE397',           # illegal chars
             expected=FieldValueError,
         )
         yield case(
@@ -601,8 +809,102 @@ class TestHexDigestField(FieldTestMixin, unittest.TestCase):
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='024a00e7c2ef04ee5b0f767ba73ee397',
+            expected='024a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=b'024a00e7c2ef04ee5b0f767ba73ee397',
+            expected='024a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=bytearray(b'024a00e7c2ef04ee5b0f767ba73ee397'),
+            expected='024a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given='026A00E7C2EF04EE5B0F767BA73EE397',
+            expected='026a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=b'026A00E7C2EF04EE5B0F767BA73EE397',
+            expected='026a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=bytearray(b'026A00E7C2EF04EE5B0F767BA73EE397'),
+            expected='026a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given='023A00E7C2EF04ee5B0F767BA73EE397',
+            expected='023a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=b'023A00E7C2EF04ee5B0F767BA73EE397',
+            expected='023a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04ee5B0F767BA73EE397'),
+            expected='023a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given='023A00E7C2EF04EE5B0F767BA73EE397' + '0',     # too long
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'023A00E7C2EF04EE5B0F767BA73EE397' + b'0',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04EE5B0F767BA73EE397' + b'0'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='023A00E7C2EF04EE5B0F767BA73EE39',             # too short
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'023A00E7C2EF04EE5B0F767BA73EE39',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04EE5B0F767BA73EE39'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='023A00E7C2EF04ZZ5B0F767GG73EE397',    # illegal chars
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'023A00E7C2EF04ZZ5B0F767GG73EE397',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04ZZ5B0F767GG73EE397'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=32 * ' ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=32 * b' ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(32 * b' '),
+            expected=FieldValueError,
+        )
         yield case(
             given=123,
             expected=TypeError,
@@ -620,45 +922,135 @@ class TestMD5Field(FieldTestMixin, unittest.TestCase):
 
     def cases__clean_param_value(self):
         yield case(
-            given='023a00e7c2ef04ee5b0f767ba73ee397',
-            expected=u'023a00e7c2ef04ee5b0f767ba73ee397',
+            given='024a00e7c2ef04ee5b0f767ba73ee397',
+            expected='024a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given='026A00E7C2EF04EE5B0F767BA73EE397',
+            expected='026a00e7c2ef04ee5b0f767ba73ee397',
         )
         yield case(
             given='023A00E7C2EF04ee5B0F767BA73EE397',
-            expected=u'023a00e7c2ef04ee5b0f767ba73ee397',
+            expected='023a00e7c2ef04ee5b0f767ba73ee397',
         )
         yield case(
-            given=u'023a00e7c2ef04ee5b0f767ba73ee397',
-            expected=u'023a00e7c2ef04ee5b0f767ba73ee397',
-        )
-        yield case(
-            given=u'023A00E7C2EF04EE5B0F767BA73EE397',
-            expected=u'023a00e7c2ef04ee5b0f767ba73ee397',
-        )
-        yield case(
-            given='023a00e7c2ef04ee5b0f767ba73ee397' + '1',   # too long
+            given='023A00E7C2EF04EE5B0F767BA73EE397' + '0',     # too long
             expected=FieldValueError,
         )
         yield case(
-            given='023a00e7c2ef04ee5b0f767ba73ee39',         # too short
+            given='023A00E7C2EF04EE5B0F767BA73EE39',            # too short
             expected=FieldValueError,
         )
         yield case(
-            given=u'',
+            given='',
             expected=FieldValueError,
         )
         yield case(
-            given='023a00e7c2ef04zz5b0f767ba73ee397',    # illegal chars
+            given='023A00E7C2EF04ZZ5B0F767GG73EE397',           # illegal chars
             expected=FieldValueError,
         )
         yield case(
-            given=32 * u' ',
+            given=32 * ' ',
             expected=FieldValueError,
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='024a00e7c2ef04ee5b0f767ba73ee397',
+            expected='024a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=b'024a00e7c2ef04ee5b0f767ba73ee397',
+            expected='024a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=bytearray(b'024a00e7c2ef04ee5b0f767ba73ee397'),
+            expected='024a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given='026A00E7C2EF04EE5B0F767BA73EE397',
+            expected='026a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=b'026A00E7C2EF04EE5B0F767BA73EE397',
+            expected='026a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=bytearray(b'026A00E7C2EF04EE5B0F767BA73EE397'),
+            expected='026a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given='023A00E7C2EF04ee5B0F767BA73EE397',
+            expected='023a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=b'023A00E7C2EF04ee5B0F767BA73EE397',
+            expected='023a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04ee5B0F767BA73EE397'),
+            expected='023a00e7c2ef04ee5b0f767ba73ee397',
+        )
+        yield case(
+            given='023A00E7C2EF04EE5B0F767BA73EE397' + '0',     # too long
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'023A00E7C2EF04EE5B0F767BA73EE397' + b'0',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04EE5B0F767BA73EE397' + b'0'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='023A00E7C2EF04EE5B0F767BA73EE39',             # too short
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'023A00E7C2EF04EE5B0F767BA73EE39',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04EE5B0F767BA73EE39'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='023A00E7C2EF04ZZ5B0F767GG73EE397',    # illegal chars
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'023A00E7C2EF04ZZ5B0F767GG73EE397',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04ZZ5B0F767GG73EE397'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=32 * ' ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=32 * b' ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(32 * b' '),
+            expected=FieldValueError,
+        )
         yield case(
             given=123,
             expected=TypeError,
@@ -675,35 +1067,31 @@ class TestSHA1Field(FieldTestMixin, unittest.TestCase):
 
     def cases__clean_param_value(self):
         yield case(
-            given='023a00e7c2ef04ee5b0f767ba73ee39701762354',
-            expected=u'023a00e7c2ef04ee5b0f767ba73ee39701762354',
+            given='024a00e7c2ef04ee5b0f767ba73ee39701762354',
+            expected='024a00e7c2ef04ee5b0f767ba73ee39701762354',
+        )
+        yield case(
+            given='026A00E7C2EF04EE5B0F767BA73EE39701762354',
+            expected='026a00e7c2ef04ee5b0f767ba73ee39701762354',
         )
         yield case(
             given='023A00E7C2EF04ee5B0F767BA73EE39701762354',
-            expected=u'023a00e7c2ef04ee5b0f767ba73ee39701762354',
+            expected='023a00e7c2ef04ee5b0f767ba73ee39701762354',
         )
         yield case(
-            given=u'023a00e7c2ef04EE5b0f767ba73ee39701762354',
-            expected=u'023a00e7c2ef04ee5b0f767ba73ee39701762354',
-        )
-        yield case(
-            given=u'023A00E7C2EF04EE5B0F767BA73EE39701762354',
-            expected=u'023a00e7c2ef04ee5b0f767ba73ee39701762354',
-        )
-        yield case(
-            given=u'023a00e7c2ef04ee5b0f767ba73ee39701762354' + '1',  # too long
+            given='023A00E7C2EF04EE5B0F767BA73EE39701762354' + '1',     # too long
             expected=FieldValueError,
         )
         yield case(
-            given='023a00e7c2ef04ee5b0f767ba73ee3970176235',         # too short
+            given='023A00E7C2EF04EE5B0F767BA73EE3970176235',            # too short
             expected=FieldValueError,
         )
         yield case(
-            given=u'',
+            given='',
             expected=FieldValueError,
         )
         yield case(
-            given=u'023a00e7c2ef04zz5b0f767ba73ee39701762354',   # illegal chars
+            given='023a00e7c2ef04zz5b0f767ba73ee39701762354',           # illegal chars
             expected=FieldValueError,
         )
         yield case(
@@ -712,8 +1100,102 @@ class TestSHA1Field(FieldTestMixin, unittest.TestCase):
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='024a00e7c2ef04ee5b0f767ba73ee39701762354',
+            expected='024a00e7c2ef04ee5b0f767ba73ee39701762354',
+        )
+        yield case(
+            given=b'024a00e7c2ef04ee5b0f767ba73ee39701762354',
+            expected='024a00e7c2ef04ee5b0f767ba73ee39701762354',
+        )
+        yield case(
+            given=bytearray(b'024a00e7c2ef04ee5b0f767ba73ee39701762354'),
+            expected='024a00e7c2ef04ee5b0f767ba73ee39701762354',
+        )
+        yield case(
+            given='026A00E7C2EF04EE5B0F767BA73EE39701762354',
+            expected='026a00e7c2ef04ee5b0f767ba73ee39701762354',
+        )
+        yield case(
+            given=b'026A00E7C2EF04EE5B0F767BA73EE39701762354',
+            expected='026a00e7c2ef04ee5b0f767ba73ee39701762354',
+        )
+        yield case(
+            given=bytearray(b'026A00E7C2EF04EE5B0F767BA73EE39701762354'),
+            expected='026a00e7c2ef04ee5b0f767ba73ee39701762354',
+        )
+        yield case(
+            given='023A00E7C2EF04ee5B0F767BA73EE39701762354',
+            expected='023a00e7c2ef04ee5b0f767ba73ee39701762354',
+        )
+        yield case(
+            given=b'023A00E7C2EF04ee5B0F767BA73EE39701762354',
+            expected='023a00e7c2ef04ee5b0f767ba73ee39701762354',
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04ee5B0F767BA73EE39701762354'),
+            expected='023a00e7c2ef04ee5b0f767ba73ee39701762354',
+        )
+        yield case(
+            given='023A00E7C2EF04EE5B0F767BA73EE39701762354' + '1',     # too long
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'023A00E7C2EF04EE5B0F767BA73EE39701762354' + b'1',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04EE5B0F767BA73EE39701762354' + b'1'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='023A00E7C2EF04EE5B0F767BA73EE3970176235',             # too short
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'023A00E7C2EF04EE5B0F767BA73EE3970176235',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'023A00E7C2EF04EE5B0F767BA73EE3970176235'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='023a00e7c2ef04zz5b0f767ba73ee39701762354',    # illegal chars
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'023a00e7c2ef04zz5b0f767ba73ee39701762354',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'023a00e7c2ef04zz5b0f767ba73ee39701762354'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=40 * ' ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=40 * b' ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(40 * b' '),
+            expected=FieldValueError,
+        )
         yield case(
             given=123,
             expected=TypeError,
@@ -731,34 +1213,33 @@ class TestSHA256Field(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             given='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-            expected=u'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
         )
         yield case(
-            given='9F86D081884C7D659A2feaa0c55ad015A3BF4F1B2B0B822CD15D6C15B0F00A08',
-            expected=u'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+            given='9f86D081884c7d659a2FEAA0C55AD015A3BF4F1B2B0B822cd15d6c15b0F00a08',
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
         )
         yield case(
-            given=u'9f86d081884c7d659a2FEAA0c55AD015A3bf4f1b2b0b822cd15d6c15b0f00a08',
-            expected=u'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+            given='9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08',
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
         )
         yield case(
-            given=u'9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08',
-            expected=u'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-        )
-        yield case(
-            given=u'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' + '1',  # too long
+            # too long
+            given='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' + '12',
             expected=FieldValueError,
         )
         yield case(
-            given='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6',         # too short
+            # too short
+            given='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a',
             expected=FieldValueError,
         )
         yield case(
-            given=u'',
+            given='',
             expected=FieldValueError,
         )
         yield case(
-            given=u'9f86d081884c7d659a2zzzz0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',   # illegal chars
+            # illegal chars
+            given='9f86d081884c7d659a2zzzz0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
             expected=FieldValueError,
         )
         yield case(
@@ -767,8 +1248,106 @@ class TestSHA256Field(FieldTestMixin, unittest.TestCase):
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given=b'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given=bytearray(b'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'),
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given='9f86D081884c7d659a2FEAA0C55AD015A3BF4F1B2B0B822cd15d6c15b0F00a08',
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given=b'9f86D081884c7d659a2FEAA0C55AD015A3BF4F1B2B0B822cd15d6c15b0F00a08',
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given=bytearray(b'9f86D081884c7d659a2FEAA0C55AD015A3BF4F1B2B0B822cd15d6c15b0F00a08'),
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given='9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08',
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given=b'9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08',
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        yield case(
+            given=bytearray(b'9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08'),
+            expected='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+        )
+        # too long
+        yield case(
+            given='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' + '12',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' + b'12',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'
+                            + b'12'),
+            expected=FieldValueError,
+        )
+        # too short
+        yield case(
+            given='9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        # illegal chars
+        yield case(
+            given='9f86d081884c7d659a2zzzz0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'9f86d081884c7d659a2\xc5\xbczzz0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'9f86d081884c7d659a2zzzz0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=64 * ' ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=64 * b' ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(64 * b' '),
+            expected=FieldValueError,
+        )
         yield case(
             given=123,
             expected=TypeError,
@@ -783,116 +1362,249 @@ class TestSHA256Field(FieldTestMixin, unittest.TestCase):
 class TestUnicodeEnumField(FieldTestMixin, unittest.TestCase):
 
     CLASS = UnicodeEnumField
-    INIT_KWARGS_BASE = {'enum_values': ['ABC', u'123', 'en um']}
+    INIT_KWARGS_BASE = {'enum_values': [b'ABC', '123', bytearray(b'en um')]}
 
     def cases__clean_param_value(self):
         yield case(
-            given=u'ABC',
-            expected=u'ABC',
+            given='ABC',
+            expected='ABC',
         )
         yield case(
             given='123',
-            expected=u'123',
+            expected='123',
         )
         yield case(
-            given=u'en um',
-            expected=u'en um',
+            given='en um',
+            expected='en um',
         )
         yield case(
             given='NOT in enum',
             expected=FieldValueError,
         )
         yield case(
-            given=u'NOT in enum',
-            expected=FieldValueError,
-        )
-        yield case(
-            init_kwargs={'enum_values': ['ąść', '123', 'enum']},
-            given=u'ąść',
-            expected=u'ąść',
-        )
-        yield case(
-            init_kwargs={'enum_values': [u'ąść', '123', 'enum']},
-            given=u'ąść',
-            expected=u'ąść',
-        )
-        yield case(
-            init_kwargs={'enum_values': ['ąść', '123', 'enum']},
+            init_kwargs={'enum_values': ['ąść'.encode('utf-8'), b'123', 'enum']},
             given='ąść',
-            expected=u'ąść',
+            expected='ąść',
         )
         yield case(
-            init_kwargs={'enum_values': [u'ąść', '123', 'enum']},
+            init_kwargs={'enum_values': [bytearray('ąść'.encode('utf-8')), b'123', 'enum']},
             given='ąść',
-            expected=u'ąść',
-        )
-        # (note: `enum_values` items being str are always decoded using UTF-8)
-        yield case(
-            init_kwargs={'enum_values': ['ąść', '123', 'enum'],
-                         'encoding': 'iso-8859-2'},
-            given=u'ąść',
-            expected=u'ąść',
+            expected='ąść',
         )
         yield case(
-            init_kwargs={'enum_values': [u'ąść', '123', 'enum'],
-                         'encoding': 'iso-8859-2'},
-            given=u'ąść',
-            expected=u'ąść',
+            init_kwargs={'enum_values': ['ąść', b'123', 'enum']},
+            given='ąść',
+            expected='ąść',
         )
+        # (note: `enum_values` items being bytes/bytearray are always decoded using UTF-8)
         yield case(
-            init_kwargs={'enum_values': ['ąść', '123', 'enum'],
+            init_kwargs={'enum_values': ['ąść'.encode('utf-8'), b'123', 'enum'],
                          'encoding': 'iso-8859-2'},
             given='ąść',
-            expected=FieldValueError,
+            expected='ąść',
         )
         yield case(
-            init_kwargs={'enum_values': [u'ąść', '123', 'enum'],
+            init_kwargs={'enum_values': [bytearray('ąść'.encode('utf-8')), b'123', 'enum'],
                          'encoding': 'iso-8859-2'},
             given='ąść',
-            expected=FieldValueError,
+            expected='ąść',
         )
         yield case(
-            init_kwargs={'enum_values': ['ąść', '123', 'enum'],
+            init_kwargs={'enum_values': ['ąść', b'123', 'enum'],
                          'encoding': 'iso-8859-2'},
-            given=u'ąść'.encode('iso-8859-2'),
-            expected=u'ąść',
+            given='ąść',
+            expected='ąść',
         )
         yield case(
-            init_kwargs={'enum_values': [u'ąść', '123', 'enum'],
-                         'encoding': 'iso-8859-2'},
-            given=u'ąść'.encode('iso-8859-2'),
-            expected=u'ąść',
-        )
-        yield case(
-            init_kwargs={'enum_values': [u'\x0c\r\x0e', '123', 'enum']},
-            given=u'\x0c\r\x0e',
-            expected=u'\x0c\r\x0e',
-        )
-        yield case(
-            init_kwargs={'enum_values': [u'\x0c\r\x0e', '123', 'enum']},
+            init_kwargs={'enum_values': ['\x0c\r\x0e', b'123', 'enum']},
             given='\x0c\r\x0e',
-            expected=u'\x0c\r\x0e',
+            expected='\x0c\r\x0e',
         )
         yield case(
-            init_kwargs={'enum_values': [u'\udcdd', '123', 'enum']},
-            given=u'\udcdd',
-            expected=u'\udcdd',
-        )
-        yield case(
-            init_kwargs={'enum_values': [u'\udcdd', '123', 'enum']},
-            given='\xdd',
-            expected=FieldValueError,
-        )
-        yield case(
-            init_kwargs={'enum_values': [u'\udcdd', '123', 'enum'],
-                         'decode_error_handling': 'surrogateescape'},
-            given='\xdd',
-            expected=u'\udcdd',
+            init_kwargs={'enum_values': ['\udcdd', b'123', 'enum']},
+            given='\udcdd',
+            expected='\udcdd',
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='ABC',
+            expected='ABC',
+        )
+        yield case(
+            given=b'123',
+            expected='123',
+        )
+        yield case(
+            given=bytearray(b'en um'),
+            expected='en um',
+        )
+        yield case(
+            given='NOT in enum',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'NOT in enum',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'NOT in enum'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść'.encode('utf-8'), '123', 'enum']},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': [bytearray('ąść'.encode('utf-8')), '123', 'enum']},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść', '123', 'enum']},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść'.encode('utf-8'), '123', 'enum']},
+            given='ąść'.encode('utf-8'),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': [bytearray('ąść'.encode('utf-8')), '123', 'enum']},
+            given='ąść'.encode('utf-8'),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść', '123', 'enum']},
+            given='ąść'.encode('utf-8'),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść'.encode('utf-8'), '123', 'enum']},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': [bytearray('ąść'.encode('utf-8')), '123', 'enum']},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść', '123', 'enum']},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected='ąść',
+        )
+        # (note: `enum_values` items being bytes/bytearray are always decoded using UTF-8)
+        yield case(
+            init_kwargs={'enum_values': ['ąść'.encode('utf-8'), '123', 'enum'],
+                         'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': [bytearray('ąść'.encode('utf-8')), '123', 'enum'],
+                         'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść', '123', 'enum'],
+                         'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść'.encode('utf-8'), '123', 'enum'],
+                         'encoding': 'iso-8859-2'},
+            given='ąść'.encode('utf-8'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'enum_values': [bytearray('ąść'.encode('utf-8')), '123', 'enum'],
+                         'encoding': 'iso-8859-2'},
+            given='ąść'.encode('utf-8'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść', '123', 'enum'],
+                         'encoding': 'iso-8859-2'},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść'.encode('utf-8'), '123', 'enum'],
+                         'encoding': 'iso-8859-2'},
+            given=bytearray('ąść'.encode('iso-8859-2')),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': [bytearray('ąść'.encode('utf-8')), '123', 'enum'],
+                         'encoding': 'iso-8859-2'},
+            given='ąść'.encode('iso-8859-2'),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['ąść', '123', 'enum'],
+                         'encoding': 'iso-8859-2'},
+            given='ąść'.encode('iso-8859-2'),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['\x0c\r\x0e', '123', 'enum']},
+            given='\x0c\r\x0e',
+            expected='\x0c\r\x0e',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['\x0c\r\x0e', '123', 'enum']},
+            given=b'\x0c\r\x0e',
+            expected='\x0c\r\x0e',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['\x0c\r\x0e', '123', 'enum']},
+            given=bytearray(b'\x0c\r\x0e'),
+            expected='\x0c\r\x0e',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['\udcdd', '123', 'enum']},
+            given='\udcdd',
+            expected='\udcdd',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['\udcdd', '123', 'enum']},
+            given=b'\xdd',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'enum_values': ['\udcdd', '123', 'enum']},
+            given=bytearray(b'\xdd'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'enum_values': ['\udcdd', '123', 'enum'],
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xdd',
+            expected='\udcdd',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['\udcdd', '123', 'enum'],
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xdd'),
+            expected='\udcdd',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['\udcdd', '123', 'enum'],
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xdd',
+            expected='\udcdd',
+        )
+        yield case(
+            init_kwargs={'enum_values': ['\udcdd', '123', 'enum'],
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xdd'),
+            expected='\udcdd',
+        )
         yield case(
             init_kwargs={'enum_values': ['123']},
             given=123,
@@ -913,58 +1625,101 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             init_kwargs={'max_length': 3},
-            given=u'abc',
-            expected=u'abc',
-        )
-        yield case(
-            init_kwargs={'max_length': 3},
             given='abc',
-            expected=u'abc',
+            expected='abc',
         )
         yield case(
-            init_kwargs={'max_length': 3000},
-            given=u'*^&'*1000,
-            expected=u'*^&'*1000,
+            init_kwargs={'max_length': 2},
+            given='abc',
+            expected=FieldValueTooLongError,
         )
         yield case(
             init_kwargs={'max_length': 3000},
             given='*^&'*1000,
-            expected=u'*^&'*1000,
+            expected='*^&'*1000,
         )
         yield case(
-            init_kwargs={'max_length': 3},
-            given=u'',
-            expected=u'',
+            init_kwargs={'max_length': 3000},
+            given='*^&'*1000 + '*',
+            expected=FieldValueTooLongError,
         )
         yield case(
             init_kwargs={'max_length': 3},
             given='',
-            expected=u'',
-        )
-        yield case(
-            init_kwargs={'max_length': 3, 'disallow_empty': False},
-            given=u'',
-            expected=u'',
+            expected='',
         )
         yield case(
             init_kwargs={'max_length': 3, 'disallow_empty': False},
             given='',
-            expected=u'',
-        )
-        yield case(
-            init_kwargs={'max_length': 3, 'disallow_empty': True},
-            given=u'',
-            expected=FieldValueError,
+            expected='',
         )
         yield case(
             init_kwargs={'max_length': 3, 'disallow_empty': True},
             given='',
             expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 4},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given='ąść',
+            expected='ąść',
         )
         yield case(
             init_kwargs={'max_length': 2},
-            given=u'abc',
+            given='ąść',
             expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given='\x0c\r\x0e',
+            expected='\x0c\r\x0e',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given='\x0c\r\x0e',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given='\udcdd \udcee',
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given='\udcdd \udcee',
+            expected=FieldValueTooLongError,
+        )
+        # (`encoding` is irrelevant to `str` input)
+        yield case(
+            init_kwargs={'max_length': 3, 'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_length': 2, 'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected=FieldValueTooLongError,
+        )
+
+    def cases__clean_result_value(self):
+        yield case(
+            init_kwargs={'max_length': 3},
+            given='abc',
+            expected='abc',
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given=b'abc',
+            expected='abc',
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given=bytearray(b'abc'),
+            expected='abc',
         )
         yield case(
             init_kwargs={'max_length': 2},
@@ -972,98 +1727,285 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueTooLongError,
         )
         yield case(
-            init_kwargs={'max_length': 6},
-            given=u'ąść',
-            expected=u'ąść',
-        )
-        yield case(
-            init_kwargs={'max_length': 6},
-            given='ąść',
-            expected=u'ąść',
-        )
-        yield case(
-            init_kwargs={'max_length': 5, 'checking_bytes_length': True},
-            given=u'ąść',
+            init_kwargs={'max_length': 2},
+            given=b'abc',
             expected=FieldValueTooLongError,
         )
         yield case(
-            init_kwargs={'max_length': 5, 'checking_bytes_length': True},
-            given='ąść',
+            init_kwargs={'max_length': 2},
+            given=bytearray(b'abc'),
             expected=FieldValueTooLongError,
         )
         yield case(
-            init_kwargs={'max_length': 3, 'checking_bytes_length': False},
-            given=u'ąść',
-            expected=u'ąść',
+            init_kwargs={'max_length': 3000},
+            given='*^&'*1000,
+            expected='*^&'*1000,
         )
         yield case(
-            init_kwargs={'max_length': 3, 'checking_bytes_length': False},
-            given='ąść',
-            expected=u'ąść',
+            init_kwargs={'max_length': 3000},
+            given=b'*^&'*1000,
+            expected='*^&'*1000,
         )
         yield case(
-            init_kwargs={'max_length': 3, 'encoding': 'iso-8859-2'},
-            given=u'ąść',
-            expected=u'ąść',
+            init_kwargs={'max_length': 3000},
+            given=bytearray(b'*^&'*1000),
+            expected='*^&'*1000,
         )
         yield case(
-            init_kwargs={'max_length': 4},
-            given=u'too long',
+            init_kwargs={'max_length': 3000},
+            given='*^&'*1000 + '*',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3000},
+            given=b'*^&'*1000 + b'*',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3000},
+            given=bytearray(b'*^&'*1000 + b'*'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given=b'',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given=bytearray(b''),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_length': 3, 'disallow_empty': False},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_length': 3, 'disallow_empty': False},
+            given=b'',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_length': 3, 'disallow_empty': False},
+            given=bytearray(b''),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_length': 3, 'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3, 'disallow_empty': True},
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3, 'disallow_empty': True},
+            given=bytearray(b''),
             expected=FieldValueError,
         )
         yield case(
             init_kwargs={'max_length': 3},
-            given=''.join(map(chr, range(12, 15))),  # \x0c\r\x0e
-            expected=u'\x0c\r\x0e',
+            given='\x0c\r\x0e',
+            expected='\x0c\r\x0e',
         )
-        s = '\xdd \xee'
-        u = u'\udcdd \udcee'
         yield case(
-            init_kwargs={'max_length': 7},
+            init_kwargs={'max_length': 3},
+            given=b'\x0c\r\x0e',
+            expected='\x0c\r\x0e',
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given=bytearray(b'\x0c\r\x0e'),
+            expected='\x0c\r\x0e',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given='\x0c\r\x0e',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=b'\x0c\r\x0e',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=bytearray(b'\x0c\r\x0e'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 4},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_length': 4},
+            given='ąść'.encode('utf-8'),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_length': 4},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given='ąść'.encode('utf-8'),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given='ąść',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given='ąść'.encode('utf-8'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected=FieldValueTooLongError,
+        )
+        # `encoding` is irrelevant to `str` input...
+        yield case(
+            init_kwargs={'max_length': 2, 'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3, 'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected='ąść',
+        )
+        # ...but it *is relevant* to binary input
+        yield case(
+            init_kwargs={'max_length': 2, 'encoding': 'iso-8859-2'},
+            given='ąść'.encode('utf-8'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3, 'encoding': 'iso-8859-2'},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 4, 'encoding': 'iso-8859-2'},
+            given='ąść'.encode('utf-8'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 5, 'encoding': 'iso-8859-2'},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 6, 'encoding': 'iso-8859-2'},
+            given='ąść'.encode('utf-8'),
+            expected='\xc4\x85\u0139\x9b\xc4\x87',
+        )
+        b = b'\xdd \xee'
+        ba = bytearray(b)
+        s = '\udcdd \udcee'
+        # `decode_error_handling` is irrelevant to `str` input...
+        yield case(
+            init_kwargs={'max_length': 3},
             given=s,
+            expected=s,
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=s,
+            expected=FieldValueTooLongError,
+        )
+        # ...but it *is relevant* to binary input
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=b,
             expected=FieldValueError,
         )
         yield case(
-            init_kwargs={'max_length': 7,
+            init_kwargs={'max_length': 2},
+            given=ba,
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
                          'decode_error_handling': 'surrogateescape'},
-            given=s,
-            expected=u,
-        )
-        yield case(
-            init_kwargs={'max_length': 7},
-            given=u,
-            expected=u,
-        )
-        yield case(
-            init_kwargs={'max_length': 6,
-                         'decode_error_handling': 'surrogateescape',
-                         'checking_bytes_length': True},
-            given=s,
+            given=b,
             expected=FieldValueTooLongError,
         )
         yield case(
-            init_kwargs={'max_length': 6,
-                         'checking_bytes_length': True},
-            given=u,
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'surrogateescape'},
+            given=ba,
             expected=FieldValueTooLongError,
         )
         yield case(
-            init_kwargs={'max_length': 6,
-                         'decode_error_handling': 'surrogateescape',
-                         'checking_bytes_length': False},
-            given=s,
-            expected=u,
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b,
+            expected=FieldValueTooLongError,
         )
         yield case(
-            init_kwargs={'max_length': 6,
-                         'checking_bytes_length': False},
-            given=u,
-            expected=u,
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=ba,
+            expected=FieldValueTooLongError,
         )
-
-    def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            init_kwargs={'max_length': 3},
+            given=b,
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3},
+            given=ba,
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b,
+            expected=s,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'decode_error_handling': 'surrogateescape'},
+            given=ba,
+            expected=s,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b,
+            expected=s,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=ba,
+            expected=s,
+        )
         yield case(
             init_kwargs={'max_length': 6},
             given=123,
@@ -1089,45 +2031,30 @@ class TestUnicodeRegexField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             init_kwargs={'regex': r'ab{3}c',
-                         'error_msg_template': u'"{}" is not a valid value'},
+                         'error_msg_template': '"{}" is not a valid value'},
             given='abbbc',
-            expected=u'abbbc',
+            expected='abbbc',
         )
         yield case(
             init_kwargs={'regex': r'axc',
-                         'error_msg_template': u'"{}" is not a valid value'},
-            given=u'abbbc',
+                         'error_msg_template': '"{}" is not a valid value'},
+            given='abbbc',
             expected=FieldValueError,
         )
         yield case(
             init_kwargs={'regex': r'ab{3}c'},
-            given=u'abbbc',
-            expected=u'abbbc',
-        )
-        yield case(
-            init_kwargs={'regex': r'(foo)?'},
-            given=u'',
-            expected=u'',
+            given='abbbc',
+            expected='abbbc',
         )
         yield case(
             init_kwargs={'regex': r'(foo)?'},
             given='',
-            expected=u'',
-        )
-        yield case(
-            init_kwargs={'regex': r'(foo)?', 'disallow_empty': False},
-            given=u'',
-            expected=u'',
+            expected='',
         )
         yield case(
             init_kwargs={'regex': r'(foo)?', 'disallow_empty': False},
             given='',
-            expected=u'',
-        )
-        yield case(
-            init_kwargs={'regex': r'(foo)?', 'disallow_empty': True},
-            given=u'',
-            expected=FieldValueError,
+            expected='',
         )
         yield case(
             init_kwargs={'regex': r'(foo)?', 'disallow_empty': True},
@@ -1136,8 +2063,117 @@ class TestUnicodeRegexField(FieldTestMixin, unittest.TestCase):
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            init_kwargs={'regex': r'axc'},
+            given='abbbc',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'axc'},
+            given=b'abbbc',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'axc'},
+            given=bytearray(b'abbbc'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'ab{3}c',
+                         'error_msg_template': '"{}" is not a valid value'},
+            given='abbbc',
+            expected='abbbc',
+        )
+        yield case(
+            init_kwargs={'regex': r'ab{3}c',
+                         'error_msg_template': '"{}" is not a valid value'},
+            given=b'abbbc',
+            expected='abbbc',
+        )
+        yield case(
+            init_kwargs={'regex': r'ab{3}c',
+                         'error_msg_template': '"{}" is not a valid value'},
+            given=bytearray(b'abbbc'),
+            expected='abbbc',
+        )
+        yield case(
+            init_kwargs={'regex': r'axc',
+                         'error_msg_template': '"{}" is not a valid value'},
+            given='abbbc',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'axc',
+                         'error_msg_template': '"{}" is not a valid value'},
+            given=b'abbbc',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'axc',
+                         'error_msg_template': '"{}" is not a valid value'},
+            given=bytearray(b'abbbc'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'ab{3}c'},
+            given='abbbc',
+            expected='abbbc',
+        )
+        yield case(
+            init_kwargs={'regex': r'ab{3}c'},
+            given=b'abbbc',
+            expected='abbbc',
+        )
+        yield case(
+            init_kwargs={'regex': r'ab{3}c'},
+            given=bytearray(b'abbbc'),
+            expected='abbbc',
+        )
+        yield case(
+            init_kwargs={'regex': r'(foo)?'},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'(foo)?'},
+            given=b'',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'(foo)?'},
+            given=bytearray(b''),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'(foo)?', 'disallow_empty': False},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'(foo)?', 'disallow_empty': False},
+            given=b'',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'(foo)?', 'disallow_empty': False},
+            given=bytearray(b''),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'(foo)?', 'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'(foo)?', 'disallow_empty': True},
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'(foo)?', 'disallow_empty': True},
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
         yield case(
             init_kwargs={'regex': r'123'},
             given=123,
@@ -1156,23 +2192,23 @@ class TestSourceField(FieldTestMixin, unittest.TestCase):
 
     def cases__clean_param_value(self):
         yield case(
-            given=u'foo-foo.bar',
-            expected=u'foo-foo.bar',
+            given='foo-foo.bar',
+            expected='foo-foo.bar',
         )
         yield case(
             given='-spam.ha--m--',
-            expected=u'-spam.ha--m--',
+            expected='-spam.ha--m--',
         )
         yield case(
-            given=u'x.' + 30 * 'y',
-            expected=u'x.' + 30 * 'y',
+            given='x.' + 30 * 'y',
+            expected='x.' + 30 * 'y',
         )
         yield case(
             given='x.y',
-            expected=u'x.y',
+            expected='x.y',
         )
         yield case(
-            given=u'foo-foo',          # no dot
+            given='foo-foo',          # no dot
             expected=FieldValueError,
         )
         yield case(
@@ -1180,7 +2216,7 @@ class TestSourceField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'Foo-FOO.bar',      # illegal characters (here: uppercase letters)
+            given='Foo-FOO.bar',      # illegal characters (here: uppercase letters)
             expected=FieldValueError,
         )
         yield case(
@@ -1188,7 +2224,7 @@ class TestSourceField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'foo-foo.',         # no characters after the dot
+            given='foo-foo.',         # no characters after the dot
             expected=FieldValueError,
         )
         yield case(
@@ -1196,7 +2232,7 @@ class TestSourceField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'.',                # lone dot
+            given='.',                # lone dot
             expected=FieldValueError,
         )
         yield case(
@@ -1204,13 +2240,67 @@ class TestSourceField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueTooLongError,
         )
         yield case(
-            given=u'',                 # empty
+            given='',                 # empty
             expected=FieldValueError,
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='foo-foo.bar',
+            expected='foo-foo.bar',
+        )
+        yield case(
+            given=b'-spam.ha--m--',
+            expected='-spam.ha--m--',
+        )
+        yield case(
+            given='x.' + 30 * 'y',
+            expected='x.' + 30 * 'y',
+        )
+        yield case(
+            given=bytearray(b'x.y'),
+            expected='x.y',
+        )
+        yield case(
+            given='foo-foo',           # no dot
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'foo-foo.bar.spam',  # more than one dot
+            expected=FieldValueError,
+        )
+        yield case(
+            given='Foo-FOO.bar',       # illegal characters (here: uppercase letters)
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'foo_foo.bar',       # illegal character (here: underscore)
+            expected=FieldValueError,
+        )
+        yield case(
+            given='foo-foo.',          # no characters after the dot
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'.bar'),   # no characters before the dot
+            expected=FieldValueError,
+        )
+        yield case(
+            given='.',                 # lone dot
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'x.' + 31 * b'y',   # too long
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            given='',                  # empty
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
         yield case(
             given=123,
             expected=TypeError,
@@ -1228,18 +2318,26 @@ class TestIPv4Field(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             given='123.45.67.8',
-            expected=u'123.45.67.8',
+            expected='123.45.67.8',
         )
         yield case(
-            given=u'0.0.0.0',
-            expected=u'0.0.0.0',
+            given='0.0.0.0',
+            expected='0.0.0.0',
         )
         yield case(
             given='255.255.255.255',
-            expected=u'255.255.255.255',
+            expected='255.255.255.255',
         )
         yield case(
-            given=u' 255.255.255.255',
+            given='123.45.67.08',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='123.045.67.8',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=' 255.255.255.255',
             expected=FieldValueError
         )
         yield case(
@@ -1247,7 +2345,7 @@ class TestIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'256.256.256.256',
+            given='256.256.256.256',
             expected=FieldValueError
         )
         yield case(
@@ -1255,7 +2353,7 @@ class TestIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'23.456.111.123',
+            given='23.456.111.123',
             expected=FieldValueError
         )
         yield case(
@@ -1268,18 +2366,22 @@ class TestIPv4Field(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given='1.44.22.44',
-            expected=u'1.44.22.44',
+            expected='1.44.22.44',
         )
         yield case(
-            given=u'1.1.22.44',
-            expected=u'1.1.22.44',
+            given='1.1.22.44',
+            expected='1.1.22.44',
         )
         yield case(
             given='2.34.22.44',
-            expected=u'2.34.22.44',
+            expected='2.34.22.44',
         )
         yield case(
-            given=u'2.3U.22.44',
+            given='2.3U.22.44',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='123',
             expected=FieldValueError,
         )
         yield case(
@@ -1287,7 +2389,7 @@ class TestIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'192.168.56.1/20',
+            given='192.168.56.1/20',
             expected=FieldValueError,
         )
         yield case(
@@ -1295,13 +2397,115 @@ class TestIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'192 .168.56.1',
+            given='192 .168.56.1',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
             expected=FieldValueError,
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given=b'123.45.67.8',
+            expected='123.45.67.8',
+        )
+        yield case(
+            given='0.0.0.0',
+            expected='0.0.0.0',
+        )
+        yield case(
+            given=bytearray(b'255.255.255.255'),
+            expected='255.255.255.255',
+        )
+        yield case(
+            given='123.045.67.8',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'0123.45.67.8',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='123.45.67.08',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'0.0.00.0'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=' 255.255.255.255',
+            expected=FieldValueError
+        )
+        yield case(
+            given=b'255.255.255.255 ',
+            expected=FieldValueError
+        )
+        yield case(
+            given='256.256.256.256',
+            expected=FieldValueError
+        )
+        yield case(
+            given=bytearray(b'1.2.3.256'),
+            expected=FieldValueError
+        )
+        yield case(
+            given='23.456.111.123',
+            expected=FieldValueError
+        )
+        yield case(
+            given=b'123.123.111.12.',
+            expected=FieldValueError
+        )
+        yield case(
+            given=bytearray(b'1.2.3.ff'),
+            expected=FieldValueError
+        )
+        yield case(
+            given=b'1.44.22.44',
+            expected='1.44.22.44',
+        )
+        yield case(
+            given='1.1.22.44',
+            expected='1.1.22.44',
+        )
+        yield case(
+            given='2.34.22.44',
+            expected='2.34.22.44',
+        )
+        yield case(
+            given='2.3U.22.44',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='123',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='1234',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='192.168.56.1/20',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'192.168.56. 1'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='192 .168.56.1',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
+            expected=FieldValueError,
+        )
         yield case(
             given=123,
             expected=TypeError,
@@ -1318,67 +2522,71 @@ class TestIPv6Field(FieldTestMixin, unittest.TestCase):
 
     def cases__clean_param_value(self):
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',
-            expected=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+            expected='2001:0db8:85a3:0000:0000:8a2e:0370:7334',
         )
         yield case(
             given='2001:0db8:85a3:0000:0000:8a2e:0370:7334',
-            expected=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+            expected='2001:0db8:85a3:0000:0000:8a2e:0370:7334',
         )
         yield case(
-            given=u'2001:db8:85a3:0:0:8a2e:370:7334',
-            expected=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+            given='2001:db8:85a3:0:0:8a2e:370:7334',
+            expected='2001:0db8:85a3:0000:0000:8a2e:0370:7334',
         )
         yield case(
             given='2001:0DB8:85A3:0000:0000:8A2E:0370:7334',
-            expected=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+            expected='2001:0db8:85a3:0000:0000:8a2e:0370:7334',
         )
         yield case(
-            given=u'2001:0db8:85a3::8a2e:370:7334',
-            expected=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+            given='2001:0db8:85a3::8a2e:370:7334',
+            expected='2001:0db8:85a3:0000:0000:8a2e:0370:7334',
         )
         yield case(
-            given=u'2001:0Db8:85A3::8a2e:370:7334',
-            expected=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+            given='2001:0Db8:85A3::8a2e:370:7334',
+            expected='2001:0db8:85a3:0000:0000:8a2e:0370:7334',
         )
         yield case(
             given='0000:0000:0000:0000:0000:0000:0000:0000',
-            expected=u'0000:0000:0000:0000:0000:0000:0000:0000',
+            expected='0000:0000:0000:0000:0000:0000:0000:0000',
         )
         yield case(
-            given=u'::',
-            expected=u'0000:0000:0000:0000:0000:0000:0000:0000',
+            given='::',
+            expected='0000:0000:0000:0000:0000:0000:0000:0000',
         )
         yield case(
             given='::7f7f:7f7f',
-            expected=u'0000:0000:0000:0000:0000:0000:7f7f:7f7f',
+            expected='0000:0000:0000:0000:0000:0000:7f7f:7f7f',
         )
         yield case(
-            given=u'::127.127.127.127',
-            expected=u'0000:0000:0000:0000:0000:0000:7f7f:7f7f',
+            given='::127.127.127.127',
+            expected='0000:0000:0000:0000:0000:0000:7f7f:7f7f',
         )
         yield case(
             given='0000:0000:0000:0000:0000:0000:127.127.127.127',
-            expected=u'0000:0000:0000:0000:0000:0000:7f7f:7f7f',
+            expected='0000:0000:0000:0000:0000:0000:7f7f:7f7f',
         )
         yield case(
-            given=u'0000:0000:0000:0000:0000:0000:7f7f:7f7f',
-            expected=u'0000:0000:0000:0000:0000:0000:7f7f:7f7f',
+            given='0000:0000:0000:0000:0000:0000:7f7f:7f7f',
+            expected='0000:0000:0000:0000:0000:0000:7f7f:7f7f',
         )
         yield case(
             given='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
-            expected=u'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+            expected='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
         )
         yield case(
-            given=u'FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF',
-            expected=u'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+            given='FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF',
+            expected='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:ffff:0000:8a2e:0370:7334',
+            given='FFFF:FFFF:FFFF:0FFFF:FFFF:FFFF:FFFF:FFFF',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='2001:0db8:85a3:0000:ffff:0000:8a2e:0370:7334',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:8a2e:0370:7334',
+            given='2001:0db8:85a3:0000:8a2e:0370:7334',
             expected=FieldValueError
         )
         yield case(
@@ -1386,7 +2594,7 @@ class TestIPv6Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334 ',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334 ',
             expected=FieldValueError
         )
         yield case(
@@ -1394,7 +2602,7 @@ class TestIPv6Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:db8:85a3::8a2e:370:7334 ',
+            given='2001:db8:85a3::8a2e:370:7334 ',
             expected=FieldValueError
         )
         yield case(
@@ -1402,7 +2610,7 @@ class TestIPv6Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:73345',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:73345',
             expected=FieldValueError
         )
         yield case(
@@ -1410,7 +2618,7 @@ class TestIPv6Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334:',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334:',
             expected=FieldValueError
         )
         yield case(
@@ -1418,7 +2626,7 @@ class TestIPv6Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:::8a2e:0370:7334:',
+            given='2001:0db8:85a3:::8a2e:0370:7334:',
             expected=FieldValueError
         )
         yield case(
@@ -1426,8 +2634,20 @@ class TestIPv6Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'::127.127.127.127.',
+            given='::127.127.127.127.',
             expected=FieldValueError
+        )
+        yield case(
+            given='::127.127.127.0127',
+            expected=FieldValueError
+        )
+        yield case(
+            given='::127.127.127.07',
+            expected=FieldValueError
+        )
+        yield case(
+            given='123',
+            expected=FieldValueError,
         )
         yield case(
             given='1234',
@@ -1461,114 +2681,134 @@ class TestIPv6Field(FieldTestMixin, unittest.TestCase):
     def cases__clean_result_value(self):
         yield case(
             given='2001:0db8:85a3:0000:0000:8a2e:0370:7334',
-            expected=u'2001:db8:85a3::8a2e:370:7334',
+            expected='2001:db8:85a3::8a2e:370:7334',
         )
         yield case(
-            given='2001:db8:85a3:0:0:8a2e:370:7334',
-            expected=u'2001:db8:85a3::8a2e:370:7334',
+            given=bytearray(b'2001:db8:85a3:0:0:8a2e:370:7334'),
+            expected='2001:db8:85a3::8a2e:370:7334',
         )
         yield case(
-            given='2001:0DB8:85A3:0000:0000:8A2E:0370:7334',
-            expected=u'2001:db8:85a3::8a2e:370:7334',
+            given=b'2001:0DB8:85A3:0000:0000:8A2E:0370:7334',
+            expected='2001:db8:85a3::8a2e:370:7334',
         )
         yield case(
-            given=u'2001:0db8:85a3::8a2e:370:7334',
-            expected=u'2001:db8:85a3::8a2e:370:7334',
+            given='2001:0db8:85a3::8a2e:370:7334',
+            expected='2001:db8:85a3::8a2e:370:7334',
         )
         yield case(
-            given=u'2001:0Db8:85A3::8a2e:370:7334',
-            expected=u'2001:db8:85a3::8a2e:370:7334',
+            given='2001:0Db8:85A3::8a2e:370:7334',
+            expected='2001:db8:85a3::8a2e:370:7334',
         )
         yield case(
-            given='0000:0000:0000:0000:0000:0000:0000:0000',
-            expected=u'::',
+            given=b'0000:0000:0000:0000:0000:0000:0000:0000',
+            expected='::',
         )
         yield case(
-            given=u'::',
-            expected=u'::',
+            given='::',
+            expected='::',
         )
         yield case(
-            given='::7f7f:7f7f',
-            expected=u'::7f7f:7f7f',
+            given=bytearray(b'::7f7f:7f7f'),
+            expected='::7f7f:7f7f',
         )
         yield case(
-            given=u'::127.127.127.127',
-            expected=u'::7f7f:7f7f',
+            given='::127.127.127.127',
+            expected='::7f7f:7f7f',
         )
         yield case(
-            given='0000:0000:0000:0000:0000:0000:127.127.127.127',
-            expected=u'::7f7f:7f7f',
+            given=b'0000:0000:0000:0000:0000:0000:127.127.127.127',
+            expected='::7f7f:7f7f',
         )
         yield case(
-            given=u'0000:0000:0000:0000:0000:0000:7f7f:7f7f',
-            expected=u'::7f7f:7f7f',
+            given='0000:0000:0000:0000:0000:0000:7f7f:7f7f',
+            expected='::7f7f:7f7f',
         )
         yield case(
-            given='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
-            expected=u'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+            given=bytearray(b'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'),
+            expected='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
         )
         yield case(
-            given=u'FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF',
-            expected=u'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
+            given='FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF',
+            expected='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff',
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:ffff:0000:8a2e:0370:7334',
+            given=b'FFFF:FFFF:FFFF:0FFFF:FFFF:FFFF:FFFF:FFFF',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='2001:0db8:85a3:0000:ffff:0000:8a2e:0370:7334',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:8a2e:0370:7334',
+            given=bytearray(b'2001:00db8:85a3:8a2e:0370:7334'),
             expected=FieldValueError
         )
         yield case(
-            given=' 2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+            given='2001:0db8:85a3:0000:8a2e:0370:7334',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334 ',
+            given=b' 2001:0db8:85a3:0000:0000:8a2e:0370:7334',
             expected=FieldValueError
         )
         yield case(
-            given=' 2001:db8:85a3::8a2e:370:7334',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334 ',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:db8:85a3::8a2e:370:7334 ',
+            given=bytearray(b' 2001:db8:85a3::8a2e:370:7334'),
             expected=FieldValueError
         )
         yield case(
-            given='gggg:gggg:gggg:gggg:gggg:gggg:gggg:gggg',
+            given='2001:db8:85a3::8a2e:370:7334 ',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:73345',
+            given=b'gggg:gggg:gggg:gggg:gggg:gggg:gggg:gggg',
             expected=FieldValueError
         )
         yield case(
-            given='2001:0db8:bb85a3:0000:0000:8a2e:0370:7334',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:73345',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334:',
+            given=bytearray(b'2001:0db8:bb85a3:0000:0000:8a2e:0370:7334'),
             expected=FieldValueError
         )
         yield case(
-            given='2001:0db8:85a3::0000:8a2e:0370:7334:',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334:',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:::8a2e:0370:7334:',
+            given=b'2001:0db8:85a3::0000:8a2e:0370:7334:',
             expected=FieldValueError
         )
         yield case(
-            given='2001:0db8::85a3:8a2e::7334:',
+            given='2001:0db8:85a3:::8a2e:0370:7334:',
             expected=FieldValueError
         )
         yield case(
-            given=u'::127.127.127.127.',
+            given=b'2001:0db8::85a3:8a2e::7334:',
             expected=FieldValueError
         )
         yield case(
-            given='1234',
+            given='::127.127.127.127.',
+            expected=FieldValueError
+        )
+        yield case(
+            given='::127.127.127.0127',
+            expected=FieldValueError
+        )
+        yield case(
+            given='::127.127.127.07',
+            expected=FieldValueError
+        )
+        yield case(
+            given='123',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'1234'),
             expected=FieldValueError,
         )
         yield case(
@@ -1576,15 +2816,15 @@ class TestIPv6Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given='2001:0db8:85a3:0000:0000:8a2e:0370: 7334',
+            given=bytearray(b'2001:0db8:85a3:0000:0000:8a2e:0370: 7334'),
             expected=FieldValueError,
         )
         yield case(
-            given='2001 :0db8:85a3:0000:0000:8a2e:0370:7334',
+            given=b'2001 :0db8:85a3:0000:0000:8a2e:0370:7334',
             expected=FieldValueError,
         )
         yield case(
-            given='2001:0db8:85a3: :8a2e:0370: 7334',
+            given=bytearray(b'2001:0db8:85a3: :8a2e:0370: 7334'),
             expected=FieldValueError,
         )
         yield case(
@@ -1593,6 +2833,10 @@ class TestIPv6Field(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
             expected=FieldValueError,
         )
         yield case(
@@ -1611,47 +2855,51 @@ class TestAnonymizedIPv4Field(FieldTestMixin, unittest.TestCase):
 
     def cases__clean_param_value(self):
         yield case(
-            given=u'x.234.5.67',
-            expected=u'x.234.5.67',
-        )
-        yield case(
             given='x.234.5.67',
-            expected=u'x.234.5.67',
-        )
-        yield case(
-            given=u'X.234.5.67',
-            expected=u'x.234.5.67',
+            expected='x.234.5.67',
         )
         yield case(
             given='X.234.5.67',
-            expected=u'x.234.5.67',
+            expected='x.234.5.67',
         )
         yield case(
-            given=u'x.x.0.1',
-            expected=u'x.x.0.1',
+            given='X.234.5.67',
+            expected='x.234.5.67',
+        )
+        yield case(
+            given='x.x.0.1',
+            expected='x.x.0.1',
         )
         yield case(
             given='x.0.x.1',
-            expected=u'x.0.x.1',
-        )
-        yield case(
-            given=u'X.0.X.1',
-            expected=u'x.0.x.1',
+            expected='x.0.x.1',
         )
         yield case(
             given='X.0.X.1',
-            expected=u'x.0.x.1',
+            expected='x.0.x.1',
         )
         yield case(
-            given=u'x.x.255.x',
-            expected=u'x.x.255.x',
+            given='X.0.X.1',
+            expected='x.0.x.1',
+        )
+        yield case(
+            given='x.x.255.x',
+            expected='x.x.255.x',
         )
         yield case(
             given='x.X.x.255',
-            expected=u'x.x.x.255',
+            expected='x.x.x.255',
         )
         yield case(
-            given=u'x.x.x.256',
+            given='x.00.x.1',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='X.0.X.01',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='x.x.x.256',
             expected=FieldValueError,
         )
         yield case(
@@ -1659,7 +2907,7 @@ class TestAnonymizedIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u' x.x.x.255',
+            given=' x.x.x.255',
             expected=FieldValueError,
         )
         yield case(
@@ -1667,7 +2915,7 @@ class TestAnonymizedIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'255.255.255.x',
+            given='255.255.255.x',
             expected=FieldValueError
         )
         yield case(
@@ -1675,7 +2923,7 @@ class TestAnonymizedIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'32.123.234.56',  # not anonymized
+            given='32.123.234.56',  # not anonymized
             expected=FieldValueError
         )
         yield case(
@@ -1683,7 +2931,7 @@ class TestAnonymizedIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'x.123.x.12.',    # extra dot
+            given='x.123.x.12.',    # extra dot
             expected=FieldValueError
         )
         yield case(
@@ -1691,23 +2939,23 @@ class TestAnonymizedIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=u'x.x.x.x',
-            expected=u'x.x.x.x'
+            given='x.x.x.x',
+            expected='x.x.x.x'
         )
         yield case(
             given='X.X.X.X',
-            expected=u'x.x.x.x'
+            expected='x.x.x.x'
         )
         yield case(
-            given=u'x.X.x.X',
-            expected=u'x.x.x.x'
+            given='x.X.x.X',
+            expected='x.x.x.x'
         )
         yield case(
             given='X.X.x.x',
-            expected=u'x.x.x.x'
+            expected='x.x.x.x'
         )
         yield case(
-            given=u'x.x.x.x.x',
+            given='x.x.x.x.x',
             expected=FieldValueError
         )
         yield case(
@@ -1715,7 +2963,7 @@ class TestAnonymizedIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'1.x.12.33',
+            given='1.x.12.33',
             expected=FieldValueError,
         )
         yield case(
@@ -1723,7 +2971,7 @@ class TestAnonymizedIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'\u0120.66.22.44',
+            given='\u0120.66.22.44',
             expected=FieldValueError,
         )
         yield case(
@@ -1731,7 +2979,7 @@ class TestAnonymizedIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'169090601',
+            given='169090601',
             expected=FieldValueError,
         )
         yield case(
@@ -1739,13 +2987,151 @@ class TestAnonymizedIPv4Field(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'y.45.67.8',
+            given='y.45.67.8',
             expected=FieldValueError,
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='x.234.5.67',
+            expected='x.234.5.67',
+        )
+        yield case(
+            given=b'x.234.5.67',
+            expected='x.234.5.67',
+        )
+        yield case(
+            given='X.234.5.67',
+            expected='x.234.5.67',
+        )
+        yield case(
+            given=bytearray(b'X.234.5.67'),
+            expected='x.234.5.67',
+        )
+        yield case(
+            given='x.x.0.1',
+            expected='x.x.0.1',
+        )
+        yield case(
+            given=b'x.0.x.1',
+            expected='x.0.x.1',
+        )
+        yield case(
+            given='X.0.X.1',
+            expected='x.0.x.1',
+        )
+        yield case(
+            given=bytearray(b'X.0.X.1'),
+            expected='x.0.x.1',
+        )
+        yield case(
+            given='x.x.255.x',
+            expected='x.x.255.x',
+        )
+        yield case(
+            given=b'x.X.x.255',
+            expected='x.x.x.255',
+        )
+        yield case(
+            given='x.00.x.1',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'x.0.x.01',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='x.x.x.256',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'x.x.x.-1'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=' x.x.x.255',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'x.x.x.255 ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='255.255.255.x',
+            expected=FieldValueError
+        )
+        yield case(
+            given=bytearray(b'1.2.x.x'),
+            expected=FieldValueError
+        )
+        yield case(
+            given='32.123.234.56',  # not anonymized
+            expected=FieldValueError
+        )
+        yield case(
+            given=b'x.456.111.123',
+            expected=FieldValueError
+        )
+        yield case(
+            given='x.123.x.12.',    # extra dot
+            expected=FieldValueError
+        )
+        yield case(
+            given=bytearray(b'x.x.x.ff'),
+            expected=FieldValueError
+        )
+        yield case(
+            given='x.x.x.x',
+            expected='x.x.x.x'
+        )
+        yield case(
+            given=b'X.X.X.X',
+            expected='x.x.x.x'
+        )
+        yield case(
+            given='x.X.x.X',
+            expected='x.x.x.x'
+        )
+        yield case(
+            given=bytearray(b'X.X.x.x'),
+            expected='x.x.x.x'
+        )
+        yield case(
+            given='x.x.x.x.x',
+            expected=FieldValueError
+        )
+        yield case(
+            given=b'x.44.22.33.55',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='1.x.12.33',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'x.12.33'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='\u0120.66.22.44',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'x.123.45.1/20',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='169090601',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'x.45.67.8.'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='y.45.67.8',
+            expected=FieldValueError,
+        )
         yield case(
             given=169090601,
             expected=TypeError,
@@ -1760,41 +3146,32 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
 
     CLASS = IPv4NetField
 
+    # XXX: shouldn't we change the behavior
+    #      to trim the host (non-network) bits?
+
     def cases__clean_param_value(self):
         yield case(
-            given=u'1.23.4.56/4',
-            expected=(u'1.23.4.56', 4),
-        )
-        yield case(
             given='1.23.4.56/4',
-            expected=(u'1.23.4.56', 4),
-        )
-        yield case(
-            given=u'0.0.0.0/0',
-            expected=(u'0.0.0.0', 0),
+            expected=('1.23.4.56', 4),
         )
         yield case(
             given='0.0.0.0/0',
-            expected=(u'0.0.0.0', 0),
-        )
-        yield case(
-            given=u'255.255.255.255/32',
-            expected=(u'255.255.255.255', 32),
+            expected=('0.0.0.0', 0),
         )
         yield case(
             given='255.255.255.255/32',
-            expected=(u'255.255.255.255', 32),
+            expected=('255.255.255.255', 32),
         )
         yield case(
-            given=u'256.256.256.256/32',  # bad address
+            given='256.256.256.256/32',  # bad address
             expected=FieldValueError,
         )
         yield case(
             given='10.46.111.123/32',
-            expected=(u'10.46.111.123', 32)
+            expected=('10.46.111.123', 32)
         )
         yield case(
-            given=u'123.123.111.12/33',   # bad network
+            given='123.123.111.12/33',   # bad network
             expected=FieldValueError
         )
         yield case(
@@ -1802,7 +3179,7 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'10.166.77.88.99/4',   # bad address
+            given='10.166.77.88.99/4',   # bad address
             expected=FieldValueError,
         )
         yield case(
@@ -1810,19 +3187,19 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'1.2.3.4',             # no network
+            given='1.2.3.4',             # no network
             expected=FieldValueError,
         )
         yield case(
-            given=u'1.2.3.25 /12',
+            given='1.2.3.25 /12',
             expected=FieldValueError
         )
         yield case(
-            given=u'1.2.3.25/ 12',
+            given='1.2.3.25/ 12',
             expected=FieldValueError
         )
         yield case(
-            given=u'1.2.3.25./12',
+            given='1.2.3.25./12',
             expected=FieldValueError
         )
         yield case(
@@ -1830,82 +3207,102 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given='1.2.3.07/22',  # leading 0 in cidr ip not allowed
+            given='1.2.3.07/22',             # leading 0 in ip not allowed
             expected=FieldValueError
+        )
+        yield case(
+            given='0.0.0.0/00',              # leading 0 in network not allowed
+            expected=FieldValueError,
+        )
+        yield case(
+            given='255.255.255.255/00032',   # leading 0 in network not allowed
+            expected=FieldValueError,
+        )
+        yield case(
+            given='123/22',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='123',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
         )
 
     def cases__clean_result_value(self):
-        # string given
-        yield case(
-            given=u'1.23.4.56/4',
-            expected=u'1.23.4.56/4',
-        )
+        # str/bytes/bytearray given
         yield case(
             given='1.23.4.56/4',
-            expected=u'1.23.4.56/4',
+            expected='1.23.4.56/4',
         )
         yield case(
-            given=u'0.0.0.0/0',
-            expected=u'0.0.0.0/0',
+            given=b'1.23.4.56/4',
+            expected='1.23.4.56/4',
         )
         yield case(
             given='0.0.0.0/0',
-            expected=u'0.0.0.0/0',
+            expected='0.0.0.0/0',
         )
         yield case(
-            given=u'255.255.255.255/32',
-            expected=u'255.255.255.255/32',
+            given=bytearray(b'0.0.0.0/0'),
+            expected='0.0.0.0/0',
         )
         yield case(
             given='255.255.255.255/32',
-            expected=u'255.255.255.255/32',
+            expected='255.255.255.255/32',
         )
         yield case(
-            given=u'256.256.256.256/32',  # bad address
+            given=b'255.255.255.255/32',
+            expected='255.255.255.255/32',
+        )
+        yield case(
+            given='256.256.256.256/32',  # bad address
             expected=FieldValueError,
         )
         yield case(
-            given='10.46.111.123/32',
-            expected=u'10.46.111.123/32'
+            given=bytearray(b'10.46.111.123/32'),
+            expected='10.46.111.123/32'
         )
         yield case(
-            given=u'123.123.111.12/33',   # bad network
+            given='123.123.111.12/33',   # bad network
             expected=FieldValueError
         )
         yield case(
-            given='255.255.255.255/33',   # bad network
+            given=b'255.255.255.255/33',  # bad network
             expected=FieldValueError,
         )
         yield case(
-            given=u'10.166.77.88.99/4',   # bad address
+            given='10.166.77.88.99/4',   # bad address
             expected=FieldValueError,
         )
         yield case(
-            given='10.166.88/4',          # bad address
+            given=bytearray(b'10.166.88/4'),  # bad address
             expected=FieldValueError,
         )
         yield case(
-            given=u'1.2.3.4',             # no network
+            given='1.2.3.4',             # no network
             expected=FieldValueError,
         )
         yield case(
-            given='1.2.3.4/',             # no network
+            given=b'1.2.3.4/',            # no network
             expected=FieldValueError,
         )
         yield case(
-            given=u'1.23.4.56/4/5',
+            given='1.23.4.56/4/5',
             expected=FieldValueError,
         )
         yield case(
-            given=u'1.2.3.25 /12',
+            given=bytearray(b'1.2.3.25 /12'),
             expected=FieldValueError
         )
         yield case(
-            given=u'1.2.3.25/ 12',
+            given='1.2.3.25/ 12',
             expected=FieldValueError
         )
         yield case(
-            given=u'1.2.3.25./12',
+            given=b'1.2.3.25./12',
             expected=FieldValueError
         )
         yield case(
@@ -1913,11 +3310,15 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given='1.2.3.07/22',  # leading 0 in ip not allowed
+            given=b'1.2.3.07/22',         # leading 0 in ip not allowed
             expected=FieldValueError
         )
         yield case(
-            given='1.2.3.7/022',  # leading 0 in network not allowed
+            given='1.2.3.7/022',         # leading 0 in network not allowed
+            expected=FieldValueError
+        )
+        yield case(
+            given=bytearray(b'1.2.3.07/022'),
             expected=FieldValueError
         )
         yield case(
@@ -1925,76 +3326,140 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
+            given=bytearray(b'123/22'),
+            expected=FieldValueError
+        )
+        yield case(
+            given='123',
+            expected=FieldValueError
+        )
+        yield case(
+            given=b'123',
+            expected=FieldValueError
+        )
+        yield case(
             given='',
             expected=FieldValueError
         )
-        # non-string iterable given
         yield case(
-            given=(u'1.23.4.56', 4),
-            expected=u'1.23.4.56/4',
+            given=b'',
+            expected=FieldValueError
+        )
+        # non-str/bytes/bytearray iterable given
+        yield case(
+            given=('1.23.4.56', 4),
+            expected='1.23.4.56/4',
         )
         yield case(
-            given=['1.23.4.56', 4],
-            expected=u'1.23.4.56/4',
+            given=['1.23.4.56', '4'],
+            expected='1.23.4.56/4',
         )
         yield case(
-            given=(u'0.0.0.0', u'0'),
-            expected=u'0.0.0.0/0',
+            given=('1.2.3.7', 22),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=(b'1.2.3.7', 22),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=(bytearray(b'1.2.3.7'), 22),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=('1.2.3.7', '22'),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=(b'1.2.3.7', '22'),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=(bytearray(b'1.2.3.7'), '22'),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=('1.2.3.7', b'22'),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=(b'1.2.3.7', b'22'),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=(bytearray(b'1.2.3.7'), b'22'),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=('1.2.3.7', bytearray(b'22')),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=(b'1.2.3.7', bytearray(b'22')),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=(bytearray(b'1.2.3.7'), bytearray(b'22')),
+            expected='1.2.3.7/22'
+        )
+        yield case(
+            given=('0.0.0.0', 0),
+            expected='0.0.0.0/0',
         )
         yield case(
             given=('0.0.0.0', '0'),
-            expected=u'0.0.0.0/0',
+            expected='0.0.0.0/0',
         )
         yield case(
-            given=[u'255.255.255.255', '32'],
-            expected=u'255.255.255.255/32',
+            given=['255.255.255.255', 32],
+            expected='255.255.255.255/32',
         )
         yield case(
-            given=('255.255.255.255', 32),
-            expected=u'255.255.255.255/32',
+            given=('255.255.255.255', '32'),
+            expected='255.255.255.255/32',
         )
         yield case(
-            given=(u'256.256.256.256', 32),    # bad address
+            given=('256.256.256.256', 32),    # bad address
             expected=FieldValueError,
         )
         yield case(
-            given=('10.46.111.123', u'32'),
-            expected=u'10.46.111.123/32'
+            given=('10.46.111.123', '32'),
+            expected='10.46.111.123/32'
         )
         yield case(
-            given=(u'123.123.111.12', u'33'),  # bad network
+            given=('123.123.111.12', '33'),   # bad network
             expected=FieldValueError
         )
         yield case(
-            given=('255.255.255.255', 33),     # bad network
+            given=('255.255.255.255', 33),    # bad network
             expected=FieldValueError,
         )
         yield case(
-            given=(u'10.166.77.88.99', 4),     # bad address
+            given=('10.166.77.88.99', 4),     # bad address
             expected=FieldValueError,
         )
         yield case(
-            given=('10.166.88', 4),            # bad address
+            given=('10.166.88', 4),           # bad address
             expected=FieldValueError,
         )
         yield case(
-            given=(u'1.2.3.25',),
+            given=('1.2.3.25',),
             expected=FieldValueError
         )
         yield case(
-            given=(u'1.2.3.25', 12, 13),
+            given=('1.2.3.25', 12, 13),
             expected=FieldValueError
         )
         yield case(
-            given=(u'1.2.3.25 ', 12),
+            given=('1.2.3.25 ', 12),
             expected=FieldValueError
         )
         yield case(
-            given=(u' 1.2.3.25', 12),
+            given=(' 1.2.3.25', 12),
             expected=FieldValueError
         )
         yield case(
-            given=(u'1.2.3.25.', 12),
+            given=('1.2.3.25.', 12),
             expected=FieldValueError
         )
         yield case(
@@ -2002,11 +3467,27 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=('1.2.3.07', 22),  # leading 0 in cidr ip not allowed
+            given=('1.2.3.07', 22),    # leading 0 in ip not allowed
+            expected=FieldValueError
+        )
+        yield case(
+            given=('1.2.3.07', '22'),   # leading 0 in ip not allowed
+            expected=FieldValueError
+        )
+        yield case(
+            given=('1.2.3.7', '022'),   # leading 0 in network not allowed
+            expected=FieldValueError
+        )
+        yield case(
+            given=('1.2.3.07', '022'),
             expected=FieldValueError
         )
         yield case(
             given=('123', 22),
+            expected=FieldValueError
+        )
+        yield case(
+            given=('123', '22'),
             expected=FieldValueError
         )
         yield case(
@@ -2019,6 +3500,10 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given=(123, 22),
+            expected=FieldValueError
+        )
+        yield case(
+            given=(123, '22'),
             expected=FieldValueError
         )
         yield case(
@@ -2035,69 +3520,80 @@ class TestIPv6NetField(FieldTestMixin, unittest.TestCase):
 
     CLASS = IPv6NetField
 
+    # XXX: shouldn't we change the behavior
+    #      to trim the host (non-network) bits?
+
     def cases__clean_param_value(self):
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334/64',
-            expected=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
-        )
-        yield case(
             given='2001:0db8:85a3:0000:0000:8a2e:0370:7334/64',
-            expected=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
+            expected=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
         )
         yield case(
-            given=u'2001:db8:85a3:0:0:8a2e:370:7334/64',
-            expected=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
+            given='2001:0db8:85a3:00:00:8a2e:370:7334/64',
+            expected=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
+        )
+        yield case(
+            given='2001:db8:85a3:0:0:8a2e:370:7334/64',
+            expected=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
         )
         yield case(
             given='2001:0DB8:85A3:0000:0000:8A2E:0370:7334/64',
-            expected=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
+            expected=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
         )
         yield case(
-            given=u'2001:0db8:85a3::8a2e:370:7334/64',
-            expected=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
+            given='2001:0db8:85a3::8a2e:370:7334/64',
+            expected=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
         )
         yield case(
-            given=u'2001:0Db8:85A3::8a2e:370:7334/64',
-            expected=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
+            given='2001:0Db8:85A3::8a2e:370:7334/64',
+            expected=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
         )
         yield case(
             given='0000:0000:0000:0000:0000:0000:0000:0000/0',
-            expected=(u'0000:0000:0000:0000:0000:0000:0000:0000', 0),
+            expected=('0000:0000:0000:0000:0000:0000:0000:0000', 0),
         )
         yield case(
-            given=u'::/0',
-            expected=(u'0000:0000:0000:0000:0000:0000:0000:0000', 0),
+            given='::/0',
+            expected=('0000:0000:0000:0000:0000:0000:0000:0000', 0),
         )
         yield case(
             given='::7f7f:7f7f/16',
-            expected=(u'0000:0000:0000:0000:0000:0000:7f7f:7f7f', 16),
+            expected=('0000:0000:0000:0000:0000:0000:7f7f:7f7f', 16),
         )
         yield case(
-            given=u'::127.127.127.127/16',
-            expected=(u'0000:0000:0000:0000:0000:0000:7f7f:7f7f', 16),
+            given='::127.127.127.127/16',
+            expected=('0000:0000:0000:0000:0000:0000:7f7f:7f7f', 16),
         )
         yield case(
             given='0000:0000:0000:0000:0000:0000:127.127.127.127/16',
-            expected=(u'0000:0000:0000:0000:0000:0000:7f7f:7f7f', 16),
+            expected=('0000:0000:0000:0000:0000:0000:7f7f:7f7f', 16),
         )
         yield case(
-            given=u'0000:0000:0000:0000:0000:0000:7f7f:7f7f/16',
-            expected=(u'0000:0000:0000:0000:0000:0000:7f7f:7f7f', 16),
+            given='0000:0000:0000:0000:0000:0000:7f7f:7f7f/16',
+            expected=('0000:0000:0000:0000:0000:0000:7f7f:7f7f', 16),
         )
         yield case(
             given='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
-            expected=(u'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', 128),
+            expected=('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', 128),
         )
         yield case(
-            given=u'FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF/128',
-            expected=(u'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', 128),
+            given='FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF/128',
+            expected=('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', 128),
+        )
+        yield case(
+            given='FFFF:FFFF:FFFF:0FFFF:FFFF:FFFF:FFFF:FFFF/128',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF/0128',
+            expected=FieldValueError,
         )
         yield case(
             given='gggg:gggg:gggg:gggg:gggg:gggg:gggg:gggg/128',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334/129',  # bad network
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334/129',  # bad network
             expected=FieldValueError
         )
         yield case(
@@ -2105,27 +3601,27 @@ class TestIPv6NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:ffff:0000:8a2e:0370:7334/64',  # bad address
+            given='2001:0db8:85a3:0000:ffff:0000:8a2e:0370:7334/64',  # bad address
             expected=FieldValueError,
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:8a2e:0370:7334/64',         # bad address
+            given='2001:0db8:85a3:0000:8a2e:0370:7334/64',         # bad address
             expected=FieldValueError,
         )
         yield case(
-            given=u'2001:0db8:85a3:::8a2e:0370:7334/64',            # bad address
+            given='2001:0db8:85a3:::8a2e:0370:7334/64',            # bad address
             expected=FieldValueError,
         )
         yield case(
-            given=u'2001::0db8:85a3::8a2e:0370:7334/64',            # bad address
+            given='2001::0db8:85a3::8a2e:0370:7334/64',            # bad address
             expected=FieldValueError,
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',       # no network
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334',       # no network
             expected=FieldValueError,
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334/',      # no network
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334/',      # no network
             expected=FieldValueError,
         )
         yield case(
@@ -2133,24 +3629,32 @@ class TestIPv6NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334 /12',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334 /12',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334/ 12',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334/ 12',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334:/12',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334:/12',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334:012',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334:012',
             expected=FieldValueError
         )
         yield case(
             given='123.45.67.8/12',
             expected=FieldValueError,
+        )
+        yield case(
+            given='123/12',
+            expected=FieldValueError
+        )
+        yield case(
+            given='123',
+            expected=FieldValueError
         )
         yield case(
             given='',
@@ -2158,190 +3662,306 @@ class TestIPv6NetField(FieldTestMixin, unittest.TestCase):
         )
 
     def cases__clean_result_value(self):
-        # string given
-        yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334/64',
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
-        )
+        # str/bytes/bytearray given
         yield case(
             given='2001:0db8:85a3:0000:0000:8a2e:0370:7334/64',
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given=u'2001:db8:85a3:0:0:8a2e:370:7334/64',
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            given=b'2001:0db8:85a3:0000:0000:8a2e:0370:7334/64',
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given='2001:0DB8:85A3:0000:0000:8A2E:0370:7334/64',
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            given='2001:db8:85a3:0:0:8a2e:370:7334/64',
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given=u'2001:0db8:85a3::8a2e:370:7334/64',
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            given=bytearray(b'2001:0DB8:85A3:0000:0000:8A2E:0370:7334/64'),
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given='2001:0Db8:85A3::8a2e:370:7334/64',
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            given='2001:0db8:85a3::8a2e:370:7334/64',
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given=u'0000:0000:0000:0000:0000:0000:0000:0000/0',
-            expected=u'::/0',
+            given=b'2001:0Db8:85A3::8a2e:370:7334/64',
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given='::/0',
-            expected=u'::/0',
+            given='0000:0000:0000:0000:0000:0000:0000:0000/0',
+            expected='::/0',
         )
         yield case(
-            given='::7f7f:7f7f/16',
-            expected=u'::7f7f:7f7f/16',
+            given=bytearray(b'::/0'),
+            expected='::/0',
         )
         yield case(
-            given=u'::127.127.127.127/16',
-            expected=u'::7f7f:7f7f/16',
+            given=b'::7f7f:7f7f/16',
+            expected='::7f7f:7f7f/16',
         )
         yield case(
-            given='0000:0000:0000:0000:0000:0000:127.127.127.127/16',
-            expected=u'::7f7f:7f7f/16',
+            given='::127.127.127.127/16',
+            expected='::7f7f:7f7f/16',
         )
         yield case(
-            given=u'0000:0000:0000:0000:0000:0000:7f7f:7f7f/16',
-            expected=u'::7f7f:7f7f/16',
+            given=bytearray(b'0000:0000:0000:0000:0000:0000:127.127.127.127/16'),
+            expected='::7f7f:7f7f/16',
         )
         yield case(
-            given='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
-            expected=u'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
+            given='0000:0000:0000:0000:0000:0000:7f7f:7f7f/16',
+            expected='::7f7f:7f7f/16',
         )
         yield case(
-            given=u'FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF/128',
-            expected=u'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
+            given=b'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
+            expected='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
         )
         yield case(
-            given='gggg:gggg:gggg:gggg:gggg:gggg:gggg:gggg/128',
+            given='FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF/128',
+            expected='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
+        )
+        yield case(
+            given=bytearray(b'FFFF:FFFF:FFFF:0FFFF:FFFF:FFFF:FFFF:FFFF/128'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF/0128',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'gggg:gggg:gggg:gggg:gggg:gggg:gggg:gggg/128',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334/129',  # bad network
+            given='::127.127.127.127./16',
             expected=FieldValueError
         )
         yield case(
-            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334/f0',    # bad network
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'2001:0db8:85a3:0000:ffff:0000:8a2e:0370:7334/64',  # bad address
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'2001:0db8:85a3:0000:8a2e:0370:7334/64',         # bad address
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'2001:0db8:85a3:::8a2e:0370:7334/64',            # bad address
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'2001::0db8:85a3::8a2e:0370:7334/64',            # bad address
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',       # no network
-            expected=FieldValueError,
-        )
-        yield case(
-            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334/64/65',
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334 /12',
+            given=b'::127.127.127.0127/16',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334/ 12',
+            given='::127.127.127.07/16',
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334:/12',
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334/129',   # bad network
             expected=FieldValueError
         )
         yield case(
-            given=u'2001:0db8:85a3:0000:0000:8a2e:0370:7334:012',
-            expected=FieldValueError
-        )
-        yield case(
-            given='123.45.67.8/12',
+            given=bytearray(b'2001:0db8:85a3:0000:0000:8a2e:0370:7334/f0'),    # bad network
             expected=FieldValueError,
+        )
+        yield case(
+            given='2001:0db8:85a3:0000:ffff:0000:8a2e:0370:7334/64',  # bad address
+            expected=FieldValueError,
+        )
+        yield case(
+            given='2001:0db8:85a3:0000:8a2e:0370:7334/64',         # bad address
+            expected=FieldValueError,
+        )
+        yield case(
+            given='2001:0db8:85a3:::8a2e:0370:7334/64',            # bad address
+            expected=FieldValueError,
+        )
+        yield case(
+            given='2001::0db8:85a3::8a2e:0370:7334/64',            # bad address
+            expected=FieldValueError,
+        )
+        yield case(
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334',       # no network
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'2001:0db8:85a3:0000:0000:8a2e:0370:7334/64/65',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334 /12',
+            expected=FieldValueError
+        )
+        yield case(
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334/ 12',
+            expected=FieldValueError
+        )
+        yield case(
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334:/12',
+            expected=FieldValueError
+        )
+        yield case(
+            given='2001:0db8:85a3:0000:0000:8a2e:0370:7334:012',
+            expected=FieldValueError
+        )
+        yield case(
+            given=b'123.45.67.8/12',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='123/12',
+            expected=FieldValueError
+        )
+        yield case(
+            given=bytearray(b'123/12'),
+            expected=FieldValueError
+        )
+        yield case(
+            given='123',
+            expected=FieldValueError
+        )
+        yield case(
+            given=b'123',
+            expected=FieldValueError
         )
         yield case(
             given='',
             expected=FieldValueError
         )
-        # non-string iterable given
         yield case(
-            given=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            given=b'',
+            expected=FieldValueError
         )
+        # non-str/bytes/bytearray iterable given
         yield case(
             given=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given=(u'2001:db8:85a3:0:0:8a2e:370:7334', 64),
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            given=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', '64'),
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given=['2001:0DB8:85A3:0000:0000:8A2E:0370:7334', 64],
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            given=('2001:db8:85a3:0:0:8a2e:370:7334', 64),
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given=[u'2001:0db8:85a3::8a2e:370:7334', 64],
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            given=['2001:0DB8:85A3:0000:0000:8A2E:0370:7334', '64'],
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given=['2001:0Db8:85A3::8a2e:370:7334', 64],
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            given=['2001:0db8:85a3::8a2e:370:7334', 64],
+            expected='2001:db8:85a3::8a2e:370:7334/64',
         )
         yield case(
-            given=(u'0000:0000:0000:0000:0000:0000:0000:0000', 0),
-            expected=u'::/0',
+            given=['2001:0Db8:85A3::8a2e:370:7334', '64'],
+            expected='2001:db8:85a3::8a2e:370:7334/64',
+        )
+        yield case(
+            given=('0000:0000:0000:0000:0000:0000:0000:0000', 0),
+            expected='::/0',
         )
         yield case(
             given=('::', 0),
-            expected=u'::/0',
+            expected='::/0',
+        )
+        yield case(
+            given=(b'::', 0),
+            expected='::/0',
+        )
+        yield case(
+            given=(bytearray(b'::'), 0),
+            expected='::/0',
+        )
+        yield case(
+            given=('::', '0'),
+            expected='::/0',
+        )
+        yield case(
+            given=(b'::', '0'),
+            expected='::/0',
+        )
+        yield case(
+            given=(bytearray(b'::'), '0'),
+            expected='::/0',
+        )
+        yield case(
+            given=('::', b'0'),
+            expected='::/0',
+        )
+        yield case(
+            given=(b'::', b'0'),
+            expected='::/0',
+        )
+        yield case(
+            given=(bytearray(b'::'), b'0'),
+            expected='::/0',
+        )
+        yield case(
+            given=('::', bytearray(b'0')),
+            expected='::/0',
+        )
+        yield case(
+            given=(b'::', bytearray(b'0')),
+            expected='::/0',
+        )
+        yield case(
+            given=(bytearray(b'::'), bytearray(b'0')),
+            expected='::/0',
         )
         yield case(
             given=('::7f7f:7f7f', 16),
-            expected=u'::7f7f:7f7f/16',
+            expected='::7f7f:7f7f/16',
         )
         yield case(
-            given=(u'::127.127.127.127', 16),
-            expected=u'::7f7f:7f7f/16',
+            given=('::127.127.127.127', 16),
+            expected='::7f7f:7f7f/16',
+        )
+        yield case(
+            given=('::127.127.127.127', '16'),
+            expected='::7f7f:7f7f/16',
         )
         yield case(
             given=('0000:0000:0000:0000:0000:0000:127.127.127.127', 16),
-            expected=u'::7f7f:7f7f/16',
+            expected='::7f7f:7f7f/16',
         )
         yield case(
-            given=(u'0000:0000:0000:0000:0000:0000:7f7f:7f7f', 16),
-            expected=u'::7f7f:7f7f/16',
+            given=('0000:0000:0000:0000:0000:0000:7f7f:7f7f', 16),
+            expected='::7f7f:7f7f/16',
         )
         yield case(
             given=('ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff', 128),
-            expected=u'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
+            expected='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
         )
         yield case(
-            given=(u'FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF', 128),
-            expected=u'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
+            given=('FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF', 128),
+            expected='ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/128',
         )
         yield case(
-            given=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', '64'),
-            expected=u'2001:db8:85a3::8a2e:370:7334/64',
+            given=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64),
+            expected='2001:db8:85a3::8a2e:370:7334/64',
+        )
+        yield case(
+            given=('2001:0db8:85a3:00000:0000:08a2e:0370:7334', 64),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=('2001:0db8:85a3:00000:0000:8a2e:0370:7334', 64),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=('2001:0db8:85a3:00000:0000:8a2e:0370:7334', '064'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=('2001:0db8:85a3:0000:0000:08a2e:0370:7334', '064'),
+            expected=FieldValueError,
         )
         yield case(
             given=('gggg:gggg:gggg:gggg:gggg:gggg:gggg:gggg', 128),
             expected=FieldValueError
         )
         yield case(
-            given=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 129),  # bad network
+            given=('::127.127.127.127.', 16),
+            expected=FieldValueError
+        )
+        yield case(
+            given=('::127.127.127.0127', '16'),
+            expected=FieldValueError
+        )
+        yield case(
+            given=('::127.127.127.07', 16),
+            expected=FieldValueError
+        )
+        yield case(
+            given=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', 129),  # bad network
             expected=FieldValueError
         )
         yield case(
@@ -2349,7 +3969,7 @@ class TestIPv6NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=(u'2001:0db8:85a3:0000:ffff:0000:8a2e:0370:7334', 64),  # bad address
+            given=('2001:0db8:85a3:0000:ffff:0000:8a2e:0370:7334', 64),  # bad address
             expected=FieldValueError,
         )
         yield case(
@@ -2357,7 +3977,7 @@ class TestIPv6NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=(u'2001:0db8:85a3:::8a2e:0370:7334', 64),           # bad address
+            given=('2001:0db8:85a3:::8a2e:0370:7334', 64),           # bad address
             expected=FieldValueError,
         )
         yield case(
@@ -2365,15 +3985,15 @@ class TestIPv6NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',),      # no network
+            given=('2001:0db8:85a3:0000:0000:8a2e:0370:7334',),      # no network
             expected=FieldValueError,
         )
         yield case(
-            given=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64, 65),
+            given=('2001:0db8:85a3:0000:0000:8a2e:0370:7334', 64, 65),
             expected=FieldValueError,
         )
         yield case(
-            given=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334/64', 65),
+            given=('2001:0db8:85a3:0000:0000:8a2e:0370:7334/64', 65),
             expected=FieldValueError,
         )
         yield case(
@@ -2381,11 +4001,11 @@ class TestIPv6NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334 ', 64),
+            given=('2001:0db8:85a3:0000:0000:8a2e:0370:7334 ', 64),
             expected=FieldValueError
         )
         yield case(
-            given=(u'2001:0db8:85a3:0000:0000:8a2e:0370:7334:', 64),
+            given=('2001:0db8:85a3:0000:0000:8a2e:0370:7334:', 64),
             expected=FieldValueError
         )
         yield case(
@@ -2405,6 +4025,18 @@ class TestIPv6NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
+            given=(123, '64'),
+            expected=FieldValueError
+        )
+        yield case(
+            given=('123', 64),
+            expected=FieldValueError
+        )
+        yield case(
+            given=('123', '64'),
+            expected=FieldValueError
+        )
+        yield case(
             given=123,
             expected=FieldValueError,
         )
@@ -2421,31 +4053,31 @@ class TestCCField(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             given='PL',
-            expected=u'PL',
+            expected='PL',
         )
         yield case(
-            given=u'PL',
-            expected=u'PL',
+            given='PL',
+            expected='PL',
         )
         yield case(
             given='pl',
-            expected=u'PL',
+            expected='PL',
         )
         yield case(
-            given=u'pL',
-            expected=u'PL',
+            given='pL',
+            expected='PL',
         )
         yield case(
             given='PRL',
             expected=FieldValueError,
         )
         yield case(
-            given=u'PRL',
+            given='PRL',
             expected=FieldValueError,
         )
         yield case(
             given='P1',
-            expected=u'P1',  # ok
+            expected='P1',  # ok
         )
         yield case(
             given='1P',
@@ -2459,10 +4091,72 @@ class TestCCField(FieldTestMixin, unittest.TestCase):
             given='1.23.4.56/4',
             expected=FieldValueError,
         )
+        yield case(
+            given='123',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='PL',
+            expected='PL',
+        )
+        yield case(
+            given=b'PL',
+            expected='PL',
+        )
+        yield case(
+            given='pl',
+            expected='PL',
+        )
+        yield case(
+            given=bytearray(b'pL'),
+            expected='PL',
+        )
+        yield case(
+            given='PRL',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'PRL',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='P1',
+            expected='P1',  # ok
+        )
+        yield case(
+            given=bytearray(b'P1'),
+            expected='P1',  # ok
+        )
+        yield case(
+            given='1P',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'PL0',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='1.23.4.56/4',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'123'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
+            expected=FieldValueError,
+        )
         yield case(
             given=123,
             expected=TypeError,
@@ -2480,53 +4174,41 @@ class TestURLField(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             given='http://www.test.pl',
-            expected=u'http://www.test.pl',
+            expected='http://www.test.pl',
         )
         yield case(
-            given=u'http://www.test.pl/cgi-bin/foo.pl',
-            expected=u'http://www.test.pl/cgi-bin/foo.pl',
+            given='http://www.test.pl/cgi-bin/foo.pl',
+            expected='http://www.test.pl/cgi-bin/foo.pl',
         )
         yield case(
             given='http://www.test.pl/cgi/bin/foo.pl?debug=1&id=123',
-            expected=u'http://www.test.pl/cgi/bin/foo.pl?debug=1&id=123',
+            expected='http://www.test.pl/cgi/bin/foo.pl?debug=1&id=123',
         )
         yield case(
             given=('http://www.TEST.pl/cgi-bin/bar.pl?mode=browse&amp;'
                    'debug=%20123&amp;id=k-%5D'),
-            expected=(u'http://www.TEST.pl/cgi-bin/bar.pl?mode=browse&amp;'
-                      u'debug=%20123&amp;id=k-%5D'),
+            expected=('http://www.TEST.pl/cgi-bin/bar.pl?mode=browse&amp;'
+                      'debug=%20123&amp;id=k-%5D'),
         )
         yield case(
-            given='http://tęst.pl\xdd',
-            expected=u'http://t\u0119st.pl\udcdd',
-        )
-        yield case(
-            given=u'http://tęst.pl\udcdd',
-            expected=u'http://t\u0119st.pl\udcdd',
+            given='http://tęst.pl\udcdd',
+            expected='http://t\u0119st.pl\udcdd',
         )
         yield case(
             given='http://test.pl',
-            expected=u'http://test.pl',
+            expected='http://test.pl',
         )
         yield case(
             given=('http://example.net/search.php?q=разные+авторы\r\n'),
-            expected=(u'http://example.net/search.php?q=разные+авторы\r\n'),
+            expected=('http://example.net/search.php?q=разные+авторы\r\n'),
         )
         yield case(
-            given=(u'http://example.net/search.php?q=разные+авторы\r\n'),
-            expected=(u'http://example.net/search.php?q=разные+авторы\r\n'),
-        )
-        yield case(
-            given=u'http://example.net/search.php?\t',
-            expected=u'http://example.net/search.php?\t',
+            given='http://example.net/search.php?\t',
+            expected='http://example.net/search.php?\t',
         )
         yield case(
             given='',
-            expected=u'',
-        )
-        yield case(
-            given=u'',
-            expected=u'',
+            expected='',
         )
         yield case(
             given='https://' + 'x.pl'*1000,  # too long
@@ -2534,36 +4216,242 @@ class TestURLField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given='https://' + 'x'*2040,     # len 2048
-            expected=u'https://' + 'x'*2040,
+            expected='https://' + 'x'*2040,
         )
         yield case(
             given='https://x' + 'x'*2040,    # too long (2049)
             expected=FieldValueTooLongError,
         )
         yield case(
-            given=u'https://' + 'x'*2040,    # len 2048
-            expected=u'https://' + 'x'*2040,
-        )
-        yield case(
-            given=u'https://x' + 'x'*2040,   # too long (2049)
-            expected=FieldValueTooLongError,
-        )
-        yield case(
-            given='https://dd\xdd\xee',                  # non-UTF-8
-            expected=u'https://dd\udcdd\udcee',
-        )
-        yield case(
-            given='https://dd\xed\xb3\x9d\xed\xb3\xae',  # already UTF-8
-            expected=u'https://dd\udcdd\udcee',
-        )
-        yield case(
-            given=u'https://dd\udcdd\udcee',             # unicode
-            expected=u'https://dd\udcdd\udcee',
+            given='https://dd\udcdd\udcee',
+            expected='https://dd\udcdd\udcee',
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='http://www.test.pl',
+            expected='http://www.test.pl',
+        )
+        yield case(
+            given=b'http://www.test.pl/cgi-bin/foo.pl',
+            expected='http://www.test.pl/cgi-bin/foo.pl',
+        )
+        yield case(
+            given='http://www.test.pl/cgi/bin/foo.pl?debug=1&id=123',
+            expected='http://www.test.pl/cgi/bin/foo.pl?debug=1&id=123',
+        )
+        yield case(
+            given=bytearray(b'http://www.TEST.pl/cgi-bin/bar.pl?mode='
+                            b'browse&amp;debug=%20123&amp;id=k-%5D'),
+            expected=('http://www.TEST.pl/cgi-bin/bar.pl?mode=browse&amp;'
+                      'debug=%20123&amp;id=k-%5D'),
+        )
+        yield case(
+            given=b'http://t\xc4\x99st.pl\xdd',
+            expected='http://t\u0119st.pl\udcdd',
+        )
+        yield case(
+            given='http://tęst.pl\udcdd',
+            expected='http://t\u0119st.pl\udcdd',
+        )
+        yield case(
+            given=b'http://test.pl',
+            expected='http://test.pl',
+        )
+        yield case(
+            given=('http://example.net/search.php?q=разные+авторы\r\n'),
+            expected=('http://example.net/search.php?q=разные+авторы\r\n'),
+        )
+        yield case(
+            given=('http://example.net/search.php?q=разные+авторы\r\n'.encode('utf-8')),
+            expected=('http://example.net/search.php?q=разные+авторы\r\n'),
+        )
+        yield case(
+            given='http://example.net/search.php?\t',
+            expected='http://example.net/search.php?\t',
+        )
+        yield case(
+            given=b'',
+            expected='',
+        )
+        yield case(
+            given='',
+            expected='',
+        )
+        yield case(
+            given=bytearray(b'https://' + b'x.pl'*1000),  # too long
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            given='https://' + 'x.pl'*1000,  # too long
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            given=b'https://' + b'x'*2040,     # len 2048
+            expected='https://' + 'x'*2040,
+        )
+        yield case(
+            given=b'https://x' + b'x'*2040,    # too long (2049)
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            given='https://' + 'x'*2040,     # len 2048
+            expected='https://' + 'x'*2040,
+        )
+        yield case(
+            given='https://x' + 'x'*2040,    # too long (2049)
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            given=b'https://dd\xdd\xee',                    # non-UTF-8
+            expected='https://dd\udcdd\udcee',
+        )
+        yield case(
+            given=b'https://dd\xed\xb3\x9d\xed\xb3\xae',    # quasi-UTF-8 with lone surrogates
+            expected='https://dd\udcdd\udcee',
+        )
+        yield case(
+            given=b'https://\xdc\xed\xb3\x9d\xed\xb3\xae',  # mixed
+            expected='https://\udcdc\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'https://dd\xdd\xee',                    # non-UTF-8
+            expected='https://dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'https://dd\xed\xb3\x9d\xed\xb3\xae',    # quasi-UTF-8 with lone surrogates
+            expected='https://dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'https://\xdc\xed\xb3\x9d\xed\xb3\xae',  # mixed
+            expected='https://\udcdc\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'ignore'},
+            given=b'https://dd\xdd\xee',                    # non-UTF-8
+            expected = 'https://dd',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'ignore'},
+            given=b'https://dd\xed\xb3\x9d\xed\xb3\xae',    # quasi-UTF-8 with lone surrogates
+            expected = 'https://dd',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'ignore'},
+            given=b'https://\xdc\xed\xb3\x9d\xed\xb3\xae',  # mixed
+            expected = 'https://',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'strict'},
+            given=b'https://dd\xdd\xee',                    # non-UTF-8
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'strict'},
+            given=b'https://dd\xed\xb3\x9d\xed\xb3\xae',    # quasi-UTF-8 with lone surrogates
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'strict'},
+            given=b'https://\xdc\xed\xb3\x9d\xed\xb3\xae',  # mixed
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'surrogateescape'},
+            given=b'https://dd\xdd\xee',                    # non-UTF-8
+            expected='https://dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'surrogateescape'},
+            given=b'https://dd\xed\xb3\x9d\xed\xb3\xae',    # quasi-UTF-8 with lone surrogates
+            expected='https://dd\udced\udcb3\udc9d\udced\udcb3\udcae',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'surrogateescape'},
+            given=b'https://\xdc\xed\xb3\x9d\xed\xb3\xae',  # mixed
+            expected='https://\udcdc\udced\udcb3\udc9d\udced\udcb3\udcae',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'surrogatepass'},
+            given=b'https://dd\xdd\xee',                    # non-UTF-8
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'surrogatepass'},
+            given=b'https://dd\xed\xb3\x9d\xed\xb3\xae',    # quasi-UTF-8 with lone surrogates
+            expected='https://dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'surrogatepass'},
+            given=b'https://\xdc\xed\xb3\x9d\xed\xb3\xae',  # mixed
+            expected=FieldValueError,
+        )
+        weird_string = (
+            '\udcdd\udced\udced\udcb2'  # mess converted to surrogates
+            '\udcb1'        # surrogate '\udcb1'
+            '\udced\udcb2'  # mess converted to surrogates
+            '\udced'        # mess converted to surrogate
+            'B'             # proper code point (ascii 'B')
+            '\ud7ff'        # proper code point '\ud7ff' (smaller than smallest surr.)
+            '\udced\udca0'  # mess converted to surrogates
+            '\x7f'          # proper code point (ascii DEL)
+            '\ud800'        # surrogate '\ud800' (smallest one)
+            '\udfff'        # surrogate '\udfff' (biggest one)
+            '\udcee\udcbf\udcc0'  # mess converted to surrogates
+            '\ue000'        # proper code point '\ue000' (bigger than biggest surr.)
+            '\udce6'        # mess converted to surrogate
+            '\udced'        # mess converted to surrogate
+            '\udced\udcb3'  # mess converted to surrogates
+            '\udce6'        # surrogate '\udce6'
+            '\udc80'        # mess converted to surrogate
+            '#'             # proper code point (ascii '#')
+            '\udcf0'        # mess converted to surrogate
+            '\udcf0\udc90'  # mess converted to surrogates
+            '\udcf0\udc90\udc8f'  # mess converted to surrogates
+            '\U000103ff'    # proper code point '\U000103ff' (non-BMP one)
+            '\udcf0\udc90\udc8f'  # mess converted to surrogates
+            ' '             # proper code point (ascii ' ')
+            '\udced\udcb3')  # mess converted to surrogates
+        yield case(
+            given=(
+                b'\xdd\xed\xed\xb2'  # mess
+                b'\xed\xb2\xb1'  # encoded surrogate '\udcb1'
+                b'\xed\xb2'      # mess
+                b'\xed'          # mess
+                b'B'             # encoded proper code point (ascii 'B')
+                b'\xed\x9f\xbf'  # encoded proper code point '\ud7ff' (smaller than smallest surr.)
+                b'\xed\xa0'      # mess
+                b'\x7f'          # encoded proper code point (ascii DEL)
+                b'\xed\xa0\x80'  # encoded surrogate '\ud800' (smallest one)
+                b'\xed\xbf\xbf'  # encoded surrogate '\udfff' (biggest one)
+                b'\xee\xbf\xc0'  # mess
+                b'\xee\x80\x80'  # encoded proper code point '\ue000' (bigger than biggest surr.)
+                b'\xe6'          # mess
+                b'\xed'          # mess
+                b'\xed\xb3'      # mess
+                b'\xed\xb3\xa6'  # encoded surrogate '\udce6'
+                b'\x80'          # mess
+                b'#'             # encoded proper code point (ascii '#')
+                b'\xf0'          # mess
+                b'\xf0\x90'      # mess
+                b'\xf0\x90\x8f'  # mess
+                b'\xf0\x90\x8f\xbf'  # encoded proper code point '\U000103ff' (non-BMP one)
+                b'\xf0\x90\x8f'  # mess
+                b' '             # encoded proper code point (ascii ' ')
+                b'\xed\xb3'),    # mess (starts like a proper surrogate but is too short)
+            expected=weird_string,
+        )
+        yield case(
+            given='https://dd\udcdd\udcee',
+            expected='https://dd\udcdd\udcee',
+        )
+        yield case(
+            given=weird_string,
+            expected=weird_string,
+        )
         yield case(
             given=123,
             expected=TypeError,
@@ -2586,104 +4474,162 @@ class TestDomainNameSubstringField(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             given='test.pl',
-            expected=u'test.pl',
-        )
-        yield case(
-            given=u'test.pl',
-            expected=u'test.pl',
+            expected='test.pl',
         )
         yield case(
             given='-te--st-.p-l',
-            expected=u'-te--st-.p-l',
+            expected='-te--st-.p-l',
         )
         yield case(
-            given=u'-te--st-.p-l',
-            expected=u'-te--st-.p-l',
+            given='abcx' + '.m' * 126,  # too long (>255)
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            given='yyy' + '.x' * 126,   # ok, len 255
+            expected='yyy' + '.x' * 126,
+        )
+        yield case(
+            given='abc.' + 'm' * 64,    # single label too long
+            expected=FieldValueError,
+        )
+        yield case(
+            given='abc.' + 'm' * 63,     # ok, single label len 63
+            expected='abc.' + 'm' * 63,
+        )
+        yield case(
+            given='Test.fałszyWa.DOmena.example.com',
+            expected='test.xn--faszywa-ojb.domena.example.com',
+        )
+        yield case(
+            given='mMm.WWW.pl',
+            expected='mmm.www.pl',
+        )
+        yield case(
+            given='qQq. pl. . .',
+            expected='qqq. pl. . .',
+        )
+        yield case(
+            given='life_does_not_work_according_to.rfc',
+            expected='life_does_not_work_according_to.rfc',
+        )
+        yield case(
+            given='',
+            expected='',
+        )
+        yield case(
+            given='!@#$%^&*()+=[]',
+            expected='!@#$%^&*()+=[]',
+        )
+        yield case(
+            given='!@#$%^&*()+=[]ąć.pl',
+            expected='xn--!@#$%^&*()+=[]-owb6a.pl',
+        )
+
+    def cases__clean_result_value(self):
+        yield case(
+            given='test.pl',
+            expected='test.pl',
+        )
+        yield case(
+            given=b'test.pl',
+            expected='test.pl',
+        )
+        yield case(
+            given=bytearray(b'test.pl'),
+            expected='test.pl',
+        )
+        yield case(
+            given='-te--st-.p-l',
+            expected='-te--st-.p-l',
+        )
+        yield case(
+            given=b'-te--st-.p-l',
+            expected='-te--st-.p-l',
         )
         yield case(
             given='abcx' + '.m' * 126,    # too long (>255)
             expected=FieldValueTooLongError,
         )
         yield case(
-            given=u'abcx' + u'.m' * 126,  # too long (>255)
+            given=b'abcx' + b'.m' * 126,   # too long (>255)
             expected=FieldValueTooLongError,
         )
         yield case(
-            given='yyy' + '.x' * 126,     # ok, len 255
-            expected=u'yyy' + '.x' * 126,
+            given='yyy' + '.x' * 126,      # ok, len 255
+            expected='yyy' + '.x' * 126,
         )
         yield case(
-            given=u'yyy' + u'.x' * 126,   # ok, len 255
-            expected=u'yyy' + '.x' * 126,
+            given=bytearray(b'yyy' + b'.x' * 126),     # ok, len 255
+            expected='yyy' + '.x' * 126,
         )
         yield case(
-            given='abc.' + 'm' * 64,      # single label too long
+            given='abc.' + 'm' * 64,       # single label too long
             expected=FieldValueError,
         )
         yield case(
-            given=u'abc.' + u'm' * 64,    # single label too long
+            given=b'abc.' + b'm' * 64,     # single label too long
             expected=FieldValueError,
         )
         yield case(
-            given='abc.' + 'm' * 63,      # ok, single label len 63
-            expected=u'abc.' + 'm' * 63,
+            given='abc.' + 'm' * 63,       # ok, single label len 63
+            expected='abc.' + 'm' * 63,
         )
         yield case(
-            given=u'abc.' + 'm' * 63,     # ok, single label len 63
-            expected=u'abc.' + u'm' * 63,
+            given=b'abc.' + b'm' * 63,     # ok, single label len 63
+            expected='abc.' + 'm' * 63,
         )
         yield case(
-            given='test.fałszywa.domena.example.com',
-            expected=u'test.xn--faszywa-ojb.domena.example.com',
+            given='Test.fałszyWa.DOmena.example.com',
+            expected='test.xn--faszywa-ojb.domena.example.com',
         )
         yield case(
-            given=u'Test.fałszyWa.DOmena.example.com',
-            expected=u'test.xn--faszywa-ojb.domena.example.com',
+            given='test.fałszywa.domena.example.com'.encode('utf-8'),
+            expected='test.xn--faszywa-ojb.domena.example.com',
+        )
+        yield case(
+            given=bytearray('Test.fałszyWa.DOmena.example.com'.encode('utf-8')),
+            expected='test.xn--faszywa-ojb.domena.example.com',
         )
         yield case(
             given='mMm.WWW.pl',
-            expected=u'mmm.www.pl',
+            expected='mmm.www.pl',
         )
         yield case(
-            given=u'qQq. pl. . .',
-            expected=u'qqq. pl. . .',
+            given=b'qQq. pl. . .',
+            expected='qqq. pl. . .',
         )
         yield case(
             given='life_does_not_work_according_to.rfc',
-            expected=u'life_does_not_work_according_to.rfc',
+            expected='life_does_not_work_according_to.rfc',
         )
         yield case(
-            given=u'life_does_not_work_according_to.rfc',
-            expected=u'life_does_not_work_according_to.rfc',
+            given=bytearray(b'life_does_not_work_according_to.rfc'),
+            expected='life_does_not_work_according_to.rfc',
         )
         yield case(
             given='',
-            expected=u'',
+            expected='',
         )
         yield case(
-            given=u'',
-            expected=u'',
+            given=b'',
+            expected='',
         )
         yield case(
             given='!@#$%^&*()+=[]',
-            expected=u'!@#$%^&*()+=[]',
+            expected='!@#$%^&*()+=[]',
         )
         yield case(
-            given=u'!@#$%^&*()+=[]',
-            expected=u'!@#$%^&*()+=[]',
+            given=bytearray(b'!@#$%^&*()+=[]'),
+            expected='!@#$%^&*()+=[]',
         )
         yield case(
             given='!@#$%^&*()+=[]ąć.pl',
-            expected=u'xn--!@#$%^&*()+=[]-owb6a.pl',
+            expected='xn--!@#$%^&*()+=[]-owb6a.pl',
         )
         yield case(
-            given=u'!@#$%^&*()+=[]ąć.pl',
-            expected=u'xn--!@#$%^&*()+=[]-owb6a.pl',
+            given='!@#$%^&*()+=[]ąć.pl'.encode('utf-8'),
+            expected='xn--!@#$%^&*()+=[]-owb6a.pl',
         )
-
-    def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
         yield case(
             given=123,
             expected=TypeError,
@@ -2701,90 +4647,58 @@ class TestDomainNameField(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             given='test.pl',
-            expected=u'test.pl',
-        )
-        yield case(
-            given=u'test.pl',
-            expected=u'test.pl',
+            expected='test.pl',
         )
         yield case(
             given='-te--st-.p-l',
-            expected=u'-te--st-.p-l',
+            expected='-te--st-.p-l',
         )
         yield case(
-            given=u'-te--st-.p-l',
-            expected=u'-te--st-.p-l',
-        )
-        yield case(
-            given='abcx' + '.m' * 126,    # too long (>255)
+            given='abcx' + '.m' * 126,  # too long (>255)
             expected=FieldValueTooLongError,
         )
         yield case(
-            given=u'abcx' + u'.m' * 126,  # too long (>255)
-            expected=FieldValueTooLongError,
+            given='yyy' + '.x' * 126,   # ok, len 255
+            expected='yyy' + '.x' * 126,
         )
         yield case(
-            given='yyy' + '.x' * 126,     # ok, len 255
-            expected=u'yyy' + '.x' * 126,
+            given='abc.' + 'm' * 63,     # ok, single label len 63
+            expected='abc.' + 'm' * 63,
         )
         yield case(
-            given=u'yyy' + u'.x' * 126,   # ok, len 255
-            expected=u'yyy' + '.x' * 126,
-        )
-        yield case(
-            given='abc.' + 'm' * 63,      # ok, single label len 63
-            expected=u'abc.' + 'm' * 63,
-        )
-        yield case(
-            given=u'abc.' + 'm' * 63,     # ok, single label len 63
-            expected=u'abc.' + u'm' * 63,
-        )
-        yield case(
-            given='abc.' + 'm' * 64,      # single label too long
+            given='abc.' + 'm' * 64,    # single label too long
             expected=FieldValueError,
         )
         yield case(
-            given=u'abc.' + u'm' * 64,    # single label too long
-            expected=FieldValueError,
-        )
-        yield case(
-            given='test.fałszywa.domena.example.com',
-            expected=u'test.xn--faszywa-ojb.domena.example.com',
-        )
-        yield case(
-            given=u'Test.fałszyWa.DOmena.example.com',
-            expected=u'test.xn--faszywa-ojb.domena.example.com',
+            given='Test.fałszyWa.DOmena.example.com',
+            expected='test.xn--faszywa-ojb.domena.example.com',
         )
         yield case(
             given='mMm.WWW.pl',
-            expected=u'mmm.www.pl',
+            expected='mmm.www.pl',
         )
         yield case(
-            given=u'qQq. pl. . .',
+            given='qQq. pl. . .',
             expected=FieldValueError,
         )
         yield case(
             given='life_does_not_work_according_to.rfc',
-            expected=u'life_does_not_work_according_to.rfc',
-        )
-        yield case(
-            given=u'life_does_not_work_according_to.rfc',
-            expected=u'life_does_not_work_according_to.rfc',
+            expected='life_does_not_work_according_to.rfc',
         )
         yield case(
             given='192.168.0.1.foo',
-            expected=u'192.168.0.1.foo',
+            expected='192.168.0.1.foo',
         )
         yield case(
-            given=u'something.example.f123',
-            expected=u'something.example.f123',
+            given='something.example.f123',
+            expected='something.example.f123',
         )
         yield case(
             given='192.168.0.1',             # TLD cannot consist of digits only
             expected=FieldValueError,
         )
         yield case(
-            given=u'something.example.123',  # TLD cannot consist of digits only
+            given='something.example.123',  # TLD cannot consist of digits only
             expected=FieldValueError,
         )
         yield case(
@@ -2792,15 +4706,125 @@ class TestDomainNameField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'',
+            given='!@#$%^&*()+=[]ąć',
             expected=FieldValueError,
         )
         yield case(
-            given='!@#$%^&*()+=[]',
+            given='!@#$%^&*()+=[]ąć.pl',
+            expected=FieldValueError,
+        )
+
+    def cases__clean_result_value(self):
+        yield case(
+            given='test.pl',
+            expected='test.pl',
+        )
+        yield case(
+            given=b'test.pl',
+            expected='test.pl',
+        )
+        yield case(
+            given=bytearray(b'test.pl'),
+            expected='test.pl',
+        )
+        yield case(
+            given='-te--st-.p-l',
+            expected='-te--st-.p-l',
+        )
+        yield case(
+            given=b'-te--st-.p-l',
+            expected='-te--st-.p-l',
+        )
+        yield case(
+            given='abcx' + '.m' * 126,      # too long (>255)
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            given=bytearray(b'abcx' + b'.m' * 126),    # too long (>255)
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            given='yyy' + '.x' * 126,       # ok, len 255
+            expected='yyy' + '.x' * 126,
+        )
+        yield case(
+            given=b'yyy' + b'.x' * 126,     # ok, len 255
+            expected='yyy' + '.x' * 126,
+        )
+        yield case(
+            given='abc.' + 'm' * 63,        # ok, single label len 63
+            expected='abc.' + 'm' * 63,
+        )
+        yield case(
+            given=bytearray(b'abc.' + b'm' * 63),     # ok, single label len 63
+            expected='abc.' + 'm' * 63,
+        )
+        yield case(
+            given='abc.' + 'm' * 64,        # single label too long
             expected=FieldValueError,
         )
         yield case(
-            given=u'!@#$%^&*()+=[]ąć',
+            given=b'abc.' + b'm' * 64,      # single label too long
+            expected=FieldValueError,
+        )
+        yield case(
+            given='Test.fałszyWa.DOmena.example.com',
+            expected='test.xn--faszywa-ojb.domena.example.com',
+        )
+        yield case(
+            given='test.fałszywa.domena.example.com'.encode('utf-8'),
+            expected='test.xn--faszywa-ojb.domena.example.com',
+        )
+        yield case(
+            given=bytearray('Test.fałszyWa.DOmena.example.com'.encode('utf-8')),
+            expected='test.xn--faszywa-ojb.domena.example.com',
+        )
+        yield case(
+            given='mMm.WWW.pl',
+            expected='mmm.www.pl',
+        )
+        yield case(
+            given=b'qQq. pl. . .',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='life_does_not_work_according_to.rfc',
+            expected='life_does_not_work_according_to.rfc',
+        )
+        yield case(
+            given=b'life_does_not_work_according_to.rfc',
+            expected='life_does_not_work_according_to.rfc',
+        )
+        yield case(
+            given='something.example.f123',
+            expected='something.example.f123',
+        )
+        yield case(
+            given=bytearray(b'192.168.0.1.foo'),
+            expected='192.168.0.1.foo',
+        )
+        yield case(
+            given='something.example.123',   # TLD cannot consist of digits only
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'192.168.0.1',            # TLD cannot consist of digits only
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='!@#$%^&*()+=[]ąć',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'!@#$%^&*()+=[]'),
             expected=FieldValueError,
         )
         yield case(
@@ -2808,13 +4832,9 @@ class TestDomainNameField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'!@#$%^&*()+=[]ąć.pl',
+            given='!@#$%^&*()+=[]ąć.pl'.encode('utf-8'),
             expected=FieldValueError,
         )
-
-    def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
         yield case(
             given=123,
             expected=TypeError,
@@ -2843,17 +4863,7 @@ class TestIntegerField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             init_kwargs=init_kwargs,
-            given=u'11',
-            expected=11,
-        )
-        yield case(
-            init_kwargs=init_kwargs,
             given='10',
-            expected=10,
-        )
-        yield case(
-            init_kwargs=init_kwargs,
-            given=u'10',
             expected=10,
         )
         yield case(
@@ -2868,12 +4878,7 @@ class TestIntegerField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             init_kwargs=init_kwargs,
-            given=u'09',
-            expected=FieldValueError,
-        )
-        yield case(
-            init_kwargs=init_kwargs,
-            given=u'123',
+            given='123',
             expected=123,
         )
         yield case(
@@ -2884,43 +4889,43 @@ class TestIntegerField(FieldTestMixin, unittest.TestCase):
         yield case(
             init_kwargs={'min_value': -2,
                          'max_value': 123,
-                         'error_msg_template': u'"{}" is not valid'},
+                         'error_msg_template': '"{}" is not valid'},
             given='-2',
             expected=-2,
         )
         yield case(
             init_kwargs={'min_value': -2,
                          'max_value': 123,
-                         'error_msg_template': u'"{}" is not valid'},
-            given=u'-02',
+                         'error_msg_template': '"{}" is not valid'},
+            given='-02',
             expected=-2,
         )
         yield case(
             init_kwargs={'min_value': -2,
                          'max_value': 123,
-                         'error_msg_template': u'"{}" is not valid'},
-            given=u'-3',
+                         'error_msg_template': '"{}" is not valid'},
+            given='-3',
             expected=FieldValueError,
         )
         yield case(
             init_kwargs={'min_value': -2,
                          'max_value': 123,
-                         'error_msg_template': u'"{}" is not valid'},
+                         'error_msg_template': '"{}" is not valid'},
             given='-03',
             expected=FieldValueError,
         )
         yield case(
             init_kwargs={'min_value': -2,
                          'max_value': 123,
-                         'error_msg_template': u'"{}" is not valid'},
+                         'error_msg_template': '"{}" is not valid'},
             given='0x1',
             expected=FieldValueError,
         )
         yield case(
             init_kwargs={'min_value': 10,
-                         'max_value': 123000000000000000000000L},
+                         'max_value': 123000000000000000000000},
             given='123000000000000000000000',
-            expected=123000000000000000000000L,
+            expected=123000000000000000000000,
         )
         yield case(
             init_kwargs=init_kwargs,
@@ -2944,12 +4949,142 @@ class TestIntegerField(FieldTestMixin, unittest.TestCase):
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
         init_kwargs = {
             'min_value': 10,
             'max_value': 123,
         }
+        yield case(
+            init_kwargs=init_kwargs,
+            given='11',
+            expected=11,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given=b'11',
+            expected=11,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given=bytearray(b'10'),
+            expected=10,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given='10',
+            expected=10,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given=b'9',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given=bytearray(b'09'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given='09',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given='123',
+            expected=123,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given=b'123',
+            expected=123,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given='124',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given=b'124',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'min_value': -2,
+                         'max_value': 123,
+                         'error_msg_template': '"{}" is not valid'},
+            given='-2',
+            expected=-2,
+        )
+        yield case(
+            init_kwargs={'min_value': -2,
+                         'max_value': 123,
+                         'error_msg_template': '"{}" is not valid'},
+            given=bytearray(b'-02'),
+            expected=-2,
+        )
+        yield case(
+            init_kwargs={'min_value': -2,
+                         'max_value': 123,
+                         'error_msg_template': '"{}" is not valid'},
+            given='-3',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'min_value': -2,
+                         'max_value': 123,
+                         'error_msg_template': '"{}" is not valid'},
+            given=b'-03',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'min_value': -2,
+                         'max_value': 123,
+                         'error_msg_template': '"{}" is not valid'},
+            given='0x1',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'min_value': 10,
+                         'max_value': 123000000000000000000000},
+            given=bytearray(b'123000000000000000000000'),
+            expected=123000000000000000000000,
+        )
+        yield case(
+            init_kwargs={'min_value': 10,
+                         'max_value': 123000000000000000000000},
+            given='123000000000000000000000',
+            expected=123000000000000000000000,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given=b'123.0',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given='123.0',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given=bytearray(b'0-1'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs=init_kwargs,
+            given='1.5',
+            expected=FieldValueError,
+        )
         yield case(
             init_kwargs=init_kwargs,
             given=11,
@@ -2978,26 +5113,26 @@ class TestIntegerField(FieldTestMixin, unittest.TestCase):
         yield case(
             init_kwargs={'min_value': -2,
                          'max_value': 123,
-                         'error_msg_template': u'"{}" is not valid'},
+                         'error_msg_template': '"{}" is not valid'},
             given=-2,
             expected=-2,
         )
         yield case(
             init_kwargs={'min_value': -2,
                          'max_value': 123,
-                         'error_msg_template': u'"{}" is not valid'},
+                         'error_msg_template': '"{}" is not valid'},
             given=-3,
             expected=FieldValueError,
         )
         yield case(
             init_kwargs={'min_value': 10,
-                         'max_value': 123000000000000000000000L},
-            given=123000000000000000000000L,
-            expected=123000000000000000000000L,
+                         'max_value': 123000000000000000000000},
+            given=123000000000000000000000,
+            expected=123000000000000000000000,
         )
         yield case(
             init_kwargs=init_kwargs,
-            given=123L,
+            given=123,
             expected=123,
         )
         yield case(
@@ -3046,15 +5181,7 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=0,
         )
         yield case(
-            given=u'0',
-            expected=0,
-        )
-        yield case(
             given='0.0',
-            expected=0,
-        )
-        yield case(
-            given=u'0.0',
             expected=0,
         )
         yield case(
@@ -3062,15 +5189,7 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=1,
         )
         yield case(
-            given=u'1',
-            expected=1,
-        )
-        yield case(
             given='0.1',
-            expected=1,
-        )
-        yield case(
-            given=u'0.1',
             expected=1,
         )
         yield case(
@@ -3078,7 +5197,23 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=1234,
         )
         yield case(
-            given=u'0.1234',
+            given='0.1234',
+            expected=1234,
+        )
+        yield case(
+            given='AS1234',
+            expected=1234,
+        )
+        yield case(
+            given='AS 0.1234',
+            expected=1234,
+        )
+        yield case(
+            given='Asn  \t  0.1234',
+            expected=1234,
+        )
+        yield case(
+            given='asn1234',
             expected=1234,
         )
         yield case(
@@ -3086,15 +5221,7 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=65535,
         )
         yield case(
-            given=u'65535',
-            expected=65535,
-        )
-        yield case(
             given='0.65535',
-            expected=65535,
-        )
-        yield case(
-            given=u'0.65535',
             expected=65535,
         )
         yield case(
@@ -3102,15 +5229,7 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'0.65536',
-            expected=FieldValueError,
-        )
-        yield case(
             given='42.65536',
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'42.65536',
             expected=FieldValueError,
         )
         yield case(
@@ -3118,19 +5237,15 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=65536,
         )
         yield case(
-            given=u'65536',
-            expected=65536,
-        )
-        yield case(
             given='1.0',
             expected=65536,
         )
         yield case(
-            given=u'65537',
+            given='65537',
             expected=65537,
         )
         yield case(
-            given=u'1.1',
+            given='1.1',
             expected=65537,
         )
         yield case(
@@ -3146,7 +5261,7 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'65535.0',
+            given='65535.0',
             expected=0xffff << 16,
         )
         yield case(
@@ -3154,27 +5269,15 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=(0xffff << 16) + 1,
         )
         yield case(
-            given='4294967295',    # max
+            given='4294967295',   # max
             expected=4294967295,
         )
         yield case(
-            given=u'4294967295',   # max
+            given='65535.65535',  # max
             expected=4294967295,
         )
         yield case(
-            given='65535.65535',   # max
-            expected=4294967295,
-        )
-        yield case(
-            given=u'65535.65535',  # max
-            expected=4294967295,
-        )
-        yield case(
-            given='4294967296',    # max + 1
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'4294967296',   # max + 1
+            given='4294967296',   # max + 1
             expected=FieldValueError,
         )
         yield case(
@@ -3182,7 +5285,7 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'65536.1',
+            given='65536.1',
             expected=FieldValueError,
         )
         yield case(
@@ -3194,7 +5297,15 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'asdf',
+            given='\x01',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='\x00',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='asdf',
             expected=FieldValueError,
         )
         yield case(
@@ -3202,7 +5313,7 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'0x1.0xf',
+            given='0x1.0xf',
             expected=FieldValueError,
         )
         yield case(
@@ -3211,14 +5322,240 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
         yield case(
-            given=-1,
+            given='0',
+            expected=0,
+        )
+        yield case(
+            given=b'0',
+            expected=0,
+        )
+        yield case(
+            given=bytearray(b'0'),
+            expected=0,
+        )
+        yield case(
+            given='0.0',
+            expected=0,
+        )
+        yield case(
+            given=b'0.0',
+            expected=0,
+        )
+        yield case(
+            given='1',
+            expected=1,
+        )
+        yield case(
+            given=bytearray(b'1'),
+            expected=1,
+        )
+        yield case(
+            given='0.1',
+            expected=1,
+        )
+        yield case(
+            given=b'0.1',
+            expected=1,
+        )
+        yield case(
+            given='0.1234',
+            expected=1234,
+        )
+        yield case(
+            given=bytearray(b'1234'),
+            expected=1234,
+        )
+        yield case(
+            given='AS1234',
+            expected=1234,
+        )
+        yield case(
+            given=b'AS 0.1234',
+            expected=1234,
+        )
+        yield case(
+            given='asn  \t  0.1234',
+            expected=1234,
+        )
+        yield case(
+            given=bytearray(b'Asn\n\r\n0.1234'),
+            expected=1234,
+        )
+        yield case(
+            given='asn1234',
+            expected=1234,
+        )
+        yield case(
+            given=b'65535',
+            expected=65535,
+        )
+        yield case(
+            given='65535',
+            expected=65535,
+        )
+        yield case(
+            given=bytearray(b'0.65535'),
+            expected=65535,
+        )
+        yield case(
+            given='0.65535',
+            expected=65535,
+        )
+        yield case(
+            given=b'0.65536',
             expected=FieldValueError,
         )
         yield case(
-            given=-1L,
+            given='0.65536',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'42.65536'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='42.65536',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'65536',
+            expected=65536,
+        )
+        yield case(
+            given='65536',
+            expected=65536,
+        )
+        yield case(
+            given=bytearray(b'1.0'),
+            expected=65536,
+        )
+        yield case(
+            given='65537',
+            expected=65537,
+        )
+        yield case(
+            given=b'1.1',
+            expected=65537,
+        )
+        yield case(
+            given='-0',   # XXX: should it be allowed?
+            expected=0,
+        )
+        yield case(
+            given=bytearray(b'-1'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='0.-1',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'-1.0',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='65535.0',
+            expected=0xffff << 16,
+        )
+        yield case(
+            given=bytearray(b'65535.1'),
+            expected=(0xffff << 16) + 1,
+        )
+        yield case(
+            given='65534.65535',
+            expected=(0xffff << 16) - 1,
+        )
+        yield case(
+            given=b'4294967295',   # max
+            expected=4294967295,
+        )
+        yield case(
+            given='4294967295',    # max
+            expected=4294967295,
+        )
+        yield case(
+            given=bytearray(b'65535.65535'),   # max
+            expected=4294967295,
+        )
+        yield case(
+            given='65535.65535',   # max
+            expected=4294967295,
+        )
+        yield case(
+            given=b'4294967296',   # max + 1
+            expected=FieldValueError,
+        )
+        yield case(
+            given='4294967296',    # max + 1
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'65536.0'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='65536.1',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'65536.65536',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='\x01',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'\x01',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'\x01'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='\x00',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'\x00',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'\x00'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='asdf',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'0.0.0',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='0x1.0xf',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'0xFF'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=-1,
             expected=FieldValueError,
         )
         yield case(
@@ -3226,7 +5563,7 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=0,
         )
         yield case(
-            given=1234L,
+            given=1234,
             expected=1234,
         )
         yield case(
@@ -3262,10 +5599,6 @@ class TestASNField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=decimal.Decimal('123.0'),
-            expected=FieldValueError,
-        )
-        yield case(
             given=None,
             expected=FieldValueError,
         )
@@ -3281,7 +5614,7 @@ class TestPortField(FieldTestMixin, unittest.TestCase):
             expected=0,
         )
         yield case(
-            given=u'1',
+            given='1',
             expected=1,
         )
         yield case(
@@ -3314,8 +5647,86 @@ class TestPortField(FieldTestMixin, unittest.TestCase):
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='0',        # min
+            expected=0,
+        )
+        yield case(
+            given=b'0',       # min
+            expected=0,
+        )
+        yield case(
+            given=bytearray(b'0'),       # min
+            expected=0,
+        )
+        yield case(
+            given='1',
+            expected=1,
+        )
+        yield case(
+            given=b'1',
+            expected=1,
+        )
+        yield case(
+            given=bytearray(b'1'),
+            expected=1,
+        )
+        yield case(
+            given='-1',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'-1',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'-1'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='65535',    # max
+            expected=65535,
+        )
+        yield case(
+            given=b'65535',   # max
+            expected=65535,
+        )
+        yield case(
+            given=bytearray(b'65535'),   # max
+            expected=65535,
+        )
+        yield case(
+            given='65536',    # max + 1
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'65536',   # max + 1
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'65536'),   # max + 1
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='1F',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'0.1'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='1.0',
+            expected=FieldValueError,
+        )
         yield case(
             given=-1,
             expected=FieldValueError,
@@ -3334,10 +5745,6 @@ class TestPortField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given=123,
-            expected=123,
-        )
-        yield case(
-            given=123L,
             expected=123,
         )
         yield case(
@@ -3369,26 +5776,22 @@ class TestEmailSimplifiedField(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             given='foo@example.com',
-            expected=u'foo@example.com',
-        )
-        yield case(
-            given=u'Gęślą@jaźń.coM',
-            expected=u'Gęślą@jaźń.coM',
+            expected='foo@example.com',
         )
         yield case(
             given='Gęślą@jaźń.coM',
-            expected=u'Gęślą@jaźń.coM',
+            expected='Gęślą@jaźń.coM',
         )
         yield case(
-            given=u'example.com',
+            given='example.com',
             expected=FieldValueError,
         )
         yield case(
-            given=u'foo@ab' + '.c' * 124,
-            expected=u'foo@ab' + '.c' * 124,
+            given='foo@ab' + '.c' * 124,
+            expected='foo@ab' + '.c' * 124,
         )
         yield case(
-            given=u'foo@abx' + '.c' * 124,
+            given='foo@abx' + '.c' * 124,
             expected=FieldValueError,
         )
         yield case(
@@ -3396,7 +5799,7 @@ class TestEmailSimplifiedField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'foo@example.com ',
+            given='foo@example.com ',
             expected=FieldValueError,
         )
         yield case(
@@ -3404,7 +5807,7 @@ class TestEmailSimplifiedField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'foo bar@example.com',
+            given='foo bar@example.com',
             expected=FieldValueError,
         )
         yield case(
@@ -3412,7 +5815,7 @@ class TestEmailSimplifiedField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'@',
+            given='@',
             expected=FieldValueError,
         )
         yield case(
@@ -3420,13 +5823,111 @@ class TestEmailSimplifiedField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'',
+            given='',
             expected=FieldValueError,
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given='foo@example.com',
+            expected='foo@example.com',
+        )
+        yield case(
+            given=b'foo@example.com',
+            expected='foo@example.com',
+        )
+        yield case(
+            given=bytearray(b'foo@example.com'),
+            expected='foo@example.com',
+        )
+        yield case(
+            given='Gęślą@jaźń.coM',
+            expected='Gęślą@jaźń.coM',
+        )
+        yield case(
+            given='Gęślą@jaźń.coM'.encode('utf-8'),
+            expected='Gęślą@jaźń.coM',
+        )
+        yield case(
+            given=bytearray('Gęślą@jaźń.coM'.encode('utf-8')),
+            expected='Gęślą@jaźń.coM',
+        )
+        yield case(
+            given='example.com',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'example.com',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'example.com'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='foo@ab' + '.c' * 124,
+            expected='foo@ab' + '.c' * 124,
+        )
+        yield case(
+            given=b'foo@ab' + b'.c' * 124,
+            expected='foo@ab' + '.c' * 124,
+        )
+        yield case(
+            given=bytearray(b'foo@ab' + b'.c' * 124),
+            expected='foo@ab' + '.c' * 124,
+        )
+        yield case(
+            given='foo@abx' + '.c' * 124,
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'foo@abx' + b'.c' * 124,
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'foo@abx' + b'.c' * 124),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=' foo@example.com',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b' foo@example.com',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='foo@example.com ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'foo @ example.com'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='foo bar@example.com',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'foo@exam ple.com',
+            expected=FieldValueError,
+        )
+        yield case(
+            given='@',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'a@b@example.com'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'',
+            expected=FieldValueError,
+        )
         yield case(
             given=123,
             expected=TypeError,
@@ -3444,30 +5945,26 @@ class TestIBANSimplifiedField(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             given='GB34WEST1234567890',
-            expected=u'GB34WEST1234567890',
-        )
-        yield case(
-            given=u'GB34WEST1234567890',
-            expected=u'GB34WEST1234567890',
+            expected='GB34WEST1234567890',
         )
         yield case(
             given='gb34west1234567890',
-            expected=U'GB34WEST1234567890',
+            expected='GB34WEST1234567890',
         )
         yield case(
-            given=u'gb34WEst1234567890',
-            expected=U'GB34WEST1234567890',
+            given='gb34WEst1234567890',
+            expected='GB34WEST1234567890',
         )
         yield case(
             given='GB34',
             expected=FieldValueError,
         )
         yield case(
-            given=u'34WEST1234567890',
+            given='34WEST1234567890',
             expected=FieldValueError,
         )
         yield case(
-            given=u'GBWEST1234567890',
+            given='GBWEST1234567890',
             expected=FieldValueError,
         )
         yield case(
@@ -3475,7 +5972,7 @@ class TestIBANSimplifiedField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'G234WEST1234567890',
+            given='G234WEST1234567890',
             expected=FieldValueError,
         )
         yield case(
@@ -3491,13 +5988,15 @@ class TestIBANSimplifiedField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'',
+            given='',
             expected=FieldValueError,
         )
 
     def cases__clean_result_value(self):
         for c in self.cases__clean_param_value():
             yield c
+            yield c._replace(given=c.given.encode('utf-8'))
+            yield c._replace(given=bytearray(c.given.encode('utf-8')))
         yield case(
             given=123,
             expected=TypeError,
@@ -3521,65 +6020,78 @@ class TestListOfDictsField(FieldTestMixin, unittest.TestCase):
     def cases__clean_result_value(self):
         obj = ArbitraryObject()
         yield case(
-            given=[{'foo': '12.23.45.56', 'bar': {1234: u'X'}, 'spam': obj}, {}],
-            expected=[{u'foo': '12.23.45.56', u'bar': {1234: u'X'}, u'spam': obj}, {}],
+            given=[{'foo': b'12.23.45.56', 'bar': {1234: 'X'}, 'spam': obj}, {}],
+            expected=[{'foo': b'12.23.45.56', 'bar': {1234: 'X'}, 'spam': obj}, {}],
+        )
+        yield case(
+            given=[{'foo': b'12.23.45.56'}],
+            expected=[{'foo': b'12.23.45.56'}],
+        )
+        yield case(
+            given=[{'foo': bytearray(b'12.23.45.56')}],
+            expected=[{'foo': bytearray(b'12.23.45.56')}],
         )
         yield case(
             given=[{'foo': '12.23.45.56'}],
-            expected=[{u'foo': '12.23.45.56'}],
+            expected=[{'foo': '12.23.45.56'}],
         )
         yield case(
-            given=[{'fooł': '12.23.45.56'}],
-            expected=UnicodeError,  # 'fooł' is not an ASCII-only string
+            given=[{'fooł': b'12.23.45.56'}],
+            expected=ValueError,  # 'fooł' is not an ASCII-only str
         )
         yield case(
-            given=[{u'fooł': '12.23.45.56'}],
-            expected=UnicodeError,  # 'fooł' is not an ASCII-only string
-        )
-        yield case(
-            init_kwargs={'key_to_subfield_factory': {'foo': IPv4Field}},
-            given=[{u'foo': '12.23.45.56'}],
-            expected=[{u'foo': u'12.23.45.56'}],
+            given=[{'fooł'.encode('utf-8'): b'12.23.45.56'}],
+            expected=TypeError,   # 'fooł'.encode('utf-8') is not an ASCII-only str
         )
         yield case(
             init_kwargs={'key_to_subfield_factory': {'foo': IPv4Field}},
-            given=[{'foo': u'12.23.45.56'}],
-            expected=[{u'foo': u'12.23.45.56'}],
+            given=[{'foo': b'12.23.45.56'}],
+            expected=[{'foo': '12.23.45.56'}],
+        )
+        yield case(
+            init_kwargs={'key_to_subfield_factory': {'foo': IPv4Field}},
+            given=[{'foo': '12.23.45.56'}],
+            expected=[{'foo': '12.23.45.56'}],
         )
         yield case(
             init_kwargs={'key_to_subfield_factory': {'foo': UnicodeField}},
-            given=[{'bar': 'łódź'}],
+            given=[{'foo': 'łódź'.encode('utf-8')}],
+            expected=[{'foo': 'łódź'}],
+        )
+        yield case(
+            init_kwargs={'key_to_subfield_factory': {'foo': UnicodeField}},
+            given=[{'bar': 'łódź'.encode('utf-8')}],
             expected=ValueError,  # 'bar' not in key_to_subfield_factory
         )
         yield case(
             init_kwargs={'key_to_subfield_factory': {'foo': IPv4Field}},
-            given=[{'foo': '12.23.45.56', 'bar': 'łódź'}],
+            given=[{'foo': b'12.23.45.56', 'bar': 'łódź'.encode('utf-8')}],
             expected=ValueError,  # 'bar' not in key_to_subfield_factory
         )
         yield case(
             init_kwargs={'key_to_subfield_factory': {None: IPv4Field}},
-            given=[{'bar': 'łódź'}],
-            expected=ValueError,  # 'łódź' is not a valid IPv4 address
+            given=[{'bar': 'łódź'.encode('utf-8')}],
+            expected=ValueError,  # 'łódź'.encode('utf-8') is not a valid IPv4 address
         )
         yield case(
             init_kwargs={'key_to_subfield_factory': {'foo': IPv4Field, None: IPv4Field}},
-            given=[{'foo': '12.23.45.56', 'bar': 'łódź'}],
-            expected=ValueError,  # 'łódź' is not a valid IPv4 address
+            given=[{'foo': b'12.23.45.56', 'bar': 'łódź'.encode('utf-8')}],
+            expected=ValueError,  # 'łódź'.encode('utf-8') is not a valid IPv4 address
         )
         yield case(
             init_kwargs={'key_to_subfield_factory': {None: UnicodeField}},
-            given=[{'bar': 'łódź'}],
-            expected=[{u'bar': u'łódź'}],
+            given=[{'bar': 'łódź'.encode('utf-8')}],
+            expected=[{'bar': 'łódź'}],
         )
         yield case(
             init_kwargs={'key_to_subfield_factory': {'foo': IPv4Field, None: UnicodeField}},
-            given=[{'bar': 'łódź'}],
-            expected=[{u'bar': u'łódź'}],
+            given=[{'bar': 'łódź'.encode('utf-8')}],
+            expected=[{'bar': 'łódź'}],
         )
         yield case(
             init_kwargs={'key_to_subfield_factory': {'foo': IPv4Field, None: UnicodeField}},
-            given=[{'foo': '12.23.45.56', 'bar': 'łódź'}],
-            expected=[{u'foo': u'12.23.45.56', u'bar': u'łódź'}],
+            given=[{'foo': b'12.23.45.56', 'bar': 'łódź'.encode('utf-8')}],
+            expected=[{'foo': '12.23.45.56', 'bar': 'łódź'}],
         )
         yield case(
             init_kwargs={'allow_empty': True},
@@ -3595,23 +6107,30 @@ class TestListOfDictsField(FieldTestMixin, unittest.TestCase):
             expected=[],
         )
         yield case(
-            given=[{'foo': '12.23.45.56', 'bar': 3}, {'foo': '12.23.45.56'}],
-            expected=[{u'foo': '12.23.45.56', u'bar': 3}, {u'foo': '12.23.45.56'}],
+            given=[{'foo': b'12.23.45.56', 'bar': 3}, {'foo': b'12.23.45.56'}],
+            expected=[{'foo': b'12.23.45.56', 'bar': 3}, {'foo': b'12.23.45.56'}],
         )
         yield case(
             init_kwargs={
                 'must_be_unique': ('bar',),
             },
-            given=[{u'foo': '12.23.45.56', 'bar': 3}, {u'foo': u'12.23.45.56'}],
-            expected=[{u'foo': '12.23.45.56', u'bar': 3}, {u'foo': u'12.23.45.56'}],
+            given=[{'foo': b'12.23.45.56', 'bar': 3}, {'foo': '12.23.45.56'}],
+            expected=[{'foo': b'12.23.45.56', 'bar': 3}, {'foo': '12.23.45.56'}],
         )
         yield case(
             init_kwargs={
                 'must_be_unique': ('bar',),
                 'key_to_subfield_factory': {'foo': IPv4Field, 'bar': IntegerField},
             },
-            given=[{'foo': '12.23.45.56', 'bar': 3}, {u'foo': u'12.23.45.56'}],
-            expected=[{u'foo': u'12.23.45.56', u'bar': 3}, {u'foo': u'12.23.45.56'}],
+            given=[{'foo': b'12.23.45.56', 'bar': 3}, {'foo': '12.23.45.56'}],
+            expected=[{'foo': '12.23.45.56', 'bar': 3}, {'foo': '12.23.45.56'}],
+        )
+        yield case(
+            init_kwargs={
+                'must_be_unique': ('foo',),
+            },
+            given=[{'foo': b'12.23.45.56', 'bar': 3}, {'foo': b'12.23.45.56'}],
+            expected=ValueError,
         )
         yield case(
             init_kwargs={
@@ -3623,9 +6142,32 @@ class TestListOfDictsField(FieldTestMixin, unittest.TestCase):
         yield case(
             init_kwargs={
                 'must_be_unique': ('foo',),
+            },
+            given=[{'foo': b'12.23.45.56', 'bar': 3}, {'foo': '12.23.45.56'}],
+            expected=[{'foo': b'12.23.45.56', 'bar': 3}, {'foo': '12.23.45.56'}],
+        )
+        yield case(
+            init_kwargs={
+                'must_be_unique': ('foo',),
                 'key_to_subfield_factory': {'foo': IPv4Field, 'bar': IntegerField},
             },
-            given=[{'foo': '12.23.45.56', 'bar': 3}, {u'foo': u'12.23.45.56'}],
+            given=[{'foo': b'12.23.45.56', 'bar': 3}, {'foo': b'12.23.45.56'}],
+            expected=ValueError,
+        )
+        yield case(
+            init_kwargs={
+                'must_be_unique': ('foo',),
+                'key_to_subfield_factory': {'foo': IPv4Field, 'bar': IntegerField},
+            },
+            given=[{'foo': '12.23.45.56', 'bar': 3}, {'foo': '12.23.45.56'}],
+            expected=ValueError,
+        )
+        yield case(
+            init_kwargs={
+                'must_be_unique': ('foo',),
+                'key_to_subfield_factory': {'foo': IPv4Field, 'bar': IntegerField},
+            },
+            given=[{'foo': b'12.23.45.56', 'bar': 3}, {'foo': '12.23.45.56'}],
             expected=ValueError,
         )
         yield case(
@@ -3655,7 +6197,7 @@ class TestListOfDictsField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             init_kwargs={'must_be_unique': None},
-            given=[{'foo': '12.23.45.56'}],
+            given=[{'foo': b'12.23.45.56'}],
             expected=TypeError,
         )
 
@@ -3674,64 +6216,77 @@ class TestAddressField(FieldTestMixin, unittest.TestCase):
     def cases__clean_result_value(self):
         yield case(
             given=[{'ip': '12.23.45.56'}],
-            expected=[{u'ip': u'12.23.45.56'}],
+            expected=[{'ip': '12.23.45.56'}],
         )
         yield case(
-            given=[{'ip': '12.23.45.56', 'cc': 'PL', 'asn': 123}],
-            expected=[{u'ip': u'12.23.45.56', u'cc': u'PL', u'asn': 123}],
+            given=[{'ip': b'12.23.45.56', 'cc': b'PL', 'asn': 123}],
+            expected=[{'ip': '12.23.45.56', 'cc': 'PL', 'asn': 123}],
         )
         yield case(
-            given=({'ip': '12.23.45.56', 'cc': 'PL', 'asn': '0.123'},),
-            expected=[{u'ip': u'12.23.45.56', u'cc': u'PL', u'asn': 123}],
+            given=({'ip': b'12.23.45.56', 'cc': b'PL', 'asn': b'0.123'},),
+            expected=[{'ip': '12.23.45.56', 'cc': 'PL', 'asn': 123}],
         )
         yield case(
-            given=[{u'ip': u'12.23.45.56', u'cc': u'pL', u'asn': 123L}],
-            expected=[{u'ip': u'12.23.45.56', u'cc': u'PL', u'asn': 123}],
+            given=[{'ip': '12.23.45.56', 'cc': 'pL', 'asn': 123}],
+            expected=[{'ip': '12.23.45.56', 'cc': 'PL', 'asn': 123}],
         )
         yield case(
             given=(
-                {u'ip': u'12.23.45.56', u'cc': u'pL', u'asn': 2 ** 32 - 1},),
+                {'ip': '12.23.45.56', 'cc': 'pL', 'asn': 2 ** 32 - 1},),
             expected=[
-                {u'ip': u'12.23.45.56', u'cc': u'PL', u'asn': 2 ** 32 - 1}],
+                {'ip': '12.23.45.56', 'cc': 'PL', 'asn': 2 ** 32 - 1}],
         )
         yield case(
             given=[
-                {'ip': u'12.23.45.56', 'cc': 'pl', 'asn': '123'},
-                {u'ip': '78.90.122.134', 'asn': u'12345678'},
+                {'ip': '12.23.45.56', 'cc': b'pl', 'asn': b'123'},
+                {'ip': '78.90.122.134', 'asn': '12345678'},
             ],
             expected=[
-                {u'ip': u'12.23.45.56', u'cc': u'PL', u'asn': 123},
-                {u'ip': u'78.90.122.134', u'asn': 12345678},
+                {'ip': '12.23.45.56', 'cc': 'PL', 'asn': 123},
+                {'ip': '78.90.122.134', 'asn': 12345678},
             ],
         )
         yield case(
             # bad ip
-            given=[{'ip': u'12.23.45.', 'cc': 'PL', 'asn': 123}],
+            given=[{'ip': '12.23.45.', 'cc': b'PL', 'asn': 123}],
             expected=FieldValueError,
         )
         yield case(
-            # ip must be a str or unicode
+            # ip must be a str or bytes/bytearray
             given=[
-                {'ip': [u'12.23.45.56', u'12.23.45.45'],
+                {'ip': ['12.23.45.56', '12.23.45.45'],
                  'cc': 'PL', 'asn': 123}],
             expected=TypeError,
         )
         yield case(
             # bad cc
-            given=[{'ip': u'12.23.45.56', 'cc': 'PRL', 'asn': 123}],
+            given=[{'ip': '12.23.45.56', 'cc': 'PRL', 'asn': 123}],
             expected=FieldValueError,
         )
         yield case(
             # bad asn
-            given=[{'ip': u'12.23.45.56', 'cc': 'PL', 'asn': 2 ** 32}],
+            given=[{'ip': '12.23.45.56', 'cc': 'PL', 'asn': 2 ** 32}],
             expected=FieldValueError,
         )
         yield case(
             # illegal key
             given=[
-                {'ip': u'12.23.45.56', 'cc': 'PL', 'asn': 123,
+                {'ip': '12.23.45.56', 'cc': 'PL', 'asn': 123,
                  'fqdn': 'www.example.com'}],
             expected=ValueError,
+        )
+        yield case(
+            # illegal key b'asn' (also its type is wrong...)
+            given=[{'ip': b'12.23.45.56', 'cc': b'PL', b'asn': 123}],
+            expected=ValueError,
+        )
+        class _EqualToStrASN:
+            def __eq__(self, other): return other == 'asn'
+            def __hash__(self): return hash('asn')
+        yield case(
+            # key *equal* to 'asn' string but of wrong type (!)
+            given=[{'ip': b'12.23.45.56', 'cc': b'PL', _EqualToStrASN(): 123}],
+            expected=TypeError,
         )
         yield case(
             # missing 'ip' key
@@ -3741,8 +6296,8 @@ class TestAddressField(FieldTestMixin, unittest.TestCase):
         yield case(
             # 'ip' value not unique
             given=[
-                {'ip': u'12.23.45.56', 'cc': 'pl', 'asn': '123'},
-                {u'ip': '12.23.45.56', 'asn': u'12345678'},
+                {'ip': '12.23.45.56', 'cc': 'pl', 'asn': '123'},
+                {'ip': '12.23.45.56', 'asn': '12345678'},
             ],
             expected=ValueError,
         )
@@ -3780,22 +6335,14 @@ class TestDirField(FieldTestMixin, unittest.TestCase):
     def cases__clean_param_value(self):
         yield case(
             given='src',
-            expected=u'src',
-        )
-        yield case(
-            given=u'src',
-            expected=u'src',
+            expected='src',
         )
         yield case(
             given='dst',
-            expected=u'dst',
+            expected='dst',
         )
         yield case(
-            given=u'dst',
-            expected=u'dst',
-        )
-        yield case(
-            given=u'DST',
+            given='DST',
             expected=FieldValueError,
         )
         yield case(
@@ -3810,6 +6357,8 @@ class TestDirField(FieldTestMixin, unittest.TestCase):
     def cases__clean_result_value(self):
         for c in self.cases__clean_param_value():
             yield c
+            yield c._replace(given=c.given.encode('utf-8'))
+            yield c._replace(given=bytearray(c.given.encode('utf-8')))
         yield case(
             given=123,
             expected=TypeError,
@@ -3830,46 +6379,46 @@ class TestExtendedAddressField(TestAddressField):
             yield c
 
         yield case(
-            given=[{u'ipv6': u'2001:0db8:85a3:0000:0000:8a2e:0370:7334'}],
-            expected=[{u'ipv6': u'2001:db8:85a3::8a2e:370:7334'}],
+            given=[{'ipv6': '2001:0db8:85a3:0000:0000:8a2e:0370:7334'}],
+            expected=[{'ipv6': '2001:db8:85a3::8a2e:370:7334'}],
         )
         yield case(
             given=[{
-                'ipv6': '2001:0DB8:85A3:0000:0000:8A2E:0370:7334',
-                'cc': 'pL',
-                'asn': 123L,
+                'ipv6': b'2001:0DB8:85A3:0000:0000:8A2E:0370:7334',
+                'cc': b'pL',
+                'asn': 123,
             }],
             expected=[{
-                u'ipv6': u'2001:db8:85a3::8a2e:370:7334',
-                u'cc': u'PL',
-                u'asn': 123,
+                'ipv6': '2001:db8:85a3::8a2e:370:7334',
+                'cc': 'PL',
+                'asn': 123,
             }],
         )
         yield case(
             given=[
-                {'ipv6': u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'cc': 'pl', u'dir': 'dst'},
-                {u'ipv6': '0000::0001', 'dir': u'src', u'rdns': 'example.com'},
-                {'ip': u'12.23.45.56', u'dir': 'src', 'cc': 'pl', 'asn': '123'},
+                {'ipv6': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'cc': 'pl', 'dir': b'dst'},
+                {'ipv6': '0000::0001', 'dir': 'src', 'rdns': 'example.com'},
+                {'ip': '12.23.45.56', 'dir': 'src', 'cc': b'pl', 'asn': '123'},
             ],
             expected=[
-                {u'ipv6': u'2001:db8:85a3::8a2e:370:7334', u'cc': u'PL', u'dir': u'dst'},
-                {u'ipv6': u'::1', u'dir': u'src', u'rdns': u'example.com'},
-                {u'ip': u'12.23.45.56', u'dir': u'src', u'cc': u'PL', u'asn': 123},
+                {'ipv6': '2001:db8:85a3::8a2e:370:7334', 'cc': 'PL', 'dir': 'dst'},
+                {'ipv6': '::1', 'dir': 'src', 'rdns': 'example.com'},
+                {'ip': '12.23.45.56', 'dir': 'src', 'cc': 'PL', 'asn': 123},
             ],
         )
         yield case(
             # bad ipv6
             given=[{
-                'ip': u'2001:0db8:85a3:0000:0000:8a2e:0370:7334:',
+                'ip': '2001:0db8:85a3:0000:0000:8a2e:0370:7334:',
                 'cc': 'PL',
                 'asn': 123,
             }],
             expected=FieldValueError,
         )
         yield case(
-            # ipv6 must be a str or unicode
+            # ipv6 must be a str or bytes/bytearray
             given=[{
-                'ipv6': [u'2001:0db8:85a3:0000:0000:8a2e:0370:7334'],
+                'ipv6': ['2001:0db8:85a3:0000:0000:8a2e:0370:7334'],
                 'cc': 'PL',
                 'asn': 123,
             }],
@@ -3878,7 +6427,7 @@ class TestExtendedAddressField(TestAddressField):
         yield case(
             # illegal key
             given=[{
-                'ipv6': u'2001:0db8:85a3:0000:0000:8a2e:0370:7334',
+                'ipv6': '2001:0db8:85a3:0000:0000:8a2e:0370:7334',
                 'illegal': 'foo',
             }],
             expected=ValueError,
@@ -3886,30 +6435,30 @@ class TestExtendedAddressField(TestAddressField):
         yield case(
             # 'ip' value not unique
             given=[
-                {'ipv6': u'2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'cc': 'pl', u'dir': 'dst'},
-                {u'ipv6': '0000::0001', 'dir': u'src', u'rdns': 'example.com'},
-                {u'ip': u'12.23.45.56', u'dir': 'src', 'cc': 'pl', 'asn': '123'},
-                {'ip': '12.23.45.56', u'dir': 'src', 'cc': 'pl', 'asn': '123'},
+                {'ipv6': '2001:0db8:85a3:0000:0000:8a2e:0370:7334', 'cc': 'pl', 'dir': 'dst'},
+                {'ipv6': '0000::0001', 'dir': 'src', 'rdns': 'example.com'},
+                {'ip': '12.23.45.56', 'dir': 'src', 'cc': 'pl', 'asn': '123'},
+                {'ip': b'12.23.45.56', 'dir': 'src', 'cc': 'pl', 'asn': '123'},
             ],
             expected=ValueError,
         )
         yield case(
             # 'ipv6' value not unique
             given=[
-                {'ipv6': u'0000:0000:0000:0000:0000:0000:0000:0001', 'cc': 'pl', u'dir': 'dst'},
-                {u'ipv6': '0000::0001', 'dir': u'src', u'rdns': 'example.com'},
-                {'ip': u'12.23.45.56', u'dir': 'src', 'cc': 'pl', 'asn': '123'},
+                {'ipv6': '0000:0000:0000:0000:0000:0000:0000:0001', 'cc': 'pl', 'dir': 'dst'},
+                {'ipv6': b'0000::0001', 'dir': 'src', 'rdns': 'example.com'},
+                {'ip': '12.23.45.56', 'dir': 'src', 'cc': 'pl', 'asn': '123'},
             ],
             expected=ValueError,
         )
         yield case(
             # bad dir
-            given=[{'ip': u'12.23.45.56', 'dir': 'fooo'}],
+            given=[{'ip': '12.23.45.56', 'dir': 'fooo'}],
             expected=FieldValueError,
         )
         yield case(
             # bad rdns
-            given=[{'ip': u'12.23.45.56', 'rdns': '.example.com'}],
+            given=[{'ip': '12.23.45.56', 'rdns': '.example.com'}],
             expected=FieldValueError,
         )
         yield case(

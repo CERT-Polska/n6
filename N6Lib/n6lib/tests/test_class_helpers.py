@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import unittest
 
@@ -98,8 +96,10 @@ class Test__attr_repr(unittest.TestCase):
                 self.huhuhu = 'huhuhuuuu'
 
         f = Foo()
-        self.assertEqual(repr(f), "<Foo a='aaa'>")
+        self.assertEqual(repr(f), "<Test__attr_repr.test.<locals>"
+                                  ".Foo a='aaa'>")
 
         s = Spam()
         self.assertEqual(repr(s),
-                         "<Spam bar='bar', foo='foooo', spam=42, ham=44>")
+                         "<Test__attr_repr.test.<locals>"
+                         ".Spam bar='bar', foo='foooo', spam=42, ham=44>")

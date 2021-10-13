@@ -1,10 +1,13 @@
 # System Preparation
 
+**TBD: the following description needs an update regarding the
+components that now work under Python 3.9.**
+
 ## RabbitMQ
 
 RabbitMQ is an open source message broker software (sometimes called message-oriented middleware)
 that implements the Advanced Message Queuing Protocol (AMQP). RabbitMQ is responsible for
-communication between most of the *n6* components.
+communication between most of the _n6_ components.
 
 ### Setup
 
@@ -12,7 +15,7 @@ communication between most of the *n6* components.
 $ apt-get install gnupg2 apt-transport-https curl
 $ curl https://dl.bintray.com/rabbitmq/Keys/rabbitmq-release-signing-key.asc | apt-key add -
 $ echo "deb https://dl.bintray.com/rabbitmq/debian buster main" | tee /etc/apt/sources.list.d/bintray.rabbitmq.list
-$ echo "deb https://dl.bintray.com/rabbitmq-erlang/debian buster erlang-22.x" | sudo tee -a /etc/apt/sources.list.d/bintray.erlang.list 
+$ echo "deb https://dl.bintray.com/rabbitmq-erlang/debian buster erlang-22.x" | sudo tee -a /etc/apt/sources.list.d/bintray.erlang.list
 $ apt-get update
 $ apt-get install rabbitmq-server
 ```
@@ -38,6 +41,7 @@ $ systemctl status rabbitmq-server
 ```
 
 ### Plugins
+
 Enable necessary plugins, like SSL or management panel plugin:
 
 ```bash
@@ -79,11 +83,11 @@ web browser. The default address is `http://localhost:15672`, or `https://localh
 if you have used the example config. You can use default `guest` credentials:
 
 ```text
-default user: guest     
+default user: guest
 default password: guest
 ```
 
-Or you can create a new user, allow him to use the *Management GUI* and give him read/write
+Or you can create a new user, allow him to use the _Management GUI_ and give him read/write
 permissions to resources within `/` vhost:
 
 ```bash
@@ -100,11 +104,11 @@ $ sudo rabbitmqctl set_user_tags <username> administrator
 
 ## MariaDB
 
-*n6* uses two SQL databases - event database and *Auth DB*.
+_n6_ uses two SQL databases - event database and _Auth DB_.
 The event database primarily stores processed information about network events and possible
 security incidents, also their relation to organizations linked to clients.
-The *Auth DB* database is used for client authorization. It stores clients' permissions
-and information about allowed resources (allowed API endpoints, allowed *subsources*).
+The _Auth DB_ database is used for client authorization. It stores clients' permissions
+and information about allowed resources (allowed API endpoints, allowed _subsources_).
 
 ```bash
 $ apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 0xF1656F24C74CD1D8
@@ -142,7 +146,6 @@ running, look for its status, it should be `active`.
    CGroup: /system.slice/mariadb.service
            └─6655 /usr/sbin/mysqld
 ```
-
 
 ### Initialize system database
 
@@ -238,10 +241,9 @@ TokuDB_fractal_tree_info
 TokuDB_fractal_tree_block_map
 ```
 
-
 ## MongoDB
 
-*n6* uses MongoDB as archival database. Events gathered by collectors will be stored in MongoDB
+_n6_ uses MongoDB as archival database. Events gathered by collectors will be stored in MongoDB
 and can be restored in case of errors.
 
 Installation steps below are based on
@@ -257,7 +259,7 @@ $ apt-get update
 $ apt-get install -y mongodb-org
 ```
 
-Check MongoDB version. *n6* supports versions `4.2.*`:
+Check MongoDB version. _n6_ supports versions `4.2.*`:
 
 ```bash
 $ mongod --version
@@ -325,7 +327,7 @@ $ systemctl status mongod
            └─21281 /usr/bin/mongod --config /etc/mongod.conf
 
 Jan 14 18:12:21 debian systemd[1]: Started MongoDB Database Server.
-``` 
+```
 
 Check if you are able to connect to MongoDB console:
 
@@ -339,17 +341,16 @@ MongoDB server version: 4.2.3
 >
 ```
 
-
 ## Apache HTTP Server
 
-_n6_ uses Apache as an HTTP server for services like *n6 REST API*, *n6 Portal API*
-or *n6 Admin Panel* `N6RestAPI` or `N6AdminPanel`.
+_n6_ uses Apache as an HTTP server for services like _n6 REST API_, _n6 Portal API_
+or _n6 Admin Panel_ `N6RestAPI` or `N6AdminPanel`.
 
 ```bash
 $ sudo apt-get install apache2 libapache2-mod-wsgi
 ```
 
-Check if the `apache2` service is ran by `systemd`: 
+Check if the `apache2` service is ran by `systemd`:
 
 ```bash
 $ systemctl status apache2
@@ -393,7 +394,6 @@ To run modules you need to reload/restart `apache2`:
 $ systemctl restart apache2
 ```
 
-
 ## Debian dependencies
 
 You should install the essential Debian packages:
@@ -407,14 +407,12 @@ $ sudo apt-get install \
     curl \
     default-libmysqlclient-dev \
     iputils-ping \
-    ldap-utils \
     libapache2-mod-wsgi \
     libattr1-dev \
     libcurl4-openssl-dev \
     libffi-dev \
     libfuse-dev \
     libgeoip1 \
-    libldap2-dev \
     libsasl2-dev \
     libssl-dev \
     libxml2-dev \
@@ -425,7 +423,6 @@ $ sudo apt-get install \
     pkg-config \
     python \
     python2.7-dev \
-    python-ldap \
     python-mysqldb \
     python-pastedeploy \
     python-pip \
@@ -443,7 +440,7 @@ $ sudo apt-get clean
 
 ## Creating the _dataman_ user
 
-Let *n6* be run by the `dataman` OS user.  First, let us create its
+Let _n6_ be run by the `dataman` OS user. First, let us create its
 initial login group:
 
 ```bash
@@ -451,7 +448,7 @@ $ /usr/sbin/groupadd dataman
 ```
 
 Now, when creating the `dataman` user, let us ensure that the user is
-also added to the `www-data` group (so that access to *Apache*'s files
+also added to the `www-data` group (so that access to _Apache_'s files
 is granted).
 
 ```bash

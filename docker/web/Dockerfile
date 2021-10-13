@@ -1,17 +1,24 @@
 FROM n6_base
 
+ARG action=develop
+
 COPY --chown=dataman:dataman . n6
 
 RUN . ~/env/bin/activate; \
-    cd /home/dataman/n6/N6Portal/gui \
-        && tar -zxf ~/node_modules.tar.gz \
-        && cp -f /home/dataman/n6/etc/web/conf/gui-config.json src/config/config.json \
-        && npm run build; \
+    sudo npm install --global yarn; \
+    cd /home/dataman/n6/N6Portal/react_app \
+        && yarn \
+        && yarn build; \
     # install n6
     cd ~/n6 && \
-    ./do_setup.py -a develop N6Lib N6SDK N6RestApi N6Portal N6AdminPanel N6BrokerAuthApi; \
+    ./do_setup.py -a $action N6Lib-py2 N6SDK-py2 N6RestApi N6Portal N6BrokerAuthApi; \
     # configs
     cp -f ~/n6/etc/n6/*.conf /etc/n6/;
+
+# Install web components in Python 3 environment.
+RUN . ~/env_py3k/bin/activate; \
+    cd ~/n6 && \
+    ./do_setup.py -a $action N6Lib N6SDK N6RestApi N6Portal N6AdminPanel;
 
 USER root
 
@@ -20,7 +27,6 @@ RUN a2enmod wsgi && \
     a2enmod ssl && \
     a2enmod rewrite && \
     a2ensite 000-default && \
-    a2ensite n6-public-data && \
     a2ensite n6-api && \
     a2ensite n6-portal && \
     a2ensite n6-adminpanel
@@ -34,12 +40,14 @@ CMD curl --insecure -f https://localhost/api/info || exit 1
 
 # Some helpful links:
 # Admin Panel: https://localhost:4444/
-# N6 Portal: https://localhost
-# N6 API: https://localhost/api/info
-# https://localhost/login
+# N6 Portal GUI: https://localhost
+# N6 Portal API: https://localhost/api
+# N6 Portal API - user's authentication and authorization status info: https://localhost/api/info
+# N6 Portal GUI - a sign-in view https://localhost/login
 
-# Credidentials for default user
+# Credentials for default user
 # Username: login@example.com
+# Password: entered when creating the user
 # Organization: example.com
 
 # How to make a request to N6 API

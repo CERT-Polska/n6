@@ -1,15 +1,15 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2019 NASK. All rights reserved.
+# Copyright (c) 2019-2021 NASK. All rights reserved.
 
 import re
-
-import ipaddr
+import ipaddress
 
 from n6lib.common_helpers import (
+    as_bytes,
+    as_unicode,
     is_pure_ascii,
-    limit_string,
+    limit_str,
     lower_if_pure_ascii,
+    try_to_normalize_surrogate_pairs_to_proper_codepoints,
 )
 
 
@@ -21,7 +21,8 @@ from n6lib.common_helpers import (
 # (based on RFCs 3986 and 3987)
 URL_SCHEME_AND_REST_REGEX = re.compile(r'\A'
                                        r'(?P<scheme>[a-zA-Z][\-+.0-9a-zA-Z]*)'
-                                       r'(?P<rest>:.*)')
+                                       r'(?P<rest>:.*)',
+                                       re.ASCII)
 
 # (similar to `URL_SCHEME_AND_REST_REGEX`, but slightly less strict;
 # used -- among others -- in n6lib.record_dict.RecordDict.adjust_url;
@@ -29,7 +30,8 @@ URL_SCHEME_AND_REST_REGEX = re.compile(r'\A'
 # instead of it, use `URL_SCHEME_AND_REST_REGEX` defined above!)
 URL_SCHEME_AND_REST_LEGACY_REGEX = re.compile(r'\A'
                                               r'(?P<scheme>[\-+.0-9a-zA-Z]+)'
-                                              r'(?P<rest>:.*)')
+                                              r'(?P<rest>:.*)',
+                                              re.ASCII)
 
 # (based on various sources, mainly on some RFCs, but not only...)
 URL_SCHEME_TO_DEFAULT_PORT = {
@@ -51,16 +53,16 @@ URL_SCHEME_TO_DEFAULT_PORT = {
 
 # (based on RFC 3490
 # as well as https://www.unicode.org/reports/tr46/#TableDerivationStep1)
-DOMAIN_LABEL_SEPARATOR_UNICODE_REGEX = re.compile(u'[.\u3002\uff0e\uff61]')
-DOMAIN_LABEL_SEPARATOR_UTF8_BYTES_REGEX = re.compile(r'(?:'
-                                                     r'\.'
-                                                     r'|'
-                                                     r'\343\200\202'
-                                                     r'|'
-                                                     r'\357\274\216'
-                                                     r'|'
-                                                     r'\357\275\241'
-                                                     r')')
+DOMAIN_LABEL_SEPARATOR_REGEX = re.compile('[.\u3002\uff0e\uff61]')
+DOMAIN_LABEL_SEPARATOR_UTF8_BYTES_REGEX = re.compile(br'(?:'
+                                                     br'\.'
+                                                     br'|'
+                                                     br'\343\200\202'
+                                                     br'|'
+                                                     br'\357\274\216'
+                                                     br'|'
+                                                     br'\357\275\241'
+                                                     br')')
 
 
 # *EXPERIMENTAL* (likely to be changed or removed in the future
@@ -103,10 +105,12 @@ def does_look_like_url(s):
 # TODO: tests
 def does_look_like_http_url_without_prefix(s):
     """
-    Try to guess (using some heuristics) whether the given string may
-    be an incomplete HTTP URL starting with the host part, i.e., an
-    HTTP URL unprovided with the `http://` prefix.
+    Try to guess (using some heuristics) whether the given string (or
+    binary data blob) may be an incomplete HTTP URL starting with the
+    host part, i.e., an HTTP URL unprovided with the `http://` prefix.
     """
+    if isinstance(s, (bytes, bytearray)):
+        s = as_unicode(s, 'surrogatepass')
     return bool(_INCOMPLETE_HTTP_URL_CANDIDATE_STARTING_WITH_HOST_REGEX.search(s))
 
 
@@ -116,13 +120,13 @@ def normalize_url(url,
                   epslash=False,
                   rmzone=False):
     r"""
-    Apply to the given string as much of the basic URL/IRI normalization
-    as possible, provided that no semantic changes are made (i.e., the
-    intent is that the resultant URL/IRI is semantically equivalent to
-    the given one).
+    Apply to the given string (or binary data blob) as much of the basic
+    URL/IRI normalization as possible, provided that no semantic changes
+    are made (i.e., the intent is that the resultant URL/IRI is
+    semantically equivalent to the given one).
 
     Args (required):
-        `url` (str or unicode):
+        `url` (str or bytes/bytearray):
             The URL (or URI, or IRI) to be normalized.
 
     Kwargs (optional):
@@ -130,16 +134,17 @@ def normalize_url(url,
             Whether, before the actual URL normalization (see the
             description in the steps 1-18 below...), the given `url`
             should be:
-            * if given as a str instance: decoded using the 'utf-8'
-              codec with the 'surrogateescape' error handler, and
-            * otherwise (assuming a unicode instance): encoded using
-              the 'utf-8' codec and then decoded using the 'utf-8'
-              codec (to ensure that representation of non-BMP
-              characters is consistent...).
+            * if given as a bytes/bytearray instance: decoded using
+              the 'utf-8' codec with our custom error handler:
+              'utf8_surrogatepass_and_surrogateescape';
+            * otherwise (assuming a str instance): "transcoded" using
+              `try_to_normalize_surrogate_pairs_to_proper_codepoints()`
+              (to ensure that representation of non-BMP characters is
+              consistent...).
         `epslash` (bool; default: False):
             Whether the *path* component of the given URL should be
             replaced with `/` if the `url`'s *scheme* is `http`, `https`
-            or `ftp` *and* the *path* is empty (not that, generally,
+            or `ftp` *and* the *path* is empty (note that, generally,
             this normalization step does not change the URL semantics,
             with the exception of an URL being the request target of an
             `OPTIONS` HTTP request; see RFC 7230, section 2.7.3).
@@ -150,8 +155,15 @@ def normalize_url(url,
             outside the local system it is related to; see RFC 6874,
             section 1).
 
+    Returns:
+        A `str` object (`if a `str` was given) or a `bytes` object (if a
+        `bytes` or `bytearray` object was given *and* `transcode1st` was
+        false) representing the URL after a *best effort* but *keeping
+        semantic equivalence* normalization (see below: the description
+        of the algorithm).
+
     Raises:
-        `TypeError` if `url` is not a str or unicode instance.
+        `TypeError` if `url` is not a str or bytes/bytearray instance.
 
     The algorithm of normalization consists of the following steps [the
     `+` operator in this description means *string concatenation*]:
@@ -245,169 +257,171 @@ def normalize_url(url,
     17. If `after path` is *not* present then set it to an empty
         string.
 
-    18. Stop here -- returning `before host` + `host` + `port` +
-        `path` + `after path`.
+    18. Stop here -- returning `scheme` + `before host` + `host` +
+        `port` + `path` + `after path`.
 
 
     Ad 0:
 
-    >>> normalize_url('\xf4\x8f\xbf\xbf')
-    '\xf4\x8f\xbf\xbf'
-    >>> normalize_url('\xf4\x8f\xbf\xbf', transcode1st=True)
-    u'\U0010ffff'
-    >>> normalize_url(u'\udbff\udfff')  # look at this!
-    u'\udbff\udfff'
-    >>> normalize_url(u'\udbff\udfff', transcode1st=True)
-    u'\U0010ffff'
-    >>> normalize_url(u'\U0010ffff')
-    u'\U0010ffff'
-    >>> normalize_url(u'\U0010ffff', transcode1st=True)
-    u'\U0010ffff'
+    >>> normalize_url(b'\xf4\x8f\xbf\xbf')
+    b'\xf4\x8f\xbf\xbf'
+    >>> normalize_url(b'\xf4\x8f\xbf\xbf', transcode1st=True)
+    '\U0010ffff'
+    >>> normalize_url('\udbff\udfff')  # look at this!
+    '\udbff\udfff'
+    >>> normalize_url('\udbff\udfff', transcode1st=True)
+    '\U0010ffff'
+    >>> normalize_url('\U0010ffff')
+    '\U0010ffff'
+    >>> normalize_url('\U0010ffff', transcode1st=True)
+    '\U0010ffff'
 
 
     Ad 0-2:
 
-    >>> normalize_url('Blabla-bla!@#$ %^&\xc4\x85\xcc')
-    'Blabla-bla!@#$ %^&\xc4\x85\xcc'
-    >>> normalize_url('Blabla-bla!@#$ %^&\xc4\x85\xcc', transcode1st=True)
-    u'Blabla-bla!@#$ %^&\u0105\udccc'
-    >>> normalize_url(u'Blabla-bla!@#$ %^&\u0105\udccc')
-    u'Blabla-bla!@#$ %^&\u0105\udccc'
+    >>> normalize_url(b'Blabla-bla!@#$ %^&\xc4\x85\xcc')
+    b'Blabla-bla!@#$ %^&\xc4\x85\xcc'
+    >>> normalize_url(b'Blabla-bla!@#$ %^&\xc4\x85\xcc', transcode1st=True)
+    'Blabla-bla!@#$ %^&\u0105\udccc'
+    >>> normalize_url('Blabla-bla!@#$ %^&\u0105\udccc')
+    'Blabla-bla!@#$ %^&\u0105\udccc'
 
 
     Ad 0-1 + 3 + 5:
 
-    >>> normalize_url('SOME-scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc')
-    'some-scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc'
-    >>> normalize_url('SOME-scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc', transcode1st=True)
-    u'some-scheme:Blabla-bla!@#$ %^&\u0105\udccc'
-    >>> normalize_url(u'somE-sCHEmE:Blabla-bla!@#$ %^&\u0105\udccc')
-    u'some-scheme:Blabla-bla!@#$ %^&\u0105\udccc'
+    >>> normalize_url(b'SOME-scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc')
+    b'some-scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc'
+    >>> normalize_url(b'SOME-scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc', transcode1st=True)
+    'some-scheme:Blabla-bla!@#$ %^&\u0105\udccc'
+    >>> normalize_url('somE-sCHEmE:Blabla-bla!@#$ %^&\u0105\udccc')
+    'some-scheme:Blabla-bla!@#$ %^&\u0105\udccc'
 
 
     Ad 0-1 + 3-4 + 6-11 + 14-18:
 
-    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]')
-    'http://[2001:db8:85a3::8a2e:370:7334]'
-    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334FAB]')
-    'http://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334FAB]'
-    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]')
-    'http://[2001:db8:85a3::8a2e:370:7334%25en1]'
-    >>> normalize_url('HtTP://[2001:0DB8:85A3::8A2E:0370:7334]/fooBAR',
+    >>> normalize_url(b'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]')
+    b'http://[2001:db8:85a3::8a2e:370:7334]'
+    >>> normalize_url(b'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334FAB]')
+    b'http://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334FAB]'
+    >>> normalize_url(b'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]')
+    b'http://[2001:db8:85a3::8a2e:370:7334%25en1]'
+    >>> normalize_url(b'HtTP://[2001:0DB8:85A3::8A2E:0370:7334]/fooBAR',
     ...               epslash=True)
-    'http://[2001:db8:85a3::8a2e:370:7334]/fooBAR'
-    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52]:80')
+    b'http://[2001:db8:85a3::8a2e:370:7334]/fooBAR'
+    >>> normalize_url(b'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52]:80')
+    b'http://[2001:db8:85a3::8a2e:370:7334]'
+    >>> normalize_url(b'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334%25en1]:80',
+    ...               epslash=True)
+    b'http://[2001:db8:85a3::8a2e:370:7334%25en1]/'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::8A2E:3.112.115.52]',
+    ...               rmzone=True)
+    b'http://[2001:db8:85a3::8a2e:370:7334]'
+    >>> normalize_url(b'HtTP://[2001:0db8:85a3:0000:0000:8a2e:0370:7334%25EN1]',
+    ...               rmzone=True)
+    b'http://[2001:db8:85a3::8a2e:370:7334]'
+    >>> normalize_url(b'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]',
+    ...               rmzone=True, epslash=True)
+    b'http://[2001:db8:85a3::8a2e:370:7334]/'
+    >>> normalize_url(b'HtTP://[2001:0DB8:85A3::8A2E:0370:7334%25en1]:80',
+    ...               rmzone=True)
+    b'http://[2001:db8:85a3::8a2e:370:7334]'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]:80',
+    ...               rmzone=True, epslash=True)
+    b'http://[2001:db8:85a3::8a2e:370:7334]/'
+    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52]')
     'http://[2001:db8:85a3::8a2e:370:7334]'
-    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334%25en1]:80',
+    >>> normalize_url('HtTP://[2001:0db8:85a3::8a2e:370:7334%25EN1]')
+    'http://[2001:db8:85a3::8a2e:370:7334%25en1]'
+    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334FAB%25eN1]',
+    ...               epslash=True)
+    'http://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334FAB%25en1]/'
+    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8a2e:3.112.115.52]',
+    ...               epslash=True)
+    'http://[2001:db8:85a3::8a2e:370:7334]/'
+    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]:80')
+    'http://[2001:db8:85a3::8a2e:370:7334]'
+    >>> normalize_url('HtTP://[2001:0DB8:85A3::8A2E:3.112.115.52%25en1]:80',
     ...               epslash=True)
     'http://[2001:db8:85a3::8a2e:370:7334%25en1]/'
-    >>> normalize_url('HtTP://[2001:DB8:85A3::8A2E:3.112.115.52]',
+    >>> normalize_url('HtTP://[2001:db8:85a3:0000:0000:8A2E:0370:7334]',
     ...               rmzone=True)
     'http://[2001:db8:85a3::8a2e:370:7334]'
-    >>> normalize_url('HtTP://[2001:0db8:85a3:0000:0000:8a2e:0370:7334%25EN1]',
+    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]/fooBAR',
     ...               rmzone=True)
-    'http://[2001:db8:85a3::8a2e:370:7334]'
-    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]',
+    'http://[2001:db8:85a3::8a2e:370:7334]/fooBAR'
+    >>> normalize_url('HtTP://[2001:0DB8:85A3::8A2E:0370:7334%25en1]',
     ...               rmzone=True, epslash=True)
     'http://[2001:db8:85a3::8a2e:370:7334]/'
-    >>> normalize_url('HtTP://[2001:0DB8:85A3::8A2E:0370:7334%25en1]:80',
+    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]:80',
     ...               rmzone=True)
     'http://[2001:db8:85a3::8a2e:370:7334]'
-    >>> normalize_url('HtTP://[2001:DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]:80',
+    >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334%25en1]:80',
     ...               rmzone=True, epslash=True)
     'http://[2001:db8:85a3::8a2e:370:7334]/'
-    >>> normalize_url(u'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52]')
-    u'http://[2001:db8:85a3::8a2e:370:7334]'
-    >>> normalize_url(u'HtTP://[2001:0db8:85a3::8a2e:370:7334%25EN1]')
-    u'http://[2001:db8:85a3::8a2e:370:7334%25en1]'
-    >>> normalize_url(u'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334FAB%25eN1]',
-    ...               epslash=True)
-    u'http://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334FAB%25en1]/'
-    >>> normalize_url(u'HtTP://[2001:0DB8:85A3:0000:0000:8a2e:3.112.115.52]',
-    ...               epslash=True)
-    u'http://[2001:db8:85a3::8a2e:370:7334]/'
-    >>> normalize_url(u'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]:80')
-    u'http://[2001:db8:85a3::8a2e:370:7334]'
-    >>> normalize_url(u'HtTP://[2001:0DB8:85A3::8A2E:3.112.115.52%25en1]:80',
-    ...               epslash=True)
-    u'http://[2001:db8:85a3::8a2e:370:7334%25en1]/'
-    >>> normalize_url(u'HtTP://[2001:db8:85a3:0000:0000:8A2E:0370:7334]',
+    >>> normalize_url(b'HtTPS://[2001:DB8:85A3:0000:0000:8A2E:3.112.115.52%25En1]:80')
+    b'https://[2001:db8:85a3::8a2e:370:7334%25en1]:80'
+    >>> normalize_url(b'HtTPS://[2001:DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]:80',
     ...               rmzone=True)
-    u'http://[2001:db8:85a3::8a2e:370:7334]'
-    >>> normalize_url(u'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]/fooBAR',
+    b'https://[2001:db8:85a3::8a2e:370:7334]:80'
+    >>> normalize_url(b'HtTPS://[2001:0db8:85a3::8a2E:3.112.115.52%25en1]:443',
     ...               rmzone=True)
-    u'http://[2001:db8:85a3::8a2e:370:7334]/fooBAR'
-    >>> normalize_url(u'HtTP://[2001:0DB8:85A3::8A2E:0370:7334%25en1]',
+    b'https://[2001:db8:85a3::8a2e:370:7334]'
+    >>> normalize_url(b'HtTPS://[2001:DB8:85A3:0000:0000:8A2E:0370:7334%25eN\xc4\x851]:80',
+    ...               epslash=True)
+    b'https://[2001:db8:85a3::8a2e:370:7334%25eN\xc4\x851]:80/'
+    >>> normalize_url('HtTPS://[2001:0db8:85a3::8a2E:3.112.115.52%25En1]:443')
+    'https://[2001:db8:85a3::8a2e:370:7334%25en1]'
+    >>> normalize_url('HtTPS://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25eN\xc4\x851]:443',
+    ...               epslash=True)
+    'https://[2001:db8:85a3::8a2e:370:7334%25eN\xc4\x851]/'
+    >>> normalize_url('HtTPS://[2001:0DB8:85A3::8A2E:0370:7334%25eN1]:80',
     ...               rmzone=True, epslash=True)
-    u'http://[2001:db8:85a3::8a2e:370:7334]/'
-    >>> normalize_url(u'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]:80',
-    ...               rmzone=True)
-    u'http://[2001:db8:85a3::8a2e:370:7334]'
-    >>> normalize_url(u'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334%25en1]:80',
+    'https://[2001:db8:85a3::8a2e:370:7334]:80/'
+    >>> normalize_url('HtTPS://[2001:0DB8:85A3::8A2E:370:7334%25eN1]:443',
     ...               rmzone=True, epslash=True)
-    u'http://[2001:db8:85a3::8a2e:370:7334]/'
-    >>> normalize_url('HtTPS://[2001:DB8:85A3:0000:0000:8A2E:3.112.115.52%25En1]:80')
-    'https://[2001:db8:85a3::8a2e:370:7334%25en1]:80'
-    >>> normalize_url('HtTPS://[2001:DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]:80',
-    ...               rmzone=True)
-    'https://[2001:db8:85a3::8a2e:370:7334]:80'
-    >>> normalize_url('HtTPS://[2001:0db8:85a3::8a2E:3.112.115.52%25en1]:443',
-    ...               rmzone=True)
-    'https://[2001:db8:85a3::8a2e:370:7334]'
-    >>> normalize_url('HtTPS://[2001:DB8:85A3:0000:0000:8A2E:0370:7334%25eN\xc4\x851]:80',
-    ...               epslash=True)
-    'https://[2001:db8:85a3::8a2e:370:7334%25eN\xc4\x851]:80/'
-    >>> normalize_url(u'HtTPS://[2001:0db8:85a3::8a2E:3.112.115.52%25En1]:443')
-    u'https://[2001:db8:85a3::8a2e:370:7334%25en1]'
-    >>> normalize_url(u'HtTPS://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25eN\xc4\x851]:443',
-    ...               epslash=True)
-    u'https://[2001:db8:85a3::8a2e:370:7334%25eN\xc4\x851]/'
-    >>> normalize_url(u'HtTPS://[2001:0DB8:85A3::8A2E:0370:7334%25eN1]:80',
-    ...               rmzone=True, epslash=True)
-    u'https://[2001:db8:85a3::8a2e:370:7334]:80/'
-    >>> normalize_url(u'HtTPS://[2001:0DB8:85A3::8A2E:370:7334%25eN1]:443',
-    ...               rmzone=True, epslash=True)
-    u'https://[2001:db8:85a3::8a2e:370:7334]/'
+    'https://[2001:db8:85a3::8a2e:370:7334]/'
 
 
     Ad 0-1 + 3-4 + 12-18:
 
-    >>> normalize_url('HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com', epslash=True)
-    'http://www.XyZ-\xc4\x85\xcc.example.com/'
-    >>> normalize_url('HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com', transcode1st=True)
-    u'http://www.XyZ-\u0105\udccc.example.com'
-    >>> normalize_url('HTTP://WWW.XyZ-\xc4\x85.eXamplE.com:80/fooBAR')
-    'http://www.XyZ-\xc4\x85.example.com/fooBAR'
-    >>> normalize_url('HtTP://WWW.XyZ-\xc4\x85.eXamplE.com:80', epslash=True)
-    'http://www.XyZ-\xc4\x85.example.com/'
-    >>> normalize_url('HtTP://WWW.XyZ-\xc4\x85.eXamplE.com:80/fooBAR', epslash=True)
-    'http://www.XyZ-\xc4\x85.example.com/fooBAR'
-    >>> normalize_url('HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com', transcode1st=True)
-    u'http://www.XyZ-\u0105\udccc.example.com'
-    >>> normalize_url(u'HTtp://WWW.XyZ-\u0105\udccc.eXamplE.com:80')
-    u'http://www.XyZ-\u0105\udccc.example.com'
-    >>> normalize_url(u'HTtp://WWW.XyZ-\u0105.eXamplE.com:80/')
-    u'http://www.XyZ-\u0105.example.com/'
-    >>> normalize_url(u'hTTP://WWW.XyZ-\u0105.eXamplE.com:80', epslash=True)
-    u'http://www.XyZ-\u0105.example.com/'
-    >>> normalize_url('HTTPS://WWW.XyZ-\xc4\x85.eXamplE.com:80')
-    'https://www.XyZ-\xc4\x85.example.com:80'
-    >>> normalize_url('HTTPS://WWW.XyZ-\xc4\x85.eXamplE.com:80/fooBAR')
-    'https://www.XyZ-\xc4\x85.example.com:80/fooBAR'
-    >>> normalize_url('HTTPs://WWW.XyZ-\xc4\x85.eXamplE.com:443', epslash=True)
-    'https://www.XyZ-\xc4\x85.example.com/'
-    >>> normalize_url('HTTPs://WWW.XyZ-\xc4\x85.eXamplE.com:443', epslash=True, transcode1st=True)
-    u'https://www.XyZ-\u0105.example.com/'
-    >>> normalize_url(u'httpS://WWW.XyZ-\u0105.eXamplE.com:80', epslash=True)
-    u'https://www.XyZ-\u0105.example.com:80/'
-    >>> normalize_url(u'httpS://WWW.XyZ-\u0105.eXamplE.com:80/fooBAR', epslash=True)
-    u'https://www.XyZ-\u0105.example.com:80/fooBAR'
-    >>> normalize_url(u'hTtpS://WWW.XyZ-\u0105.eXamplE.com:443')
-    u'https://www.XyZ-\u0105.example.com'
-    >>> normalize_url(u'httpS://WWW.XyZ-\u0105.eXamplE.com:80/fooBAR', epslash=True,
+    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com', epslash=True)
+    b'http://www.XyZ-\xc4\x85\xcc.example.com/'
+    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com', transcode1st=True)
+    'http://www.XyZ-\u0105\udccc.example.com'
+    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85.eXamplE.com:80/fooBAR')
+    b'http://www.XyZ-\xc4\x85.example.com/fooBAR'
+    >>> normalize_url(b'HtTP://WWW.XyZ-\xc4\x85.eXamplE.com:80', epslash=True)
+    b'http://www.XyZ-\xc4\x85.example.com/'
+    >>> normalize_url(b'HtTP://WWW.XyZ-\xc4\x85.eXamplE.com:80/fooBAR', epslash=True)
+    b'http://www.XyZ-\xc4\x85.example.com/fooBAR'
+    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com', transcode1st=True)
+    'http://www.XyZ-\u0105\udccc.example.com'
+    >>> normalize_url('HTtp://WWW.XyZ-\u0105\udccc.eXamplE.com:80')
+    'http://www.XyZ-\u0105\udccc.example.com'
+    >>> normalize_url('HTtp://WWW.XyZ-\u0105.eXamplE.com:80/')
+    'http://www.XyZ-\u0105.example.com/'
+    >>> normalize_url('hTTP://WWW.XyZ-\u0105.eXamplE.com:80', epslash=True)
+    'http://www.XyZ-\u0105.example.com/'
+    >>> normalize_url(b'HTTPS://WWW.XyZ-\xc4\x85.eXamplE.com:80')
+    b'https://www.XyZ-\xc4\x85.example.com:80'
+    >>> normalize_url(b'HTTPS://WWW.XyZ-\xc4\x85.eXamplE.com:80/fooBAR')
+    b'https://www.XyZ-\xc4\x85.example.com:80/fooBAR'
+    >>> normalize_url(b'HTTPs://WWW.XyZ-\xc4\x85.eXamplE.com:443', epslash=True)
+    b'https://www.XyZ-\xc4\x85.example.com/'
+    >>> normalize_url(b'HTTPs://WWW.XyZ-\xc4\x85.eXamplE.com:443', epslash=True, transcode1st=True)
+    'https://www.XyZ-\u0105.example.com/'
+    >>> normalize_url('httpS://WWW.XyZ-\u0105.eXamplE.com:80', epslash=True)
+    'https://www.XyZ-\u0105.example.com:80/'
+    >>> normalize_url('httpS://WWW.XyZ-\u0105.eXamplE.com:80/fooBAR', epslash=True)
+    'https://www.XyZ-\u0105.example.com:80/fooBAR'
+    >>> normalize_url('hTtpS://WWW.XyZ-\u0105.eXamplE.com:443')
+    'https://www.XyZ-\u0105.example.com'
+    >>> normalize_url('httpS://WWW.XyZ-\u0105.eXamplE.com:80/fooBAR', epslash=True,
     ...               transcode1st=True)
-    u'https://www.XyZ-\u0105.example.com:80/fooBAR'
+    'https://www.XyZ-\u0105.example.com:80/fooBAR'
     """
+    if isinstance(url, bytearray):
+        url = as_bytes(url)
     if transcode1st:
         url = _transcode(url)
     scheme = _get_scheme(url)
@@ -416,7 +430,10 @@ def normalize_url(url,
         # -> no normalization
         return url
     rest = url[len(scheme):]
-    match = _AFTER_SCHEME_COMPONENTS_OF_URL_WITH_AUTHORITY_REGEX.search(rest)
+    regex = (
+        _AFTER_SCHEME_COMPONENTS_OF_URL_WITH_AUTHORITY_BYTES_REGEX if isinstance(url, bytes)
+        else _AFTER_SCHEME_COMPONENTS_OF_URL_WITH_AUTHORITY_REGEX)
+    match = regex.search(rest)
     if match is None:
         # probably a URL without the *authority* component
         # -> the only normalized component is *scheme*
@@ -434,25 +451,27 @@ def normalize_url(url,
 def make_provisional_url_search_key(url_orig):
     r"""
     >>> mk = make_provisional_url_search_key
-    >>> mk(u'http://\u0106ma.eXample.COM:80/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc')
-    u'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd'
-    >>> mk('HTTP://\xc4\x86ma.eXample.COM:/\xdd\xffAla-ma-kota\xf4\x8f\xbf\xbf\xcc')
-    u'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd'
-    >>> mk('HTTP://\xc4\x86ma.eXample.COM/\xddAla-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c')
-    u'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd'
+    >>> mk('http://\u0106ma.eXample.COM:80/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc')
+    'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd'
+    >>> mk(b'HTTP://\xc4\x86ma.eXample.COM:/\xdd\xffAla-ma-kota\xf4\x8f\xbf\xbf\xcc')
+    'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd'
+    >>> mk(b'HTTP://\xc4\x86ma.eXample.COM/\xddAla-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c')
+    'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd'
     """
-    if not isinstance(url_orig, basestring):
-        raise TypeError('{!r} is neither `str` nor `unicode`'.format(url_orig))
+    if not isinstance(url_orig, (str, bytes, bytearray)):
+        raise TypeError('{!a} is neither `str` nor `bytes`/`bytearray`'.format(url_orig))
     if not url_orig:
-        raise ValueError('given string is empty')
+        raise ValueError('given value is empty')
     url_proc = url_orig
     url_proc = normalize_url(url_proc, transcode1st=True, epslash=True, rmzone=True)
-    assert isinstance(url_proc, unicode)
-    # (let's get rid of surrogates and non-BMP characters -- because of
-    # the mess with MariaDB's "utf-8" 3-bytes encoding as well as with
-    # UTC-2 vs. UTC-4 Python builds...)
-    url_proc = _SURROGATE_OR_NON_BMP_CHARACTERS_SEQ_REGEX.sub(u'\ufffd', url_proc)
-    url_proc = limit_string(url_proc, char_limit=500)
+    assert isinstance(url_proc, str)
+    # Let's get rid of surrogate and non-BMP code points -- because of:
+    # * the mess with the MariaDB's "utf8" 3-bytes encoding,
+    # * the mess with differences in handling of surrogates between
+    #   Python versions (especially, 2.x vs. 3.x),
+    # * the mess with UCS-2 vs. UCS-4 builds of Python 2.x.
+    url_proc = _SURROGATE_OR_NON_BMP_CHARACTERS_SEQ_REGEX.sub('\ufffd', url_proc)
+    url_proc = limit_str(url_proc, char_limit=500)
     url_proc = PROVISIONAL_URL_SEARCH_KEY_PREFIX + url_proc
     return url_proc
 
@@ -535,9 +554,15 @@ _AFTER_SCHEME_COMPONENTS_OF_URL_WITH_AUTHORITY_REGEX = re.compile(
             .*
         )?
         \Z
-    ''', re.VERBOSE)
+    ''', re.ASCII | re.VERBOSE)
 
-_LAST_9_CHARS_OF_EXPLODED_IPV6_REGEX = re.compile(r'\A[0-9a-f]{4}:[0-9a-f]{4}\Z')
+_URL_SCHEME_AND_REST_BYTES_REGEX = re.compile(URL_SCHEME_AND_REST_REGEX.pattern.encode('ascii'))
+
+_AFTER_SCHEME_COMPONENTS_OF_URL_WITH_AUTHORITY_BYTES_REGEX = re.compile(
+    _AFTER_SCHEME_COMPONENTS_OF_URL_WITH_AUTHORITY_REGEX.pattern.encode('ascii'),
+    re.VERBOSE)
+
+_LAST_9_CHARS_OF_EXPLODED_IPV6_REGEX = re.compile(r'\A[0-9a-f]{4}:[0-9a-f]{4}\Z', re.ASCII)
 
 # (intended to represent some -- hopefully reasonable -- heuristics...)
 _INCOMPLETE_HTTP_URL_CANDIDATE_STARTING_WITH_HOST_REGEX = re.compile(
@@ -613,13 +638,13 @@ _INCOMPLETE_HTTP_URL_CANDIDATE_STARTING_WITH_HOST_REGEX = re.compile(
             .*
         )?
         \Z
-    ''', re.VERBOSE)
+    ''', re.ASCII | re.VERBOSE)
 
 
-_SURROGATE_OR_NON_BMP_CHARACTERS_SEQ_REGEX = re.compile(u'[^'
-                                                        u'\u0000-\ud7ff'
-                                                        u'\ue000-\uffff'
-                                                        u']+')
+_SURROGATE_OR_NON_BMP_CHARACTERS_SEQ_REGEX = re.compile('[^'
+                                                        '\u0000-\ud7ff'
+                                                        '\ue000-\uffff'
+                                                        ']+')
 
 
 
@@ -628,16 +653,19 @@ _SURROGATE_OR_NON_BMP_CHARACTERS_SEQ_REGEX = re.compile(u'[^'
 #
 
 def _transcode(url):
-    if isinstance(url, str):
-        url = url.decode('utf-8', 'surrogateescape')
+    if isinstance(url, bytes):
+        ### FIXME: for byte strings we do not ensure that representation
+        ###   of non-BMP characters is consistent! (probably we should...)
+        url = url.decode('utf-8', 'utf8_surrogatepass_and_surrogateescape')
     else:
         # to ensure that representation of non-BMP characters is consistent
-        url = url.encode('utf-8').decode('utf-8')
+        url = try_to_normalize_surrogate_pairs_to_proper_codepoints(url)
     return url
 
 
 def _get_scheme(url):
-    simple_match = URL_SCHEME_AND_REST_REGEX.search(url)
+    r = _URL_SCHEME_AND_REST_BYTES_REGEX if isinstance(url, bytes) else URL_SCHEME_AND_REST_REGEX
+    simple_match = r.search(url)
     if simple_match is None:
         return None
     scheme = simple_match.group('scheme')
@@ -666,23 +694,26 @@ def _get_host(match, rmzone):
 
 def _get_before_ipv6_addr(match):
     before_ipv6_addr = match.group('before_ipv6_addr')
-    assert before_ipv6_addr == '['
+    assert before_ipv6_addr == _proper_conv(match)('[')
     return before_ipv6_addr
 
 
 def _get_ipv6_addr(match):
+    conv = _proper_conv(match)
     ipv6_main_part = match.group('ipv6_main_part')
     assert ipv6_main_part
     ipv6_suffix_in_ipv4_format = match.group('ipv6_suffix_in_ipv4_format')
     try:
         if ipv6_suffix_in_ipv4_format:
-            assert ipv6_main_part.endswith(':')
+            assert ipv6_main_part.endswith(conv(':'))
             ipv6_suffix = _convert_ipv4_to_ipv6_suffix(ipv6_suffix_in_ipv4_format)
         else:
             assert ipv6_main_part == match.group('ipv6_addr')
             ipv6_suffix = ''
-        ipv6_addr = ipaddr.IPv6Address(ipv6_main_part + ipv6_suffix).compressed
-    except ipaddr.AddressValueError:
+        ipv6_main_part = as_unicode(ipv6_main_part, 'surrogatepass')
+        ipv6_addr = ipaddress.IPv6Address(ipv6_main_part + ipv6_suffix).compressed
+        ipv6_addr = conv(ipv6_addr)
+    except ipaddress.AddressValueError:
         ipv6_addr = match.group('ipv6_addr')
     assert is_pure_ascii(ipv6_addr)
     return ipv6_addr
@@ -692,10 +723,13 @@ def _convert_ipv4_to_ipv6_suffix(ipv6_suffix_in_ipv4_format):
     """
     >>> _convert_ipv4_to_ipv6_suffix('192.168.0.1')
     'c0a8:0001'
+    >>> _convert_ipv4_to_ipv6_suffix(b'192.168.0.1')
+    'c0a8:0001'
     """
-    as_ipv4 = ipaddr.IPv4Address(ipv6_suffix_in_ipv4_format)
+    ipv6_suffix_in_ipv4_format = as_unicode(ipv6_suffix_in_ipv4_format, 'surrogatepass')
+    as_ipv4 = ipaddress.IPv4Address(ipv6_suffix_in_ipv4_format)
     as_int = int(as_ipv4)
-    as_ipv6 = ipaddr.IPv6Address(as_int)
+    as_ipv6 = ipaddress.IPv6Address(as_int)
     ipv6_suffix = as_ipv6.exploded[-9:]
     assert _LAST_9_CHARS_OF_EXPLODED_IPV6_REGEX.search(ipv6_suffix)
     return ipv6_suffix
@@ -703,41 +737,52 @@ def _convert_ipv4_to_ipv6_suffix(ipv6_suffix_in_ipv4_format):
 
 def _get_after_ipv6_addr(match, rmzone):
     after_ipv6_addr = match.group('after_ipv6_addr')
-    assert after_ipv6_addr and after_ipv6_addr.endswith(']')
+    closing_bracket = _proper_conv(match)(']')
+    assert after_ipv6_addr and after_ipv6_addr.endswith(closing_bracket)
     if rmzone:
-        return ']'
+        return closing_bracket
     return lower_if_pure_ascii(after_ipv6_addr)
 
 
 def _get_hostname_or_ip(match):
     hostname_or_ip = match.group('hostname_or_ip')
     assert hostname_or_ip
-    sep_regex = (DOMAIN_LABEL_SEPARATOR_UTF8_BYTES_REGEX if isinstance(hostname_or_ip, str)
-                 else DOMAIN_LABEL_SEPARATOR_UNICODE_REGEX)
-    return '.'.join(lower_if_pure_ascii(label)  # <- we do not want to touch non-pure-ASCII labels
+    sep_regex = (DOMAIN_LABEL_SEPARATOR_UTF8_BYTES_REGEX if isinstance(hostname_or_ip, bytes)
+                 else DOMAIN_LABEL_SEPARATOR_REGEX)
+    dot = _proper_conv(match)('.')
+    return dot.join(lower_if_pure_ascii(label)  # <- we do not want to touch non-pure-ASCII labels
                     for label in sep_regex.split(hostname_or_ip))
 
 
 def _get_port(match, scheme):
+    scheme_key = as_unicode(scheme, 'surrogatepass')
+    conv = _proper_conv(match)
     port = match.group('port')
     if (port is None
-          or port == ':'
-          or port == ':{}'.format(URL_SCHEME_TO_DEFAULT_PORT.get(scheme))):
-        port = ''
+          or port == conv(':')
+          or port == conv(':{}'.format(URL_SCHEME_TO_DEFAULT_PORT.get(scheme_key)))):
+        port = conv('')
     return port
 
 
 def _get_path(match, scheme, epslash):
-    path = match.group('path') or ''
+    conv = _proper_conv(match)
+    path = match.group('path') or conv('')
     if (epslash
-          and scheme in ('http', 'https', 'ftp')
+          and as_bytes(scheme) in (b'http', b'https', b'ftp')
           and not path):
-        path = '/'
+        path = conv('/')
     return path
 
 
 def _get_after_path(match):
-    return match.group('after_path') or ''
+    return match.group('after_path') or _proper_conv(match)('')
+
+
+def _proper_conv(match):
+    return (
+        as_bytes if isinstance(match.group(0), bytes)
+        else lambda part: as_unicode(part, 'surrogatepass'))
 
 
 if __name__ == "__main__":

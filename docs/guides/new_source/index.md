@@ -3,6 +3,9 @@
 The aim of this guide is to describe how to implement *n6* components
 that are necessary for collecting and parsing data from a new source.
 
+**TBD: this guide needs an update regarding the
+components that now work under Python 3.9.**
+
 
 ## Overview
 

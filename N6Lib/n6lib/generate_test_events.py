@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import copy
 import datetime
@@ -7,10 +7,11 @@ import random
 import re
 import socket
 import string
-import urlparse
+import urllib.parse
 
 import radar
 
+from n6lib.common_helpers import as_bytes
 from n6lib.config import ConfigMixin
 from n6lib.const import (
     CATEGORY_ENUMS,
@@ -96,8 +97,8 @@ class RandomEvent(ConfigMixin):
     _RANDOM_CHOICE_CRITERION = (True, True, False)
     # regexes used for a simple validation of an input data from
     # special parameters (fqdn.sub and url.sub)
-    _LEGAL_FQDN_REGEX = re.compile(r'[a-zA-Z0-9\.-]*')
-    _LEGAL_URL_REGEX = re.compile(r'[a-zA-Z0-9\.-\/:]*')
+    _LEGAL_FQDN_REGEX = re.compile(r'[a-zA-Z0-9\.-]*', re.ASCII)
+    _LEGAL_URL_REGEX = re.compile(r'[a-zA-Z0-9\.-\/:]*', re.ASCII)
 
     @staticmethod
     def generate_multiple_event_data(num_of_events,
@@ -139,7 +140,7 @@ class RandomEvent(ConfigMixin):
             self._params = copy.deepcopy(params)
         self._access_zone = access_zone
         self._client_id = client_id
-        self._max_ip = int(socket.inet_aton("255.255.255.254").encode('hex'), 16)
+        self._max_ip = 0xfffffffe  # 255.255.255.254
         self._current_datetime = datetime.datetime.utcnow()
         self._attributes_init()
 
@@ -245,9 +246,9 @@ class RandomEvent(ConfigMixin):
 
     def _get_value_for_md5_attr(self):
         random_str = ''.join(
-            random.choice(string.ascii_letters + string.digits) for _ in xrange(32)
+            random.choice(string.ascii_letters + string.digits) for _ in range(32)
         )
-        return hashlib.md5(random_str).hexdigest()
+        return hashlib.md5(as_bytes(random_str)).hexdigest()
 
     def _get_value_for_port_attr(self):
         return random.randint(1, 2**16 - 1)
@@ -398,9 +399,9 @@ class RandomEvent(ConfigMixin):
             return random.choice(self._params[attr_name])
         if self._include_in_event(attr_name):
             random_str = ''.join(
-                random.choice(string.ascii_letters + string.digits) for _ in xrange(40)
+                random.choice(string.ascii_letters + string.digits) for _ in range(40)
             )
-            return hashlib.sha1(random_str).hexdigest()
+            return hashlib.sha1(as_bytes(random_str)).hexdigest()
         return None
 
     def _get_sha256(self):
@@ -409,18 +410,18 @@ class RandomEvent(ConfigMixin):
             return random.choice(self._params[attr_name])
         if self._include_in_event(attr_name):
             random_str = ''.join(
-                random.choice(string.ascii_letters + string.digits) for _ in xrange(64)
+                random.choice(string.ascii_letters + string.digits) for _ in range(64)
             )
-            return hashlib.sha256(random_str).hexdigest()
+            return hashlib.sha256(as_bytes(random_str)).hexdigest()
         return None
 
     @staticmethod
     def _int_to_ip(int_ip):
-        return socket.inet_ntoa(hex(int_ip)[2:].zfill(8).decode('hex'))
+        return socket.inet_ntoa(int_ip.to_bytes(4, 'big'))
 
     @staticmethod
     def _url_to_domain(url):
-        parsed_url = urlparse.urlparse(url)
+        parsed_url = urllib.parse.urlparse(url)
         return parsed_url.hostname
 
     @staticmethod
@@ -437,7 +438,9 @@ class RandomEvent(ConfigMixin):
             any.
         """
         result = []
-        regex = re.compile('.*' + sub + '.*')
+        # XXX: 1) both `.*` fragments seem not necessary; 2) shouldn't `sub` be `re.escape()`-ed?
+        #      (or maybe some non-regex-based technique should be employed?)
+        regex = re.compile('.*' + sub + '.*', re.ASCII)
         for value in values:
             match = regex.search(value)
             if match:
@@ -460,6 +463,8 @@ class RandomEvent(ConfigMixin):
             Matched group of legal characters or None if there was
             no match.
         """
+        # XXX: Looking at the method's docstring, wasn't the following
+        #      call supposed to be `.match(val)` rather than `.search(val)`?
         match = regex.search(val)
         if match:
             return match.group(0)

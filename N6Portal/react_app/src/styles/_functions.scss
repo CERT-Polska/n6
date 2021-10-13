@@ -1,0 +1,3 @@
+@function sizeToRem($pixelSize) {
+  @return #{$pixelSize * 1rem / 16};
+}

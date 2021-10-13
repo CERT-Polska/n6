@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import contextlib
 import copy
@@ -8,14 +6,17 @@ import functools
 import json
 import importlib
 import inspect
+import io
+import re
 import sys
 import threading
 import types
 import unittest
+import unittest.mock as mock
+import zipfile
 
-import mock
 import pyramid.testing
-from mock import (
+from unittest.mock import (
     MagicMock,
     Mock,
     sentinel,
@@ -23,13 +24,28 @@ from mock import (
 from sqlalchemy.orm.exc import NoResultFound
 from webob.multidict import MultiDict
 
-from n6lib.class_helpers import ORDINARY_MAGIC_METHOD_NAMES
+from n6lib.class_helpers import (
+    ORDINARY_MAGIC_METHOD_NAMES,
+    properly_negate_eq,
+)
+from n6lib.common_helpers import ascii_str
 from n6sdk.tests._generic_helpers import TestCaseMixin as SDKTestCaseMixin
 
 
 
 ## TODO: doc, tests
 
+
+#
+# Packing/unpacking test helpers
+#
+
+def zip_data_in_memory(filename, data):
+    buff_file = io.BytesIO()
+    zip_archive = zipfile.ZipFile(buff_file, mode="w")
+    zip_archive.writestr(filename, data)
+    zip_archive.close()
+    return buff_file.getvalue()
 
 
 #
@@ -50,9 +66,9 @@ class RLockedMock(Mock):
         with _rlock_for_rlocked_mocks:
             return Mock.__call__(*args, **kwargs)
 
-    def reset_mock(self):
+    def reset_mock(*args, **kwargs):
         with _rlock_for_rlocked_mocks:
-            return Mock.reset_mock(self)
+            return Mock.reset_mock(*args, **kwargs)
 
 
 class RLockedMagicMock(MagicMock):
@@ -65,9 +81,9 @@ class RLockedMagicMock(MagicMock):
         with _rlock_for_rlocked_mocks:
             return MagicMock.__call__(*args, **kwargs)
 
-    def reset_mock(self):
+    def reset_mock(*args, **kwargs):
         with _rlock_for_rlocked_mocks:
-            return MagicMock.reset_mock(self)
+            return MagicMock.reset_mock(*args, **kwargs)
 
 
 def __rlocked_patching_func(func):
@@ -120,7 +136,7 @@ def _patching_method(method_name, patcher_maker, target_autocompletion=True):
 
     Below: some doctests of the _patching_method() helper factory.
 
-    >>> from mock import MagicMock, call, sentinel
+    >>> from unittest.mock import MagicMock, call, sentinel
     >>> m = MagicMock()
     >>> m.patch().start.return_value = sentinel.mock_thing
     >>> m.patch().stop = sentinel.stop
@@ -176,7 +192,7 @@ def _patching_method(method_name, patcher_maker, target_autocompletion=True):
     >>> t.do_patch()
     Traceback (most recent call last):
       ...
-    TypeError: do_patch() takes at least 1 argument (0 given)
+    TypeError: do_patch() missing 1 required positional argument: 'target'
 
     >>> t.do_patch('spam', sentinel.arg, kwarg=sentinel.kwarg)
     sentinel.mock_thing
@@ -285,45 +301,56 @@ def _patching_method(method_name, patcher_maker, target_autocompletion=True):
     """
 
     def _complete_target(self, target):
-        if not isinstance(target, basestring) or '.' in target:
+        if not isinstance(target, str) or '.' in target:
             return target
-        # if the value of `target` is a string and does not contain '.'
+        # If the value of `target` is a `str` and does not contain '.'
         # we complete the value automatically by adding the prefix
-        # defined as the `default_patch_prefix` attribute (if not None)
+        # defined as the `default_patch_prefix` attribute (if not None).
         prefix = getattr(self, 'default_patch_prefix', None)
         if prefix is None:
             return target
         return '{}.{}'.format(prefix.rstrip('.'), target)
 
-    # note: no named parameters are placed in the function signature
-    # because we want to avoid argument name clashes (e.g., 'self' may
-    # be in kwargs)...
-    def a_patching_method(*args, **kwargs):
-        if len(args) < 2:
-            # we say "1 argument" because we count the second positional
-            # argument (`target`) but not the first one (`self`)
-            raise TypeError(
-                '{}() takes at least 1 argument '
-                '(0 given)'.format(method_name))
-        self, target = args[:2]
+    def _get_patching_method_arguments(self, target, /, *args, **kwargs):
+        return self, target, args, kwargs
+
+    _inner_name = _get_patching_method_arguments.__name__
+    _get_patching_method_arguments.__qualname__ = 'TestCaseMixin.{}'.format(_inner_name)
+
+    def a_patching_method(*raw_args, **raw_kwargs):
+        try:
+            (self,
+             target,
+             args,
+             kwargs) = _get_patching_method_arguments(*raw_args, **raw_kwargs)  # noqa
+        except TypeError as exc:
+            # Let's make the error message contain the official name
+            # of the method (Python 3.9 does not want to honour the
+            # function's `__name__`/`__qualname__`; it seems it gets
+            # the name from the internal code object...).
+            adjusted_exc_message = ascii_str(exc).replace(_inner_name, method_name)
+            raise TypeError(adjusted_exc_message) from None
         if target_autocompletion:
             target = _complete_target(self, target)
-        patcher_args = (target,) + args[2:]
+        patcher_args = (target,) + args
         patcher = patcher_maker(*patcher_args, **kwargs)
         mock_thing = patcher.start()
         self.addCleanup(patcher.stop)
         return mock_thing
 
     a_patching_method.__name__ = method_name
+    a_patching_method.__qualname__ = 'TestCaseMixin.{}'.format(method_name)
+    a_patching_method.__signature__ = inspect.signature(_get_patching_method_arguments)
+
     return a_patching_method
 
 
 class TestCaseMixin(SDKTestCaseMixin):
 
     def assertJsonEqual(self, first, second, *args, **kwargs):
-        if isinstance(first, basestring):
+        if isinstance(first, (str, bytes, bytearray)):
             first = json.loads(first)
-        if isinstance(second, basestring):
+        if isinstance(second, (str, bytes, bytearray)):
             second = json.loads(second)
         self.assertEqual(first, second, *args, **kwargs)
 
@@ -365,8 +392,8 @@ class TestCaseMixin(SDKTestCaseMixin):
     def patch_with_plug(self,
                         target,
                         exc_factory=NotImplementedError,
-                        exc_msg_pattern=('{target}() calls are unsupported when running '
-                                         'tests from {self.__class__.__name__}'),
+                        exc_msg_pattern=('use of {target} is unsupported when running '
+                                         'tests from {self.__class__.__qualname__}'),
                         **patch_kwargs):
         exc_msg = exc_msg_pattern.format(
             self=self,
@@ -377,9 +404,9 @@ class TestCaseMixin(SDKTestCaseMixin):
     # The following attribute can be defined (in your test case class or
     # instance) to enable patch target auto-completion (i.e., adding the
     # defined prefix automatically to the given target if the target is
-    # a string and does not contain the '.' character).
-    # * Note #1: if the value is a string which does not end with '.'
-    #   the '.' character will be appended automatically.
+    # a `str` and does not contain the '.' character).
+    # * Note #1: if a value of this attribute is a `str` which does not
+    #   end with '.', the '.' character will be appended automatically.
     # * Note #2: *no* target auto-completion will be done if the value
     #   is None.
     default_patch_prefix = None
@@ -391,18 +418,26 @@ class ExceptionRaisingPlug(object):
         self.__exc_factory = exc_factory
         self.__exc_args = exc_args
 
-    def __raise_exc(*args, **_):
-        self = args[0]
-        exc = self.__exc_factory(*self.__exc_args)
-        raise exc
+    # noinspection PyMethodParameters
+    def __make_plug_meth(meth_name):
+        def plug_method(self, /, *_, **__):
+            exc = self.__exc_factory(*self.__exc_args)
+            raise exc
+        plug_method.__name__ = meth_name
+        plug_method.__qualname__ = 'ExceptionRaisingPlug.{}'.format(meth_name)
+        return plug_method
 
     for __meth_name in ORDINARY_MAGIC_METHOD_NAMES:
-        locals()[__meth_name] = __raise_exc
+        # noinspection PyArgumentList
+        locals()[__meth_name] = __make_plug_meth(__meth_name)
+
+    del __make_plug_meth
+    del __meth_name
 
 
 class _ExpectedObjectPlaceholder(object):
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, /, *args, **kwargs):
         self = super(_ExpectedObjectPlaceholder, cls).__new__(cls)
         self._constructor_args = args
         self._constructor_kwargs = kwargs
@@ -414,16 +449,15 @@ class _ExpectedObjectPlaceholder(object):
         else:
             return self.eq_test(other)
 
-    def __ne__(self, other):
-        return not (self == other)
+    __ne__ = properly_negate_eq  # (here explicit is better than implicit `:-)`)
 
     def __repr__(self):
         arg_reprs = [repr(a) for a in self._constructor_args]
         arg_reprs.extend(
             '{}={!r}'.format(k, v)
-            for k, v in sorted(self._constructor_kwargs.iteritems()))
+            for k, v in sorted(self._constructor_kwargs.items()))
         return '{}({})'.format(
-            self.__class__.__name__,
+            self.__class__.__qualname__,
             ', '.join(arg_reprs))
 
     # Overridable methods:
@@ -446,7 +480,7 @@ class AnyInstanceOf(_ExpectedObjectPlaceholder):
     >>> import numbers
     >>> any_str_or_integral = AnyInstanceOf(str, numbers.Integral)
     >>> any_str_or_integral
-    AnyInstanceOf(<type 'str'>, <class 'numbers.Integral'>)
+    AnyInstanceOf(<class 'str'>, <class 'numbers.Integral'>)
 
     >>> any_str_or_integral == 'foo'
     True
@@ -456,9 +490,9 @@ class AnyInstanceOf(_ExpectedObjectPlaceholder):
     True
     >>> 42 == any_str_or_integral
     True
-    >>> any_str_or_integral == 12345678901234567890L
+    >>> any_str_or_integral == 12345678901234567890
     True
-    >>> 12345678901234567890L == any_str_or_integral
+    >>> 12345678901234567890 == any_str_or_integral
     True
 
     >>> any_str_or_integral != 'foo'
@@ -469,23 +503,23 @@ class AnyInstanceOf(_ExpectedObjectPlaceholder):
     False
     >>> 42 != any_str_or_integral
     False
-    >>> any_str_or_integral != 12345678901234567890L
+    >>> any_str_or_integral != 12345678901234567890
     False
-    >>> 12345678901234567890L != any_str_or_integral
+    >>> 12345678901234567890 != any_str_or_integral
     False
 
-    >>> any_str_or_integral == u'foo'
+    >>> any_str_or_integral == b'foo'
     False
-    >>> u'foo' == any_str_or_integral
+    >>> b'foo' == any_str_or_integral
     False
     >>> any_str_or_integral == 42.0
     False
     >>> 42.0 == any_str_or_integral
     False
 
-    >>> any_str_or_integral != u'foo'
+    >>> any_str_or_integral != b'foo'
     True
-    >>> u'foo' != any_str_or_integral
+    >>> b'foo' != any_str_or_integral
     True
     >>> any_str_or_integral != 42.0
     True
@@ -526,9 +560,13 @@ class AnyInstanceOf(_ExpectedObjectPlaceholder):
     >>> AnyInstanceOf(((str, numbers.Integral),), str) != any_str_or_integral
     False
 
-    >>> any_str_or_integral == AnyInstanceOf(basestring, numbers.Integral)
+    >>> any_str_or_integral == AnyInstanceOf(str, bytearray, numbers.Integral)
     False
-    >>> AnyInstanceOf(basestring, numbers.Integral) == any_str_or_integral
+    >>> AnyInstanceOf(str, bytearray, numbers.Integral) == any_str_or_integral
+    False
+    >>> any_str_or_integral == AnyInstanceOf((str, bytearray), numbers.Integral)
+    False
+    >>> AnyInstanceOf((str, bytearray), numbers.Integral) == any_str_or_integral
     False
     >>> any_str_or_integral == AnyInstanceOf(((str,),), str)
     False
@@ -539,9 +577,13 @@ class AnyInstanceOf(_ExpectedObjectPlaceholder):
     >>> AnyInstanceOf(((str, numbers.Integral),), str, int) == any_str_or_integral
     False
 
-    >>> any_str_or_integral != AnyInstanceOf(basestring, numbers.Integral)
+    >>> any_str_or_integral != AnyInstanceOf(str, bytearray, numbers.Integral)
     True
-    >>> AnyInstanceOf(basestring, numbers.Integral) != any_str_or_integral
+    >>> AnyInstanceOf(str, bytearray, numbers.Integral) != any_str_or_integral
+    True
+    >>> any_str_or_integral != AnyInstanceOf((str, bytearray), numbers.Integral)
+    True
+    >>> AnyInstanceOf((str, bytearray), numbers.Integral) != any_str_or_integral
     True
     >>> any_str_or_integral != AnyInstanceOf(((str,),), str)
     True
@@ -727,15 +769,14 @@ class AnyDictIncluding(_ExpectedObjectPlaceholder):
     True
     """
 
-    def __init__(*args, **required_items):
-        [self] = args
+    def __init__(self, /, **required_items):
         self._required_items = required_items
 
     def eq_test(self, other):
         return (
             isinstance(other, dict) and
             all(key in other and value == other[key]
-                for key, value in self._required_items.iteritems()))
+                for key, value in self._required_items.items()))
 
     def eq_test_for_same_type(self, other):
         return self._required_items == other._required_items
@@ -751,9 +792,7 @@ class AnyObjectWhoseVarsInclude(AnyDictIncluding):
 # TODO: docs, tests
 class AnyInstanceOfWhoseVarsInclude(AnyInstanceOf, AnyObjectWhoseVarsInclude):
 
-    def __init__(*self_and_classes, **required_items):
-        self = self_and_classes[0]
-        classes = self_and_classes[1:]
+    def __init__(self, /, *classes, **required_items):
         AnyInstanceOf.__init__(self, *classes)
         AnyObjectWhoseVarsInclude.__init__(self, **required_items)
 
@@ -766,22 +805,35 @@ class AnyInstanceOfWhoseVarsInclude(AnyInstanceOf, AnyObjectWhoseVarsInclude):
                 AnyObjectWhoseVarsInclude.eq_test_for_same_type(self, other))
 
 
-class JSONStringWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
+# TODO: docs, tests
+class AnyMatchingRegex(_ExpectedObjectPlaceholder):
+
+    def __init__(self, regex):
+        if isinstance(regex, (str, bytes)):
+            regex = re.compile(regex)
+        self._regex = regex
+
+    def eq_test(self, other):
+        return self._regex.search(other)
+
+
+class JSONWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
 
     """
     A class that implements a placeholder (somewhat similar to mock.ANY)
-    that compares equal only to `str`/`unicode` instances that, when
-    `json.loads()` is applied to them, produce an object equal to the
-    specified object.
+    that compares equal only to `str`/`bytes`/`bytearray` instances that,
+    when `json.loads()` is applied to them, produce an object equal to
+    the specified object.
 
-    >>> json1 = JSONStringWhoseContentIsEqualTo({'key': 42})
+    >>> json1 = JSONWhoseContentIsEqualTo({'key': 42})
     >>> json1
-    JSONStringWhoseContentIsEqualTo({'key': 42})
-    >>> JSONStringWhoseContentIsEqualTo(data={'key': 42})  # the same, only repr slightly different
-    JSONStringWhoseContentIsEqualTo(data={'key': 42})
+    JSONWhoseContentIsEqualTo({'key': 42})
+    >>> JSONWhoseContentIsEqualTo(data={'key': 42})  # the same, only repr slightly different
+    JSONWhoseContentIsEqualTo(data={'key': 42})
 
     >>> json1 == b'{"key": 42}'
     True
+
     >>> json1 == u'{"key": 42}'
     True
     >>> b'{"key": 42}' == json1
@@ -797,7 +849,7 @@ class JSONStringWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
     >>> u'{"key": 42}' != json1
     False
 
-    >>> json2 = JSONStringWhoseContentIsEqualTo([42, 'spam', {'key': 42}])
+    >>> json2 = JSONWhoseContentIsEqualTo([42, 'spam', {'key': 42}])
     >>> json2 == b'[42, "spam", {"key": 42}]'
     True
     >>> json2 == u'[42, "spam", {"key": 42}]'
@@ -879,24 +931,24 @@ class JSONStringWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
 
     >>> json1 == json1
     True
-    >>> json1 == JSONStringWhoseContentIsEqualTo(data={u'key': 42})
+    >>> json1 == JSONWhoseContentIsEqualTo(data={u'key': 42})
     True
-    >>> JSONStringWhoseContentIsEqualTo(data={u'key': 42}) == json1
+    >>> JSONWhoseContentIsEqualTo(data={u'key': 42}) == json1
     True
     >>> json1 != json1
     False
-    >>> json1 != JSONStringWhoseContentIsEqualTo(data={u'key': 42})
+    >>> json1 != JSONWhoseContentIsEqualTo(data={u'key': 42})
     False
-    >>> JSONStringWhoseContentIsEqualTo(data={u'key': 42}) != json1
+    >>> JSONWhoseContentIsEqualTo(data={u'key': 42}) != json1
     False
 
-    >>> json1 == JSONStringWhoseContentIsEqualTo(data={u'key': 444442})
+    >>> json1 == JSONWhoseContentIsEqualTo(data={u'key': 444442})
     False
-    >>> JSONStringWhoseContentIsEqualTo(data={u'key': 444442}) == json1
+    >>> JSONWhoseContentIsEqualTo(data={u'key': 444442}) == json1
     False
-    >>> json1 != JSONStringWhoseContentIsEqualTo(data={u'key': 444442})
+    >>> json1 != JSONWhoseContentIsEqualTo(data={u'key': 444442})
     True
-    >>> JSONStringWhoseContentIsEqualTo(data={u'key': 444442}) != json1
+    >>> JSONWhoseContentIsEqualTo(data={u'key': 444442}) != json1
     True
 
     >>> json1 == json2
@@ -907,13 +959,30 @@ class JSONStringWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
     True
     >>> json2 != json1
     True
+
+    >>> json1 == bytearray(b'{"key": 42}')
+    True
+    >>> bytearray(b'{"key": 42}') == json1
+    True
+    >>> json1 != bytearray(b'{"key": 42}')
+    False
+    >>> bytearray(b'{"key": 42}') != json1
+    False
+    >>> json1 == bytearray(b'{"another-key": 42}')
+    False
+    >>> bytearray(b'{"key": 42123}') == json1
+    False
+    >>> json1 != bytearray(b'{"key": 42123}')
+    True
+    >>> bytearray(b'{"another-key": 42}') != json1
+    True
     """
 
     def __init__(self, data):
         self._data = data
 
     def eq_test(self, other):
-        if not isinstance(other, basestring):
+        if not isinstance(other, (str, bytes, bytearray)):
             return False
         try:
             other_data = json.loads(other)
@@ -931,12 +1000,14 @@ class MethodProxy(object):
     def __init__(self, cls, first_arg_mock, class_attrs=()):
         self.__cls = cls
         self.__first_arg_mock = first_arg_mock
-        if isinstance(class_attrs, basestring):
+        if isinstance(class_attrs, str):
             class_attrs = class_attrs.replace(',', ' ').split()
         for name in class_attrs:
+            # maybe TODO: make it more smart, taking into account
+            #             various (modern-Python-specific) cases...
             obj = getattr(cls, name)
-            if inspect.ismethod(obj):
-                assert isinstance(obj, types.MethodType)
+            if inspect.ismethod(obj) or self.__is_function_implementing_method(cls, name, obj):
+                assert isinstance(obj, (types.MethodType, types.FunctionType))
                 obj = getattr(self, name)
             else:
                 assert not isinstance(obj, types.MethodType)
@@ -950,11 +1021,22 @@ class MethodProxy(object):
         if inspect.ismethod(obj):
             assert isinstance(obj, types.MethodType)
             return functools.partial(obj.__func__, self.__first_arg_mock)
+        elif self.__is_function_implementing_method(cls, name, obj):
+            assert isinstance(obj, types.FunctionType)
+            return functools.partial(obj, self.__first_arg_mock)
         else:
             assert not isinstance(obj, types.MethodType)
             raise TypeError(
-                '{!r} ({!r}.{}) is not a method'.format(
+                '{!a} ({!a}.{}) is not a method'.format(
                     obj, cls, name))
+
+    def __is_function_implementing_method(self, cls, name, obj):
+        # In Py3 (unlike in Py2), if a user-defined function is an
+        # attribute of a class and we try to get that function from
+        # that class (not from its instance), we get just that function
+        # (i.e., there are no *unbound methods*).
+        return (inspect.isfunction(obj) and
+                obj is inspect.getattr_static(cls, name, None))  # *not* a staticmethod or what...
 
 
 
@@ -1084,7 +1166,7 @@ class DBConnectionPatchMixin(TestCaseMixin):
 
 class RequestHelperMixin(object):
 
-    def prepare_pyramid_testing(self):
+    def prepare_pyramid_unittesting(self):
         """
         Set up the `pyramid.testing` stuff and register a cleanup callback.
 
@@ -1092,9 +1174,9 @@ class RequestHelperMixin(object):
             A `pyramid.config.Configurator` instance.
         """
         assert isinstance(self, unittest.TestCase)
-        pyramid_config = pyramid.testing.setUp()
+        pyramid_configurator = pyramid.testing.setUp()
         self.addCleanup(pyramid.testing.tearDown)
-        return pyramid_config
+        return pyramid_configurator
 
     @classmethod
     def create_request(cls, view_class, **kwargs):
@@ -1118,8 +1200,8 @@ class RequestHelperMixin(object):
 
         Arbitrary kwargs (keyword-only):
             To be transformed into request's `params`. Their values
-            should be strings, or lists of strings (the latter in the
-            case of a request parameter that has multiple values).
+            should be `str`, or lists of `str` (the latter in the case
+            of a request parameter that has multiple values).
 
         Returns:
             A `pyramid.request.Request` instance.
@@ -1159,11 +1241,10 @@ class RequestHelperMixin(object):
           `request`:
 
           * the `context` argument is produced by calling the
-            `get_concrete_view_class_kwargs()` method of the *test
-            class* (`RequestHelperMixin` provides a default
-            implementation of that method -- see its docstring), with
-            the concrete view class and the request instance as the
-            arguments;
+            `get_view_context()` method of the *test class*
+            (`RequestHelperMixin` provides a default implementation of
+            that method -- see its docstring), with the concrete view
+            class and the request instance as the arguments;
 
           * the `request` argument is just our request instance.
 
@@ -1182,14 +1263,14 @@ class RequestHelperMixin(object):
     @staticmethod
     def __make_request_params(kwargs):
         params = MultiDict()
-        for key, val in kwargs.iteritems():
-            assert isinstance(key, basestring)
-            if isinstance(val, basestring):
+        for key, val in kwargs.items():
+            assert isinstance(key, str)
+            if isinstance(val, str):
                 params[key] = val
             else:
                 assert isinstance(val, (list, tuple))
                 for v in val:
-                    assert isinstance(v, basestring)
+                    assert isinstance(v, str)
                     params.add(key, v)
         return params
 
@@ -1201,13 +1282,17 @@ class RequestHelperMixin(object):
             call that instance immediately (forwarding the return value
             which is supposed to be a response object).
             """
-            view_instance = cls.__make_view_instance(view_class, request)
+            view_instance = cls.make_view_instance(view_class, request)
             response = view_instance()
             return response
         return perform
 
     @classmethod
-    def __make_view_instance(cls, view_class, request):
+    def make_view_instance(cls, view_class, request):
+        """
+        Create an instance of the given view class, associated with the given request.
+        (This method is invoked by `request.perform()` -- see the docs of `create_request()`.)
+        """
         concrete_view_class_kwargs = cls.get_concrete_view_class_kwargs(view_class, request)
         concrete_view_class = view_class.concrete_view_class(**concrete_view_class_kwargs)
         view_context = cls.get_view_context(concrete_view_class, request)
@@ -1225,7 +1310,7 @@ class RequestHelperMixin(object):
         particular `view_class` what keyword arguments are expected by
         `concrete_view_class()`.
         """
-        return dict(resource_id='mock_resource_id', config={})
+        return dict(resource_id='mock_resource_id', pyramid_configurator=sentinel.configurator)
 
     @classmethod
     def get_view_context(cls, concrete_view_class, request):

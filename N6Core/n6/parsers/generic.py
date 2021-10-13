@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 """
 Parser base classes + auxiliary tools.
@@ -76,7 +76,7 @@ class BaseParser(ConfigMixin, QueuedBase):
     # specify the `[{parser_class_name}]` section including the
     # `prefetch_count` option with the `int` converter [hint:
     # the attribute can be easily extended using the
-    # n6lib.common_helpers.concat_reducing_indent() helper]
+    # n6lib.config.join_config_specs() helper]
     config_spec_pattern = '''
         [{parser_class_name}]
         prefetch_count = 1 :: int
@@ -144,24 +144,30 @@ class BaseParser(ConfigMixin, QueuedBase):
 
         if self.default_binding_key is not None:  # (not for an abstract class)
             assert 'input_queue' in vars(self)  # ensured by QueuedBase.__new__()
-            self.input_queue["queue_name"] = self.default_binding_key
-            self.input_queue["binding_keys"] = self.make_binding_keys()
+            self.input_queue['queue_name'] = self.default_binding_key
         super(BaseParser, self).preinit_hook()
 
-    def make_binding_keys(self):
+    def configure_pipeline(self):
         """
-        Get binding keys (called by __new__()-triggered preinit_hook()).
-
-        Returns:
-            A list of input queue binding keys (to be set as
-            input_queue["binding_keys"] after instance creation).
-
-        The default implementation of this method returns a single-element
-        list containing a string being the value of the `default_binding_key`
-        attribute.
+        The default binding keys, set in `default_binding_key`
+        attribute, may be overridden in the pipeline configuration.
         """
-        return [self.default_binding_key]
+        self.input_queue['binding_keys'] = [self.default_binding_key]
+        super(BaseParser, self).configure_pipeline()
 
+    def get_component_group_and_id(self):
+        return 'parsers', self.__class__.__name__.lower()
+
+    def make_binding_keys(self, binding_keys, *args, **kwargs):
+        """
+        If the `default_binding_key` attribute is not set in parser's
+        subclass, try to obtain binding keys from the pipeline config.
+
+        Args:
+            `binding_keys`:
+                The list of new binding keys.
+        """
+        self.input_queue['binding_keys'] = binding_keys
 
     #
     # Utility static method extensions

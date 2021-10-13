@@ -30,6 +30,7 @@ $color-purple-light: #9c88ff;  // Flat UI British: Periwinkle
 $color-purple-dark: #8c7ae6;  // Flat UI British: Matt Purple
 $color-red-light: #e84118;  // Flat UI British: Nastrucian Flower
 $color-red-dark: #c23616;  // Flat UI British: Harley Davidson Orange
+$color-red-extra-dark: #7f1f0e;
 $color-white: #ffffff;  // Just white ;)
 $color-yellow-light: #fbc531; // Flat UI British: Rise-N-Shine
 $color-yellow-dark: #e1b12c; // Flat UI British: Nanohanacha Gold
@@ -53,6 +54,7 @@ $margin-small: 18px;
 $margin-medium: 28px;
 $margin-large: 36px;
 $margin-extra-large: 44px;
+$margin-extra-extra-large: 56px;
 
 //// Padding
 $padding-extra-extra-extra-small: 3px;
@@ -84,3 +86,19 @@ $padding-window: $padding-medium;
 $table-cell-padding: 0.4em;
 $table-border-color: $color-grey-extra-light;
 $table-border-width: 1px;
+
+//// Simple table
+$table-simple-border-color: #c6c6c6;
+$table-simple-thead-border-color: #a6a6a6;
+$table-simple-even-td-background: $color-grey-extra-extra-light;
+$table-simple-odd-td-background: #ebecef;
+$table-simple-thead-background: #4c4f53;
+
+
+//// Forms
+$input-width-medium: 351px;
+$input-width--time: 320px;
+$input-height-large: 102px;
+$input-multi-border-color: #cbd9d6;
+$input-edited-border-color: #ffc900;
+$input-readonly-color: #65635a;

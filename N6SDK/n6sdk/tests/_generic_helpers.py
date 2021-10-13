@@ -1,31 +1,28 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
-# Copyright (c) 2013-2016 NASK. All rights reserved.
-
-
-import collections
-
-import mock
+import collections.abc as collections_abc
+import unittest.mock as mock
 
 
 class TestCaseMixin(object):
 
     def assertEqualIncludingTypes(self, first, second, msg=None):
-        self.assertEqual(first, second)
+        self.assertEqual(first, second, msg=msg)
         if first is not mock.ANY and second is not mock.ANY:
             self.assertIs(type(first), type(second),
-                          'type of {!r} ({}) is not type of {!r} ({})'
+                          'type of {!a} ({}) is not type of {!a} ({})'
                           .format(first, type(first), second, type(second)))
-        if isinstance(first, collections.Sequence) and not isinstance(first, basestring):
+        if (isinstance(first, collections_abc.Sequence)
+              and not isinstance(first, (bytes, bytearray, str))):
             for val1, val2 in zip(first, second):
                 self.assertEqualIncludingTypes(val1, val2)
-        elif isinstance(first, collections.Set):
+        elif isinstance(first, collections_abc.Set):
             for val1, val2 in zip(sorted(first, key=self._safe_sort_key),
                                   sorted(second, key=self._safe_sort_key)):
                 self.assertEqualIncludingTypes(val1, val2)
-        elif isinstance(first, collections.Mapping):
-            for key1, key2 in zip(sorted(first.iterkeys(), key=self._safe_sort_key),
-                                  sorted(second.iterkeys(), key=self._safe_sort_key)):
+        elif isinstance(first, collections_abc.Mapping):
+            for key1, key2 in zip(sorted(first.keys(), key=self._safe_sort_key),
+                                  sorted(second.keys(), key=self._safe_sort_key)):
                 self.assertEqualIncludingTypes(key1, key2)
             for key in first:
                 self.assertEqualIncludingTypes(first[key], second[key])
@@ -54,11 +51,11 @@ class _CustomSetMixin(object):
         return len(self._elements)
 
 
-class CustomImmutableSet(_CustomSetMixin, collections.Set):
+class CustomImmutableSet(_CustomSetMixin, collections_abc.Set):
     pass
 
 
-class CustomMutableSet(_CustomSetMixin, collections.MutableSet):
+class CustomMutableSet(_CustomSetMixin, collections_abc.MutableSet):
 
     def add(self, value):
         self._elements.add(value)

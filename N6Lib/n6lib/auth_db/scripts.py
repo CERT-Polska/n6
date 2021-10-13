@@ -1,18 +1,26 @@
-# Copyright (c) 2013-2020 NASK. All rights reserved.
-
-from __future__ import print_function
+# Copyright (c) 2018-2021 NASK. All rights reserved.
 
 import argparse
+import ast
 import contextlib
 import getpass
+import os
+import os.path as osp
 import sys
 import textwrap
 
 import sqlalchemy
 import sqlalchemy.exc
 import sqlalchemy.orm
+from alembic import command
+from alembic.config import Config
+from pkg_resources import (
+    Requirement,
+    resource_filename,
+)
 
 from n6lib.auth_db import (
+    ALEMBIC_DB_CONFIGURATOR_SETTINGS_DICT_ENVIRON_VAR_NAME,
     MYSQL_CHARSET,
     MYSQL_COLLATE,
 )
@@ -33,145 +41,379 @@ from n6lib.common_helpers import (
 from n6lib.class_helpers import attr_required
 
 
-class _BaseAuthDBScript(object):
+#
+# Base and mixin classes
+#
+
+class BaseAuthDBScript(object):
 
     # The docstring should be set in subclasses because it
     # is to be used as a part of the script's help text.
     __doc__ = None
 
+    db_connector_factory = SQLAuthDBConnector
+
     @classmethod
-    def run_from_commandline(cls):
-        parser = cls.make_argument_parser()
-        arguments = cls.parse_arguments(parser)
+    def run_from_commandline(cls, argv):
+        prog = osp.basename(argv[0])
+        parser = cls.make_argument_parser(prog)
+        arguments = cls.parse_arguments(parser, argv)
+        script = cls(**arguments)
+        script_descr = "The '{}' script".format(prog)
+        script.msg('{} started.'.format(script_descr))
         try:
-            script = cls(**arguments)
-            script.run()
+            with script:
+                exit_code = script.run()
         except sqlalchemy.exc.StatementError as exc:
-            sys.exit(ascii_str(exc))
+            script.msg_error('Database operation failure: {}.'.format(ascii_str(exc)))
+            exit_code = 1
+        if exit_code:
+            script.msg('{} exits with code {}.'.format(script_descr, exit_code))
+            sys.exit(exit_code)
         else:
-            script.msg('Done.')
+            script.msg('{} exits gracefully.'.format(script_descr))
+            sys.exit(0)
 
     @classmethod
     @attr_required('__doc__')
-    def make_argument_parser(cls):
-        parser = argparse.ArgumentParser(description=textwrap.dedent(cls.__doc__))
+    def make_argument_parser(cls, prog):
+        parser = argparse.ArgumentParser(
+            prog=prog,
+            description=textwrap.dedent(cls.__doc__))
         parser.add_argument('-q', '--quiet', action='store_true',
                             help=('suppress most of printed messages'))
         return parser
 
     @classmethod
-    def parse_arguments(cls, parser):
-        arguments_namespace = parser.parse_args()
+    def parse_arguments(cls, parser, argv):
+        arguments_namespace = parser.parse_args(args=argv[1:])
         return vars(arguments_namespace)
 
 
-    def __init__(self, quiet=False, settings=None, config_section=None):
-        self.db_session = None  # to be set in `db_session_set_up()`
+    def __init__(self, quiet=False, settings=None, config_section=None, **kwargs):
         self.quiet = quiet
-        self._db_connector = SQLAuthDBConnector(settings=settings, config_section=config_section)
+        self.settings = settings
+        self.config_section = config_section
+        self.db_connector = self.db_connector_factory(
+            settings=settings,
+            config_section=config_section)
+        super(BaseAuthDBScript, self).__init__(**kwargs)
 
-    @property
-    def db_engine(self):
-        return self._db_connector.engine
+    def __enter__(self):
+        return self
 
-    @property
-    def db_name(self):
-        return self.db_engine.url.database
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cleanup()
+
+    def cleanup(self):
+        self.db_connector.dispose_engine()
 
 
     def run(self):
         raise NotImplementedError
 
 
-    @contextlib.contextmanager
-    def db_session_set_up(self):
-        with self._db_connector as db_session:
-            self.db_session = db_session
-            try:
-                yield db_session
-            finally:
-                self.db_session = None
+    @property
+    def db_session(self):
+        return self.db_connector.get_current_session()
+
+    @property
+    def db_engine(self):
+        return self.db_connector.engine
+
+    @property
+    def db_name(self):
+        return self.db_engine.url.database
 
     @contextlib.contextmanager
     def secondary_db_engine(self):
         # not bound to any specific MariaDB's database
-        engine = self._db_connector.make_db_engine(url_overwrite_attrs={'database': None})
+        engine = self.db_connector.make_db_engine(url_overwrite_attrs={'database': None})
         try:
             yield engine
         finally:
             engine.dispose()
 
-    def quote_sql_identifier(self, sql_identifier):
-        return self._db_connector.quote_sql_identifier(sql_identifier)
 
-    def msg(self, *args):
+    # Script message printing helpers
+
+    def msg(self, *print_args):
+        self._print_info_msg(
+            lead='*',
+            print_args=print_args)
+
+    def msg_sub(self, *print_args):
+        self._print_info_msg(
+            lead='  *',
+            print_args=print_args)
+
+    def msg_warn(self, *print_args):
+        self._print_alarm_msg(
+            lead='*** WARNING ***',
+            print_args=print_args)
+
+    def msg_error(self, *print_args):
+        self._print_alarm_msg(
+            lead='*** ERROR ***',
+            print_args=print_args)
+
+    def msg_caution(self, *print_args):
+        self._print_alarm_msg(
+            lead='*** CAUTION ***',
+            lead_end='\n\n',
+            print_args=print_args)
+
+    def msg_vertical_space(self):
+        if self._soft_newline:
+            print()
+            self._soft_newline = False
+
+    def _print_info_msg(self, lead, print_args=()):
         if not self.quiet:
-            print('*', *args)
+            print(lead, *print_args)
+            self._soft_newline = True
 
-    def msg_sub(self, *args):
-        if not self.quiet:
-            print('  *', *args)
+    def _print_alarm_msg(self, lead, lead_end=' ', print_args=()):
+        if self._soft_newline:
+            print(file=sys.stderr)
+        print(lead, file=sys.stderr, end=lead_end)
+        print(*print_args, file=sys.stderr, end='\n\n')
+        self._soft_newline = False
+
+    _soft_newline = True
 
 
-class _DropDatabaseMixin(object):
+    # Script environment manipulation helpers
+
+    @contextlib.contextmanager
+    def patched_os_environ_var(self, var_name, value):
+        saved_value = os.environ.get(var_name)
+        try:
+            self._set_or_unset_os_environ_var(var_name, value)
+            yield
+        finally:
+            self._set_or_unset_os_environ_var(var_name, saved_value)
+
+    def _set_or_unset_os_environ_var(self, var_name, value):
+        if value is None:
+            os.environ.pop(var_name, None)
+        else:
+            os.environ[var_name] = value
+
+    @contextlib.contextmanager
+    def changed_working_dir(self, working_dir):
+        saved_working_dir = os.getcwd()
+        try:
+            os.chdir(working_dir)
+            yield
+        finally:
+            os.chdir(saved_working_dir)
+
+    @contextlib.contextmanager
+    def suppressed_stderr(self, suppress_only_if_quiet=False):
+        if self.quiet or not suppress_only_if_quiet:
+            with self._simpleminded_stderr_patcher():
+                yield
+        else:
+            yield
+
+    class _simpleminded_stderr_patcher(object):
+        def __init__(self):
+            self._replaced_obj_stack = []
+        def __enter__(self):
+            self._replaced_obj_stack.append(sys.stderr)
+            sys.stderr = self
+        def __exit__(self, *exc_info):
+            sys.stderr = self._replaced_obj_stack.pop()
+        def __get_self(*args, **_):
+            return args[0]
+        __getattr__ = __get_self
+        __call__ = __get_self
+
+
+class PromptingForYesOrNoMixin(object):
+
+    # noinspection PyUnresolvedReferences
+    @classmethod
+    def make_argument_parser(cls, prog):
+        parser = super(PromptingForYesOrNoMixin, cls).make_argument_parser(prog)
+        parser.add_argument('-y', '--yes', '--assume-yes',
+                            action='store_true', dest='assume_yes',
+                            help=("act non-interactively, assuming "
+                                  "'yes' as answers to any prompts"))
+        return parser
+
+    def __init__(self, assume_yes=False, **kwargs):
+        self.assume_yes = assume_yes
+        super(PromptingForYesOrNoMixin, self).__init__(**kwargs)
+
+    # noinspection PyUnresolvedReferences
+    def yes_or_no(self, question, caution=None):
+        if self.assume_yes:
+            return True
+
+        if caution is not None:
+            self.msg_caution(caution)
+        self.msg_vertical_space()
+        answer = input(question + ' [y/N] ')
+        print()
+        if answer.lower() in ('y', 'yes'):
+            self.msg("The 'yes' answer has been given.")
+            return True
+
+        if answer.lower() in ('n', 'no', ''):
+            self.msg("The 'no' answer has been given.")
+        else:
+            self.msg("Unrecognized answer: {!a}, assuming 'no'.".format(answer))
+        return False
+
+
+class DropDatabaseIfExistsMixin(PromptingForYesOrNoMixin):
 
     # noinspection PyUnresolvedReferences
     def drop_db_if_exists(self, secondary_db_engine):
-        self.msg('Dropping auth database if it exists...')
-        quoted_db_name = self.quote_sql_identifier(self.db_name)
-        secondary_db_engine.execute('DROP DATABASE IF EXISTS {}'.format(quoted_db_name))
+        if self.yes_or_no(
+                caution=('The auth database, if it exists, is to be '
+                         'dropped, i.e., completely removed!'),
+                question='Are you sure you want to drop the auth database?'):
+            self.msg('Dropping the auth database if it exists...')
+            quoted_db_name = self.db_connector.quote_sql_identifier(self.db_name)
+            query_text = 'DROP DATABASE IF EXISTS {}'.format(quoted_db_name)
+            with self.suppressed_stderr(suppress_only_if_quiet=True):
+                with secondary_db_engine.connect() as connection:
+                    connection.execute(query_text)
+            return True
+        else:
+            self.msg('Resigned from dropping the auth database.')
+            return False
 
 
-class CreateAndInitializeAuthDB(_DropDatabaseMixin, _BaseAuthDBScript):
+#
+# Actual script classes
+#
+
+class CreateAndInitializeAuthDB(DropDatabaseIfExistsMixin, BaseAuthDBScript):
 
     """
-    Create the Auth DB and initialize it with the minimum content
-    (including all n6 event categories).
+    Create the Auth DB and its tables, and initialize them with the
+    minimum content (including all n6 event categories).
+
+    Note: this script, *unless* executed with the -o flag, ensures that
+    the schema of the (newly created) auth database will be the most
+    fresh one (i.e., just as if all available Alembic migrations had
+    already been applied) and, *unless* the -A flag is used, the
+    database will be stamped as being at the `head` (i.e., the newest)
+    Alembic revision.
     """
 
     @classmethod
-    def make_argument_parser(cls):
-        parser = super(CreateAndInitializeAuthDB, cls).make_argument_parser()
+    def make_argument_parser(cls, prog):
+        parser = super(CreateAndInitializeAuthDB, cls).make_argument_parser(prog)
+        parser.add_argument('-A', '--no-alembic-stuff', action='store_true',
+                            help=('do *not* touch the resultant database with '
+                                  'any Alembic-specific tools, especially '
+                                  'do *not* stamp the database as being at '
+                                  'the `head` Alembic revision'))
         parser.add_argument('-D', '--drop-db-if-exists', action='store_true',
                             help=('first, drop (i.e., completely remove!) '
-                                  'the existing Auth DB (if any)'))
+                                  'the existing auth database (if any), '
+                                  'and only then create/initialize what '
+                                  'is needed...'))
+        parser.add_argument('-o', '--only-create-db', action='store_true',
+                            help=('*only* create the database, that is, do '
+                                  '*not* create/initialize any other things '
+                                  '(in particular, do not create any tables)'))
         return parser
 
-    def __init__(self, drop_db_if_exists=False, **kwargs):
+    def __init__(self,
+                 no_alembic_stuff=False,
+                 drop_db_if_exists=False,
+                 only_create_db=False,
+                 **kwargs):
+        self._no_alembic_stuff = no_alembic_stuff
         self._drop_db_if_exists = drop_db_if_exists
+        self._only_create_db = only_create_db
         super(CreateAndInitializeAuthDB, self).__init__(**kwargs)
 
     def run(self):
         with self.secondary_db_engine() as secondary_db_engine:
             if self._drop_db_if_exists:
-                self.drop_db_if_exists(secondary_db_engine)
+                dropped = self.drop_db_if_exists(secondary_db_engine)
+                if not dropped:
+                    self.msg_error(
+                        'Without dropping the auth database '
+                        'no further actions can be performed.')
+                    return 1
             self.create_db(secondary_db_engine)
-        self.create_tables()
-        with self.db_session_set_up():
-            self.insert_criteria_categories()
+        if not self._only_create_db:
+            self.create_tables()
+            with self.db_connector:
+                self.insert_criteria_categories()
+            if not self._no_alembic_stuff:
+                self.stamp_as_alembic_head()
+        return 0
 
     def create_db(self, secondary_db_engine):
-        self.msg('Creating new auth database...')
-        quoted_db_name = self.quote_sql_identifier(self.db_name)
+        self.msg('Creating the new auth database...')
+        quoted_db_name = self.db_connector.quote_sql_identifier(self.db_name)
         sql_raw = ('CREATE DATABASE {} '
                    'CHARACTER SET :charset COLLATE :collate'.format(quoted_db_name))
         sql = sqlalchemy.text(sql_raw).bindparams(
             charset=(MYSQL_CHARSET),
             collate=(MYSQL_COLLATE))
-        secondary_db_engine.execute(sql)
+        with secondary_db_engine.connect() as connection:
+            connection.execute(sql)
 
     def create_tables(self):
-        self.msg('Creating new auth database tables...')
+        self.msg('Creating the new auth database\'s tables...')
         Base.metadata.create_all(self.db_engine)
 
     def insert_criteria_categories(self):
-        self.msg('Inserting `criteria_category` records...')
+        self.msg('Inserting new \'criteria_category\' records...')
         for category in CATEGORY_ENUMS:
-            self.msg_sub('{} "{}"'.format(CriteriaCategory.__name__, category))
-            self.db_session.add(CriteriaCategory(category=category))
+            criteria_category = self.db_session.query(CriteriaCategory).get(category)
+            if criteria_category is None:
+                criteria_category = CriteriaCategory(category=category)
+                self.msg_sub('{} "{}"'.format(CriteriaCategory.__name__, criteria_category))
+                self.db_session.add(criteria_category)
+
+    def stamp_as_alembic_head(self):
+        revision = 'head'
+        self.msg(
+            'Invoking appropriate Alembic tools to stamp the auth database '
+            'as being at the `{}` Alembic revision...'.format(revision))
+        alembic_ini_path = resource_filename(
+            Requirement.parse('n6lib'),
+            'n6lib/auth_db/alembic.ini')
+        with self.patched_os_environ_var(
+                ALEMBIC_DB_CONFIGURATOR_SETTINGS_DICT_ENVIRON_VAR_NAME,
+                self._prepare_alembic_db_configurator_settings_dict_raw()), \
+             self.changed_working_dir(osp.dirname(alembic_ini_path)), \
+             self.suppressed_stderr(suppress_only_if_quiet=True):
+            alembic_cfg = Config(alembic_ini_path)
+            command.stamp(alembic_cfg, revision)
+
+    def _prepare_alembic_db_configurator_settings_dict_raw(self):
+        if self.settings is not None:
+            alembic_db_configurator_settings_dict = dict(self.settings)
+            alembic_db_configurator_settings_dict_raw = repr(alembic_db_configurator_settings_dict)
+            try:
+                ast.literal_eval(alembic_db_configurator_settings_dict_raw)
+            except Exception:
+                self.msg_error(
+                    'when none of the -A or -o options are used, the '
+                    'auth database configurator settings dict, if '
+                    'present (i.e. if it is not None), must contain '
+                    'only keys and values representable as pure Python '
+                    'literals (got: {!a})'.format(
+                        alembic_db_configurator_settings_dict))
+                raise ValueError('settings dict not representable as pure literal')
+        else:
+            alembic_db_configurator_settings_dict_raw = None
+        return alembic_db_configurator_settings_dict_raw
 
 
-class DropAuthDB(_DropDatabaseMixin, _BaseAuthDBScript):
+class DropAuthDB(DropDatabaseIfExistsMixin, BaseAuthDBScript):
 
     """
     Just drop (i.e., completely remove!) the Auth DB if it exists.
@@ -179,10 +421,14 @@ class DropAuthDB(_DropDatabaseMixin, _BaseAuthDBScript):
 
     def run(self):
         with self.secondary_db_engine() as secondary_db_engine:
-            self.drop_db_if_exists(secondary_db_engine)
+            dropped = self.drop_db_if_exists(secondary_db_engine)
+            if dropped:
+                return 0
+        self.msg_error('The main goal of the script has not been achieved.')
+        return 1
 
 
-class PopulateAuthDB(_BaseAuthDBScript):
+class PopulateAuthDB(BaseAuthDBScript):
 
     """
     Populate the Auth DB with some basic/example data:
@@ -225,8 +471,8 @@ class PopulateAuthDB(_BaseAuthDBScript):
     ]
 
     @classmethod
-    def make_argument_parser(cls):
-        parser = super(PopulateAuthDB, cls).make_argument_parser()
+    def make_argument_parser(cls, prog):
+        parser = super(PopulateAuthDB, cls).make_argument_parser(prog)
         parser.add_argument('org_id',
                             metavar='ORG_ID',
                             help='organization identifier (domain-name-like)')
@@ -276,8 +522,8 @@ class PopulateAuthDB(_BaseAuthDBScript):
         return parser
 
     @classmethod
-    def parse_arguments(cls, parser):
-        arguments = super(PopulateAuthDB, cls).parse_arguments(parser)
+    def parse_arguments(cls, parser, argv):
+        arguments = super(PopulateAuthDB, cls).parse_arguments(parser, argv)
         if arguments.pop('set_password'):
             arguments['password'] = getpass.getpass(
                 'Please, type in the password for the new user who '
@@ -305,7 +551,7 @@ class PopulateAuthDB(_BaseAuthDBScript):
 
     def run(self):
         self.msg('Inserting records...')
-        with self.db_session_set_up():
+        with self.db_connector:
             org = Org(org_id=self.org_id,
                       full_access=self.full_access)
             user = User(login=self.login)
@@ -341,7 +587,7 @@ class PopulateAuthDB(_BaseAuthDBScript):
             if subsource is None:
                 subsource = Subsource(label=label, source=source)
             if subsource.source != source:
-                raise ValueError('expected that {!r} has source=={!r}'
+                raise ValueError('expected that {!a} has source=={!a}'
                                  .format(subsource, source) + '_' + str(subsource.source))
             if self.access_to_inside and org not in subsource.inside_orgs:
                 subsource.inside_orgs.append(org)
@@ -369,12 +615,12 @@ class PopulateAuthDB(_BaseAuthDBScript):
 
 
 def create_and_initialize_auth_db():
-    CreateAndInitializeAuthDB.run_from_commandline()
+    CreateAndInitializeAuthDB.run_from_commandline(sys.argv)
 
 
 def drop_auth_db():
-    DropAuthDB.run_from_commandline()
+    DropAuthDB.run_from_commandline(sys.argv)
 
 
 def populate_auth_db():
-    PopulateAuthDB.run_from_commandline()
+    PopulateAuthDB.run_from_commandline(sys.argv)

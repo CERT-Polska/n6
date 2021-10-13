@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import csv
 import datetime
@@ -276,6 +276,32 @@ class AbuseChFeodoTracker201908Parser(BaseParser):
             # SOURCE FIELDS FORMAT:
             # Firstseen,DstIP,DstPort,LastOnline,Malware
             t, ip, dport, _, name = row
+            with self.new_record_dict(data) as parsed:
+                parsed.update({
+                    'time': t,
+                    'address': {'ip': ip},
+                    'dport': dport,
+                    'name': name,
+                })
+                yield parsed
+
+
+class AbuseChFeodoTracker202110Parser(BaseParser):
+
+    default_binding_key = "abuse-ch.feodotracker.202110"
+
+    constant_items = {
+            "restriction": "public",
+            "confidence": "medium",
+            "category": "cnc",
+    }
+
+    def parse(self, data):
+        rows = csv.reader(StringIO(data['raw']), delimiter=',', quotechar='"')
+        for row in rows:
+            # SOURCE FIELDS FORMAT:
+            # first_seen_utc,dst_ip,dst_port,c2_status,last_online,malware
+            t, ip, dport, _, _, name = row
             with self.new_record_dict(data) as parsed:
                 parsed.update({
                     'time': t,

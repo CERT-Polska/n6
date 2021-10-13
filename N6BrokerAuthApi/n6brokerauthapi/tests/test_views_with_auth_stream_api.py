@@ -89,7 +89,7 @@ class _MockerMixin(RequestHelperMixin, DBConnectionPatchMixin):
 
     # noinspection PyUnresolvedReferences
     def setUp(self):
-        self.config = self.prepare_pyramid_testing()
+        self.config = self.prepare_pyramid_unittesting()
         self.connector_mock = MagicMock()
         self._setup_auth_manager_maker()
         self._setup_db_mock()
@@ -195,7 +195,7 @@ class _N6BrokerViewTestingMixin(
     view_class = None
 
     @classmethod
-    def default_test_params(cls):
+    def basic_allow_params(cls):
         """
         Get some param dict for whom the view gives an "allow..."
         response. The dict should include only required params.
@@ -209,7 +209,7 @@ class _N6BrokerViewTestingMixin(
 
     @paramseq
     def __param_name_combinations(cls):
-        required_param_names = sorted(cls.default_test_params())
+        required_param_names = sorted(cls.basic_allow_params())
         for i in xrange(len(required_param_names)):
             for some_param_names in itertools.combinations(required_param_names, i+1):
                 assert set(some_param_names).issubset(required_param_names)
@@ -226,7 +226,7 @@ class _N6BrokerViewTestingMixin(
 
     @attr_required('view_class')
     def perform_request(self, **kwargs):
-        params = self.default_test_params()
+        params = self.basic_allow_params()
         self.__adjust_params(params, kwargs)
         request = self.create_request(self.view_class, **params)
         resp = request.perform()
@@ -238,7 +238,7 @@ class _N6BrokerViewTestingMixin(
     def test_required_param_names(self):
         # noinspection PyUnresolvedReferences
         self.assertEqual(self.view_class.get_required_param_names(),
-                         set(self.default_test_params()))
+                         set(self.basic_allow_params()))
 
     def test_allow_despite_superfluous_params(self):
         resp = self.perform_request(whatever='spam')
@@ -270,7 +270,7 @@ class TestUserView(_N6BrokerViewTestingMixin, unittest.TestCase):
     view_class = N6BrokerAuthUserView
 
     @classmethod
-    def default_test_params(cls):
+    def basic_allow_params(cls):
         # we omit 'password' as it is optional (and *not* supported by us yet)
         return dict(
             username=TEST_USER,
@@ -322,7 +322,7 @@ class TestVHostView(_N6BrokerViewTestingMixin, unittest.TestCase):
     view_class = N6BrokerAuthVHostView
 
     @classmethod
-    def default_test_params(cls):
+    def basic_allow_params(cls):
         return dict(
             username=TEST_USER,
             vhost='whatever',
@@ -352,7 +352,7 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
     view_class = N6BrokerAuthResourceView
 
     @classmethod
-    def default_test_params(cls):
+    def basic_allow_params(cls):
         return dict(
             username=TEST_USER,
             vhost='whatever',
@@ -661,7 +661,7 @@ class TestTopicView(_N6BrokerViewTestingMixin, unittest.TestCase):
     view_class = N6BrokerAuthTopicView
 
     @classmethod
-    def default_test_params(cls):
+    def basic_allow_params(cls):
         return dict(
             username=TEST_USER,
             vhost='whatever',

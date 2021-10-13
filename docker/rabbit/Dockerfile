@@ -1,4 +1,5 @@
-FROM rabbitmq:3.8-management
+ARG DOCKER_IMAGE=rabbitmq:3.8-management
+FROM $DOCKER_IMAGE
 
 # interactive mode
 ENV TERM xterm

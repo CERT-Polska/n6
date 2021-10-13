@@ -1,0 +1,119 @@
+body {
+  background: #ffffff;
+  color: #38444f;
+  font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  font-size: 14px;
+}
+
+.miniConfigWrapper {
+  width: 60%;
+  background: red;
+}
+
+.formWrapper {
+  background: #dce2e8;
+  width: 60%;
+  padding: 20px;
+  margin-left: 40px;
+  margin-bottom: 40px;
+}
+
+#buttons {
+  margin-left: 40px;
+}
+
+#buttons button {
+  margin-right: 5px;
+}
+
+.infoDiv {
+  margin-top: 40px;
+}
+
+.infoDiv p {
+  color: #cc6262;
+  font-weight: bolder;
+}
+
+input,
+textarea {
+  display: block;
+  width: 90%;
+}
+
+input,
+textarea {
+  margin-bottom: 20px;
+}
+
+input[readonly] {
+  background: #e6e6e6;
+}
+
+.invalidField {
+  -webkit-box-shadow: 0px 0px 36px -8px rgba(255, 0, 0, 0.78);
+  -moz-box-shadow: 0px 0px 36px -8px rgba(255, 0, 0, 0.78);
+  box-shadow: 0px 0px 36px -8px rgba(255, 0, 0, 0.78);
+}
+
+label {
+  display: block;
+  font-size: 1.1em;
+  font-weight: bolder;
+  margin-bottom: 10px;
+}
+
+.multiField {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.multiField textarea {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.multiField * {
+  margin-right: 10px;
+}
+
+.invalidField {
+  border: 1px red solid;
+}
+
+#infoMsg,
+#errorMsg {
+  width: 600px;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  position: fixed;
+  min-height: 50px;
+  margin: 40px;
+  border-radius: 3px;
+  text-align: center;
+}
+
+#infoMsg,
+#errorMsg p {
+  font-size: 1.5em;
+  color: #ffffff;
+}
+
+#infoMsg {
+  background: #88b8ff;
+  border: 5px #d4dff1 solid;
+}
+
+#errorMsg {
+  background: #e99b9b;
+}
+
+.multiContainer {
+  margin-bottom: 40px;
+}
+
+.hidden {
+  display: none;
+}

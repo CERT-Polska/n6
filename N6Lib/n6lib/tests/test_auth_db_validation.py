@@ -1,11 +1,8 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2018-2021 NASK. All rights reserved.
 
 import datetime
 import unittest
-
-from mock import (
+from unittest.mock import (
     call,
     patch,
 )
@@ -19,7 +16,6 @@ from n6lib.auth_db.fields import CategoryCustomizedField
 from n6lib.auth_db.models import (
     CACert,
     Cert,
-    ContactPoint,
     CriteriaASN,
     CriteriaCategory,
     CriteriaCC,
@@ -27,18 +23,27 @@ from n6lib.auth_db.models import (
     CriteriaIPNetwork,
     CriteriaName,
     Component,
+    DependantEntity,
     EMailNotificationAddress,
     EMailNotificationTime,
-    EntityType,
-    ExtraId,
-    ExtraIdType,
+    Entity,
+    EntityContactPoint,
+    EntityContactPointPhone,
+    EntityExtraId,
+    EntityExtraIdType,
+    EntitySector,
     InsideFilterASN,
     InsideFilterCC,
     InsideFilterFQDN,
     InsideFilterIPNetwork,
     InsideFilterURL,
-    LocationType,
     Org,
+    OrgConfigUpdateRequest,
+    OrgConfigUpdateRequestASN,
+    OrgConfigUpdateRequestEMailNotificationAddress,
+    OrgConfigUpdateRequestEMailNotificationTime,
+    OrgConfigUpdateRequestFQDN,
+    OrgConfigUpdateRequestIPNetwork,
     OrgGroup,
     RegistrationRequest,
     RegistrationRequestEMailNotificationAddress,
@@ -50,6 +55,9 @@ from n6lib.auth_db.models import (
     SubsourceGroup,
     SystemGroup,
     User,
+    UserProvisionalMFAConfig,
+    UserSpentMFACode,
+    WebToken,
 )
 from n6lib.const import (
     CATEGORY_ENUMS,
@@ -71,18 +79,16 @@ class TestValidators(unittest.TestCase):
         'example',
         '  ex-ampl_e.co1m',
         'EXAMPLE.COM',
-        u'example.com',
         # max length of a single label (segment of a domain name)
         '{}'.format('a' * 63),
-        u'{}'.format(u'b' * 63),
         # max length of a domain name
         '{}'.format('example.'*31 + 'foo.com'),
-        u'{}'.format(u'example.'*31 + u'foo.com'),
-        'łódź.example.com',   # will be IDNA-encoded...
-        u'łódź.example.com',  # will be IDNA-encoded...
+        # to be be IDNA-encoded...
+        'łódź.example.com',
     )
     @foreach(
         InsideFilterFQDN,
+        OrgConfigUpdateRequestFQDN,
         RegistrationRequestFQDN,
     )
     def test_fqdn(self, model, val):
@@ -93,9 +99,7 @@ class TestValidators(unittest.TestCase):
         'example',
         'ex-ampl_e.co1m',
         '    EXAMPLE.COM             ',
-        u'example.com',
         '{}'.format('a' * CLIENT_ORGANIZATION_MAX_LENGTH),
-        u'{}'.format(u'b' * CLIENT_ORGANIZATION_MAX_LENGTH),
     )
     @foreach(
         Org,
@@ -111,6 +115,7 @@ class TestValidators(unittest.TestCase):
     )
     @foreach(
         param(model=InsideFilterFQDN, tested_arg='fqdn'),
+        param(model=OrgConfigUpdateRequestFQDN, tested_arg='fqdn'),
         param(model=RegistrationRequestFQDN, tested_arg='fqdn'),
         param(model=Org, tested_arg='org_id'),
         param(model=RegistrationRequest, tested_arg='org_id'),
@@ -121,16 +126,13 @@ class TestValidators(unittest.TestCase):
 
     @foreach(
         InsideFilterFQDN,
+        OrgConfigUpdateRequestFQDN,
         RegistrationRequestFQDN,
     )
     def test_too_long_fqdn(self, model):
         too_long_fqdn = 'example.'*31 + 'fooo.com'
         self._test_illegal_values(model,
                                   {'fqdn': too_long_fqdn},
-                                  FieldValueTooLongError,
-                                  self.value_too_long_pattern)
-        self._test_illegal_values(model,
-                                  {'fqdn': unicode(too_long_fqdn)},
                                   FieldValueTooLongError,
                                   self.value_too_long_pattern)
 
@@ -144,21 +146,44 @@ class TestValidators(unittest.TestCase):
                                   {'org_id': 'a'*length},
                                   FieldValueTooLongError,
                                   self.value_too_long_pattern)
-        self._test_illegal_values(model,
-                                  {'org_id': u'B'*length},
-                                  FieldValueTooLongError,
-                                  self.value_too_long_pattern)
+
+    @foreach(
+        '1',
+        'abc',
+        'Abc',  # (to be automatically `.lower()`-ed)
+        '0123456789abcdef0123456789abcdef0123',   # (36 hex digits)
+    )
+    @foreach(
+        OrgConfigUpdateRequest,
+        RegistrationRequest,
+    )
+    def test_id_hex(self, model, val):
+        self._test_proper_values(model, {'id': val})
+
+    @foreach(
+        '',
+        '-1',
+        'gbc',
+        '0123456789abcdef0123456789abcdef01234',   # (37 hex digits)
+    )
+    @foreach(
+        OrgConfigUpdateRequest,
+        RegistrationRequest,
+    )
+    def test_illegal_id_hex(self, model, val):
+        self._test_illegal_values(model, {'id': val}, FieldValueError)
 
     @foreach(
         123,
         '123',
-        u'   123      ',
+        '   123      ',
         4294967295,
         '123.123',
         '65535.65535',
     )
     @foreach(
         InsideFilterASN,
+        OrgConfigUpdateRequestASN,
         RegistrationRequestASN,
         InsideFilterASN,
     )
@@ -168,13 +193,14 @@ class TestValidators(unittest.TestCase):
     @foreach(
         4294967296,
         '65536.65535',
-        u'65535.65536',
+        '65535.65536',
         '65536.65536',
         'abc',
-        u'ąężź',
+        'ąężź',
     )
     @foreach(
         InsideFilterASN,
+        OrgConfigUpdateRequestASN,
         RegistrationRequestASN,
         InsideFilterASN,
     )
@@ -195,15 +221,16 @@ class TestValidators(unittest.TestCase):
         param(model=CriteriaCC, tested_arg='cc'),
         param(model=Org, tested_arg='email_notification_language'),
         param(model=RegistrationRequest, tested_arg='email_notification_language'),
+        param(model=RegistrationRequest, tested_arg='terms_lang'),
     )
     def test_cc(self, model, tested_arg, val):
         self._test_proper_values(model, {tested_arg: val}, expecting_stripped_string=True)
 
     @foreach(
         param(val='1P'),
-        param(val=u'a_'),
+        param(val='a_'),
         param(val='ąę'),
-        param(val=u'żę'),
+        param(val='żę'),
         param(val='PLL'),
     )
     @foreach(
@@ -211,6 +238,7 @@ class TestValidators(unittest.TestCase):
         param(model=CriteriaCC, tested_arg='cc'),
         param(model=Org, tested_arg='email_notification_language'),
         param(model=RegistrationRequest, tested_arg='email_notification_language'),
+        param(model=RegistrationRequest, tested_arg='terms_lang'),
     )
     def test_illegal_cc(self, model, tested_arg, val):
         message_regex = r'\bnot a valid 2-character country code\b'
@@ -218,15 +246,17 @@ class TestValidators(unittest.TestCase):
 
     @foreach(
         param(val='info@example.com'),
-        param(val=u'ex123@example.com'),
+        param(val='ex123@example.com'),
         param(val='Some@email'),
-        param(val=u'      valiD.V_a-l@s-p-a-m.example.com   '),
+        param(val='      valiD.V_a-l@s-p-a-m.example.com   '),
         param(val='another-val@example.com'),
-        param(val=u'123@321.org'),
+        param(val='123@321.org'),
     )
     @foreach(
-        ContactPoint,
         EMailNotificationAddress,
+        Entity,
+        EntityContactPoint,
+        OrgConfigUpdateRequestEMailNotificationAddress,
         RegistrationRequest,
         RegistrationRequestEMailNotificationAddress,
     )
@@ -235,14 +265,16 @@ class TestValidators(unittest.TestCase):
 
     @foreach(
         param(val='invalid'),
-        param(val=u'some@some@example.com'),
+        param(val='some@some@example.com'),
         param(val='notvalidval@exAmple.com'),
-        param(val=u'notvalidval@s_p_a_m.example.com'),
+        param(val='notvalidval@s_p_a_m.example.com'),
         param(val='123@321.123'),
     )
     @foreach(
-        ContactPoint,
         EMailNotificationAddress,
+        Entity,
+        EntityContactPoint,
+        OrgConfigUpdateRequestEMailNotificationAddress,
         RegistrationRequest,
         RegistrationRequestEMailNotificationAddress,
     )
@@ -254,24 +286,32 @@ class TestValidators(unittest.TestCase):
         '12:01',
         '1:1',
         '23:30',
-        u'1:12',
+        '1:12',
         10,
         21,
         datetime.time(13, 14),
         datetime.time(15),
     )
-    def test_notification_time(self, val):
-        self._test_proper_values(EMailNotificationTime, {'notification_time': val})
+    @foreach(
+        EMailNotificationTime,
+        OrgConfigUpdateRequestEMailNotificationTime,
+    )
+    def test_notification_time(self, model, val):
+        self._test_proper_values(model, {'notification_time': val})
 
     @foreach(
         '12',
         '12:',
-        u':11',
+        ':11',
         '12:03:001',
         'abc',
     )
-    def test_illegal_notification_time(self, val):
-        self._test_illegal_values(EMailNotificationTime, {'notification_time': val},
+    @foreach(
+        EMailNotificationTime,
+        OrgConfigUpdateRequestEMailNotificationTime,
+    )
+    def test_illegal_notification_time(self, model, val):
+        self._test_illegal_values(model, {'notification_time': val},
                                   FieldValueError)
 
     @foreach(
@@ -280,9 +320,13 @@ class TestValidators(unittest.TestCase):
         0,
         23,
     )
-    def test_int_cleaning_method_notification_time(self, val):
+    @foreach(
+        EMailNotificationTime,
+        OrgConfigUpdateRequestEMailNotificationTime,
+    )
+    def test_int_cleaning_method_notification_time(self, model, val):
         expected_val = datetime.time(val)
-        self._test_proper_values(EMailNotificationTime, {'notification_time': expected_val})
+        self._test_proper_values(model, {'notification_time': expected_val})
 
     def test_illegal_type_notification_time(self):
         expected_msg_pattern = r'\bwrong type\b'
@@ -293,11 +337,12 @@ class TestValidators(unittest.TestCase):
     @foreach(
         '1.2.3.4/0',
         '    11.22.33.44/10      ',
-        u'127.0.0.1/28',
+        '127.0.0.1/28',
         '0.0.0.0/0',
     )
     @foreach(
         InsideFilterIPNetwork,
+        OrgConfigUpdateRequestIPNetwork,
         RegistrationRequestIPNetwork,
         CriteriaIPNetwork,
     )
@@ -308,15 +353,16 @@ class TestValidators(unittest.TestCase):
         '1122334428',
         '11.22.33.28.',
         '256.22.33.44/28',
-        u'1000.1000.1000.1000/28',
+        '1000.1000.1000.1000/28',
         '00.1.2.3/28',
         'example.com/28',
         'http://1.2.3.4/28',
         '',
-        u'abcdef',
+        'abcdef',
     )
     @foreach(
         InsideFilterIPNetwork,
+        OrgConfigUpdateRequestIPNetwork,
         RegistrationRequestIPNetwork,
         CriteriaIPNetwork,
     )
@@ -327,6 +373,7 @@ class TestValidators(unittest.TestCase):
 
     @foreach(
         InsideFilterIPNetwork,
+        OrgConfigUpdateRequestIPNetwork,
         RegistrationRequestIPNetwork,
         CriteriaIPNetwork,
     )
@@ -339,17 +386,29 @@ class TestValidators(unittest.TestCase):
     @foreach(
         'http://www.example.com/index.html',
         'any string      ',
-        u'   abcd     1234    '
+        '   abcd     1234    '
         '------- 22222222 +++++',
         'a' * 2048,
     )
     def test_url(self, val):
         self._test_proper_values(InsideFilterURL, {'url': val}, expecting_stripped_string=True)
 
-    def test_decode_error_url(self):
-        tested_value = '\xc2 \xd3'
+    # TODO: cover not only "url", but many various fields of many models...
+    #       and not only `bytes` but a few more non-`str` types...
+    #       (probably related to all fields whose validators make use of
+    #       any of the following:
+    #       * _adjust_to_unicode_stripped
+    #       * _adjust_ascii_only_to_unicode
+    #       * _adjust_ascii_only_ldap_safe_to_unicode_stripped
+    #       * _adjust_ascii_only_ldap_safe_to_unicode_stripped_or_none
+    #       * _adjust_to_none_if_empty_or_whitespace
+    #       * _adjust_ascii_only_to_unicode_stripped_or_none
+    #       * _adjust_ascii_only_ldap_safe_to_unicode_stripped_or_none).
+    def test_wrong_type_for_string_based_field(self):
+        tested_value = b'something'
+        expected_msg_pattern = r'\btype of value for a string-type field\b'
         self._test_illegal_values(InsideFilterURL, {'url': tested_value}, FieldValueError,
-                                  r'\bcaused UnicodeDecodeError\b')
+                                  expected_msg_pattern)
 
     def test_too_long_url(self):
         tested_value = 'a' * 2049
@@ -365,11 +424,11 @@ class TestValidators(unittest.TestCase):
 
     @foreach(
         'a',
-        u'-',
+        '-',
         'a-b',
-        u'obcazki',
+        'obcazki',
         '  a-b  ',
-        u'  obcazki  ',
+        '  obcazki  ',
     )
     def test_unknown_but_tolerated_category(self, val):
         with patch('n6lib.auth_db.fields.LOGGER') as LOGGER_mock:
@@ -381,9 +440,9 @@ class TestValidators(unittest.TestCase):
 
     @foreach(
         '',
-        u'',
+        '',
         'a_b',
-        u'obcążki',
+        'obcążki',
     )
     def test_illegal_category(self, val):
         self._test_illegal_values(CriteriaCategory, {'category': val},
@@ -391,8 +450,8 @@ class TestValidators(unittest.TestCase):
 
     @foreach(
         'info@example.com',
-        u'ex123@example.com',
-        u'Some@email',
+        'ex123@example.com',
+        'Some@email',
         '    vaLid_val@example.com   ',
         'another-val@example.com',
         'so}me@example',
@@ -417,7 +476,7 @@ class TestValidators(unittest.TestCase):
 
     @foreach(
         'abc.def',
-        u'   a-b-c-1.2-d-e-f   ',
+        '   a-b-c-1.2-d-e-f   ',
         '123.321',
     )
     def test_source(self, val):
@@ -444,14 +503,18 @@ class TestValidators(unittest.TestCase):
                                   expected_msg_pattern)
 
     @foreach(
-        '06f30a5903f4cf0642b5',
-        'abcdef0123456789ffff',
-        u'5cc863bfbf1b669e5f05',
-        'B4162A543BE9E50ACE42',
-        '   9aadc6e968ee4a4d5601   ',
+        param(model=Cert, tested_arg='serial_hex'),
+        param(model=OrgConfigUpdateRequest, tested_arg='id'),
     )
-    def test_hex_number(self, val):
-        self._test_proper_values(Cert, {'serial_hex': val}, expecting_stripped_string=True)
+    @foreach(
+        param(val='06f30a5903f4cf0642b5'),
+        param(val='abcdef0123456789ffff'),
+        param(val='5cc863bfbf1b669e5f05'),
+        param(val='B4162A543BE9E50ACE42'),
+        param(val='   9aadc6e968ee4a4d5601   '),
+    )
+    def test_hex_number(self, model, tested_arg, val):
+        self._test_proper_values(model, {tested_arg: val}, expecting_stripped_string=True)
 
     @foreach(
         'e479-09b_23572199b66',
@@ -464,12 +527,85 @@ class TestValidators(unittest.TestCase):
         self._test_illegal_values(Cert, {'serial_hex': val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
+        param(model=User, tested_arg='api_key_id'),
+        param(model=WebToken, tested_arg='token_id'),
+    )
+    @foreach(
+        param(val='eb08d960-f5c3-4c1e-af0c-86b8f9229fec'),
+        param(val='eb08d960-F5C3-4C1E-AF0C-86B8F9229FEC'),
+        param(val='EB08D960-F5C3-4C1E-af0c-86b8f9229fec'),
+        param(val='EB08D960-F5C3-4C1E-AF0C-86B8F9229FEC'),
+        param(val='   eb08d960-f5c3-4c1e-af0c-86b8f9229fec   '),
+    )
+    def test_uuid4(self, model, tested_arg, val):
+        self._test_proper_values(model, {tested_arg: val}, expecting_stripped_string=True)
+
+    @foreach(
+        param(model=User, tested_arg='api_key_id'),
+        param(model=WebToken, tested_arg='token_id'),
+    )
+    @foreach(
+        param(val='zb08d960-f5c3-4c1e-af0c-86b8f9229fec'),
+        param(val='eb08d960-FF5C3-4C1E-AF0C-86B8F9229FEC'),
+        param(val='EB08D960-F5C3-5C1E-af0c-86b8f9229fec'),
+        param(val='   eb08d960-f5c3-4c1e-af0c-6b8f9229fec   '),
+        param(val='06f30a5903f4cf0642b5'),
+        param(val='5cc863bfbf1b669e5f05'),
+        param(val='B4162A543BE9E50ACE42'),
+        param(val='e479-09b_23572199b66'),
+        param(val='b215'),
+    )
+    def test_illegal_uuid4(self, model, tested_arg, val):
+        expected_msg_pattern = r'\bnot a valid UUID4\b'
+        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
+
+    @foreach(
+        param(model=User, tested_arg='mfa_key_base'),
+        param(model=UserProvisionalMFAConfig, tested_arg='mfa_key_base'),
+    )
+    @foreach(
+        param(val='ąśżź456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'),
+        param(val='ąśżź456789ABCDEF0123456789ABCDEF0123456789abcdef0123456789abcdef'),
+        param(val='   ąśżź456789abcdef0123456789abcdef0123456789ABCDEF0123456789ABCDEF00000000000   '),
+        param(val='   ąśżź456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef00000000000   '),
+        param(val='Ż' * 64),
+        param(val='ż' * 64),
+    )
+    def test_no_whitespace_secret(self, model, tested_arg, val):
+        self._test_proper_values(model, {tested_arg: val}, expecting_stripped_string=True)
+
+    @foreach(
+        param(model=User, tested_arg='mfa_key_base'),
+        param(model=UserProvisionalMFAConfig, tested_arg='mfa_key_base'),
+    )
+    @foreach(
+        param(val='   0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde   '),
+        param(val='   0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDE   '),
+        param(val='Ż' * 63),
+        param(val='ż' * 63),
+        param(val='EB08D960-F5C3-4C1E-af0c-86b8f9229fec'),
+        param(val='   eb08d960-f5c3-4c1e-af0c-86b8f9229fec   '),
+        param(val='0123456789ab  cdef0123456789abcdef0123456789abcdef0123456789abcdef'),
+        param(val='0123456789AB  CDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF'),
+        param(val='b215'),
+    )
+    def test_illegal_no_whitespace_secret(self, model, tested_arg, val):
+        expected_msg_pattern = r'\bnot a valid secret\b'
+        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
+
+    @foreach(
         param(model=Cert, tested_arg='created_on'),
         param(model=Cert, tested_arg='valid_from'),
         param(model=Cert, tested_arg='expires_on'),
         param(model=Cert, tested_arg='revoked_on'),
+        param(model=OrgConfigUpdateRequest, tested_arg='modified_on'),
+        param(model=OrgConfigUpdateRequest, tested_arg='submitted_on'),
         param(model=RegistrationRequest, tested_arg='submitted_on'),
         param(model=RegistrationRequest, tested_arg='modified_on'),
+        param(model=User, tested_arg='api_key_id_modified_on'),
+        param(model=User, tested_arg='mfa_key_base_modified_on'),
+        param(model=WebToken, tested_arg='created_on'),
+        param(model=UserSpentMFACode, tested_arg='spent_on'),
     )
     @foreach(
         param(
@@ -503,8 +639,14 @@ class TestValidators(unittest.TestCase):
         param(model=Cert, tested_arg='valid_from'),
         param(model=Cert, tested_arg='expires_on'),
         param(model=Cert, tested_arg='revoked_on'),
+        param(model=OrgConfigUpdateRequest, tested_arg='modified_on'),
+        param(model=OrgConfigUpdateRequest, tested_arg='submitted_on'),
         param(model=RegistrationRequest, tested_arg='submitted_on'),
         param(model=RegistrationRequest, tested_arg='modified_on'),
+        param(model=User, tested_arg='api_key_id_modified_on'),
+        param(model=User, tested_arg='mfa_key_base_modified_on'),
+        param(model=WebToken, tested_arg='created_on'),
+        param(model=UserSpentMFACode, tested_arg='spent_on'),
     )
     @foreach(
         param(val=datetime.datetime(1810, 1, 1, 0, 0, 0)),
@@ -522,8 +664,14 @@ class TestValidators(unittest.TestCase):
         param(model=Cert, tested_arg='valid_from'),
         param(model=Cert, tested_arg='expires_on'),
         param(model=Cert, tested_arg='revoked_on'),
+        param(model=OrgConfigUpdateRequest, tested_arg='modified_on'),
+        param(model=OrgConfigUpdateRequest, tested_arg='submitted_on'),
         param(model=RegistrationRequest, tested_arg='submitted_on'),
         param(model=RegistrationRequest, tested_arg='modified_on'),
+        param(model=User, tested_arg='api_key_id_modified_on'),
+        param(model=User, tested_arg='mfa_key_base_modified_on'),
+        param(model=WebToken, tested_arg='created_on'),
+        param(model=UserSpentMFACode, tested_arg='spent_on'),
     )
     @foreach(
         param(val='1970-01-01TT01:59:59.999999+01:00'),
@@ -532,13 +680,9 @@ class TestValidators(unittest.TestCase):
         param(val='spam'),
         param(val=''),
     )
-    @foreach(
-        param(tp=unicode),
-        param(tp=str),
-    )
-    def test_wrongly_formatted_datetimes(self, model, tested_arg, val, tp):
+    def test_wrongly_formatted_datetimes(self, model, tested_arg, val):
         expected_msg_pattern = r'\bis not a valid date \+ time\b'
-        self._test_illegal_values(model, {tested_arg: tp(val)},
+        self._test_illegal_values(model, {tested_arg: val},
                                   FieldValueError, expected_msg_pattern)
 
     @foreach(
@@ -564,9 +708,8 @@ class TestValidators(unittest.TestCase):
         self._test_illegal_values(CACert, {'ca_label': val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
-        param(val='ąęźćżłów').label('str'),
-        param(val=u'ąęźćżłów').label('uni'),
-        param(val=u'other\udcddval').label('uni-surro'),
+        param(val='ąęźćżłów').label('uni'),
+        param(val='other\udcddval').label('uni-surro'),
     )
     @foreach(
         param(model=Org, tested_arg='org_id'),
@@ -574,8 +717,10 @@ class TestValidators(unittest.TestCase):
         param(model=OrgGroup, tested_arg='org_group_id'),
         param(model=User, tested_arg='login'),
         param(model=Component, tested_arg='login'),
-        param(model=ContactPoint, tested_arg='email'),
+        param(model=Entity, tested_arg='email'),
+        param(model=EntityContactPoint, tested_arg='email'),
         param(model=EMailNotificationAddress, tested_arg='email'),
+        param(model=OrgConfigUpdateRequestEMailNotificationAddress, tested_arg='email'),
         param(model=RegistrationRequest, tested_arg='email'),
         param(model=RegistrationRequestEMailNotificationAddress, tested_arg='email'),
         param(model=CriteriaContainer, tested_arg='label'),
@@ -627,9 +772,9 @@ class TestValidators(unittest.TestCase):
         param(model=OrgGroup, tested_arg='org_group_id'),
     )
     @foreach(
-        param(val=u''),
-        param(val=u' '),
-        param(val=u'  \t  \n\n  \r\n  \t  \n  '),
+        param(val=''),
+        param(val=' '),
+        param(val='  \t  \n\n  \r\n  \t  \n  '),
     )
     def test_string_based_fields_empty_or_whitespace_only_to_null(
             self, model, tested_arg, val):
@@ -651,33 +796,47 @@ class TestValidators(unittest.TestCase):
         # (note that same of these fields are NOT NULLABLE so "in the
         # real life" their NULL values will **not** be accepted on the
         # database level)
-        obj = model(**{tested_arg: u''})
+        obj = model(**{tested_arg: ''})
         self.assertIsNone(getattr(obj, tested_arg))
 
     @foreach(
-        param(model=EntityType, tested_arg='label'),
-        param(model=LocationType, tested_arg='label'),
-        param(model=ExtraIdType, tested_arg='label'),
-        param(model=ExtraId, tested_arg='value'),
         param(model=User, tested_arg='login'),
         param(model=Component, tested_arg='login'),
         param(model=Cert, tested_arg='serial_hex'),
+        param(model=User, tested_arg='api_key_id'),
+        param(model=User, tested_arg='mfa_key_base'),
+        param(model=UserProvisionalMFAConfig, tested_arg='mfa_key_base'),
+        param(model=WebToken, tested_arg='token_id'),
         param(model=Org, tested_arg='org_id'),
         param(model=RegistrationRequest, tested_arg='org_id'),
         param(model=Org, tested_arg='email_notification_language'),
+        param(model=OrgConfigUpdateRequest, tested_arg='email_notification_language'),
         param(model=RegistrationRequest, tested_arg='email_notification_language'),
+        param(model=RegistrationRequest, tested_arg='terms_lang'),
         param(model=EMailNotificationAddress, tested_arg='email'),
+        param(model=OrgConfigUpdateRequestEMailNotificationAddress, tested_arg='email'),
         param(model=RegistrationRequest, tested_arg='email'),
         param(model=RegistrationRequestEMailNotificationAddress, tested_arg='email'),
-        param(model=ContactPoint, tested_arg='email'),
+        param(model=Entity, tested_arg='email'),
+        param(model=EntityContactPoint, tested_arg='email'),
+        param(model=EntityContactPointPhone, tested_arg='phone_number'),
+        param(model=DependantEntity, tested_arg='name'),
+        param(model=Entity, tested_arg='full_name'),
+        param(model=EntityContactPoint, tested_arg='external_entity_name'),
+        param(model=EntitySector, tested_arg='label'),
+        param(model=EntityExtraIdType, tested_arg='label'),
+        param(model=EntityExtraId, tested_arg='value'),
         param(model=InsideFilterASN, tested_arg='asn'),
+        param(model=OrgConfigUpdateRequestASN, tested_arg='asn'),
         param(model=RegistrationRequestASN, tested_arg='asn'),
         param(model=CriteriaASN, tested_arg='asn'),
         param(model=InsideFilterCC, tested_arg='cc'),
         param(model=CriteriaCC, tested_arg='cc'),
         param(model=InsideFilterFQDN, tested_arg='fqdn'),
+        param(model=OrgConfigUpdateRequestFQDN, tested_arg='fqdn'),
         param(model=RegistrationRequestFQDN, tested_arg='fqdn'),
         param(model=InsideFilterIPNetwork, tested_arg='ip_network'),
+        param(model=OrgConfigUpdateRequestIPNetwork, tested_arg='ip_network'),
         param(model=RegistrationRequestIPNetwork, tested_arg='ip_network'),
         param(model=CriteriaIPNetwork, tested_arg='ip_network'),
         param(model=InsideFilterURL, tested_arg='url'),
@@ -685,9 +844,9 @@ class TestValidators(unittest.TestCase):
         param(model=Source, tested_arg='anonymized_source_id'),
     )
     @foreach(
-        param(val=u''),
-        param(val=u' '),
-        param(val=u'  \t  \n\n  \r\n  \t  \n  '),
+        param(val=''),
+        param(val=' '),
+        param(val='  \t  \n\n  \r\n  \t  \n  '),
     )
     def test_string_based_fields_empty_or_whitespace_only_disallowed_by_validator(
             self, model, tested_arg, val):
@@ -697,13 +856,13 @@ class TestValidators(unittest.TestCase):
         obj = model(**kwargs)
         self.assertTrue(obj)
         if expecting_stripped_string:
-            for name, val in kwargs.iteritems():
+            for name in kwargs:
                 actual_val = getattr(obj, name)
-                self.assertIsInstance(actual_val, basestring)
+                self.assertIsInstance(actual_val, str)
                 self.assertEqual(actual_val, actual_val.strip())
 
     def _test_illegal_values(self, model, kwargs, expected_exc, expected_msg_pattern=None):
         with self.assertRaises(expected_exc) as context:
             model(**kwargs)
         if expected_msg_pattern is not None:
-            self.assertRegexpMatches(context.exception.public_message, expected_msg_pattern)
+            self.assertRegex(context.exception.public_message, expected_msg_pattern)

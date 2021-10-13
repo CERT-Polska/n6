@@ -91,5 +91,9 @@ pids
 /N6*/dist/
 /N6*/docs/build/
 
+# docs builds
+docs/_build/
+site/
+
 # n6 data on docker runtime
 volume

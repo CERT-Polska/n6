@@ -3,9 +3,9 @@
 import datetime
 import random
 import unittest
-from collections import MutableSequence
+from collections.abc import MutableSequence
+from unittest.mock import patch
 
-from mock import patch
 from unittest_expander import (
     expand,
     foreach,
@@ -120,7 +120,7 @@ class TestRandomEventWithParams(unittest.TestCase):
         with standard_config_patch:
             instance = RandomEvent(params=params)
         random_event = instance.event
-        for param, values in self._STANDARD_PARAMS.iteritems():
+        for param, values in self._STANDARD_PARAMS.items():
             if ((label == 'non_dip_categories' and param in ['dip', 'proto']) or
                     (label == 'dip_categories' and param in ['url', 'fqdn'])):
                 self.assertNotIn(param, random_event)
@@ -141,7 +141,7 @@ class TestRandomEventWithParams(unittest.TestCase):
                 self._compare_modified_attribute(
                     random_event.get('time'), random_event.get('modified'))
 
-    def _get_test_asn_cc_method(self, opt_primary):
+    def _get_asn_cc_unittest_method(self, opt_primary):
         """
         Test a behavior, when user attaches asn and cc params.
 
@@ -174,7 +174,7 @@ class TestRandomEventWithParams(unittest.TestCase):
         """
         Check for 'asn' and 'cc' address attributes, no opt.primary.
         """
-        test_method = self._get_test_asn_cc_method(False)
+        test_method = self._get_asn_cc_unittest_method(False)
         test_method(params)
 
     @foreach(_asn_cc_params)
@@ -182,7 +182,7 @@ class TestRandomEventWithParams(unittest.TestCase):
         """
         Check for 'asn' and 'cc' address attributes, with opt.primary.
         """
-        test_method = self._get_test_asn_cc_method(True)
+        test_method = self._get_asn_cc_unittest_method(True)
         test_method(params)
 
     def _check_time_attribute(self, datetime_):
@@ -313,7 +313,7 @@ class TestExtraParams(unittest.TestCase):
 @expand
 class TestGenerateMultipleEventData(unittest.TestCase):
 
-    _NUM_OF_EVENTS = range(1, 20)
+    _NUM_OF_EVENTS = list(range(1, 20))
 
     @foreach(_NUM_OF_EVENTS)
     def test_generate_multiple_event_data(self, num):

@@ -5,9 +5,12 @@
 # docker-compose up
 
 # Prepare Auth DB
-# docker-compose run worker n6/docker/bin/wait-for-services.sh
-# docker-compose run worker n6create_and_initialize_auth_db -D
-# docker-compose run worker n6populate_auth_db -F -i -t -s example.com login@example.com
+# docker-compose run --rm worker n6/docker/bin/wait-for-services.sh
+# docker-compose run --rm worker n6create_and_initialize_auth_db -D
+# docker-compose run --rm worker n6populate_auth_db -F -i -t -s -p example.com login@example.com
+
+# Prepare Auth DB for easy test n6mange
+# docker-compose run --rm worker bash -c  "mysql -h mysql -u root -ppassword --database=auth_db  < /home/dataman/n6/etc/mysql/insertdb/insert_data_auth_db.sql"
 
 # On MySQL Changes - restart web cache
 # docker-compose exec web apache2ctl restart
@@ -30,12 +33,12 @@ services:
     container_name: n6
     hostname: n6
     environment:
-      N6_FORCE_LDAP_API_REPLACEMENT: 1
+      N6_PORTAL_AUTH_2021:
     command: >
       bash -c "n6/docker/bin/wait-for-services.sh
       && supervisord -c supervisord/supervisord.conf"
     networks:
-    - n6-pub-net
+      - n6-pub-net
   web:
     image: n6_web
     build:
@@ -43,18 +46,19 @@ services:
       dockerfile: ./docker/web/Dockerfile
     hostname: apache
     environment:
-      N6_FORCE_LDAP_API_REPLACEMENT: 1
+      N6_PORTAL_AUTH_2021:
     restart: always
     container_name: web
     ports:
-    - 80:80 # redirect permanently to 443
-    - 443:443 # N6 Portal
-    - 4443:4443 # N6 API
-    - 4444:4444 # N6 Admin Panel
+      - "80:80" # redirect permanently to 443
+      - "443:443" # n6 Portal
+      - "3001:3001" # n6 Portal GUI configurator
+      - "4443:4443" # n6 REST API
+      - "4444:4444" # n6 Admin Panel
     volumes:
-    - ./volume/apache2/logs:/var/log/apache
+      - ./volume/apache2/logs:/var/log/apache
     networks:
-    - n6-pub-net
+      - n6-pub-net
   rabbit:
     image: n6_rabbit
     build:
@@ -64,19 +68,19 @@ services:
     restart: always
     container_name: rabbit
     environment:
-    - RABBITMQ_CONFIG_FILE=/volume/rabbitmq/conf/rabbitmq.conf
-    - RABBITMQ_USER=login@example.com
-    - RABBITMQ_PASSWORD=n6component
+      - RABBITMQ_CONFIG_FILE=/volume/rabbitmq/conf/rabbitmq.conf
+      - RABBITMQ_USER=login@example.com
+      - RABBITMQ_PASSWORD=n6component
     ports:
-    - 5671:5671 #  TLS connections
-    - 5672:5672 #  TCP connections
-    - 15671:15671 # WEB management
-    - 15672:15672 # HTTP API
+      - 5671:5671 #  TLS connections
+      - 5672:5672 #  TCP connections
+      - 15671:15671 # WEB management
+      - 15672:15672 # HTTP API
     volumes:
-    - ./etc/ssl/generated_certs:/volume/rabbitmq/certs/:ro
-    - ./etc/rabbitmq/conf:/volume/rabbitmq/conf/:ro
+      - ./etc/ssl/generated_certs:/volume/rabbitmq/certs/:ro
+      - ./etc/rabbitmq/conf:/volume/rabbitmq/conf/:ro
     networks:
-    - n6-pub-net
+      - n6-pub-net
   mongo:
     image: mongo:4.2
     hostname: mongo
@@ -107,17 +111,17 @@ services:
     hostname: mysql
     restart: always
     environment:
-    - MYSQL_USERNAME=root
-    - MYSQL_ROOT_PASSWORD=password
+      - MYSQL_USERNAME=root
+      - MYSQL_ROOT_PASSWORD=password
     container_name: mysql
     ports:
-    - 3306:3306
+      - 3306:3306
     volumes:
-    - ./volume/mysql:/var/lib/mysql
-    - ./etc/mysql/conf.d:/etc/mysql/conf.d
-    - ./etc/mysql/initdb:/docker-entrypoint-initdb.d
+      - ./volume/mysql:/var/lib/mysql
+      - ./etc/mysql/conf.d:/etc/mysql/conf.d
+      - ./etc/mysql/initdb:/docker-entrypoint-initdb.d
     networks:
-    - n6-pub-net
+      - n6-pub-net
 
 volumes:
   n6_logs:

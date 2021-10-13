@@ -1,11 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
-
+import re
 import ssl
 import unittest
-
-from mock import (
+from unittest.mock import (
     call,
     sentinel as sen,
 )
@@ -17,7 +15,10 @@ from unittest_expander import (
 )
 
 from n6lib.config import ConfigSection
-from n6lib.unit_test_helpers import TestCaseMixin
+from n6lib.unit_test_helpers import (
+    AnyMatchingRegex,
+    TestCaseMixin,
+)
 
 from n6lib.amqp_helpers import get_amqp_connection_params_dict
 
@@ -33,6 +34,16 @@ RABBITMQ_CONFIG_SPEC_PATTERN = '''
     ssl_keyfile = <to be specified if the `ssl` option is true>
     ...
 '''
+
+CONN_PARAM_CLIENT_PROP_INFORMATION = AnyMatchingRegex(re.compile(
+    r'\A'
+    r'Host: [^,]+, '
+    r'PID: [0-9]+, '
+    r'script: [^,]+, '
+    r'args: \[.*\], '
+    r'modified: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+    r'\Z',
+    re.ASCII))
 
 
 @expand
@@ -67,6 +78,9 @@ class Test__get_amqp_connection_params_dict(unittest.TestCase, TestCaseMixin):
                 'ssl': 0,
                 'ssl_options': {},
                 'heartbeat_interval': 30,
+                'client_properties': {
+                    'information': CONN_PARAM_CLIENT_PROP_INFORMATION,
+                },
             },
         ),
         param(
@@ -91,6 +105,9 @@ class Test__get_amqp_connection_params_dict(unittest.TestCase, TestCaseMixin):
                 },
                 'credentials': sen.ExternalCredentials,
                 'heartbeat_interval': 30,
+                'client_properties': {
+                    'information': CONN_PARAM_CLIENT_PROP_INFORMATION,
+                },
             },
         ),
     ])

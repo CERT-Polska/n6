@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 """
 .. note::
@@ -10,15 +8,16 @@
 """
 
 
-import collections
+import collections.abc as collections_abc
 import datetime
+import ipaddress
 import re
-
-import ipaddr
+from binascii import unhexlify
 
 from n6sdk.addr_helpers import (
     ip_network_as_tuple,
 )
+from n6sdk.class_helpers import is_seq
 from n6sdk.datetime_helpers import (
     datetime_utc_normalize,
     parse_iso_datetime_to_utc,
@@ -26,7 +25,8 @@ from n6sdk.datetime_helpers import (
 from n6sdk.encoding_helpers import (
     ascii_str,
     as_unicode,
-    string_to_bool,
+    str_to_bool,
+    verified_as_ascii_str,
 )
 from n6sdk.exceptions import (
     FieldValueError,
@@ -93,14 +93,21 @@ class Field(object):
 
     def __repr__(self):
         return '{}({})'.format(
-            self.__class__.__name__,
+            self.__class__.__qualname__,
             ', '.join(
                 '{}={!r}'.format(key, value)
-                for key, value in sorted(self._init_kwargs.iteritems())))
+                for key, value in sorted(self._init_kwargs.items())))
 
 
     #
-    # overridable methods
+    # overridable methods/attributes
+
+    # `BaseDataSpec.clean_{param,result}_dict()` methods (as well as the
+    # `n6lib.record_dict.make_adjuster_using_data_spec()` function) take
+    # into consideration the values of the following attributes when
+    # handling cleaning errors...
+    sensitive = False
+    default_error_msg_if_sensitive = u'not a valid value'
 
     def clean_param_value(self, value):
         """
@@ -108,8 +115,8 @@ class Field(object):
 
         Args:
             `value`:
-                A single parameter value (being *always* a
-                :class:`str` or :class:`unicode` instance).
+                A single parameter value (being *always* a :class:`str`
+                instance).
 
         Returns:
             The value after necessary cleaning (adjustment/coercion/etc.
@@ -138,7 +145,7 @@ class Field(object):
            For more information -- see :ref:`field_cleaning_methods` in
            the tutorial.
         """
-        assert isinstance(value, basestring)
+        assert isinstance(value, str)
         return value
 
     def clean_result_value(self, value):
@@ -147,7 +154,7 @@ class Field(object):
 
         Args:
             `value`:
-                A result item value (*not* necessarily a string;
+                A result item value (*not* necessarily a :class:`str`;
                 valid types depend on a particular implementation of
                 the method).
 
@@ -198,7 +205,7 @@ class Field(object):
         assert arg_name in ('in_params', 'in_result')
         if arg_value not in (None, 'required', 'optional'):
             raise ValueError(
-                "{!r} is not one of: None, 'required', 'optional'"
+                "{!a} is not one of: None, 'required', 'optional'"
                 .format(arg_value))
         setattr(self, arg_name, arg_value)
 
@@ -227,11 +234,11 @@ class Field(object):
     def _set_per_instance_attrs(self, per_instance_attrs):
         # per-instance customizations of class-level attributes
         cls = self.__class__
-        for attr_name, obj in per_instance_attrs.iteritems():
+        for attr_name, obj in per_instance_attrs.items():
             if not hasattr(cls, attr_name):
                 raise TypeError(
-                    '{}.__init__() got an unexpected keyword argument {!r}'
-                    .format(cls.__name__, attr_name))
+                    '{}.__init__() got an unexpected keyword argument {!a}'
+                    .format(cls.__qualname__, attr_name))
             setattr(self, attr_name, obj)
 
 
@@ -247,8 +254,7 @@ class DateTimeField(Field):
 
     def clean_param_value(self, value):
         """
-        The input `value` should be a :class:`str`/:class:`unicode` string,
-        *ISO-8601*-formatted.
+        The input `value` should be an *ISO-8601*-formatted :class:`str`.
 
         Returns: a :class:`datetime.datetime` object (a *naive* one,
         i.e. not aware of any timezone).
@@ -258,9 +264,9 @@ class DateTimeField(Field):
 
     def clean_result_value(self, value):
         """
-        The input `value` should be a :class:`str`/:class:`unicode` string
-        (*ISO-8601*-formatted) or a :class:`datetime.datetime` object
-        (timezone-aware or *naive*).
+        The input `value` should be a :class:`str` (*ISO-8601*-formatted)
+        or a :class:`bytes`/:class:`bytearray` (*ISO-8601*-formatted), or
+        a :class:`datetime.datetime` object (timezone-aware or *naive*).
 
         Returns: a :class:`datetime.datetime` object (a *naive* one,
         i.e. not aware of any timezone).
@@ -268,10 +274,12 @@ class DateTimeField(Field):
         value = super(DateTimeField, self).clean_result_value(value)
         if isinstance(value, datetime.datetime):
             return datetime_utc_normalize(value)
-        if isinstance(value, basestring):
+        if isinstance(value, (bytes, bytearray)):
+            value = value.decode('utf-8', 'replace')
+        if isinstance(value, str):
             return self._parse_datetime_string(value)
         raise TypeError(
-            '{!r} is neither a str/unicode nor a '
+            '{!a} is neither a str/bytes/bytearray nor a '
             'datetime.datetime object'.format(value))
 
     @staticmethod
@@ -290,43 +298,49 @@ class FlagField(Field):
     For *YES/NO* flags, automatically normalized to :class:`bool`.
     """
 
+    enable_empty_param_as_true = True
+
     def clean_param_value(self, value):
         """
-        The input `value` should be such a (:class:`str` or
-        :class:`unicode`) string that ``value.lower()`` is equal to one
-        of:
+        The input `value` should be such a :class:`str` that
+        ``value.lower()`` is equal to one of:
 
-        * ``""`` or ``"yes"``, or ``"y"``, or ``"true"``, or ``"t"``, or
-          ``"1"``, or ``"on"`` -- then the resultant cleaned value will
-          be :obj:`True`;
+        * ``""`` (this one only if `enable_empty_param_as_true`), or
+          ``"yes"``, or ``"y"``, or ``"true"``, or ``"t"``, or ``"1"``,
+          or ``"on"`` -- then the resultant cleaned value will be
+          :obj:`True`;
 
         * ``"no"`` or ``"n"``, or ``"false"``, or ``"f"``, or ``"0"``,
           or ``"off"`` -- then the resultant cleaned value will be
           :obj:`False`;
 
-        Note that when an empty string is given the resultant cleaned
-        value will be :obj:`True` (!); thanks to this rule, a flag can
-        be set by specifying the apropriate URL query parameter with no
-        value (i.e., by using just its name).
+        Note that when an empty string is given *and* the
+        `enable_empty_param_as_true` option is true (it is :obj:`True`
+        by default) then the resultant cleaned value will be :obj:`True`
+        (!); thanks to that, a flag can be set by specifying the
+        appropriate URL query parameter with no value (i.e., by using
+        just its name).
 
         Returns: a :class:`bool` object (:obj:`True` or :obj:`False`).
         """
         value = super(FlagField, self).clean_param_value(value)
-        if not value:
+        if self.enable_empty_param_as_true and not value:
             return True
         value = value.lower()
         try:
-            value = string_to_bool(value)
+            value = str_to_bool(value)
         except ValueError:
             raise FieldValueError(public_message=(
-                string_to_bool.PUBLIC_MESSAGE_PATTERN.format(ascii_str(value))))
+                str_to_bool.PUBLIC_MESSAGE_PATTERN.format(ascii_str(value))))
         return value
 
 
     def clean_result_value(self, value):
         """
         The input `value` should be such an object that
-        ``str(value).lower()`` is equal to one of:
+        ``str(value).lower()`` (or ``str(value.decode().lower())`` if
+        `value` is a :class:`bytes`/:class:`bytearray`) is equal to one
+        of:
 
         * ``"yes"`` or ``"y"``, or ``"true"``, or ``"t"``, or ``"1"``,
           or ``"on"`` -- then the resultant cleaned value will be
@@ -345,8 +359,10 @@ class FlagField(Field):
         Returns: a :class:`bool` object (:obj:`True` or :obj:`False`).
         """
         value = super(FlagField, self).clean_result_value(value)
+        if isinstance(value, (bytes, bytearray)):
+            value = value.decode('utf-8')
         value = str(value).lower()
-        value = string_to_bool(value)
+        value = str_to_bool(value)
         return value
 
 
@@ -374,14 +390,14 @@ class UnicodeField(Field):
 
     def clean_result_value(self, value):
         value = super(UnicodeField, self).clean_result_value(value)
-        if not isinstance(value, basestring):
-            raise TypeError('{!r} is not a str/unicode instance'.format(value))
+        if not isinstance(value, (str, bytes, bytearray)):
+            raise TypeError('{!a} is not a str/bytes/bytearray instance'.format(value))
         value = self._fix_value(value)
         self._validate_value(value)
         return value
 
     def _fix_value(self, value):
-        if isinstance(value, str):
+        if isinstance(value, (bytes, bytearray)):
             try:
                 value = value.decode(self.encoding, self.decode_error_handling)
             except UnicodeError:
@@ -389,7 +405,7 @@ class UnicodeField(Field):
                     u'"{}" cannot be decoded with encoding "{}"'.format(
                         ascii_str(value),
                         self.encoding)))
-        assert isinstance(value, unicode)
+        assert isinstance(value, str)
         if self.auto_strip:
             value = value.strip()
         return value
@@ -422,12 +438,12 @@ class HexDigestField(UnicodeField):
             raise TypeError("'num_of_characters' not specified for {} "
                             "(neither as a class attribute nor "
                             "as a constructor argument)"
-                            .format(self.__class__.__name__))
+                            .format(self.__class__.__qualname__))
         if self.hash_algo_descr is None:
             raise TypeError("'hash_algo_descr' not specified for {} "
                             "(neither as a class attribute nor "
                             "as a constructor argument)"
-                            .format(self.__class__.__name__))
+                            .format(self.__class__.__qualname__))
         if getattr(self, 'max_length', None) is None:
             self.max_length = self.num_of_characters
 
@@ -438,9 +454,11 @@ class HexDigestField(UnicodeField):
     def _validate_value(self, value):
         super(HexDigestField, self)._validate_value(value)
         try:
-            value.decode('hex')
+            unhexlify(value)  # Note: only checking (no assignment).
             if len(value) != self.num_of_characters:
-                raise ValueError
+                raise ValueError('expected length: {!a} (got: {!a})'.format(
+                    self.num_of_characters,
+                    len(value)))
         except (TypeError, ValueError):
             raise FieldValueError(public_message=(
                 u'"{}" is not a valid {} hash'.format(
@@ -495,7 +513,7 @@ class UnicodeEnumField(UnicodeField):
             raise TypeError("'enum_values' not specified for {} "
                             "(neither as a class attribute nor "
                             "as a constructor argument)"
-                            .format(self.__class__.__name__))
+                            .format(self.__class__.__qualname__))
         self.enum_values = tuple(as_unicode(v) for v in self.enum_values)
 
     def _validate_value(self, value):
@@ -518,28 +536,21 @@ class UnicodeLimitedField(UnicodeField):
 
     max_length = None
 
-    #: **Experimental attribute**
-    #: (can be removed in future versions,
-    #: so do not rely on it, please).
-    checking_bytes_length = False
-
     def __init__(self, **kwargs):
         super(UnicodeLimitedField, self).__init__(**kwargs)
         if self.max_length is None:
             raise TypeError("'max_length' not specified for {} "
                             "(neither as a class attribute nor "
                             "as a constructor argument)"
-                            .format(self.__class__.__name__))
+                            .format(self.__class__.__qualname__))
         if self.max_length < 1:
             raise ValueError("'max_length' specified for {} should "
                              "not be lesser than 1 ({} given)"
-                             .format(self.__class__.__name__,
+                             .format(self.__class__.__qualname__,
                                      ascii_str(self.max_length)))
 
     def _validate_value(self, value):
         super(UnicodeLimitedField, self)._validate_value(value)
-        if self.checking_bytes_length:
-            value = value.encode(self.encoding)
         if len(value) > self.max_length:
             raise FieldValueTooLongError(
                 field=self,
@@ -556,9 +567,10 @@ class UnicodeRegexField(UnicodeField):
     """
     For text data limited by the specified regular expression.
 
-    The constructor-argument-or-subclass-attribute :attr:`regex` (a
-    regular expression specified as a string or a compiled regular
-    expression object) is obligatory.
+    The constructor-argument-or-subclass-attribute :attr:`regex`
+    (a regular expression specified as a :class:`str` or a
+    :class:`str`-pattern-based compiled regular expression
+    object) is obligatory.
     """
 
     regex = None
@@ -570,9 +582,16 @@ class UnicodeRegexField(UnicodeField):
             raise TypeError("'regex' not specified for {} "
                             "(neither as a class attribute "
                             "nor as a constructor argument)"
-                            .format(self.__class__.__name__))
-        if isinstance(self.regex, basestring):
-            self.regex = re.compile(self.regex)
+                            .format(self.__class__.__qualname__))
+        if isinstance(self.regex, str):
+            self.regex = re.compile(self.regex, flags=re.ASCII)
+        elif (isinstance(self.regex, bytes)
+              or not isinstance(getattr(self.regex, 'pattern', None), str)):
+            raise TypeError("for {}, only str-based (*not* "
+                            "bytes-based) regular expressions "
+                            "are allowed as 'regex' (got: {!a})"
+                            .format(self.__class__.__qualname__,
+                                    self.regex))
 
     def _validate_value(self, value):
         super(UnicodeRegexField, self)._validate_value(value)
@@ -625,16 +644,19 @@ class IPv6Field(UnicodeField):
 
     def clean_param_value(self, value):
         ipv6_obj = super(IPv6Field, self).clean_param_value(value)
-        return unicode(ipv6_obj.exploded)
+        return ipv6_obj.exploded
 
     def clean_result_value(self, value):
         ipv6_obj = super(IPv6Field, self).clean_result_value(value)
-        return unicode(ipv6_obj.compressed)
+        return ipv6_obj.compressed
 
     def _fix_value(self, value):
         value = super(IPv6Field, self)._fix_value(value)
         try:
-            ipv6_obj = ipaddr.IPv6Address(value)
+            _, _, last_segment = value.rpartition(':')
+            if '.' in last_segment and not IPv4_STRICT_DECIMAL_REGEX.search(last_segment):
+                raise ValueError('{!a} is not a valid IPv4-like suffix'.format(last_segment))
+            ipv6_obj = ipaddress.IPv6Address(value)
         except Exception:
             raise FieldValueError(public_message=(
                 self.error_msg_template.format(ascii_str(value))))
@@ -666,15 +688,15 @@ class IPv4NetField(UnicodeLimitedField, UnicodeRegexField):
 
     Note that:
 
-    * when cleaning a parameter value -- an (<address part as unicode
-      string>, <net as int>) tuple is returned (e.g., ``(u'127.234.5.0',
-      24)``); this behavior is provided by the default implementation
-      of the :meth:`convert_param_cleaned_string_value` method and can
-      be changed by shadowing that method with a subclass attribute or
-      a constructor argument;
+    * when cleaning a parameter value -- an ``(<address part as str>,
+      <prefix length part as int>)`` tuple is returned (e.g.,
+      ``('127.234.5.0', 24)``); this behavior is provided by the default
+      implementation of the :meth:`convert_param_cleaned_string_value`
+      method and can be changed by shadowing that method with a subclass
+      attribute or a constructor argument;
 
-    * when cleaning a result value -- a unicode string is returned
-      (e.g., ``u'127.234.5.0/24'``).
+    * when cleaning a result value -- a :class:`str` is returned
+      (e.g., ``'127.234.5.0/24'``).
     """
 
     regex = IPv4_CIDR_NETWORK_REGEX
@@ -682,26 +704,29 @@ class IPv4NetField(UnicodeLimitedField, UnicodeRegexField):
                           'IPv4 network specification')
     max_length = 18  # <- formally redundant but may improve introspection
 
+    # XXX: shouldn't we change the behavior
+    #      to trim the host (non-network) bits?
+
     def clean_param_value(self, value):
         value = super(IPv4NetField, self).clean_param_value(value)
         return self.convert_param_cleaned_string_value(value)
 
     def convert_param_cleaned_string_value(self, value):
-        ip, net = ip_network_as_tuple(value)
-        assert isinstance(ip, unicode) and IPv4_STRICT_DECIMAL_REGEX.search(ip)
-        assert isinstance(net, int) and 0 <= net <= 32
-        # returning a tuple: ip is a unicode string, net is an int number
-        return ip, net
+        ip, prefixlen = ip_network_as_tuple(value)
+        assert isinstance(ip, str) and IPv4_STRICT_DECIMAL_REGEX.search(ip)
+        assert isinstance(prefixlen, int) and 0 <= prefixlen <= 32
+        # returning a tuple: `ip` is a str, `prefixlen` is an int
+        return ip, prefixlen
 
     def clean_result_value(self, value):
-        if not isinstance(value, basestring):
+        if not isinstance(value, (str, bytes, bytearray)):
             try:
                 ip, net = value
-                value = '{}/{}'.format(ip, net)
+                value = '{}/{}'.format(as_unicode(ip), as_unicode(net))
             except (ValueError, TypeError):
                 raise FieldValueError(public_message=(
                     self.error_msg_template.format(ascii_str(value))))
-        # returning a unicode string
+        # returning a str
         return super(IPv4NetField, self).clean_result_value(value)
 
 
@@ -715,22 +740,21 @@ class IPv6NetField(UnicodeField):
 
     * when cleaning a parameter value --
 
-      * a (<address part as unicode string>, <net as int>) tuple is
-        returned (e.g., ``(u'2001:0db8:85a3:0000:0000:8a2e:0370',
-        48)``);
+      * a (<address part as str>, <prefix length part as int>) tuple is
+        returned (e.g., ``('2001:0db8:85a3:0000:0000:8a2e:0370', 48)``);
 
       * the address part is normalized to the "exploded" form, such as
         ``2001:0db8:85a3:0000:0000:8a2e:0370:7334``;
 
       this behavior is provided by the default implementation of the
-      :meth:`convert_param_network_obj_value` method and can be changed
-      by shadowing that method with a subclass attribute or a
-      constructor argument;
+      :meth:`convert_param_prepared_value` method and can be changed by
+      shadowing that method with a subclass attribute or a constructor
+      argument;
 
     * when cleaning a result value --
 
-      * a unicode string is returned (e.g.,
-        ``u'2001:db8:85a3::8a2e:370:7334/48'``);
+      * a :class:`str` is returned (e.g.,
+        ``'2001:db8:85a3::8a2e:370:7334/48'``);
 
       * the address part is normalized to the "compressed" form, such as
         ``2001:db8:85a3::8a2e:370:7334``.
@@ -740,40 +764,55 @@ class IPv6NetField(UnicodeField):
                           'IPv6 network specification')
     max_length = 43  # <- not used at all but may improve introspection
 
-    def clean_param_value(self, value):
-        ipv6_network_obj = super(IPv6NetField, self).clean_param_value(value)
-        return self.convert_param_network_obj_value(ipv6_network_obj)
+    # XXX: shouldn't we change the behavior
+    #      to trim the host (non-network) bits?
 
-    def convert_param_network_obj_value(self, ipv6_network_obj):
-        ipv6 = unicode(ipv6_network_obj.ip.exploded)
-        net = ipv6_network_obj.prefixlen
-        assert isinstance(ipv6, unicode)
-        assert isinstance(net, int) and 0 <= net <= 128
-        # returning a tuple: ipv6 is a unicode string, net is an int number
-        return ipv6, net
+    def clean_param_value(self, value):
+        ipv6_obj, prefixlen = super(IPv6NetField, self).clean_param_value(value)
+        return self.convert_param_prepared_value(ipv6_obj, prefixlen)
+
+    def convert_param_prepared_value(self, ipv6_obj, prefixlen):
+        assert isinstance(ipv6_obj, ipaddress.IPv6Address)
+        ipv6 = ipv6_obj.exploded
+        assert isinstance(ipv6, str)
+        assert isinstance(prefixlen, int) and 0 <= prefixlen <= 128, prefixlen
+        # returning a tuple: `ipv6` is a str, `prefixlen` is an int
+        return ipv6, prefixlen
 
     def clean_result_value(self, value):
-        if not isinstance(value, basestring):
+        if not isinstance(value, (str, bytes, bytearray)):
             try:
-                ip, net = value
-                value = '{}/{}'.format(ip, net)
+                ipv6_raw, prefixlen_raw = value
+                value = '{}/{}'.format(as_unicode(ipv6_raw), as_unicode(prefixlen_raw))
             except (ValueError, TypeError):
                 raise FieldValueError(public_message=(
                     self.error_msg_template.format(ascii_str(value))))
-        ipv6_network_obj = super(IPv6NetField, self).clean_result_value(value)
-        # returning a unicode string
-        return unicode(ipv6_network_obj.compressed)
+        ipv6_obj, prefixlen = super(IPv6NetField, self).clean_result_value(value)
+        assert isinstance(ipv6_obj, ipaddress.IPv6Address)
+        ipv6 = ipv6_obj.compressed
+        assert isinstance(ipv6, str)
+        assert isinstance(prefixlen, int) and 0 <= prefixlen <= 128, prefixlen
+        # returning a str
+        return '{}/{}'.format(ipv6, prefixlen)
 
     def _fix_value(self, value):
         value = super(IPv6NetField, self)._fix_value(value)
         try:
-            if '/' not in value:
-                raise ValueError
-            ipv6_network_obj = ipaddr.IPv6Network(value)
+            ipv6_str, prefixlen_str = value.split('/')
+            _, _, last_segment = ipv6_str.rpartition(':')
+            if '.' in last_segment and not IPv4_STRICT_DECIMAL_REGEX.search(last_segment):
+                raise ValueError('{!a} is not a valid IPv4-like suffix '
+                                 'of the address part'.format(last_segment))
+            ipv6_obj = ipaddress.IPv6Address(ipv6_str)
+            prefixlen = int(prefixlen_str)
+            if str(prefixlen) != prefixlen_str:
+                raise ValueError('{!a} != {!a}'.format(str(prefixlen), prefixlen_str))
+            if not 0 <= prefixlen <= 128:
+                raise ValueError('{!a} not in range 0..128'.format(prefixlen))
         except Exception:
             raise FieldValueError(public_message=(
                 self.error_msg_template.format(ascii_str(value))))
-        return ipv6_network_obj
+        return ipv6_obj, prefixlen
 
 
 class CCField(UnicodeLimitedField, UnicodeRegexField):
@@ -798,7 +837,7 @@ class URLSubstringField(UnicodeLimitedField):
     """
 
     max_length = 2048
-    decode_error_handling = 'surrogateescape'
+    decode_error_handling = 'utf8_surrogatepass_and_surrogateescape'
 
 
 class URLField(URLSubstringField):
@@ -819,12 +858,13 @@ class DomainNameSubstringField(UnicodeLimitedField):
     def _fix_value(self, value):
         value = super(DomainNameSubstringField, self)._fix_value(value)
         try:
-            ascii_value = value.encode('idna')
+            value = value.encode('idna')
         except ValueError:
             raise FieldValueError(public_message=(
                 u'"{}" could not be encoded using the '
                 u'IDNA encoding'.format(ascii_str(value))))
-        return unicode(ascii_value.lower())
+        value = ascii_str(value)
+        return value.lower()
 
 
 class DomainNameField(DomainNameSubstringField, UnicodeRegexField):
@@ -899,20 +939,20 @@ class IntegerField(Field):
         try:
             coerced_value = self._do_coerce(value)
             # e.g. float is OK *only* if it is an integer number (such as 42.0)
-            if not isinstance(value, basestring) and coerced_value != value:
+            if not isinstance(value, (str, bytes, bytearray)) and coerced_value != value:
                 raise ValueError
         except (TypeError, ValueError):
             raise FieldValueError(public_message=(
                 u'"{}" cannot be interpreted as an '
                 u'integer number'.format(ascii_str(value))))
-        assert isinstance(coerced_value, (int, long))  # long if > sys.maxint
+        assert isinstance(coerced_value, int)
         return coerced_value
 
     def _do_coerce(self, value):
         return int(value)
 
     def _check_range(self, value):
-        assert isinstance(value, (int, long))
+        assert isinstance(value, int)
         if self.min_value is not None and value < self.min_value:
             raise FieldValueError(public_message=(
                 u'{} is lesser than {}'.format(value, self.min_value)))
@@ -932,8 +972,18 @@ class ASNField(IntegerField):
     error_msg_template = '"{}" is not a valid Autonomous System Number'
 
     def _do_coerce(self, value):
-        # supporting also the '<16-bit number>.<16-bitnumber>' ASN notation
-        if isinstance(value, basestring):
+        if isinstance(value, (str, bytes, bytearray)):
+            if isinstance(value, (bytes, bytearray)):
+                value = value.decode('utf-8')
+            # numbers prefixed with 'AS<optional blank characters>'
+            # or 'ASN<optional blank characters>' (checked in a
+            # case-insensitive manner) are also accepted
+            value_lower = value.lower()
+            if value_lower.startswith(('as', 'asn')):
+                prefix_len = (3 if value_lower.startswith('asn')
+                              else 2)
+                value = value[prefix_len:].lstrip()
+            # supporting also the '<16-bit number>.<16-bitnumber>' ASN notation;
             if '.' in value:
                 high, low = map(int, value.split('.'))
                 if not (0 <= low <= 65535):  # (high is checked later)
@@ -941,7 +991,7 @@ class ASNField(IntegerField):
                 return (high << 16) + low
             else:
                 return int(value)
-        elif isinstance(value, (int, long)):
+        elif isinstance(value, int):
             return int(value)
         else:
             # not accepting e.g. floats, to avoid the '42.0'/42.0-confusion
@@ -968,10 +1018,10 @@ class ResultListFieldMixin(Field):
 
     Its :meth:`clean_result_value` checks that its argument is a
     *non-string sequence* (:class:`list` or :class:`tuple`, or any other
-    :class:`collections.Sequence` not being :class:`str` or
-    :class:`unicode`) and performs result cleaning (as defined in a
-    superclass) for *each item* of it.  The resultant value is always an
-    ordinary :class:`list`.
+    :class:`collections.abc.Sequence`, but *not* a :class:`str` or
+    :class:`bytes`/:class:`bytearray`) and performs result cleaning (as
+    defined in a superclass) for *each item* of it.  The resultant value
+    is always an ordinary :class:`list`.
 
     The class provides two optional
     constructor-arguments-or-subclass-attributes:
@@ -983,7 +1033,7 @@ class ResultListFieldMixin(Field):
     * :attr:`sort_result_list` (default value: :obj:`False`; if
       specified as :obj:`True` the :meth:`~list.sort` method will
       automatically be called on a resultant list; a
-      :class:`collections.Mapping` instance can also be specified --
+      :class:`collections.abc.Mapping` instance can also be specified --
       then it will specify the keyword arguments to be used for each
       such :meth:`~list.sort` call).
 
@@ -995,9 +1045,9 @@ class ResultListFieldMixin(Field):
     sort_result_list = False
 
     def clean_result_value(self, value):
-        if isinstance(value, basestring) or (
-              not isinstance(value, collections.Sequence)):
-            raise TypeError('{!r} is not a non-string sequence'.format(value))
+        if not is_seq(value):
+            raise TypeError('{!a} is not a *non*-str/bytes/bytearray '
+                            'sequence'.format(value))
         if not self.allow_empty and not value:
             raise ValueError('empty sequence given')
         do_clean = super(ResultListFieldMixin, self).clean_result_value
@@ -1027,7 +1077,7 @@ class ResultListFieldMixin(Field):
                     u'list {} is greater than {}'.format(
                         ascii_str(value),
                         self.max_length)))
-        if isinstance(self.sort_result_list, collections.Mapping):
+        if isinstance(self.sort_result_list, collections_abc.Mapping):
             checked_value_list.sort(**self.sort_result_list)
         elif self.sort_result_list:
             checked_value_list.sort()
@@ -1044,7 +1094,7 @@ class DictResultField(Field):
     :attr:`key_to_subfield_factory` can be:
 
     * specified as a dictionary that maps *subfield keys* (being
-      ASCII-only strings or :obj:`None`) to *field factories*
+      ASCII-only :class:`str` or :obj:`None`) to *field factories*
       (typically, just :class:`Field` subclasses) -- then processed data
       dictionaries are constrained and cleaned in the following way:
 
@@ -1053,7 +1103,7 @@ class DictResultField(Field):
         :obj:`None` key,
 
       * each *key* in a processed data dictionary **must** be an
-        ASCII-only string,
+        ASCII-only :class:`str`,
 
       * each *value* from a processed data dictionary **is cleaned**
         with :meth:`clean_result_value` of a field object produced by
@@ -1066,7 +1116,7 @@ class DictResultField(Field):
 
     * left as :obj:`None` -- then there are no constraints about
       structure and content of processed data dictionaries, except that
-      their keys **must** be ASCII-only strings.
+      their keys **must** be ASCII-only :class:`str` strings.
 
     Note: in the above description, whenever we say about a *processed
     data dictionary* we mean a dictionary being a value cleaned with
@@ -1085,7 +1135,7 @@ class DictResultField(Field):
         else:
             self.key_to_subfield = {
                 self._adjust_key(key): factory()
-                for key, factory in self.key_to_subfield_factory.iteritems()
+                for key, factory in self.key_to_subfield_factory.items()
                 if key is not None}
             default_subfield_factory = self.key_to_subfield_factory.get(None)
             self.default_subfield = (
@@ -1099,47 +1149,46 @@ class DictResultField(Field):
 
     def clean_result_value(self, value):
         value = super(DictResultField, self).clean_result_value(value)
-        if not isinstance(value, collections.Mapping):
-            raise TypeError('{!r} is not a mapping'.format(value))
+        if not isinstance(value, collections_abc.Mapping):
+            raise TypeError('{!a} is not a mapping'.format(value))
         keys = frozenset(value)
-        illegal_keys_repr = self._get_illegal_keys_repr(keys)
-        if illegal_keys_repr:
+        illegal_keys_msg_seq = list(map(ascii_str, self._generate_illegal_keys_msg(keys)))
+        if illegal_keys_msg_seq:
             raise ValueError(
-                  '{!r} contains illegal keys ({!r})'.format(
+                  '{!a} contains illegal keys ({})'.format(
                       value,
-                      illegal_keys_repr))
-        missing_keys_repr = self._get_missing_keys_repr(keys)
-        if missing_keys_repr:
+                      ', '.join(illegal_keys_msg_seq)))
+        missing_keys_msg_seq = list(map(ascii_str, self._generate_missing_keys_msg(keys)))
+        if missing_keys_msg_seq:
             raise ValueError(
-                  '{!r} does not contain required keys ({!r})'.format(
+                  '{!a} does not contain required keys ({})'.format(
                       value,
-                      missing_keys_repr))
+                      ', '.join(missing_keys_msg_seq)))
         if self.key_to_subfield is None:
             value = {
                 self._adjust_key(k): v
-                for k, v in value.iteritems()}
+                for k, v in value.items()}
         elif self.default_subfield is None:
             value = {
                 self._adjust_key(k): self.key_to_subfield[k].clean_result_value(v)
-                for k, v in value.iteritems()}
+                for k, v in value.items()}
         else:
             value = {
                 self._adjust_key(k):
                     self.key_to_subfield.get(k, self.default_subfield).clean_result_value(v)
-                for k, v in value.iteritems()}
+                for k, v in value.items()}
         return value
 
     def _adjust_key(self, key):
-        return key.decode('ascii')
+        return verified_as_ascii_str(key)
 
-    def _get_illegal_keys_repr(self, keys):
+    def _generate_illegal_keys_msg(self, keys):
         if self.key_to_subfield is not None and self.default_subfield is None:
-            illegal_keys = keys - self.key_to_subfield.viewkeys()
-            return ', '.join(sorted(illegal_keys))
-        return ''
+            illegal_keys = keys - self.key_to_subfield.keys()
+            yield from sorted(map(repr, illegal_keys))
 
-    def _get_missing_keys_repr(self, keys):
-        return ''
+    def _generate_missing_keys_msg(self, keys):
+        yield from ()
 
 
 class ListOfDictsField(ResultListFieldMixin, DictResultField):
@@ -1147,23 +1196,24 @@ class ListOfDictsField(ResultListFieldMixin, DictResultField):
     """
     For lists of dictionaries containing arbitrary items.
 
-    The constructor-argument-or-subclass-attribute
-    :attr:`must_be_unique` should be an iterable container and not a
-    string (by default it is en empty tuple); if not empty it should
-    contain one or more dictionary keys whose corresponding values will
-    have to be unique within a particular list of dictionaries or
-    :class:`~exceptions.ValueError` will be raised.
+    The constructor-argument-or-subclass-attribute :attr:`must_be_unique`
+    should be an iterable container (by default it is en empty tuple),
+    but *not* a :class:`str` or :class:`bytes`/:class:`bytearray`. If
+    the container is not empty it should consist of one or more
+    dictionary keys whose corresponding values will have to be unique
+    within a particular list of dictionaries (or
+    :class:`~exceptions.ValueError` will be raised).
     """
 
     must_be_unique = ()
 
     def __init__(self, **kwargs):
         super(ListOfDictsField, self).__init__(**kwargs)
-        if isinstance(self.must_be_unique, basestring):
-            raise TypeError("{}'s 'must_be_unique' is expected to be an "
-                            "iterable container and not a string ({!r})"
-                            .format(
-                                self.__class__.__name__,
+        if isinstance(self.must_be_unique, (str, bytes, bytearray)):
+            raise TypeError("{}'s 'must_be_unique' is expected to "
+                            "be an iterable container, but not a "
+                            "str/bytes/bytearray (got: {!a})".format(
+                                self.__class__.__qualname__,
                                 self.must_be_unique))
 
     def clean_result_value(self, value):
@@ -1172,7 +1222,7 @@ class ListOfDictsField(ResultListFieldMixin, DictResultField):
         if nonunique:
             raise ValueError(
                 'non-unique items within dictionaries (keys: {})'.format(
-                    ', '.join(sorted(map(repr, nonunique)))))
+                    ', '.join(sorted(map(ascii, nonunique)))))
         return value
 
     def _iter_keys_of_nonunique(self, value):
@@ -1197,10 +1247,10 @@ class AddressField(ListOfDictsField):
     }
     must_be_unique = ('ip',)
 
-    def _get_missing_keys_repr(self, keys):
+    def _generate_missing_keys_msg(self, keys):
+        yield from super()._generate_missing_keys_msg(keys)
         if 'ip' not in keys:
-            return 'ip'
-        return ''
+            yield "'ip'"
 
 
 class DirField(UnicodeEnumField):
@@ -1233,17 +1283,12 @@ class ExtendedAddressField(ListOfDictsField):
     }
     must_be_unique = ('ip', 'ipv6')
 
-    def _get_illegal_keys_repr(self, keys):
-        illegal_keys_repr = super(ExtendedAddressField,
-                                  self)._get_illegal_keys_repr(keys)
+    def _generate_illegal_keys_msg(self, keys):
+        yield from super()._generate_illegal_keys_msg(keys)
         if 'ip' in keys and 'ipv6' in keys:
-            if illegal_keys_repr:
-                illegal_keys_repr += '; '
-            illegal_keys_repr += (
-                'ip / ipv6 [only one of these two should be specified]')
-        return illegal_keys_repr
+            yield "'ip' or 'ipv6' [only one of these two should be specified]"
 
-    def _get_missing_keys_repr(self, keys):
+    def _generate_missing_keys_msg(self, keys):
+        yield from super()._generate_missing_keys_msg(keys)
         if 'ip' not in keys and 'ipv6' not in keys:
-            return 'ip / ipv6 [one of these two should be specified]'
-        return ''
+            yield "'ip' or 'ipv6' [one of these two should be specified]"

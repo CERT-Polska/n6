@@ -1,0 +1,4 @@
+{
+  "REACT_APP_API_URL": "n6Portal API URL",
+  "LOCALE_PATH": "Path to Terms of Service locale JSON file"
+}

@@ -1,10 +1,14 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
 import os
 import urlparse
 
 import dns.resolver
+# TODO: After migration to Pyton 3.x: remove the `iptools` dependency,
+#       adjusting our code to use std lib's `ipaddress` (maybe also
+#       adding IPv4/v6/both-dedicated config converters?), and/or our
+#       own existing IP-address-related helpers...
 import iptools
 import maxminddb.const
 from dns.exception import DNSException
@@ -12,7 +16,7 @@ from geoip2 import database, errors
 
 from n6.base.queue import QueuedBase
 from n6lib.common_helpers import replace_segment, is_ipv4
-from n6lib.config import Config
+from n6lib.config import ConfigMixin
 from n6lib.log_helpers import get_logger, logging_configured
 from n6lib.record_dict import RecordDict
 
@@ -20,18 +24,17 @@ from n6lib.record_dict import RecordDict
 LOGGER = get_logger(__name__)
 
 
-class Enricher(QueuedBase):
+class Enricher(ConfigMixin, QueuedBase):
 
     input_queue = {
         'exchange': 'event',
         'exchange_type': 'topic',
         'queue_name': 'enrichement',
-        'binding_keys': [
-            'event.parsed.*.*',
-            'bl.parsed.*.*',
-            'event.aggregated.*.*',
-            'suppressed.aggregated.*.*',
-            'bl-update.parsed.*.*',
+        'accepted_event_types': [
+            'event',
+            'bl',
+            'bl-update',
+            'suppressed',
         ],
     }
     output_queue = {
@@ -39,27 +42,35 @@ class Enricher(QueuedBase):
         'exchange_type': 'topic',
     }
 
+    config_spec = """
+        [enrich]
+        dnshost
+        dnsport :: int
+        geoippath = ""
+        asndatabasefilename = ""
+        citydatabasefilename = ""
+        excluded_ips = "" :: list_of_str
+    """
+
     single_instance = False
 
     #
     # Initialization
 
     def __init__(self, **kwargs):
+        self.is_geodb_enabled = False
         self.gi_asn = None
         self.gi_cc = None
         self._resolver = None
-        config = Config(required={"enrich": (
-            "dnshost", "dnsport", "geoippath", "asndatabasefilename", "citydatabasefilename")})
-        self._enrich_config = config["enrich"]
+        self._enrich_config = self.get_config_section()
         self.excluded_ips = self._get_excluded_ips()
         self._setup_geodb()
-        self._setup_dnsresolver(self._enrich_config["dnshost"], int(self._enrich_config["dnsport"]))
+        self._setup_dnsresolver(self._enrich_config["dnshost"], self._enrich_config["dnsport"])
         super(Enricher, self).__init__(**kwargs)
 
     def _get_excluded_ips(self):
-        if self._enrich_config.get('excluded_ips'):
-            excluded_ips = [_ip.strip() for _ip in self._enrich_config['excluded_ips'].split(',')]
-            return iptools.IpRangeList(*excluded_ips)
+        if self._enrich_config['excluded_ips']:
+            return iptools.IpRangeList(*self._enrich_config['excluded_ips'])
         return None
 
     def _setup_dnsresolver(self, dnshost, dnsport):
@@ -69,12 +80,17 @@ class Enricher(QueuedBase):
 
     def _setup_geodb(self):
         geoipdb_path = self._enrich_config["geoippath"]
-        geoipdb_asn_file = self._enrich_config["asndatabasefilename"]
-        geoipdb_city_file = self._enrich_config["citydatabasefilename"]
-        self.gi_asn = database.Reader(fileish=os.path.join(geoipdb_path, geoipdb_asn_file),
-                                      mode=maxminddb.const.MODE_MEMORY)
-        self.gi_cc = database.Reader(fileish=os.path.join(geoipdb_path, geoipdb_city_file),
-                                     mode=maxminddb.const.MODE_MEMORY)
+        if geoipdb_path:
+            geoipdb_asn_file = self._enrich_config["asndatabasefilename"]
+            geoipdb_city_file = self._enrich_config["citydatabasefilename"]
+            if geoipdb_asn_file:
+                self.gi_asn = database.Reader(fileish=os.path.join(geoipdb_path, geoipdb_asn_file),
+                                              mode=maxminddb.const.MODE_MEMORY)
+                self.is_geodb_enabled = True
+            if geoipdb_city_file:
+                self.gi_cc = database.Reader(fileish=os.path.join(geoipdb_path, geoipdb_city_file),
+                                             mode=maxminddb.const.MODE_MEMORY)
+                self.is_geodb_enabled = True
 
     #
     # Main activity
@@ -160,39 +176,49 @@ class Enricher(QueuedBase):
             data['address'] = _address
 
     def _maybe_set_other_address_data(self, data, ip_to_enriched_address_keys):
-        assert 'address' in data
-        for addr in data['address']:
-            # ASN
+        if self.is_geodb_enabled:
+            assert 'address' in data
+            for addr in data['address']:
+                # ASN
+                self._maybe_set_asn(addr, data, ip_to_enriched_address_keys)
+                # CC
+                self._maybe_set_cc(addr, data, ip_to_enriched_address_keys)
+
+    def _maybe_set_asn(self, addr, data, ip_to_enriched_address_keys):
+        if self.gi_asn is not None:
             ip = addr['ip']
             existing_asn = addr.pop('asn', None)
             if existing_asn is not None:
                 LOGGER.warning(
-                    'it should not happen: event\'s `address` '
-                    'contained an `asn` (%r) *before* enrichment '
-                    '-- so the `asn` has been dropped! '
-                    '[ip: %s; source: %r; event id: %r; rid: %r]',
-                    existing_asn,
-                    ip,
-                    data['source'],
-                    data['id'],
-                    data['rid'])
+                        'it should not happen: event\'s `address` '
+                        'contained an `asn` (%r) *before* enrichment '
+                        '-- so the `asn` has been dropped! '
+                        '[ip: %s; source: %r; event id: %r; rid: %r]',
+                        existing_asn,
+                        ip,
+                        data['source'],
+                        data['id'],
+                        data['rid'])
             asn = self.ip_to_asn(ip)
             if asn:
                 addr['asn'] = asn
                 ip_to_enriched_address_keys[ip].append('asn')
-            # CC
+
+    def _maybe_set_cc(self, addr, data, ip_to_enriched_address_keys):
+        if self.gi_cc is not None:
+            ip = addr['ip']
             existing_cc = addr.pop('cc', None)
             if existing_cc is not None:
                 LOGGER.warning(
-                    'it should not happen: event\'s `address` '
-                    'contained a `cc` (%r) *before* enrichment '
-                    '-- so the `cc` has been dropped! '
-                    '[ip: %s; source: %r; event id: %r; rid: %r]',
-                    existing_cc,
-                    ip,
-                    data['source'],
-                    data['id'],
-                    data['rid'])
+                        'it should not happen: event\'s `address` '
+                        'contained a `cc` (%r) *before* enrichment '
+                        '-- so the `cc` has been dropped! '
+                        '[ip: %s; source: %r; event id: %r; rid: %r]',
+                        existing_cc,
+                        ip,
+                        data['source'],
+                        data['id'],
+                        data['rid'])
             cc = self.ip_to_cc(ip)
             if cc:
                 addr['cc'] = cc
@@ -241,6 +267,7 @@ class Enricher(QueuedBase):
         return sorted(ip_set)
 
     def ip_to_asn(self, ip):
+        assert self.gi_asn is not None
         try:
             geoip_asn = self.gi_asn.asn(ip)
         except errors.GeoIP2Error:
@@ -249,6 +276,7 @@ class Enricher(QueuedBase):
         return geoip_asn.autonomous_system_number
 
     def ip_to_cc(self, ip):
+        assert self.gi_cc is not None
         try:
             geoip_city = self.gi_cc.city(ip)
         except errors.GeoIP2Error:

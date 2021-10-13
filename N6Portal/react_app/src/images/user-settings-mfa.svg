@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+  <g id="Group_4420" data-name="Group 4420" transform="translate(-661 -214)">
+    <circle id="Ellipse_38" data-name="Ellipse 38" cx="18" cy="18" r="18" transform="translate(661 214)" fill="rgba(104,116,125,0.08)"/>
+    <g id="Group_4419" data-name="Group 4419" transform="translate(656.181 221)">
+      <path id="Path_4117" data-name="Path 4117" d="M224.039,207.425h-1.325v1.325h-1.1v1.325h2.428Z" transform="translate(-196.96 -198.462)" fill="#68747d" stroke="rgba(0,0,0,0)" stroke-width="1"/>
+      <rect id="Rectangle_2270" data-name="Rectangle 2270" width="1.766" height="1.325" transform="translate(22.134 6.632)" fill="#68747d" stroke="rgba(0,0,0,0)" stroke-width="1"/>
+      <rect id="Rectangle_2271" data-name="Rectangle 2271" width="2.208" height="1.325" transform="translate(24.866 6.632)" fill="#68747d" stroke="rgba(0,0,0,0)" stroke-width="1"/>
+      <path id="Path_4118" data-name="Path 4118" d="M224.039,289.85h-1.325v1.325h-1.1V292.5h2.428Z" transform="translate(-196.96 -277.325)" fill="#68747d" stroke="rgba(0,0,0,0)" stroke-width="1"/>
+      <path id="Path_4119" data-name="Path 4119" d="M80.981,153.8h1.325v-1.325H79.656v2.649h1.325Z" transform="translate(-61.103 -145.886)" fill="#68747d" stroke="rgba(0,0,0,0)" stroke-width="1"/>
+      <path id="Path_4120" data-name="Path 4120" d="M27.85,0H17.788a1.971,1.971,0,0,0-1.969,1.969V20.431A1.971,1.971,0,0,0,17.788,22.4H27.85a1.971,1.971,0,0,0,1.969-1.969V1.969A1.971,1.971,0,0,0,27.85,0ZM20.325,2.756a.656.656,0,1,1-.656.656A.656.656,0,0,1,20.325,2.756Zm5.644,17.019h-6.3V18.462h6.3Zm2.259-3.488H17.41V5.469H28.228Z" fill="#68747d" stroke="rgba(0,0,0,0)" stroke-width="1"/>
+      <path id="Path_4121" data-name="Path 4121" d="M82.305,291.175H80.981V289.85H79.656V292.5h2.649Z" transform="translate(-61.103 -277.325)" fill="#68747d" stroke="rgba(0,0,0,0)" stroke-width="1"/>
+      <path id="Path_4122" data-name="Path 4122" d="M82.305,211.4h1.545v2.649h1.325v-3.974H83.63V208.75h1.545v-1.325h-2.87v1.325H79.656v1.325h2.649Z" transform="translate(-61.203 -198.689)" fill="#68747d" stroke="rgba(0,0,0,0)" stroke-width="1"/>
+    </g>
+  </g>
+</svg>

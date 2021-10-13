@@ -1,10 +1,14 @@
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
+import ast
 import os
+import uuid
 
 from flask import (
     Flask,
+    flash,
     request,
+    g,
 )
 from flask_admin import (
     Admin,
@@ -13,8 +17,8 @@ from flask_admin import (
 )
 from flask_admin.actions import ActionsMixin
 from flask_admin.contrib.sqla import (
-    form,
     ModelView,
+    form as fa_sqla_form,
 )
 from flask_admin.form import (
     TimeField,
@@ -31,42 +35,57 @@ from sqlalchemy.orm import (
     sessionmaker,
 )
 from wtforms import (
-    PasswordField,
     BooleanField,
+    PasswordField,
+    StringField,
 )
 from wtforms.fields import Field
 from wtforms.widgets import PasswordInput
 
+from n6adminpanel import org_request_helpers
+from n6adminpanel.mail_notices_helpers import MailNoticesMixin
 from n6adminpanel.patches import (
     PatchedInlineModelConverter,
     get_patched_get_form,
     get_patched_init_actions,
     patched_populate_obj,
 )
+from n6lib.auth_db.api import AuthManageAPI
 from n6lib.auth_db.audit_log import AuditLog
 from n6lib.auth_db.config import SQLAuthDBConfigMixin
 from n6lib.auth_db.models import (
     CACert,
     Cert,
     Component,
-    ContactPoint,
     CriteriaASN,
     CriteriaCC,
     CriteriaContainer,
     CriteriaIPNetwork,
     CriteriaName,
+    DependantEntity,
     EMailNotificationAddress,
     EMailNotificationTime,
-    EntityType,
-    ExtraId,
-    ExtraIdType,
+    Entity,
+    EntityASN,
+    EntityContactPoint,
+    EntityContactPointPhone,
+    EntityExtraId,
+    EntityExtraIdType,
+    EntityFQDN,
+    EntityIPNetwork,
+    EntitySector,
     InsideFilterASN,
     InsideFilterCC,
     InsideFilterFQDN,
     InsideFilterIPNetwork,
     InsideFilterURL,
-    LocationType,
     Org,
+    OrgConfigUpdateRequest,
+    OrgConfigUpdateRequestASN,
+    OrgConfigUpdateRequestEMailNotificationAddress,
+    OrgConfigUpdateRequestEMailNotificationTime,
+    OrgConfigUpdateRequestFQDN,
+    OrgConfigUpdateRequestIPNetwork,
     OrgGroup,
     RegistrationRequest,
     RegistrationRequestASN,
@@ -79,6 +98,7 @@ from n6lib.auth_db.models import (
     SystemGroup,
     User,
 )
+from n6lib.class_helpers import attr_required
 from n6lib.common_helpers import ThreadLocalNamespace
 from n6lib.config import ConfigMixin
 from n6lib.const import (
@@ -89,6 +109,7 @@ from n6lib.log_helpers import (
     get_logger,
     logging_configured,
 )
+from n6lib.mail_notices_api import MailNoticesAPI
 
 
 LOGGER = get_logger(__name__)
@@ -185,16 +206,88 @@ class CustomPasswordField(PasswordField):
 
 class _PasswordFieldHandlerMixin(object):
 
-    form_extra_fields = {
-        'password': CustomPasswordField(),
-        'delete_password': BooleanField('Delete Password')
-    }
+    @property
+    def form_extra_fields(self):
+        sup = super(_PasswordFieldHandlerMixin, self)
+        from_super = getattr(sup, 'form_extra_fields', None) or {}
+        return dict(from_super,
+                    password=CustomPasswordField(),
+                    delete_password=BooleanField('Delete Password'))
 
     def on_model_change(self, form, model, is_created):
+        # noinspection PyUnresolvedReferences
+        super(_PasswordFieldHandlerMixin, self).on_model_change(form, model, is_created)
         if hasattr(form, 'delete_password') and form.delete_password and form.delete_password.data:
             model.password = None
         elif hasattr(form, 'password') and form.password and form.password.data:
             model.password = model.get_password_hash_or_none(form.password.data)
+
+
+class _APIKeyFieldHandlerMixin(object):
+
+    @property
+    def form_extra_fields(self):
+        sup = super(_APIKeyFieldHandlerMixin, self)
+        from_super = getattr(sup, 'form_extra_fields', None) or {}
+        return dict(from_super,
+                    api_key_id=StringField(),
+                    delete_api_key_id=BooleanField('Delete Api Key Id'),
+                    generate_new_api_key_id=BooleanField('Generate New Api Key Id'))
+
+    @property
+    def form_widget_args(self):
+        sup = super(_APIKeyFieldHandlerMixin, self)
+        from_super = getattr(sup, 'form_widget_args', None) or {}
+        return dict(from_super,
+                    api_key_id={'readonly': True},
+                    api_key_id_modified_on={'disabled': True})
+
+    def on_model_change(self, form, model, is_created):
+        # noinspection PyUnresolvedReferences
+        super(_APIKeyFieldHandlerMixin, self).on_model_change(form, model, is_created)
+        if hasattr(form, 'generate_new_api_key_id') and (form.generate_new_api_key_id
+                                                         and form.generate_new_api_key_id.data):
+            model.api_key_id = str(uuid.uuid4())
+        elif hasattr(form, 'delete_api_key_id') and (form.delete_api_key_id
+                                                     and form.delete_api_key_id.data):
+            model.api_key_id = None
+
+
+class _MFAKeyBaseFieldHandlerMixin(MailNoticesMixin):
+
+    @property
+    def form_extra_fields(self):
+        sup = super(_MFAKeyBaseFieldHandlerMixin, self)
+        from_super = getattr(sup, 'form_extra_fields', None) or {}
+        return dict(from_super,
+                    mfa_key_base=StringField(),
+                    delete_mfa_key_base=BooleanField('Delete Mfa Key Base'))
+
+    @property
+    def form_widget_args(self):
+        sup = super(_MFAKeyBaseFieldHandlerMixin, self)
+        from_super = getattr(sup, 'form_widget_args', None) or {}
+        return dict(from_super,
+                    mfa_key_base={'readonly': True},
+                    mfa_key_base_modified_on={'disabled': True})
+
+    def on_model_change(self, form, model, is_created):
+        # noinspection PyUnresolvedReferences
+        super(_MFAKeyBaseFieldHandlerMixin, self).on_model_change(form, model, is_created)
+        if hasattr(form, 'delete_mfa_key_base') and (form.delete_mfa_key_base
+                                                     and form.delete_mfa_key_base.data):
+            model.mfa_key_base = None
+            if isinstance(model, User) and not is_created:
+                g.n6_user_mfa_key_base_erased = True
+
+    def after_model_change(self, form, model, is_created):
+        if g.n6_user_mfa_key_base_erased:
+            assert isinstance(model, User)
+            self.try_to_send_mail_notices(
+                notice_key='mfa_config_erased',
+                user_login=model.login)
+        # noinspection PyUnresolvedReferences
+        super(_MFAKeyBaseFieldHandlerMixin, self).after_model_change(form, model, is_created)
 
 
 class _ExtraCSSMixin(object):
@@ -205,7 +298,10 @@ class _ExtraCSSMixin(object):
         return super(_ExtraCSSMixin, self).render(*args, **kwargs)
 
 
-class UserInlineFormAdmin(_PasswordFieldHandlerMixin, InlineFormAdmin):
+class UserInlineFormAdmin(_PasswordFieldHandlerMixin,
+                          _APIKeyFieldHandlerMixin,
+                          _MFAKeyBaseFieldHandlerMixin,
+                          InlineFormAdmin):
 
     column_display_pk = False
     column_descriptions = {
@@ -213,28 +309,27 @@ class UserInlineFormAdmin(_PasswordFieldHandlerMixin, InlineFormAdmin):
     }
     form_columns = [
         'id',
+
+        'is_blocked',
         'login',
+
         'password',
         'delete_password',
+
+        'mfa_key_base',
+        'mfa_key_base_modified_on',
+        'delete_mfa_key_base',
+
+        'api_key_id',
+        'api_key_id_modified_on',
+        'delete_api_key_id',
+        'generate_new_api_key_id',
+
         'system_groups',
 
         'created_certs',
         'owned_certs',
         'revoked_certs',
-    ]
-
-
-class ContactPointInlineFormAdmin(InlineFormAdmin):
-
-    column_display_pk = False
-    form_columns = [
-        'id',
-
-        'title',
-        'name',
-        'surname',
-        'email',
-        'phone',
     ]
 
 
@@ -314,7 +409,7 @@ class ShortTimeField(TimeField):
     widget = ShortTimePickerWidget()
 
 
-class OrgModelConverter(form.AdminModelConverter):
+class ModelWithShortTimeFieldConverter(fa_sqla_form.AdminModelConverter):
 
     @converts('Time')
     def convert_time(self, field_args, **extra):
@@ -325,7 +420,7 @@ class OrgView(CustomWithInlineFormsModelView):
 
     # create_modal = True
     # edit_modal = True
-    model_form_converter = OrgModelConverter
+    model_form_converter = ModelWithShortTimeFieldConverter
     column_descriptions = {
         'org_id': "Organization's identifier (domain name).",
     }
@@ -343,14 +438,13 @@ class OrgView(CustomWithInlineFormsModelView):
         'access_to_inside',
         'access_to_threats',
         'access_to_search',
-        'public_entity',
-        'verified',
     ]
     form_columns = [
         'org_id',
         'actual_name',
         'org_groups',
         'users',
+        'entity',
         'full_access',
         'stream_api_enabled',
         # authorization:
@@ -381,16 +475,6 @@ class OrgView(CustomWithInlineFormsModelView):
         'inside_filter_fqdns',
         'inside_filter_ip_networks',
         'inside_filter_urls',
-        # official data:
-        'public_entity',
-        'verified',
-        'entity_type',
-        'location_type',
-        'location',
-        'location_coords',
-        'address',
-        'extra_ids',
-        'contact_points',
     ]
     form_rules = [
         rules.Header('Organization basic data'),
@@ -398,9 +482,9 @@ class OrgView(CustomWithInlineFormsModelView):
         rules.Field('actual_name'),
         rules.Field('full_access'),
         rules.Field('stream_api_enabled'),
-        rules.Field('org_groups'),
 
-        rules.Header('Users'),
+        rules.Header('Groups and users'),
+        rules.Field('org_groups'),
         rules.Field('users'),
 
         rules.Header('"Inside" access zone'),
@@ -438,18 +522,8 @@ class OrgView(CustomWithInlineFormsModelView):
         rules.Field('inside_filter_ip_networks'),
         rules.Field('inside_filter_urls'),
 
-        rules.Header('Official data'),
-        rules.Field('public_entity'),
-        rules.Field('verified'),
-        rules.Field('entity_type'),
-        rules.Field('location_type'),
-        rules.Field('location'),
-        rules.Field('location_coords'),
-        rules.Field('address'),
-        rules.Field('extra_ids'),
-
-        rules.Header('Official contact points'),
-        rules.Field('contact_points'),
+        rules.Header('Related entity'),
+        rules.Field('entity'),
     ]
     inline_models = [
         UserInlineFormAdmin(User),
@@ -460,22 +534,46 @@ class OrgView(CustomWithInlineFormsModelView):
         InsideFilterFQDN,
         InsideFilterIPNetwork,
         InsideFilterURL,
-        ExtraId,
-        ContactPointInlineFormAdmin(ContactPoint),
     ]
 
 
-class RegistrationRequestView(CustomWithInlineFormsModelView):
+class OrgRequestViewMixin(object):
 
+    can_create = False
     can_view_details = True
+
     # essential to display PK column in the "list" view
     column_display_pk = True
-    column_searchable_list = ['status', 'org_id', 'actual_name', 'email']
+
+    # to be set in subclasses to one of the handler kits
+    # defined in `n6adminpanel.org_request_helpers`
+    org_request_handler_kit = None
+
+    @attr_required('org_request_handler_kit')
+    def on_model_change(self, form, model, is_created):
+        assert not is_created, "isn't `can_create` set to False?!"
+        # (The handler called here makes use of `ACTIONS_FIELD...`)
+        self.org_request_handler_kit.just_before_commit(form, model)
+        # noinspection PyUnresolvedReferences
+        return super(OrgRequestViewMixin, self).on_model_change(form, model, is_created)
+
+    @attr_required('org_request_handler_kit')
+    def after_model_change(self, form, model, is_created):
+        assert not is_created, "isn't `can_create` set to False?!"
+        self.org_request_handler_kit.just_after_commit(model)
+        # noinspection PyUnresolvedReferences
+        return super(OrgRequestViewMixin, self).after_model_change(form, model, is_created)
+
+
+class RegistrationRequestView(OrgRequestViewMixin, CustomWithInlineFormsModelView):
+
+    column_searchable_list = ['status', 'ticket_id', 'org_id', 'actual_name', 'email']
     column_list = [
         'id',
         'submitted_on',
         'modified_on',
         'status',
+        'ticket_id',
 
         'org_id',
         'actual_name',
@@ -484,15 +582,27 @@ class RegistrationRequestView(CustomWithInlineFormsModelView):
         'email_notification_language',
     ]
 
+    column_descriptions = {
+        'terms_version': 'The version of the legal terms accepted by the client.',
+        'terms_lang': 'The language variant of the legal terms accepted by the client.',
+    }
+
+    form_extra_fields = {
+        org_request_helpers.ACTIONS_FIELD_NAME:
+            org_request_helpers.ACTIONS_FIELD_FOR_REGISTRATION,
+    }
     form_columns = [
         'id',
         'submitted_on',
         'modified_on',
 
         'status',
+        'ticket_id',
+        'org_group',
+        org_request_helpers.ACTIONS_FIELD_NAME,
+
         'org_id',
         'actual_name',
-
         'email',
         'submitter_title',
         'submitter_firstname_and_surname',
@@ -504,14 +614,32 @@ class RegistrationRequestView(CustomWithInlineFormsModelView):
         'asns',
         'fqdns',
         'ip_networks',
+
+        'terms_version',
+        'terms_lang',
     ]
+    form_widget_args = {
+        # Let it be visible but inactive. (State changes
+        # can be made only with the custom buttons which
+        # fill out the target-status-dedicated invisible
+        # input; that input and those buttons are provided
+        # by `org_request_helpers.ACTIONS_FIELD...`
+        # -- see `form_extra_fields` below.)
+        'status': {'disabled': True},
+
+        'terms_version': {'readonly': True},
+        'terms_lang': {'readonly': True},
+    }
     form_rules = [
-        rules.Header('Basic data'),
+        rules.Header('Registration request consideration'),
         rules.Field('status'),
+        rules.Field('ticket_id'),
+        rules.Field('org_group'),
+        rules.Field(org_request_helpers.ACTIONS_FIELD_NAME),
+
+        rules.Header('Basic and access-related data'),
         rules.Field('org_id'),
         rules.Field('actual_name'),
-
-        rules.Header('Contact data and access-related stuff'),
         rules.Field('email'),
         rules.Field('submitter_title'),
         rules.Field('submitter_firstname_and_surname'),
@@ -525,7 +653,12 @@ class RegistrationRequestView(CustomWithInlineFormsModelView):
         rules.Header('E-mail notifications preferences'),
         rules.Field('email_notification_language'),
         rules.Field('email_notification_addresses'),
+
+        rules.Header('Legal information'),
+        rules.Field('terms_version'),
+        rules.Field('terms_lang'),
     ]
+    org_request_handler_kit = org_request_helpers.registration_request_handler_kit
     inline_models = [
         RegistrationRequestEMailNotificationAddress,
         RegistrationRequestASN,
@@ -534,19 +667,140 @@ class RegistrationRequestView(CustomWithInlineFormsModelView):
     ]
 
 
+class OrgConfigUpdateRequestView(OrgRequestViewMixin, CustomWithInlineFormsModelView):
 
-class UserView(_PasswordFieldHandlerMixin, N6ModelView):
+    column_searchable_list = ['status', 'ticket_id', 'org_id']
+    column_list = [
+        'id',
+        'submitted_on',
+        'modified_on',
+        'status',
+        'ticket_id',
+        'org_id',
+    ]
+
+    form_extra_fields = {
+        org_request_helpers.ACTIONS_FIELD_NAME:
+            org_request_helpers.ACTIONS_FIELD_FOR_ORG_CONFIG_UPDATE,
+    }
+    form_columns = [
+        'id',
+        'submitted_on',
+        'modified_on',
+
+        'status',
+        'ticket_id',
+        'org_id',
+        'requesting_user_login',
+        'additional_comment',
+        org_request_helpers.ACTIONS_FIELD_NAME,
+
+        'actual_name_upd',
+        'actual_name',
+
+        'email_notification_enabled_upd',
+        'email_notification_enabled',
+
+        'email_notification_language_upd',
+        'email_notification_language',
+
+        'email_notification_addresses_upd',
+        'email_notification_addresses',
+
+        'email_notification_times_upd',
+        'email_notification_times',
+
+        'asns_upd',
+        'asns',
+
+        'fqdns_upd',
+        'fqdns',
+
+        'ip_networks_upd',
+        'ip_networks',
+    ]
+    form_widget_args = {
+        # Let it be visible but inactive. (State changes
+        # can be made only with the custom buttons which
+        # fill out the target-status-dedicated invisible
+        # input; that input and those buttons are provided
+        # by `org_request_helpers.ACTIONS_FIELD...`
+        # -- see `form_extra_fields` below.)
+        'status': {'disabled': True},
+
+        'org_id': {'readonly': True},
+        'requesting_user_login': {'readonly': True},
+        'additional_comment': {'readonly': True},
+    }
+    form_rules = [
+        rules.Header('Org config update request consideration'),
+        rules.Field('status'),
+        rules.Field('ticket_id'),
+        rules.Field('org_id'),
+        rules.Field('requesting_user_login'),
+        rules.Field('additional_comment'),
+        rules.Field(org_request_helpers.ACTIONS_FIELD_NAME),
+
+        rules.Header('Updates of basic data'),
+        rules.Field('actual_name_upd'),
+        rules.Field('actual_name'),
+
+        rules.Header('Updates of "Inside" event criteria'),
+        rules.Field('asns_upd'),
+        rules.Field('asns'),
+        rules.Field('fqdns_upd'),
+        rules.Field('fqdns'),
+        rules.Field('ip_networks_upd'),
+        rules.Field('ip_networks'),
+
+        rules.Header('Updates of e-mail notifications preferences'),
+        rules.Field('email_notification_enabled_upd'),
+        rules.Field('email_notification_enabled'),
+        rules.Field('email_notification_language_upd'),
+        rules.Field('email_notification_language'),
+        rules.Field('email_notification_addresses_upd'),
+        rules.Field('email_notification_addresses'),
+        rules.Field('email_notification_times_upd'),
+        rules.Field('email_notification_times'),
+    ]
+    org_request_handler_kit = org_request_helpers.org_config_update_request_handler_kit
+    inline_models = [
+        OrgConfigUpdateRequestEMailNotificationAddress,
+        OrgConfigUpdateRequestEMailNotificationTime,
+        OrgConfigUpdateRequestASN,
+        OrgConfigUpdateRequestFQDN,
+        OrgConfigUpdateRequestIPNetwork,
+    ]
+
+
+class UserView(_PasswordFieldHandlerMixin,
+               _APIKeyFieldHandlerMixin,
+               _MFAKeyBaseFieldHandlerMixin,
+               N6ModelView):
 
     column_descriptions = {
         'login': 'User\'s login (e-mail address).',
     }
     column_list = ['login', 'org', 'system_groups']
     form_columns = [
+        'is_blocked',
         'login',
+
         'password',
         'delete_password',
+
+        'mfa_key_base',
+        'mfa_key_base_modified_on',
+        'delete_mfa_key_base',
+
+        'api_key_id',
+        'api_key_id_modified_on',
+        'delete_api_key_id',
+        'generate_new_api_key_id',
+
         'org',
         'system_groups',
+
         'created_certs',
         'owned_certs',
         'revoked_certs',
@@ -657,11 +911,140 @@ class CACertView(_ExtraCSSMixin, CustomColumnListView):
     ]
 
 
+class EntityContactPointPhoneInlineFormAdmin(InlineFormAdmin):
+
+    form_columns = [
+        'id',
+        'phone_number',
+        'availability',
+    ]
+
+
+class EntityContactPointInlineFormAdmin(CustomWithInlineFormsModelView):
+
+    form_columns = [
+        'id',
+
+        'name',
+        'position',
+        'email',
+
+        'phones',
+
+        'external_placement',
+        'external_entity_name',
+        'external_entity_address',
+    ]
+    inline_models = [
+        EntityContactPointPhoneInlineFormAdmin(EntityContactPointPhone),
+    ]
+
+
+class EntityView(CustomWithInlineFormsModelView):
+
+    model_form_converter = ModelWithShortTimeFieldConverter
+    can_view_details = True
+    # essential to display PK column in the "list" view
+    column_display_pk = True
+    column_searchable_list = [
+        'full_name', 'short_name', 'email', 'city', 'sector_label', 'ticket_id',
+    ]
+    column_list = [
+        'full_name', 'short_name', 'email', 'city', 'sector_label', 'ticket_id',
+    ]
+    form_columns = [
+        # official data:
+        'id',
+        'full_name',
+        'short_name',
+        'verified',
+        'email',
+        'address',
+        'city',
+        'postal_code',
+        'public_essential_service',
+        'sector',
+        'ticket_id',
+        'internal_id',
+        'extra_ids',
+        'additional_information',
+        'asns',
+        'fqdns',
+        'ip_networks',
+        'alert_email',
+        'contact_points',
+        'dependant_entities',
+        'org',
+    ]
+    form_rules = [
+        rules.Header('Basic data'),
+        rules.Field('full_name'),
+        rules.Field('short_name'),
+        rules.Field('verified'),
+        rules.Field('email'),
+        rules.Field('address'),
+        rules.Field('city'),
+        rules.Field('postal_code'),
+
+        rules.Header('Supplementary data'),
+        rules.Field('public_essential_service'),
+        rules.Field('sector'),
+        rules.Field('ticket_id'),
+        rules.Field('internal_id'),
+        rules.Field('extra_ids'),
+        rules.Field('additional_information'),
+
+        rules.Header('Own network data'),
+        rules.Field('asns'),
+        rules.Field('fqdns'),
+        rules.Field('ip_networks'),
+
+        rules.Header('Contact data'),
+        rules.Field('alert_email'),
+        rules.Field('contact_points'),
+
+        rules.Header('Dependant entities'),
+        rules.Field('dependant_entities'),
+
+        rules.Header('Related n6 client Org'),
+        rules.Field('org'),
+    ]
+    inline_models = [
+        EntityExtraId,
+        EntityASN,
+        EntityFQDN,
+        EntityIPNetwork,
+        EntityContactPointInlineFormAdmin(EntityContactPoint, db_session),
+        DependantEntity,
+    ]
+
+
 class CustomIndexView(AdminIndexView):
 
     @expose('/')
     def index(self):
         return self.render('home.html')
+
+
+class _AuthManageAPIAdapter(AuthManageAPI):
+
+    class _DBConnectorReplacement(object):
+        def get_current_session(self):
+            return db_session()
+        def __enter__(self): pass
+        def __exit__(self, exc_type, exc_value, tb): pass
+        def set_audit_log_external_meta_items(self, **_):
+            raise AssertionError('method invocation not expected')
+
+    # noinspection PyMissingConstructor
+    def __init__(self):
+        self._db_connector = self._DBConnectorReplacement()
+
+    def _try_to_get_client_error(self, *args, **kwargs):
+        err = super(_AuthManageAPIAdapter, self)._try_to_get_client_error(*args, **kwargs)
+        if err is not None:
+            flash(err.public_message, 'error')
+        return err
 
 
 class AdminPanel(ConfigMixin):
@@ -675,6 +1058,7 @@ class AdminPanel(ConfigMixin):
     engine_config_prefix = ''
     table_views = [
         (Org, OrgView),
+        (OrgConfigUpdateRequest, OrgConfigUpdateRequestView),
         (User, UserView),
         (Source, SourceView),
         (Subsource, CustomColumnAutoPKView),
@@ -685,13 +1069,15 @@ class AdminPanel(ConfigMixin):
         (Component, ComponentView),
         (CACert, CACertView),
         (Cert, CertView),
-        (EntityType, CustomColumnListView),
-        (LocationType, CustomColumnListView),
-        (ExtraIdType, CustomColumnListView),
         (RegistrationRequest, RegistrationRequestView),
+        (Entity, EntityView),
+        (EntitySector, CustomColumnListView),
+        (EntityExtraIdType, CustomColumnListView),
     ]
 
     def __init__(self, engine):
+        self._mail_notices_api = MailNoticesAPI()
+        self._auth_manage_api_adapter = _AuthManageAPIAdapter()
         self.app_config = self.get_config_section()
         self.app = Flask(__name__)
         self.app.secret_key = self.app_config['app_secret_key']
@@ -725,6 +1111,12 @@ class AdminPanel(ConfigMixin):
                 ('request_user_id', request.environ.get(WSGI_SSL_USER_ID_FIELD)),
             ]
             if value is not None}
+        # Attributes used by the `org_request_helpers` and/or `mail_notices_helpers` stuff:
+        g.n6_mail_notices_api = self._mail_notices_api
+        g.n6_auth_manage_api_adapter = self._auth_manage_api_adapter
+        g.n6_org_config_info = None
+        # Attributes used by the `_MFAKeyBaseFieldHandlerMixin` stuff:
+        g.n6_user_mfa_key_base_erased = False
 
     @staticmethod
     def _teardown_request(exception=None):
@@ -736,7 +1128,7 @@ class AdminPanel(ConfigMixin):
 
 
 def monkey_patch_flask_admin():
-    setattr(form, 'get_form', get_patched_get_form(form.get_form))
+    setattr(fa_sqla_form, 'get_form', get_patched_get_form(fa_sqla_form.get_form))
     setattr(Field, 'populate_obj', patched_populate_obj)
     setattr(ActionsMixin, 'init_actions', get_patched_init_actions(ActionsMixin.init_actions))
 
@@ -756,10 +1148,22 @@ def get_app():
         return admin_panel.app
 
 
-if __name__ == '__main__':
-    # run admin panel on development server
-    # (note: you can set FLASK_ENV to '' -- to turn off the
-    # development-specific stuff, such as debug messages...)
+def dev_server_main():
+    """
+    Run the n6 Admin Panel using the Flask development server.
+
+    (*Not* for production!)
+    """
+    # (note: you can set the FLASK_ENV environment variable to '' -- to
+    # turn off the development-specific stuff, such as debug messages...)
     os.environ.setdefault('FLASK_ENV', 'development')
     a = get_app()
-    a.run()
+    # (note: you can set the N6_ADMIN_PANEL_DEV_RUN_KWARGS environment
+    # variable to customize the keyword arguments to be passed to the
+    # application's `run()` method, e.g.: '{"host": "0.0.0.0"}')
+    run_kwargs = ast.literal_eval(os.environ.get('N6_ADMIN_PANEL_DEV_RUN_KWARGS', '{}'))
+    a.run(**run_kwargs)
+
+
+if __name__ == '__main__':
+    dev_server_main()

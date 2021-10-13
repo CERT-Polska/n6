@@ -3,10 +3,11 @@ default_ca = n6-CA
 
 [ n6-CA ]
 dir = n6-CA
-certificate = $dir/cacert.pem
+ca_dir = generated_certs/n6-CA
+certificate = $ca_dir/cacert.pem
 database = $dir/index.txt
 new_certs_dir = $dir/certs
-private_key = $dir/private/cakey.pem
+private_key = $ca_dir/private/cakey.pem
 serial = $dir/serial
 
 default_crl_days = 7

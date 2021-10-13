@@ -1,15 +1,18 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2018-2021 NASK. All rights reserved.
 
 import datetime
+import re
 
 from n6lib.auth_db import (
     INVALID_FIELD_TEMPLATE_MSG,
     MAX_LEN_OF_DOMAIN_NAME,
     MAX_LEN_OF_EMAIL,
-    MAX_LEN_OF_GENERIC_SHORT_STRING,
-    MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL,
+    MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
+    MAX_LEN_OF_ID_HEX,
+    MAX_LEN_OF_OFFICIAL_OR_CONTACT_TOKEN,
     MAX_LEN_OF_ORG_ID,
     MAX_LEN_OF_URL,
+    MAX_LEN_OF_UUID4,
 )
 from n6lib.common_helpers import (
     EMAIL_OVERRESTRICTED_SIMPLE_REGEX,
@@ -34,11 +37,11 @@ LOGGER = get_logger(__name__)
 
 class CategoryCustomizedField(UnicodeLimitedField, UnicodeRegexField):
 
-    max_length = MAX_LEN_OF_GENERIC_SHORT_STRING
+    max_length = MAX_LEN_OF_GENERIC_ONE_LINE_STRING
     regex = r'\A[\-0-9a-z]+\Z'
     error_msg_template = u'"{}" is not a valid event category'
 
-    warning_msg_template = ('category value %r is not amongst the elements '
+    warning_msg_template = ('category value %a is not amongst the elements '
                             'of n6lib.const.CATEGORY_ENUMS!')
 
     def clean_result_value(self, value):
@@ -92,6 +95,40 @@ class UserLoginField(EmailCustomizedField):
     error_msg_template = u'"{}" is not a valid user login - an e-mail address is expected'
 
 
+class IdHexField(UnicodeLimitedField, UnicodeRegexField):
+
+    disallow_empty = True
+    max_length = MAX_LEN_OF_ID_HEX
+    regex = r'\A[0-9a-f]+\Z'
+
+    error_msg_template = u'"{}" is not a valid hex-digits-only identifier'
+
+
+class NoWhitespaceSecretField(UnicodeLimitedField, UnicodeRegexField):
+
+    sensitive = True
+    default_error_msg_if_sensitive = u'not a valid secret - too short or contains whitespace?'
+
+    disallow_empty = True
+    max_length = MAX_LEN_OF_GENERIC_ONE_LINE_STRING
+    regex = re.compile(r'\A\S{64,}\Z',  # Non-whitespace characters only, not less than 64 of them.
+                       re.UNICODE)
+
+
+class UUID4SecretField(UnicodeLimitedField, UnicodeRegexField):
+
+    sensitive = True
+    default_error_msg_if_sensitive = u'not a valid UUID4'
+
+    disallow_empty = True
+    regex = r'\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z'
+    max_length = MAX_LEN_OF_UUID4
+
+    def _fix_value(self, value):
+        value = super(UUID4SecretField, self)._fix_value(value)
+        return value.lower()
+
+
 class RegistrationRequestEmailField(EmailCustomizedField):
 
     # Note: the characters specified by this constant are formally
@@ -113,9 +150,9 @@ class RegistrationRequestEmailField(EmailCustomizedField):
 class RegistrationRequestEmailLDAPSafeField(RegistrationRequestEmailField):
 
     def _validate_value(self, value):
-        from n6lib.auth_db.validators import _ascii_only_ldap_safe_to_unicode_stripped
+        from n6lib.auth_db.validators import _ascii_only_ldap_safe_str_strip
         super(RegistrationRequestEmailLDAPSafeField, self)._validate_value(value)
-        assert value.strip() == _ascii_only_ldap_safe_to_unicode_stripped(value)
+        assert value.strip() == _ascii_only_ldap_safe_str_strip(value)
 
     def _get_additionally_forbidden_characters(self):
         from n6lib.auth_db.validators import LDAP_UNSAFE_CHARACTERS
@@ -127,7 +164,7 @@ class RegistrationRequestEmailLDAPSafeField(RegistrationRequestEmailField):
 class IPv4NetAlwaysAsStringField(IPv4NetField):
 
     def convert_param_cleaned_string_value(self, value):
-        assert isinstance(value, unicode)
+        assert isinstance(value, str)
         return value
 
 
@@ -160,60 +197,58 @@ class TimeHourMinuteField(Field):
 
     """
     A field class, specifying valid data types and values
-    for fields adapted to store time in hour:minute format.
+    for fields adapted to store hour+minute time information.
 
-    This field type can accept datetime.time objects, strings
-    and integers. Returns a datetime.time object.
+    This field type can accept `datetime.time` objects, strings
+    and integers. Returns a `datetime.time` object.
     """
 
-    hour_minute_format = '%H:%M'
+    time_format = '%H:%M'
 
     def clean_param_value(self, value):
-        """
-        It is a result-only field, so the method always raises
-        an exception.
-        """
-        raise TypeError("it is a result-only field")
+        value = super(TimeHourMinuteField, self).clean_param_value(value)
+        return self._time_object_from_string(value)
 
     def clean_result_value(self, value):
         value = super(TimeHourMinuteField, self).clean_result_value(value)
         if isinstance(value, datetime.time):
-            return self._clean_time_object(value)
-        elif isinstance(value, basestring):
-            return self._clean_string(value)
+            return self._validate_time_object(value)
+        elif isinstance(value, str):
+            return self._time_object_from_string(value)
         elif isinstance(value, int):
-            return self._clean_integer(value)
+            return self._time_object_from_integer(value)
         else:
-            raise FieldValueError(public_message='Value {value!r} is of a wrong type:'
-                                                 ' {val_type!r} to be validated as a proper '
+            raise FieldValueError(public_message='Value {value!a} is of a wrong type:'
+                                                 ' {val_type!a} to be validated as a proper '
                                                  'database `Time` column record.'
                                                  .format(value=value, val_type=type(value)))
 
     @staticmethod
-    def _clean_time_object(value):
+    def _validate_time_object(value):
         if value.second or value.microsecond:
-            raise FieldValueError(public_message='Validated datetime.time object: {!r} has to '
+            raise FieldValueError(public_message='Validated datetime.time object: {!a} has to '
                                                  'contain hour only or hour with minutes, without '
                                                  'seconds and microseconds.'.format(value))
-        if value.tzinfo is not None or value.utcoffset() is not None:
-            raise FieldValueError(public_message='Validated datetime.time object: {!r} has to '
+        if value.tzinfo is not None:
+            raise FieldValueError(public_message='Validated datetime.time object: {!a} has to '
                                                  'be "naive" (must not include '
                                                  'timezone information).'.format(value))
         return value
 
     @classmethod
-    def _clean_string(cls, value):
+    def _time_object_from_string(cls, value):
         try:
-            return datetime.datetime.strptime(value, cls.hour_minute_format).time()
-        except (TypeError, ValueError) as exc:
+            return datetime.datetime.strptime(value, cls.time_format).time()
+        except (TypeError, ValueError):
             raise FieldValueError(
-                public_message=INVALID_FIELD_TEMPLATE_MSG.format(value=value, exc=exc))
+                public_message='"{}" is not a valid *hour:minute* time '
+                               'specification'.format(ascii_str(value)))
 
     @staticmethod
-    def _clean_integer(value):
+    def _time_object_from_integer(value):
         """
         Validate, whether passed value is an integer in range
-        0 to 23, so it can be set as an hour part in datetime.time
+        0 to 23, so it can be set as an hour part in `datetime.time`
         object.
 
         Although the `Time` type of column represents datetime.time
@@ -224,7 +259,7 @@ class TimeHourMinuteField(Field):
         minutes and hours.
 
         In order to simplify this behavior, the method takes a number
-        between 0 and 23 and converts it to a datetime.time object,
+        between 0 and 23 and converts it to a `datetime.time` object,
         that represents an hour only.
 
         Args:
@@ -232,11 +267,11 @@ class TimeHourMinuteField(Field):
                 validated hour as integer.
 
         Returns:
-            a datetime.time object.
+            a `datetime.time` object.
 
         Raises:
-            A FieldValueError if the validated number is out
-            of expected range.
+            A `FieldValueError` if the validated number is out
+            of the expected range.
         """
         try:
             return datetime.time(value)
@@ -245,22 +280,31 @@ class TimeHourMinuteField(Field):
                                                                                    exc=exc))
 
 
-class _BaseOfficialIdOrTypeLabelField(UnicodeLimitedField, UnicodeRegexField):
+class _BaseNameOrTokenField(UnicodeLimitedField, UnicodeRegexField):
 
-    max_length = MAX_LEN_OF_OFFICIAL_ID_OR_TYPE_LABEL
+    # Note: there is no `\A` (or `^`) and no `\Z` (or `$`) in the
+    # following regex -- as we only demand that values contain *some*
+    # non-whitespace character(s) (*not* that they contain *only* such
+    # characters).
+    regex = re.compile(r'\S+', re.UNICODE)
+    auto_strip = True
     disallow_empty = True
 
     def clean_result_value(self, value):
-        return super(_BaseOfficialIdOrTypeLabelField, self).clean_result_value(value.strip())
+        if value is None:
+            # Note that it is relevant only to *non-nullable* columns,
+            # because for nullable ones our Base's metaclass ensures
+            # that for `None` values validators are not used.
+            raise FieldValueError(public_message=u'The value is missing')
+        return super(_BaseNameOrTokenField, self).clean_result_value(value)
 
 
-class TypeLabelField(_BaseOfficialIdOrTypeLabelField):
+class OfficialOrContactTokenField(_BaseNameOrTokenField):
 
-    regex = r'\w+'
-    error_msg_template = u'"{}" is not a valid type label'
+    max_length = MAX_LEN_OF_OFFICIAL_OR_CONTACT_TOKEN
 
 
-class ExtraIdField(_BaseOfficialIdOrTypeLabelField):
+class EntityNameField(_BaseNameOrTokenField):
 
-    regex = r'\A[0-9\-]+\Z'
-    error_msg_template = u'"{}" is not a valid extra ID'
+    max_length = MAX_LEN_OF_GENERIC_ONE_LINE_STRING
+    error_msg_template = u'"{}" is not a valid entity name.'

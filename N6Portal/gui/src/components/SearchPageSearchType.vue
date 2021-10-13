@@ -2,21 +2,7 @@
 import BaseForm from './BaseForm';
 import BaseFormControl from './BaseFormControl';
 import BaseSelect from './BaseSelect';
-
-const RESOURCES = {
-  '/search/events': {
-    selectValue: 'events',
-    selectText: 'Events',
-  },
-  '/report/inside': {
-    selectValue: 'threats-inside',
-    selectText: 'Threats inside network',
-  },
-  '/report/threats': {
-    selectValue: 'threats-other',
-    selectText: 'Other threats',
-  },
-};
+import { API_RESOURCES as RESOURCES } from '../helpers/constants';
 
 export default {
   components: {
@@ -31,7 +17,15 @@ export default {
     };
   },
 
+  created() {
+    this.searchType = this.searchTypeAvailable ? this.availableSearchTypes[0].value : []
+  },
+
   computed: {
+    searchTypeAvailable() {
+      return this.availableSearchTypes.length > 0;
+    },
+
     availableResources() {
       return this.$store.state.session.availableResources;
     },
@@ -65,6 +59,14 @@ export default {
 }
 </script>
 
+<style lang="scss" scoped>
+@import '~@styles/_values.scss';
+
+.WarningMess {
+  color: $color-red-light;
+  font-weight: 600;
+}
+</style>
 
 <template>
   <base-form
@@ -81,7 +83,11 @@ export default {
         slot="input"
         v-model="searchType"
         :options="availableSearchTypes"
+        :disabled="!searchTypeAvailable"
       />
     </base-form-control>
+    <p class="WarningMess" v-if="!searchTypeAvailable">
+      No resources available
+    </p>
   </base-form>
 </template>

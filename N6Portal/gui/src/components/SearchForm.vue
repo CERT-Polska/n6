@@ -44,15 +44,23 @@ export default {
           })
           .get(queryString)
           .then(response => {
-            this.$store.commit('search/statusCompleted', { response: response.data });
+            if (!!response && response.hasOwnProperty('data') && Array.isArray(response.data)) {
+              this.$store.commit('search/statusCompleted', {response: response.data});
+            } else {
+              throw new Error('Invalid response');
+            }
           })
           .catch(error => {
             this.$store.commit('search/statusIdle');
             console.error(error);
-            if (error.response.status && error.response.status === FORBIDDEN_STATUS) {
-              this.$router.push('/login')
-            } else {
-              this.$router.push('/error')
+            try {
+              if (error.response.status && error.response.status === FORBIDDEN_STATUS) {
+                this.$router.push('/login');
+              } else {
+                throw new Error('Redirect to error view');
+              }
+            } catch (e) {
+              this.$router.push('/error/500');
             }
           });
       }

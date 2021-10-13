@@ -37,7 +37,6 @@ export default {
       class="TheHeader-SearchControls"
     />
     <the-header-navigation
-      v-if="isLoggedIn"
       class="TheHeader-Navigation"
     />
   </header>

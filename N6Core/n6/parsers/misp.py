@@ -8,6 +8,7 @@ import json
 import re
 import sys
 from collections import MutableMapping
+from math import trunc
 
 from n6lib.log_helpers import get_logger
 from n6.parsers.generic import (
@@ -129,7 +130,7 @@ class MispParser(BaseParser):
         if not n6event_dict:
             return None
         n6event_dict['category'] = n6_category
-        n6event_dict['time'] = self.get_time(int(misp_attribute['timestamp']))
+        n6event_dict['time'] = self.get_time(misp_attribute['timestamp'])
         return n6event_dict
 
     @staticmethod
@@ -141,7 +142,18 @@ class MispParser(BaseParser):
 
     @staticmethod
     def get_time(misp_ts):
-        return datetime.datetime.utcfromtimestamp(misp_ts).replace(microsecond=0)
+        # XXX: What the actual type of `misp_ts` is? (This check and one of
+        #       the following branches may be unnecessary as never used...)
+        if isinstance(misp_ts, basestring):
+            # If it's a string, let's parse it as an integer.
+            misp_ts = int(misp_ts)    # type: int
+        else:
+            # If it's a number, let's be explicit that we truncate, not
+            # round up or what... (see the fragment: "Conversion from
+            # floating point to integer may round or truncate as in C"
+            # of the document: https://docs.python.org/3/library/stdtypes.html#numeric-types-int-float-complex)
+            misp_ts = trunc(misp_ts)  # type: int
+        return datetime.datetime.utcfromtimestamp(misp_ts)
 
     def get_restriction(self, misp_event, min_restriction=None):
         initial_restriction = self._get_initial_restriction(misp_event)

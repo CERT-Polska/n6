@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import unittest
 
@@ -82,7 +80,7 @@ ALL_NAMES_OF_FIELD_CLASSES_FOR_N6 = (
 # Various helpers
 #
 
-def _make_sdk_based_test_cls(field_cls_name):
+def _make_sdk_based_case_cls(field_cls_name):
     field_cls = getattr(n6_fields, field_cls_name)
     corresponding_sdk_name = field_cls_name[:-len('ForN6')]
     sdk_test_cls = getattr(sdk_tests, 'Test' + corresponding_sdk_name)
@@ -109,9 +107,9 @@ class TestFieldTypes(unittest.TestCase):
             for name in ALL_NAMES_OF_FIELD_CLASSES_FOR_N6}
         self.assertEqual(all_field_classes_for_n6, {
             name: field_cls
-            for name, field_cls in vars(n6_fields).iteritems()
+            for name, field_cls in vars(n6_fields).items()
             if name.endswith('FieldForN6')})
-        for name, field_cls in all_field_classes_for_n6.iteritems():
+        for name, field_cls in all_field_classes_for_n6.items():
             self.assertIsInstance(field_cls, type)
             self.assertEqual(field_cls.__name__, name)
 
@@ -144,7 +142,7 @@ class TestFieldTypes(unittest.TestCase):
 
 # ugly hack but saves a lot of redundant typing :-)
 globals().update(
-    _make_sdk_based_test_cls(name)
+    _make_sdk_based_case_cls(name)
     for name in NAMES_OF_FIELD_CLASSES_CORRELATED_WITH_SDK_ONES
     # the SDK field classes `Field` and `DictResultField` do not have
     # dedicated test classes within the SDK test suite:
@@ -169,8 +167,11 @@ globals().update(
 #         ...
 
 #     def cases__clean_result_value(self):
-#         for c in self.cases__clean_param_value():
-#             yield c
+#         ...
+#         yield case(
+#             given='',
+#             expected=TypeError,
+#         )
 #         ...
 
 
@@ -180,7 +181,7 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
 
     def cases__clean_param_value(self):
         yield case(
-            given='htTP://www.test.pl',
+            given='http://www.test.pl',
             expected=FieldValueError,
         )
         yield case(
@@ -196,18 +197,8 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
             expected=u'HTtp://www.test.pl/cgi-bin/foo.pl?',
         )
         yield case(
-            given='aHR0cDovL3d3dy50ZXN0LcSHLnBsL2NnaS9iaW4vZm9vLnBsP2RlYnVnPTEmaWQ9MTIz',
-            expected=u'http://www.test-ć.pl/cgi/bin/foo.pl?debug=1&id=123',
-        )
-        yield case(
             given=u'aHR0cDovL3d3dy50ZXN0LcSHLnBsL2NnaS9iaW4vZm9vLnBsP2RlYnVnPTEmaWQ9MTIz',
             expected=u'http://www.test-ć.pl/cgi/bin/foo.pl?debug=1&id=123',
-        )
-        yield case(
-            given=('aHR0cDovL3d3dy5URVNULcSGLnBsL2NnaS1iaW4vYmFyLnBsP21vZGU9YnJvd3NlJm'
-                   'FtcDtkZWJ1Zz0lMjAxMjMmYW1wO2lkPWstJTVE'),
-            expected=(u'http://www.TEST-Ć.pl/cgi-bin/bar.pl?mode=browse&amp;'
-                      u'debug=%20123&amp;id=k-%5D'),
         )
         yield case(
             given=(u'aHR0cDovL3d3dy5URVNULcSGLnBsL2NnaS1iaW4vYmFyLnBsP21vZGU9YnJvd3NlJm'
@@ -216,25 +207,13 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
                       u'debug=%20123&amp;id=k-%5D'),
         )
         yield case(
-            given='aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci_dP3E9z4DFk8SZwqnDn-KGkDMjdHJhbGFsYQk=',
-            expected=u'http://tęst.pl/fóó/Bar/\udcdd?q=πœę©ß←3#tralala\t',
-        )
-        yield case(
             given=u'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci_dP3E9z4DFk8SZwqnDn-KGkDMjdHJhbGFsYQk=',
             expected=u'http://tęst.pl/fóó/Bar/\udcdd?q=πœę©ß←3#tralala\t',
         )
         # the same but encoded with standard Base64 (not the required URL-safe-Base64)
         yield case(
-            given='aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci/dP3E9z4DFk8SZwqnDn+KGkDMjdHJhbGFsYQk=',
-            expected=FieldValueError,
-        )
-        yield case(
             given=u'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci/dP3E9z4DFk8SZwqnDn+KGkDMjdHJhbGFsYQk=',
             expected=FieldValueError,
-        )
-        yield case(
-            given='aHR0cDovL3Rlc3QucGw=',
-            expected=u'http://test.pl',
         )
         yield case(
             given=u'aHR0cDovL3Rlc3QucGw=',
@@ -269,17 +248,8 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
         )
         # the same with missing padding
         yield case(
-            given='aHR0cDovL3Rlc3QucGw',
-            expected=FieldValueError,
-        )
-        yield case(
             given=u'aHR0cDovL3Rlc3QucGw',
             expected=FieldValueError,
-        )
-        yield case(
-            given=('aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
-                   '_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg=='),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
         )
         yield case(
             given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
@@ -288,21 +258,11 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
         )
         # the same with additional %-encoding:
         yield case(
-            given=('aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
-                   '_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg%3D%3D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        yield case(
             given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
                    u'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg%3D%3D'),
             expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
         )
         # the same with 2 x additional %-encoding (2nd is overzealous and lowercase-based):
-        yield case(
-            given=('aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%48%41'
-                   '%5fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%2dKJoMKywrMNCg%253D%253D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
         yield case(
             given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%48%41'
                    u'%5fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%2dKJoMKywrMNCg%253D%253D'),
@@ -310,18 +270,9 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
         )
         # the same with 3 x additional %-encoding (2nd is overzealous and lowercase-based):
         yield case(
-            given=('aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%2548%2541'
-                   '%255fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%252dKJoMKywrMNCg%25253D%25253D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        yield case(
             given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%2548%2541'
                    u'%255fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%252dKJoMKywrMNCg%25253D%25253D'),
             expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        yield case(
-            given='',
-            expected=u'',
         )
         yield case(
             given=u'',
@@ -329,18 +280,10 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
         )
         # containing non-UTF-8 characters (-> to low surrogates)
         yield case(
-            given='aHR0cHM6Ly9kZN3u',
-            expected=u'https://dd\udcdd\udcee',
-        )
-        yield case(
             given=u'aHR0cHM6Ly9kZN3u',
             expected=u'https://dd\udcdd\udcee',
         )
         # as UTF-8 with low surrogates already encoded
-        yield case(
-            given='aHR0cHM6Ly9kZO2zne2zrg==',
-            expected=u'https://dd\udcdd\udcee',
-        )
         yield case(
             given=u'aHR0cHM6Ly9kZO2zne2zrg==',
             expected=u'https://dd\udcdd\udcee',
@@ -356,8 +299,182 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
         )
 
     def cases__clean_result_value(self):
-        for c in self.cases__clean_param_value():
-            yield c
+        yield case(
+            given=b'http://www.test.pl',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=u'HTtp://www.test.pl/cgi-bin/foo.pl?',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'aHRUUDovL3d3dy50ZXN0LnBs',
+            expected=u'htTP://www.test.pl',
+        )
+        yield case(
+            given=u'SFR0cDovL3d3dy50ZXN0LnBsL2NnaS1iaW4vZm9vLnBsPw==',
+            expected=u'HTtp://www.test.pl/cgi-bin/foo.pl?',
+        )
+        yield case(
+            given=b'aHR0cDovL3d3dy50ZXN0LcSHLnBsL2NnaS9iaW4vZm9vLnBsP2RlYnVnPTEmaWQ9MTIz',
+            expected=u'http://www.test-ć.pl/cgi/bin/foo.pl?debug=1&id=123',
+        )
+        yield case(
+            given=u'aHR0cDovL3d3dy50ZXN0LcSHLnBsL2NnaS9iaW4vZm9vLnBsP2RlYnVnPTEmaWQ9MTIz',
+            expected=u'http://www.test-ć.pl/cgi/bin/foo.pl?debug=1&id=123',
+        )
+        yield case(
+            given=(b'aHR0cDovL3d3dy5URVNULcSGLnBsL2NnaS1iaW4vYmFyLnBsP21vZGU9YnJvd3NlJm'
+                   b'FtcDtkZWJ1Zz0lMjAxMjMmYW1wO2lkPWstJTVE'),
+            expected=(u'http://www.TEST-Ć.pl/cgi-bin/bar.pl?mode=browse&amp;'
+                      u'debug=%20123&amp;id=k-%5D'),
+        )
+        yield case(
+            given=(u'aHR0cDovL3d3dy5URVNULcSGLnBsL2NnaS1iaW4vYmFyLnBsP21vZGU9YnJvd3NlJm'
+                   u'FtcDtkZWJ1Zz0lMjAxMjMmYW1wO2lkPWstJTVE'),
+            expected=(u'http://www.TEST-Ć.pl/cgi-bin/bar.pl?mode=browse&amp;'
+                      u'debug=%20123&amp;id=k-%5D'),
+        )
+        yield case(
+            given=b'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci_dP3E9z4DFk8SZwqnDn-KGkDMjdHJhbGFsYQk=',
+            expected=u'http://tęst.pl/fóó/Bar/\udcdd?q=πœę©ß←3#tralala\t',
+        )
+        yield case(
+            given=u'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci_dP3E9z4DFk8SZwqnDn-KGkDMjdHJhbGFsYQk=',
+            expected=u'http://tęst.pl/fóó/Bar/\udcdd?q=πœę©ß←3#tralala\t',
+        )
+        # the same but encoded with standard Base64 (not the required URL-safe-Base64)
+        yield case(
+            given=b'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci/dP3E9z4DFk8SZwqnDn+KGkDMjdHJhbGFsYQk=',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=u'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci/dP3E9z4DFk8SZwqnDn+KGkDMjdHJhbGFsYQk=',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=b'aHR0cDovL3Rlc3QucGw=',
+            expected=u'http://test.pl',
+        )
+        yield case(
+            given=u'aHR0cDovL3Rlc3QucGw=',
+            expected=u'http://test.pl',
+        )
+        # the same with redundant padding
+        yield case(
+            given=b'aHR0cDovL3Rlc3QucGw==',
+            expected=u'http://test.pl',
+        )
+        yield case(
+            given=u'aHR0cDovL3Rlc3QucGw===',
+            expected=u'http://test.pl',
+        )
+        # the same with redundant padding and ignored characters after it
+        yield case(
+            given=b'aHR0cDovL3Rlc3QucGw===abcdef',
+            expected=u'http://test.pl',
+        )
+        yield case(
+            given=u'aHR0cDovL3Rlc3QucGw=========abcdef',
+            expected=u'http://test.pl',
+        )
+        # the same with redundant padding and illegal characters after it
+        yield case(
+            given=u'aHR0cDovL3Rlc3QucGw===ąć/'.encode('utf-8'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given=u'aHR0cDovL3Rlc3QucGw=========ąć/',
+            expected=FieldValueError,
+        )
+        # the same with missing padding
+        yield case(
+            given=b'aHR0cDovL3Rlc3QucGw',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=u'aHR0cDovL3Rlc3QucGw',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
+                   b'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg=='),
+            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+        )
+        yield case(
+            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
+                   u'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg=='),
+            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+        )
+        # the same with additional %-encoding:
+        yield case(
+            given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
+                   b'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg%3D%3D'),
+            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+        )
+        yield case(
+            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
+                   u'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg%3D%3D'),
+            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+        )
+        # the same with 2 x additional %-encoding (2nd is overzealous and lowercase-based):
+        yield case(
+            given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%48%41'
+                   b'%5fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%2dKJoMKywrMNCg%253D%253D'),
+            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+        )
+        yield case(
+            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%48%41'
+                   u'%5fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%2dKJoMKywrMNCg%253D%253D'),
+            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+        )
+        # the same with 3 x additional %-encoding (2nd is overzealous and lowercase-based):
+        yield case(
+            given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%2548%2541'
+                   b'%255fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%252dKJoMKywrMNCg%25253D%25253D'),
+            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+        )
+        yield case(
+            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%2548%2541'
+                   u'%255fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%252dKJoMKywrMNCg%25253D%25253D'),
+            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+        )
+        yield case(
+            given=b'',
+            expected=u'',
+        )
+        yield case(
+            given=u'',
+            expected=u'',
+        )
+        # containing non-UTF-8 characters (-> to low surrogates)
+        yield case(
+            given=b'aHR0cHM6Ly9kZN3u',
+            expected=u'https://dd\udcdd\udcee',
+        )
+        yield case(
+            given=u'aHR0cHM6Ly9kZN3u',
+            expected=u'https://dd\udcdd\udcee',
+        )
+        # as UTF-8 with low surrogates already encoded
+        yield case(
+            given=b'aHR0cHM6Ly9kZO2zne2zrg==',
+            expected=u'https://dd\udcdd\udcee',
+        )
+        yield case(
+            given=u'aHR0cHM6Ly9kZO2zne2zrg==',
+            expected=u'https://dd\udcdd\udcee',
+        )
+        # the `%` character not being part of %-encoded stuff
+        yield case(
+            given=b'%AZ',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=u'aHR0cDovL3Rlc3QucGw=%a',
+            expected=FieldValueError,
+        )
+        # incorrect type
         yield case(
             given=123,
             expected=TypeError,
@@ -381,8 +498,11 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
 #         ...
 
 #     def cases__clean_result_value(self):
-#         for c in self.cases__clean_param_value():
-#             yield c
+#         ...
+#         yield case(
+#             given='',
+#             expected=TypeError,
+#         )
 #         ...
 
 
@@ -399,8 +519,11 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
 #         ...
 
 #     def cases__clean_result_value(self):
-#         for c in self.cases__clean_param_value():
-#             yield c
+#         ...
+#         yield case(
+#             given='',
+#             expected=TypeError,
+#         )
 #         ...
 
 
@@ -417,8 +540,11 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
 #         ...
 
 #     def cases__clean_result_value(self):
-#         for c in self.cases__clean_param_value():
-#             yield c
+#         ...
+#         yield case(
+#             given='',
+#             expected=TypeError,
+#         )
 #         ...
 
 
@@ -435,8 +561,11 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
 #         ...
 
 #     def cases__clean_result_value(self):
-#         for c in self.cases__clean_param_value():
-#             yield c
+#         ...
+#         yield case(
+#             given='',
+#             expected=TypeError,
+#         )
 #         ...
 
 
@@ -453,8 +582,11 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
 #         ...
 
 #     def cases__clean_result_value(self):
-#         for c in self.cases__clean_param_value():
-#             yield c
+#         ...
+#         yield case(
+#             given='',
+#             expected=TypeError,
+#         )
 #         ...
 
 

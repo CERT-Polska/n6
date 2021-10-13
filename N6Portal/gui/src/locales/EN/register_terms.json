@@ -1,0 +1,17 @@
+{
+  "pageTitle": "Sign-up form",
+  "title": "Terms and Conditions",
+  "precaution": "The system is available only for network owners, administrators and operators. Each entity must have its own autonomous system (AS) or IP subnet. Your application must explicitly indicate that applicant is the network owner. ONLY applications sent from e-mail address registered in RIPE database or at least coming from the same domain as contact address in RIPE – will be accepted.",
+  "terms": [
+    "The n6 platform provides network administrators with information about security events and incidents in their networks. The information is provided free of charge, to make Internet a safer and more secure place.",
+    "Data in n6 come from various external sources as well as own monitoring systems.",
+    "Data is shared with the permission of respective parties who detected the events. The sources are not disclosed unless we are authorised to do so.",
+    "NASK and CERT Polska are not responsible for the quality of data. Data is distributed as-is and may contain false alerts. We do not recommend taking direct actions based on the data, without further verification.",
+    "Further distribution of data is prohibited except to affected users or customers.",
+    "Data from n6 may and should be used for identification and eradication of threats in the client's networks or for statistical and informational purposes. Commercial use is prohibited."
+  ],
+  "checkboxLabel": "I accept the Terms and Conditions",
+  "okLabel": "OK",
+  "cancelLabel": "Cancel",
+  "errorFlashMsg": "You have to accept the Terms of Service to sign up"
+}

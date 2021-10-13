@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 """
 Collector base classes + auxiliary tools.
@@ -15,6 +15,7 @@ import sys
 import time
 import urllib
 import urllib2
+from math import trunc
 
 import lxml.etree
 import lxml.html
@@ -29,8 +30,11 @@ from n6lib.class_helpers import (
     all_subclasses,
     attr_required,
 )
-from n6lib.common_helpers import make_exc_ascii_str
-from n6lib.email_message import EmailMessage
+from n6lib.common_helpers import (
+    AtomicallySavedFile,
+    make_exc_ascii_str,
+)
+from n6corelib.email_message import ReceivedEmailMessage
 from n6lib.http_helpers import RequestPerformer
 from n6lib.log_helpers import (
     get_logger,
@@ -97,10 +101,12 @@ class CollectorStateMixIn(object):
         try:
             if not os.path.isdir(os.path.expanduser(self.config['cache_dir'])):
                 os.makedirs(os.path.expanduser(self.config['cache_dir']))
-            with open(self.cache_file_path, "w") as f:
+
+            with AtomicallySavedFile(self.cache_file_path, 'w') as f:
                 f.write(str(self._current_state))
         except (IOError, OSError):
             LOGGER.warning("Cannot save state to cache '%s'. ", self.cache_file_path)
+
 
     def get_cache_file_name(self):
         return self.config['source'] + ".txt"
@@ -167,8 +173,9 @@ class CollectorWithStateMixin(object):
             os.makedirs(cache_dir, 0700)
         except OSError:
             pass
-        with open(self._cache_file_path, 'wb') as cache_file:
-            cPickle.dump(state, cache_file, cPickle.HIGHEST_PROTOCOL)
+
+        with AtomicallySavedFile(self._cache_file_path, 'wb') as f:
+             cPickle.dump(state, f, cPickle.HIGHEST_PROTOCOL)
         LOGGER.info("Saved state: %r", state)
 
     def get_cache_file_name(self):
@@ -277,6 +284,42 @@ class BaseCollector(CollectorConfigMixin, QueuedBase, AbstractBaseCollector):
         The default implementation returns an empty dict.
         """
         return {}
+
+    def get_component_group_and_id(self):
+        return 'collectors', self.__class__.__name__
+
+    def make_binding_keys(self, binding_keys, *args):
+        """
+        Make binding keys for the collector using values from
+        the pipeline config, if the collector accepts input messages
+        (it has its `input_queue` class attribute implemented).
+
+        Unlike in case of standard components (e.g., 'utils' group),
+        values for the collector in the pipeline config are treated
+        as target binding keys, not binding states.
+
+        Each value from the config is the new binding key.
+
+        Use the lowercase collector's class' name as associated option
+        in the pipeline config, or its group's name - 'collectors'.
+
+        Args:
+            New binding keys as a list.
+        """
+        self.input_queue['binding_keys'] = binding_keys
+        self.set_queue_name()
+
+    def set_queue_name(self):
+        """
+        If the collector's `input_queue` dict does not have
+        the `queue_name` key set, its queue's name defaults
+        to the lowercase name of its class.
+
+        The method may be called only for non-standard collectors
+        accepting input messages.
+        """
+        if 'queue_name' not in self.input_queue or not self.input_queue['queue_name']:
+            self.input_queue['queue_name'] = self.__class__.__name__.lower()
 
     def _validate_type(self):
         """Validate type of message, should be one of: 'stream', 'file', 'blacklist."""
@@ -516,7 +559,7 @@ class BaseCollector(CollectorConfigMixin, QueuedBase, AbstractBaseCollector):
         *extended* in subclasses (with cooperative super()).
 
         """
-        created_timestamp = int(time.time())
+        created_timestamp = trunc(time.time())
         message_id = self.get_output_message_id(
                     source=source,
                     created_timestamp=created_timestamp,
@@ -552,7 +595,7 @@ class BaseCollector(CollectorConfigMixin, QueuedBase, AbstractBaseCollector):
                 The output AMQP message body (a string) as returned by
                 the get_output_data_body() method.
             `created_timestamp`:
-                Message creation timestamp as a float number.
+                Message creation timestamp as an int number.
             <some keyword arguments>:
                 Processed data (as returned by the process_input_data()
                 method) passed as keyword arguments (the default
@@ -620,15 +663,15 @@ class BaseEmailSourceCollector(BaseOneShotCollector):
         return {'input_data': {'raw_email': sys.stdin.read()}}
 
     def process_input_data(self, raw_email):
-        return {'email_msg': EmailMessage.from_string(raw_email)}
+        return {'email_msg': ReceivedEmailMessage.from_string(raw_email)}
 
     def get_output_data_body(self, email_msg, **kwargs):
         """
-        Extract the data body, typically from the given EmailMessage instance.
+        Extract the data body, typically from the given ReceivedEmailMessage instance.
 
         Kwargs:
             `email_msg`:
-                An n6lib.email_message.EmailMessage instance.
+                An n6corelib.email_message.ReceivedEmailMessage instance.
              <other keyword arguments>:
                 See: BaseCollector.get_output_data_body. Typically,
                 concrete implementations will ignore them.
@@ -911,7 +954,131 @@ class BaseRSSCollector(BaseOneShotCollector, BaseUrlDownloaderCollector):
 class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
 
     """
-    TODO
+    The base class for "row-like" data collectors.
+
+
+    Implementation/overriding of methods and attributes:
+
+    * required:
+        * `obtain_orig_data()`
+          -- see its docs,
+        * `pick_raw_row_time()`
+          -- see its docs (and the docs of `extract_row_time()`),
+        * `clean_row_time()`
+          -- see its docs (and the docs of `extract_row_time()`);
+        
+    * optional: see the attributes and methods defined within the body
+      of this class below the "Stuff that can be overridden..." comment.
+
+
+    Original data (as returned by `obtain_orig_data()`) should consist
+    of rows that can be singled out (see: `split_orig_data_into_rows()`),
+    selected (see: `get_fresh_rows_only()` and the methods it calls)
+    and joined after all (see: `prepare_selected_data()`).
+
+    Rows (those for whom `should_row_be_used()` returns true) should
+    contain the time/order field; its values are to be extracted by
+    the `extract_row_time()` method; or -- let's be more specific --
+    by certain methods called by it, namely: `pick_raw_row_time()`
+    (which picks the raw time/order value from the given row) and
+    `clean_row_time()` (which validates, converts and normalizes that
+    time/order value).
+
+    For example, for rows such as:
+
+        '"123", "2019-07-18 14:29:05", "sample", "data"\n'
+        '"987", "2019-07-17 15:13:13", "other", "data"\n'
+
+    ...the `pick_raw_row_time()` should pick the values from the second
+    column (for an example implementation -- see the docstring of the
+    `pick_raw_row_time()` method).
+
+    Values returned by `clean_row_time()` can have any form and type
+    -- provided that a **newer** one always sorts as **greater than**
+    an older one, and values representing the **same** time are always
+    **equal**. An important related requirement is that the value returned
+    by the `get_oldest_possible_row_time()` method **must always** sort
+    as **less than** any value returned by `clean_row_time()`.
+
+    It is important to highlight that the original data (rows) are
+    expected to be already sorted **descendingly** (from newest to oldest)
+    by the time/order field (as extracted with `extract_row_time()`,
+    described above). If not, that must be enforced by your
+    implementation, e.g., in the following way:
+
+        def split_orig_data_into_rows(self, orig_data):
+            all_rows = super(..., self).split_orig_data_into_rows(orig_data)
+            return sorted(all_rows, key=self._row_sort_key, reverse=True)
+
+        def _row_sort_key(self, row):
+            sort_key = self.extract_row_time(row)
+            if sort_key is None:
+                sort_key = self.get_oldest_possible_row_time()
+            return sort_key
+
+    ***
+
+    Even a more important requirement, concerning the data source itself,
+    is that values of the *time/order* field of any **new** (fresh) rows
+    encountered by the collector **must** be **greater than or equal to**
+    the *time/order* field's values of all rows collected during any
+    previous runs of the collector.
+
+    If the **data source does not satisfy** the requirement described
+    above then **some rows will be lost** (i.e., will **not** be
+    collected at all).
+
+    For example, let's assume that a certain data source provided
+    the following data:
+
+        '"3", "2019-07-19 02:00:00", "sample", "data"\n'
+        '"2", "2019-07-18 01:00:00", "sample_data", "data"\n'
+        '"1", "2019-07-17 00:00:00", "other_data", "data"\n'
+
+    Assuming that our imaginary collector threats the second column
+    as the *time/order* field and that we just ran our collector,
+    all those rows have been collected by it and the collector's saved
+    state points on the `3`-rd row as the recent one.
+
+    Now, let's imagine that the source added three new rows -- so that
+    the data provided by the source looks like this:
+
+        '"6", "2019-07-20 02:00:00", "sample_2", "data"\n'
+        '"5", "2019-07-18 02:00:00", "sample_1", "data"\n'
+        '"4", "2019-07-21 02:00:00", "sample_3", "data"\n'
+        '"3", "2019-07-19 02:00:00", "sample", "data"\n'
+        '"2", "2019-07-18 01:00:00", "sample_data", "data"\n'
+        '"1", "2019-07-17 00:00:00", "other_data", "data"\n'
+
+    If we run our collector now, it will collect the `6`-th row, but it
+    will **not** collect the `4`-th and `5`-th rows, because of treating
+    the `5`-th one as a row *from the past* (because its *time/order*
+    value is less (older) than the, previously-saved-as-the-recent-one,
+    `3`-rd's one).
+
+    Note that, in such a case, making our collector sort these rows
+    by the *time/order* field would **not** help much:
+
+        '"4", "2019-07-21 02:00:00", "sample_3", "data"\n'
+        '"6", "2019-07-20 02:00:00", "sample_2", "data"\n'
+        '"5", "2019-07-18 02:00:00", "sample_1", "data"\n'
+        '"3", "2019-07-19 02:00:00", "sample", "data"\n'
+        '"2", "2019-07-18 01:00:00", "sample_data", "data"\n'
+        '"1", "2019-07-17 00:00:00", "other_data", "data"\n'
+
+    Even though the `4`-th and `6`-th rows would be collected, the
+    `5`-th one **would not** -- as it would be (still) considered a row
+    *from the past*. Indeed, the main problem is with the data source
+    itself: it does not satisfy the requirement described above.
+
+    ***
+
+    One more thing concerning the original input data: while it is OK
+    to have several rows with exact same values of the time/order field,
+    whole rows should not be the same (unless you do not care that such
+    duplicates may be detected as already seen and, consequently,
+    omitted).
+
     """
 
     config_required = ('source', 'cache_dir')
@@ -955,7 +1122,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
     #
     # Stuff that can be overridden in subclasses (only if needed,
     # as sensible defaults are provided -- *except* for the three
-    # abstract methods: `obtain_orig_data()`, `extract_raw_row_time()`
+    # abstract methods: `obtain_orig_data()`, `pick_raw_row_time()`
     # and `clean_row_time()`)
 
     # * basic raw event attributes:
@@ -982,7 +1149,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         or `0`...
 
         See also: the docs of the method `clean_row_time()` and the
-        description of the return value the method `extract_row_time()`
+        description of the return value of the method `extract_row_time()`
         (in its docs).
         """
         return ''
@@ -1000,10 +1167,11 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
                                           retries=self.config['download_retries'])
 
         (Though, in practice -- when it comes to obtaining original
-        data with the `RequestPerformer` stuff -- you will want to use
-        the `BaseDownloadingTimeOrderedRowsCollector` class rather than
-        to implement `RequestPerformer`-based `obtain_orig_data(`) by
-        your own.)
+        data with the `RequestPerformer` stuff -- you will more likely
+        want to use the `BaseDownloadingTimeOrderedRowsCollector` class
+        rather than to implement `RequestPerformer`-based `obtain_orig_data()`
+        by your own.)
+
         """
         raise NotImplementedError
 
@@ -1050,16 +1218,16 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
             if newest_row_time is None:
                 # this is the first (newest) actual (not blank/commented)
                 # row in the downloaded file -- so here we have the *newest*
-                # abuse time
+                # row time
                 newest_row_time = row_time
 
             if row_time == newest_row_time:
-                # this row is amongst those with the *newest* abuse time
+                # this row is amongst those with the *newest* row time
                 newest_rows.add(row)
 
             if row in prev_newest_rows:
                 # this row is amongst those with the *previously newest*
-                # abuse time, *and* we know that it has already been
+                # row time, *and* we know that it has already been
                 # collected -> so we *skip* it
                 assert row_time == prev_newest_row_time
                 continue
@@ -1074,7 +1242,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
 
             # sanity assertions
             fresh_newest_rows = newest_rows - prev_newest_rows
-            assert newest_row_time and fresh_newest_rows
+            assert newest_row_time is not None and fresh_newest_rows
         else:
             # sanity assertions
             assert (newest_row_time is None and not newest_rows
@@ -1112,23 +1280,23 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
           but, of course, can be overridden/extended in your subclass
           if needed) -- takes the given `row` and returns a boolean
           value; if a false value is returned, the result of the whole
-          `extract_row_time()` call will be `None`, and *no* calls of
-          the further methods (that is, `extract_raw_row_time()` and
-          `clean_row_time()`) will be made;
+          `extract_row_time()` call will be `None`, and calls of the
+          further methods (that is, of `pick_raw_row_time()` and
+          `clean_row_time()`) will *not* be made;
 
-        * `extract_raw_row_time()` (must be implemented in subclasses)
+        * `pick_raw_row_time()` (must be implemented in subclasses)
           -- takes the given `row` and extracts the raw value of its
           date-or-timestamp field, and then returns that raw value
           (typically, as a string); alternatively it can return `None`
           (to indicate that the whole row should be ignored) -- then
           the result of the whole `extract_row_time()` call will also
-          be `None`, and the call of `clean_row_time()` will not be
+          be `None`, and the call of `clean_row_time()` will *not* be
           made;
 
         * `clean_row_time()` (must be implemented in subclasses) --
-          takes the value just returned by `extract_raw_row_time()` and
+          takes the value just returned by `pick_raw_row_time()` and
           cleans it (i.e., validates and normalizes -- in particular,
-          converts to some target type, if needed), ant then returns
+          converts to some target type, if needed), and then returns
           the cleaned value; alternatively it can return `None` (to
           indicate that the whole row should be ignored); the returned
           value will become the result of the whole `extract_row_time()`
@@ -1136,7 +1304,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         """
         if not self.should_row_be_used(row):
             return None
-        raw_row_time = self.extract_raw_row_time(row)
+        raw_row_time = self.pick_raw_row_time(row)
         if raw_row_time is None:
             return None
         return self.clean_row_time(raw_row_time)
@@ -1152,31 +1320,29 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         """
         return row.strip() and not row.startswith('#')
 
-    def extract_raw_row_time(self, row):
+    def pick_raw_row_time(self, row):
         """
         Abstract method; see the docs of `extract_row_time()`.
 
         Below we present an implementation for a case when data rows
-        are expected be formatted according to the following pattern:
-        `"<row number>", "<row date+time>", <other data fields...>`.
+        are expected to be formatted according to the following pattern:
+        `"<row number>","<row date+time>",<other data fields...>`.
 
-            def extract_raw_row_time(self, row):
-                # (here we use `split_csv_row()` --
+            def pick_raw_row_time(self, row):
+                # (here we use `extract_field_from_csv_row()` --
                 # imported from `n6lib.csv_helpers`)
-                fields = split_csv_row()
-                return fields[1].strip()
+                return extract_field_from_csv_row(row, column_index=1)
 
         An alternative version of the above example:
 
-            def extract_raw_row_time(self, row):
+            def pick_raw_row_time(self, row):
                 # Here we return `None` if an error occurs when trying
                 # to parse the row -- because:
                 # * we assume that (for our particular data source)
                 #   some wrongly formatted rows may appear,
                 # * and we want to skip such rows.
                 try:
-                    fields = split_csv_row()
-                    return fields[1].strip()
+                    return extract_field_from_csv_row(row, column_index=1)
                 except Exception as exc:
                     LOGGER.warning(
                         'Cannot extract the time field from the %r row '
@@ -1308,13 +1474,16 @@ class BaseDownloadingTimeOrderedRowsCollector(BaseDownloadingCollector,
 
 
 
+#
+# Script/entry point factories
+
 def generate_collector_main(collector_class):
-    def parser_main():
+    def collector_main():
         with logging_configured():
             init_kwargs = collector_class.get_script_init_kwargs()
             collector = collector_class(**init_kwargs)
             collector.run_handling()
-    return parser_main
+    return collector_main
 
 
 def entry_point_factory(module):
@@ -1323,4 +1492,3 @@ def entry_point_factory(module):
               not collector_class.__name__.startswith('_')):
             setattr(module, "%s_main" % collector_class.__name__,
                     generate_collector_main(collector_class))
-

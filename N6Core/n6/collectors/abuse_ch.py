@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 """
 Collectors: abuse-ch.spyeye-doms, abuse-ch.spyeye-ips,
@@ -39,12 +39,16 @@ from n6.collectors.generic import (
 from n6lib.common_helpers import (
     make_exc_ascii_str,
     read_file,
-    reduce_indent,
 )
-from n6lib.csv_helpers import split_csv_row
+from n6lib.config import join_config_specs
+from n6lib.csv_helpers import (
+    extract_field_from_csv_row,
+    split_csv_row,
+)
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.http_helpers import RequestPerformer
 from n6lib.log_helpers import get_logger
+from n6lib.unpacking_helpers import iter_unzip_from_bytes
 
 
 
@@ -407,9 +411,8 @@ class _BaseAbuseChDownloadingTimeOrderedRowsCollector(BaseDownloadingTimeOrdered
             }
         return state
 
-    def extract_raw_row_time(self, row):
-        fields = split_csv_row(row)
-        return fields[self.time_field_index].strip()
+    def pick_raw_row_time(self, row):
+        return extract_field_from_csv_row(row, column_index=self.time_field_index).strip()
 
     def clean_row_time(self, raw_row_time):
         return self.normalize_row_time(raw_row_time)
@@ -429,12 +432,24 @@ class AbuseChRansomwareTrackerCollector(_BaseAbuseChDownloadingTimeOrderedRowsCo
 
 class AbuseChFeodoTrackerCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollector):
 
-    raw_format_version_tag = '201908'
+    raw_format_version_tag = '202110'
 
     time_field_index = 0
 
     def get_source_channel(self, **processed_data):
         return 'feodotracker'
+
+    def split_orig_data_into_rows(self, orig_data):
+        return reversed(orig_data.split('\n'))
+
+    def should_row_be_used(self, row):
+        if not row.strip() or row.startswith('#'):
+            return False
+        try:
+            self.normalize_row_time(extract_field_from_csv_row(row, column_index=self.time_field_index))
+            return True
+        except ValueError:
+            return False
 
 
 class AbuseChSSLBlacklistCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollector):
@@ -454,17 +469,26 @@ class AbuseChUrlhausUrlsCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollecto
     raw_format_version_tag = '202001'
     type = 'stream'
 
-    config_spec_pattern = (
-        reduce_indent(BaseDownloadingTimeOrderedRowsCollector.config_spec_pattern) +
-        reduce_indent('''
+    config_spec_pattern = join_config_specs(
+        BaseDownloadingTimeOrderedRowsCollector.config_spec_pattern,
+        '''
             api_url :: str
             api_retries = 3 :: int
-        '''))
+        ''')
 
     time_field_index = 1
 
+    CSV_FILENAME = 'csv.txt'
+
     def get_source_channel(self, **processed_data):
         return 'urlhaus-urls'
+
+    # note that since Apr 2020 AbuseCh changed input format for this
+    # source - now it is .zip file with .txt inside
+    def obtain_orig_data(self):
+        data = self.download(self.config['url'])
+        [(_, all_rows)] = iter_unzip_from_bytes(data, filenames=[self.CSV_FILENAME])
+        return all_rows
 
     def prepare_selected_data(self, fresh_rows):
         abuse_info_dicts = [self._make_abuse_info_dict(row) for row in fresh_rows]
@@ -501,8 +525,17 @@ class AbuseChUrlhausPayloadsUrlsCollector(_BaseAbuseChDownloadingTimeOrderedRows
 
     time_field_index = 0
 
+    CSV_FILENAME = 'payload.txt'
+
     def get_source_channel(self, **processed_data):
         return 'urlhaus-payloads-urls'
+
+    # note that since Apr 2020 AbuseCh changed input format for this
+    # source - now it is .zip file with .txt inside
+    def obtain_orig_data(self):
+        data = self.download(self.config['url'])
+        [(_, all_rows)] = iter_unzip_from_bytes(data, filenames=[self.CSV_FILENAME])
+        return all_rows
 
     def prepare_selected_data(self, fresh_rows):
         return fresh_rows
@@ -540,13 +573,12 @@ class AbuseChUrlhausPayloadsCollector(CollectorWithStateMixin,
     @property
     def custom_converters(self):
         return {
-            'zip_filename': self._zip_filename_from_config,
-            'list_of_zip_filenames': self.make_list_converter(
-                self._zip_filename_from_config),
+            'zip_filename': self._conv_zip_filename_from_config,
+            'list_of_zip_filenames': self.make_list_converter(self._conv_zip_filename_from_config),
         }
 
     @classmethod
-    def _zip_filename_from_config(cls, zip_filename):
+    def _conv_zip_filename_from_config(cls, zip_filename):
         if cls.VALID_ZIP_FILENAME_REGEX.search(zip_filename):
             return zip_filename
         if zip_filename == '':

@@ -1,0 +1,71 @@
+html
+  head
+    title= "n6 Portal GUI configurator"
+    link(rel="stylesheet" type="text/css" href="style.css")
+    script(src='app.js')
+  body
+    h1= "n6 Portal GUI configurator"
+    div#infoMsg.hidden
+    div#errorMsg.hidden
+    div.formWrapper
+      h2= "Main configuration"
+      form(id="configForm")
+      div.infoDiv
+        p If you leave the 'Path' field empty, a default path with template locale files will be used
+          |  (click 'Save' button first, so the path will be set automatically).
+        p If a directory in the selected path does not exist, or it does not contain proper locale files, application will
+          |  try to create a proper directory structure and copy content from template files.
+    div#buttons
+      button(type="button")#sendBtn= "Save current settings"
+      button(type="button")#resetBtn= "Reset forms"
+      button(type="button")#nextBtn= "Go to next view"
+  script.
+    setFormListeners();
+    document.querySelector('#nextBtn').addEventListener('click', onNext, false);
+    // document.querySelector('body').addEventListener('click', onBgClick, false);
+
+    function fillForm(data) {
+      let formObj = document.querySelector('#configForm');
+      let nextBtn = document.querySelector('#nextBtn');
+      nextBtn.disabled = true;
+      let isConfigReady = fillConfigForm(formObj, data);
+      if (isConfigReady) {
+        nextBtn.disabled = false;
+      }
+    }
+
+    function getFormData() {
+      makeGetRequest('/getConfig');
+    }
+
+    function onSave() {
+      let payload = getPayloadFromFormData('#configForm');
+      fetch('/saveConfig', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+      .then((response) => {
+        if (response.ok) {
+          onReset();
+          response.text().then((text) => showInfoMessage(`${text}\nGo to next view if you want to edit texts.`));
+        } else {
+          response.text().then((text) => showErrorMsg(text));
+        }
+      })
+      .catch((e) => {
+        showErrorMsg('There was a connection error while attempting to save changes');
+        console.error(e);
+      });
+    }
+
+    function onReset() {
+      clearNode('#configForm');
+      getFormData();
+    }
+
+    function onNext() {
+      window.location.href = 'terms';
+    }

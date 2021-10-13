@@ -1,20 +1,20 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
-
-from mock import (
+from unittest.mock import (
     MagicMock,
     call,
     mock_open,
     patch,
     sentinel,
 )
+
 from unittest_expander import (
     foreach,
     expand,
@@ -23,8 +23,9 @@ from unittest_expander import (
 
 from n6lib.common_helpers import (
     EMAIL_OVERRESTRICTED_SIMPLE_REGEX,
+    AtomicallySavedFile,
+    PlainNamespace,
     RsyncFileContextManager,
-    SimpleNamespace,
     dump_condensed_debug_msg,
     exiting_on_exception,
     make_condensed_debug_msg,
@@ -116,7 +117,7 @@ class TestRsyncFileContextManager(unittest.TestCase):
             output=sentinel.output
         )
 
-        with self.assertRaisesRegexp(RuntimeError,
+        with self.assertRaisesRegex(RuntimeError,
                                      r'^Cannot download source file.*\bsentinel'
                                      r'\.cmd\b.*42.*\bsentinel\.output\b'):
             with self.manager:
@@ -132,7 +133,7 @@ class TestRsyncFileContextManager(unittest.TestCase):
     def test_with_exception(self, mock_opener, mock_temp_mkd, mock_shut_rmt, mock_subp_chout):
         mock_temp_mkd.return_value = self.temp_dir
 
-        with self.assertRaisesRegexp(Exception, r'\Afoo bar\Z'):
+        with self.assertRaisesRegex(Exception, r'\Afoo bar\Z'):
             with self.manager as the_file:
                 self.assertEqual(mock_temp_mkd.mock_calls, [call()])
                 self.assertEqual(
@@ -191,16 +192,16 @@ class TestRsyncFileContextManager(unittest.TestCase):
     def test_nested_reuse_manager_instance(
             self, mock_opener, mock_temp_mkd, mock_shut_rmt, mock_subp_chout):
         with self.manager:
-            with self.assertRaisesRegexp(RuntimeError, r'^Context manager.*is not reentrant'):
+            with self.assertRaisesRegex(RuntimeError, r'^Context manager.*is not reentrant'):
                 with self.manager:
                     pass
 
 
 
-class TestSimpleNamespace(unittest.TestCase):
+class TestPlainNamespace(unittest.TestCase):
 
     def setUp(self):
-        self.obj = SimpleNamespace(a=sentinel.a, bb=sentinel.bb)
+        self.obj = PlainNamespace(a=sentinel.a, bb=sentinel.bb)
         self.obj.self = sentinel.self
 
     def test_attributes(self):
@@ -214,14 +215,14 @@ class TestSimpleNamespace(unittest.TestCase):
     def test_repr(self):
         self.obj.xxxx = 'xxxx'
         self.assertEqual(repr(self.obj),
-                         "SimpleNamespace(a=sentinel.a, bb=sentinel.bb, "
+                         "PlainNamespace(a=sentinel.a, bb=sentinel.bb, "
                          "self=sentinel.self, xxxx='xxxx')")
-        self.assertEqual(repr(SimpleNamespace()), "SimpleNamespace()")
+        self.assertEqual(repr(PlainNamespace()), "PlainNamespace()")
 
     def test_eq(self):
-        obj2 = SimpleNamespace(a=sentinel.a, bb=sentinel.bb, self=sentinel.self)
-        obj3 = SimpleNamespace(a=sentinel.a, bb=sentinel.bb)
-        obj_empty = SimpleNamespace()
+        obj2 = PlainNamespace(a=sentinel.a, bb=sentinel.bb, self=sentinel.self)
+        obj3 = PlainNamespace(a=sentinel.a, bb=sentinel.bb)
+        obj_empty = PlainNamespace()
         self.assertTrue(self.obj == self.obj)
         self.assertTrue(obj2 == obj2)
         self.assertTrue(obj3 == obj3)
@@ -256,9 +257,9 @@ class TestSimpleNamespace(unittest.TestCase):
         self.assertFalse(obj3 == obj2)
 
     def test_ne(self):
-        obj2 = SimpleNamespace(a=sentinel.a, bb=sentinel.bb, self=sentinel.self)
-        obj3 = SimpleNamespace(a=sentinel.a, bb=sentinel.bb)
-        obj_empty = SimpleNamespace()
+        obj2 = PlainNamespace(a=sentinel.a, bb=sentinel.bb, self=sentinel.self)
+        obj3 = PlainNamespace(a=sentinel.a, bb=sentinel.bb)
+        obj_empty = PlainNamespace()
         self.assertFalse(self.obj != self.obj)
         self.assertFalse(obj2 != obj2)
         self.assertFalse(obj3 != obj3)
@@ -294,11 +295,11 @@ class TestSimpleNamespace(unittest.TestCase):
 
     def test_error_on_positional_constructor_args(self):
         with self.assertRaises(TypeError):
-            SimpleNamespace('a')
+            PlainNamespace('a')
         with self.assertRaises(TypeError):
-            SimpleNamespace('a', 'bb')
+            PlainNamespace('a', 'bb')
         with self.assertRaises(TypeError):
-            SimpleNamespace('xyz', a=sentinel.a, bb=sentinel.bb)
+            PlainNamespace('xyz', a=sentinel.a, bb=sentinel.bb)
 
 
 
@@ -386,7 +387,7 @@ class Test__exiting_on_exception(unittest.TestCase):
                 m(*args, **kwargs)
                 raise raised_exc
 
-        with self.assertRaisesRegexp(expected_exc_class, expected_regex) as cm:
+        with self.assertRaisesRegex(expected_exc_class, expected_regex) as cm:
             some_callable(42, b='spam')
 
         self.assertEqual(m.mock_calls, [call(42, b='spam')])
@@ -510,80 +511,108 @@ class Test__replace_segment(unittest.TestCase):
     def test_with_non_negative_indexes(self):
         self.assertEqual(replace_segment('foo.bar..spam', 0, 'REPLACED'),
                          'REPLACED.bar..spam')
-        self.assertEqual(replace_segment('foo.bar..spam', 1, 'REPLACED'),
+        self.assertEqual(replace_segment('foo.bar..spam', 1, b'REPLACED'),
                          'foo.REPLACED..spam')
-        self.assertEqual(replace_segment('foo.bar..spam', 2, 'REPLACED'),
-                         'foo.bar.REPLACED.spam')
-        self.assertEqual(replace_segment('foo.bar..spam', 3, 'REPLACED'),
-                         'foo.bar..REPLACED')
+        self.assertEqual(replace_segment(b'foo.bar..spam', 2, 'REPLACED'),
+                         b'foo.bar.REPLACED.spam')
+        self.assertEqual(replace_segment(b'foo.bar..spam', 3, b'REPLACED'),
+                         b'foo.bar..REPLACED')
         with self.assertRaises(IndexError):
             replace_segment('foo.bar..spam', 4, 'REPLACED')
 
     def test_with_negative_indexes(self):
         self.assertEqual(replace_segment('foo.bar..spam', -1, 'REPLACED'),
                          'foo.bar..REPLACED')
-        self.assertEqual(replace_segment('foo.bar..spam', -2, 'REPLACED'),
+        self.assertEqual(replace_segment('foo.bar..spam', -2, b'REPLACED'),
                          'foo.bar.REPLACED.spam')
-        self.assertEqual(replace_segment('foo.bar..spam', -3, 'REPLACED'),
-                         'foo.REPLACED..spam')
-        self.assertEqual(replace_segment('foo.bar..spam', -4, 'REPLACED'),
-                         'REPLACED.bar..spam')
+        self.assertEqual(replace_segment(b'foo.bar..spam', -3, 'REPLACED'),
+                         b'foo.REPLACED..spam')
+        self.assertEqual(replace_segment(b'foo.bar..spam', -4, b'REPLACED'),
+                         b'REPLACED.bar..spam')
         with self.assertRaises(IndexError):
             replace_segment('foo.bar..spam', -5, 'REPLACED')
 
     def test_single_with_non_negative_indexes(self):
         self.assertEqual(replace_segment('foo', 0, 'REPLACED'), 'REPLACED')
-        self.assertEqual(replace_segment('', 0, 'REPLACED'), 'REPLACED')
+        self.assertEqual(replace_segment(b'', 0, b'REPLACED'), b'REPLACED')
         with self.assertRaises(IndexError):
-            replace_segment('foo', 1, 'REPLACED')
+            replace_segment(b'foo', 1, b'REPLACED')
         with self.assertRaises(IndexError):
             replace_segment('', 1, 'REPLACED')
 
     def test_single_with_negative_indexes(self):
-        self.assertEqual(replace_segment('foo', -1, 'REPLACED'), 'REPLACED')
+        self.assertEqual(replace_segment(b'foo', -1, 'REPLACED'), b'REPLACED')
         self.assertEqual(replace_segment('', -1, 'REPLACED'), 'REPLACED')
         with self.assertRaises(IndexError):
             replace_segment('foo', -2, 'REPLACED')
         with self.assertRaises(IndexError):
-            replace_segment('', -2, 'REPLACED')
+            replace_segment(b'', -2, 'REPLACED')
 
     def test_custom_separator_with_non_negative_indexes(self):
         self.assertEqual(replace_segment('foo.bar..spam', 0,
                                          'REPLACED', sep='..'),
                          'REPLACED..spam')
-        self.assertEqual(replace_segment('foo.bar..spam', 1,
-                                         'REPLACED', sep='..'),
-                         'foo.bar..REPLACED')
+        self.assertEqual(replace_segment(b'foo.bar..spam', 1,
+                                         b'REPLACED', sep=b'..'),
+                         b'foo.bar..REPLACED')
         with self.assertRaises(IndexError):
             replace_segment('foo.bar..spam', 2, 'REPLACED', sep='..')
 
     def test_custom_separator_with_negative_indexes(self):
-        self.assertEqual(replace_segment('foo.bar..spam', -1,
-                                         'REPLACED', sep='..'),
-                         'foo.bar..REPLACED')
+        self.assertEqual(replace_segment(b'foo.bar..spam', -1,
+                                         b'REPLACED', sep='..'),
+                         b'foo.bar..REPLACED')
         self.assertEqual(replace_segment('foo.bar..spam', -2,
                                          'REPLACED', sep='..'),
                          'REPLACED..spam')
         with self.assertRaises(IndexError):
-            replace_segment('foo.bar..spam', -3, 'REPLACED', sep='..')
+            replace_segment(b'foo.bar..spam', -3, b'REPLACED', sep=b'..')
 
 
 
 class Test__read_file(unittest.TestCase):
 
+# TODO: divide into three separate tests:
+#    def test_text_implicit_encoding_utf8(self):
+#    def test_text_custom_encoding(self):
+#    def test_binary(self):
     def test(self):
         expected_data = 'foo bar\nspam'
         open_mock = mock_open(read_data=expected_data)
-        with patch('__builtin__.open', open_mock):
-            actual_data = read_file('/some/file.txt', 'r+', 1)
+        with patch('builtins.open', open_mock):
+            actual_data = read_file('/some/file.txt', 'r+', some_kw_arg=1)
         self.assertEqual(actual_data, expected_data)
         self.assertEqual(open_mock.mock_calls, [
-            call('/some/file.txt', 'r+', 1),
+            call('/some/file.txt', 'r+', some_kw_arg=1, encoding='utf-8'),
             call().__enter__(),
             call().read(),
             call().__exit__(None, None, None),
         ])
 
+        expected_data = 'foo bar\nspam'
+        encoding = 'Foo Bar'
+        open_mock = mock_open(read_data=expected_data)
+        with patch('builtins.open', open_mock):
+            actual_data = read_file('/some/file.txt', 'r+', some_kw_arg=1, encoding=encoding)
+        self.assertEqual(actual_data, expected_data)
+        self.assertEqual(open_mock.mock_calls, [
+            call('/some/file.txt', 'r+', some_kw_arg=1, encoding=encoding),
+            call().__enter__(),
+            call().read(),
+            call().__exit__(None, None, None),
+        ])
+
+        expected_data = b'foo bar\nspam'
+        open_mock = mock_open(read_data=expected_data)
+        with patch('builtins.open', open_mock):
+            actual_data = read_file('/some/file.txt', 'r+b', some_kw_arg=1)
+        self.assertEqual(actual_data, expected_data)
+        self.assertEqual(open_mock.mock_calls, [
+            call('/some/file.txt', 'r+b', some_kw_arg=1),  # Note: no `encoding='utf-8'`
+            call().__enter__(),
+            call().read(),
+            call().__exit__(None, None, None),
+        ])
 
 
 class TestMakeDebugMsg(unittest.TestCase):
@@ -606,39 +635,39 @@ class TestMakeDebugMsg(unittest.TestCase):
 
         # Full debug message
         full_debug_msg = re.compile(r"^\[.+@.+\] ValueError:.+ValueError msg.+raise ValueError"
-                                    r"\('ValueError msg'\).+test_common_helpers.+`$")
+                                    r"\('ValueError msg'\).+test_common_helpers.+[`\]]$")
         test_full_debug_msg = make_condensed_debug_msg((ValueError,
                                                         'ValueError msg',
                                                         self.sample_traceback))
         # self.assertTrue(full_debug_msg.findall(test_full_debug_msg))
-        self.assertRegexpMatches(text=test_full_debug_msg,
-                                 expected_regexp=full_debug_msg)
+        self.assertRegex(text=test_full_debug_msg,
+                         expected_regex=full_debug_msg)
 
         # No traceback provided
         no_traceback_msg = re.compile(r"^\[.+@.+\] ValueError:.+ValueError msg.+"
-                                      r"\<no traceback\>.+test_common_helpers.+`$")
+                                      r"\<no traceback\>.+test_common_helpers.+[`\]]$")
         test_no_traceback_msg = make_condensed_debug_msg((ValueError,
                                                           'ValueError msg',
                                                           None))
-        self.assertRegexpMatches(text=test_no_traceback_msg,
-                                 expected_regexp=no_traceback_msg)
+        self.assertRegex(text=test_no_traceback_msg,
+                         expected_regex=no_traceback_msg)
 
         # 3x none in the tuple
         nones_tuple_msg = re.compile(r"^\[.+@.+\] \<no exc\>:.+\<no msg\>.+"
-                                     r"\<no traceback\>.+test_common_helpers.+`$")
+                                     r"\<no traceback\>.+test_common_helpers.+[`\]]$")
         test_nones_tuple_msg = make_condensed_debug_msg((None,
                                                          None,
                                                          None))
-        self.assertRegexpMatches(text=test_nones_tuple_msg,
-                                 expected_regexp=nones_tuple_msg)
+        self.assertRegex(text=test_nones_tuple_msg,
+                         expected_regex=nones_tuple_msg)
 
         # exc_info param not provided, executed without exception handling
-        sys.exc_clear()
         normal_msg = re.compile(r"^\[.+@.+\] \<no exc\>:.+\<no msg\>.+"
-                                r"\<no traceback\>.+test_common_helpers.+`$")
+                                r"\<no traceback\>.+test_common_helpers.+[`\]]$")
+        assert sys.exc_info() == (None, None, None)
         test_normal_msg = make_condensed_debug_msg()
-        self.assertRegexpMatches(text=test_normal_msg,
-                                 expected_regexp=normal_msg)
+        self.assertRegex(text=test_normal_msg,
+                         expected_regex=normal_msg)
 
         # exc_info param not provided, executed in a except block
         try:
@@ -646,7 +675,7 @@ class TestMakeDebugMsg(unittest.TestCase):
         except ValueError:
             except_debug_msg = re.compile(r"^\[.+@.+\] ValueError:.+ValueError msg.+raise "
                                           r"ValueError\('ValueError msg'\).+"
-                                          r"test_common_helpers.+`$")
+                                          r"test_common_helpers.+[`\]]$")
             test_except_debug_msg = make_condensed_debug_msg()
             self.assertTrue(except_debug_msg.findall(test_except_debug_msg))
 
@@ -680,8 +709,8 @@ class TestMakeDebugMsg(unittest.TestCase):
             temp_debug_msg = make_condensed_debug_msg(exc_no_msg)
 
             exc_str_regexp = re.compile(r': \<no msg\> \<\<\= ')
-            self.assertRegexpMatches(text=temp_debug_msg,
-                                     expected_regexp=exc_str_regexp)
+            self.assertRegex(text=temp_debug_msg,
+                             expected_regex=exc_str_regexp)
 
             # Test exc_str with message
             temp_debug_msg = make_condensed_debug_msg(exc_info,
@@ -696,8 +725,8 @@ class TestMakeDebugMsg(unittest.TestCase):
             temp_debug_msg = make_condensed_debug_msg(exc_no_tb,
                                                       tb_str_limit=test_limit)
             tb_regexp = re.compile(r'\<\<\= \<no traceback\> \<\-\(\*\)\-')
-            self.assertRegexpMatches(text=temp_debug_msg,
-                                     expected_regexp=tb_regexp)
+            self.assertRegex(text=temp_debug_msg,
+                             expected_regex=tb_regexp)
 
             # Test tb_str with traceback
             temp_debug_msg = make_condensed_debug_msg(exc_info,
@@ -773,9 +802,7 @@ class TestDumpDebugMsg(unittest.TestCase):
             `mock_stderr`
                 Mocked stderr from a decorator.
         """
-        # Make sure there is no exc_info from previous
-        # exception handling
-        sys.exc_clear()
+        assert sys.exc_info() == (None, None, None)
 
         # Dump debug msg to stdout
         stdout_msg = '<dump_condensed_debug_msg header stdout>'
@@ -801,21 +828,21 @@ class TestDumpDebugMsg(unittest.TestCase):
             # Dump exception debug msg to stdout
             exc_stdout_msg = re.compile(r"\\nstdout\\n\\nCONDENSED DEBUG INFO: \[.+\] \[.+@.+\] "
                                         r"ValueError:.+ValueError msg.+raise ValueError"
-                                        r"\('ValueError msg'\).+test_common_helpers.+`")
+                                        r"\(\\?'ValueError msg\\?'\).+test_common_helpers.+`")
             dump_condensed_debug_msg(header='stdout', stream=sys.stdout)
             stdout_call = str(list(mock_stdout.mock_calls)[0])
-            self.assertRegexpMatches(text=stdout_call,
-                                     expected_regexp=exc_stdout_msg)
+            self.assertRegex(text=stdout_call,
+                             expected_regex=exc_stdout_msg)
             self.assertEqual(mock_stdout.mock_calls[-1], call.flush())
 
             # Dump exception debug msg to stderr
             exc_stderr_msg = re.compile(r"\\nstderr\\n\\nCONDENSED DEBUG INFO: \[.+\] \[.+@.+\] "
                                         r"ValueError:.+ValueError msg.+raise ValueError"
-                                        r"\('ValueError msg'\).+test_common_helpers.+`")
+                                        r"\(\\?'ValueError msg\\?'\).+test_common_helpers.+`")
             dump_condensed_debug_msg(header='stderr', stream=sys.stderr)
             stderr_call = str(list(mock_stderr.mock_calls)[0])
-            self.assertRegexpMatches(text=stderr_call,
-                                     expected_regexp=exc_stderr_msg)
+            self.assertRegex(text=stderr_call,
+                             expected_regex=exc_stderr_msg)
             self.assertEqual(mock_stderr.mock_calls[-1], call.flush())
 
             # Same but specifying argument `debug_msg`
@@ -824,9 +851,57 @@ class TestDumpDebugMsg(unittest.TestCase):
                                         r"my_debug_msg\\n\W*\Z")
             dump_condensed_debug_msg(header='stderr', stream=sys.stderr, debug_msg='my_debug_msg')
             stderr_call = str(list(mock_stderr.mock_calls)[0])
-            self.assertRegexpMatches(text=stderr_call,
-                                     expected_regexp=exc_stderr_msg)
+            self.assertRegex(text=stderr_call,
+                             expected_regex=exc_stderr_msg)
             self.assertEqual(mock_stderr.mock_calls[-1], call.flush())
+
+
+
+class TestAtomicallySavedFile(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp()
+        self.tmp_file_path = os.path.join(self.tmp_dir, 'test_file.txt')
+
+        with open(self.tmp_file_path, 'w') as file:
+            file.write('original content')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp_dir)
+
+    # TODO: Add cases with custom encoding and with binary mode.
+    def test_success(self):
+        with AtomicallySavedFile(self.tmp_file_path, 'w') as file:
+            file.write('changed content')
+
+        actual_content = read_file(self.tmp_file_path)
+        expected_content = 'changed content'
+        self.assertEqual(expected_content, actual_content)
+
+    def test_exception_before_writing_to_the_file(self):
+        invalid_path = 'foo/bar/baz.txt'
+        try:
+            with AtomicallySavedFile(invalid_path, 'w') as file:
+                pass
+        except OSError:
+            pass
+
+        actual_content = read_file(self.tmp_file_path)
+        expected_content = 'original content'
+        self.assertEqual(expected_content, actual_content)
+
+    def test_exception_while_writing_to_the_file(self):
+        try:
+            with AtomicallySavedFile(self.tmp_file_path, 'w') as file:
+                file.write('changed content')
+                raise Exception('Exception occurred while writing to the file')
+        except Exception:
+            pass
+
+        actual_content = read_file(self.tmp_file_path)
+        expected_content = 'original content'
+        self.assertEqual(expected_content, actual_content)
+
 
 
 # maybe TODO later: tests of the other classes and functions in

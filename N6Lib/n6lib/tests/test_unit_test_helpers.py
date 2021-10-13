@@ -1,10 +1,9 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import sys
 import types
 import unittest
-
-from mock import call, patch
+from unittest.mock import call, patch
 
 from n6lib.unit_test_helpers import run_module_doctests
 

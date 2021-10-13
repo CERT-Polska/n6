@@ -1,6 +1,10 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
+# + Some portions of the code in of this module (namely, those methods
+#   of the `LdapAPI` class which have a "Copied from: ..." comments in
+#   their docstrings) were copied from the *python-ldap* library
+#   (distributed under Python-style open source license).
+#   Copyright (c) 2008-2017, *python-ldap* Project Team.
+#   All rights reserved.
 
 # NOTE: this module is a drop-in replacement for the legacy
 # n6lib.ldap_api stuff (at least for the needs of AuthAPI). The plan
@@ -8,27 +12,26 @@
 # revamping AuthAPI so that it will no longer depend on LDAP-like
 # formed data).
 
-import collections
 import copy
 import datetime
-import functools
 import re
 import threading
 
-import ldap
-import ldap.dn
 from pyramid.decorator import reify
+from sqlalchemy import text as sqla_text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.exc import NoResultFound
 
 from n6lib.auth_db import models
 from n6lib.class_helpers import (
-    instance,
     get_class_name,
+    is_seq,
 )
 from n6lib.common_helpers import (
     EMAIL_OVERRESTRICTED_SIMPLE_REGEX,
     ascii_str,
+    as_unicode,
+    splitlines_asc,
 )
 from n6lib.datetime_helpers import datetime_utc_normalize
 from n6lib.log_helpers import get_logger
@@ -37,6 +40,7 @@ from n6lib.auth_db.config import SQLAuthDBConfigMixin
 
 __all__ = [
     'LdapAPIConnectionError',
+    'LdapAPIReplacementWrongOrgUserAPIKeyIdError',
     'LdapAPI',
     'get_node',
     'get_value_list',
@@ -69,11 +73,15 @@ _N6ORG_ID_OFFICIAL_ATTR_REGEX = re.compile(
             [0-9\-]+
         )
         \Z
-    ''', re.VERBOSE | re.IGNORECASE)
+    ''', re.ASCII | re.IGNORECASE | re.VERBOSE)
 
 
 class LdapAPIConnectionError(RuntimeError):
     """Raised on auth db connection failure."""
+
+
+class LdapAPIReplacementWrongOrgUserAPIKeyIdError(RuntimeError):
+    """Raised when the given credentials are not valid."""
 
 
 class LdapAPI(SQLAuthDBConfigMixin):
@@ -84,13 +92,16 @@ class LdapAPI(SQLAuthDBConfigMixin):
     def __init__(self, settings=None):
         self._rlock = threading.RLock()
         super(LdapAPI, self).__init__(settings)
+        # Can be set by client code to an arbitrary argumentless callable
+        # (to be called relatively often during long-lasting operations):
+        self.tick_callback = lambda: None
 
     def __enter__(self):
         self._rlock.acquire()
         try:
             if getattr(self, '_db_session', None) is not None:
                 raise RuntimeError('{0} context manager cannot be nested'.format(
-                        self.__class__.__name__))
+                        self.__class__.__qualname__))
             self._db_session = self._db_session_maker()
             return self
         except:
@@ -112,17 +123,18 @@ class LdapAPI(SQLAuthDBConfigMixin):
         finally:
             self._rlock.release()
 
-    def authenticate_with_password(self, org_id, user_id, password):
+    def authenticate_with_api_key_id(self, org_id, user_id, api_key_id):
         with self:
             try:
                 user = self._db_session.query(User).filter(
+                        User.is_blocked.is_(sqla_text('FALSE')),
                         User.login == user_id,
-                        User.org_id == org_id).one()
+                        User.org_id == org_id,
+                        User.api_key_id == api_key_id).one()
             except NoResultFound:
                 user = None
-            if user is None or not user.verify_password(password):
-                # noinspection PyUnresolvedReferences
-                raise ldap.INVALID_CREDENTIALS
+            if user is None:
+                raise LdapAPIReplacementWrongOrgUserAPIKeyIdError(org_id, user_id, api_key_id)
 
     def search_structured(self):
         """
@@ -140,11 +152,11 @@ class LdapAPI(SQLAuthDBConfigMixin):
                           'objectClass': ['top', 'organizationalUnit'],
                           'ou': ['sources']},
                       'cn': {                       #      * node container
-                          u'some.src': {            #        * node (represents LDAP entry)
+                          'some.src': {             #        * node (represents LDAP entry)
                               'attrs': {            #          * dict of LDAP entry's attributes
-                                  'cn': [u'some_src'],
+                                  'cn': ['some_src'],
                                   'objectClass': ['top', 'n6Source'],
-                                  'n6anonymized': [u'hidden.42']}}}},
+                                  'n6anonymized': ['hidden.42']}}}},
                   'system-groups': {                #    * node (represents LDAP entry)
                       'attrs': {},                  #      * dict of LDAP entry's attributes
                       'cn': {                       #      * node container
@@ -157,24 +169,11 @@ class LdapAPI(SQLAuthDBConfigMixin):
                                       'n6login=x@cert.pl,o=cert.pl,ou=orgs,dc=n6,dc=cert,dc=pl'],
                                   'objectClass': ['top', 'n6SystemGroup']}}}}},
                ...}
-
-            Warning: whether the strings in the result are of type
-            *str* or *unicode* --
-
-            * for the 'attrs' key in *node dicts*: always str is used;
-
-            * for values of LDAP attributes covered by normalization
-              provided by the _LdapAttrNormalizer class: it is defined
-              per-attribute by that class (see the _LdapAttrNormalizer
-              code);
-
-            * for other strings (including values of LDAP attributes
-              that are not covered by normalization provided by the
-              _LdapAttrNormalizer class): it should be considered just
-              undefined (i.e., such a string may be a str or a unicode).
         """
         search_results = self._search_flat()
-        return self._structuralize_search_results(search_results)
+        return self._structuralize_search_results(
+            search_results,
+            tick_callback=self.tick_callback)
 
     #
     # Extended methods from the superclass
@@ -196,13 +195,13 @@ class LdapAPI(SQLAuthDBConfigMixin):
                 (<DN>, {<attr name>: <attr value list>, ...})
             -- for example:
               [('o=org1,ou=orgs,dc=n6,dc=cert,dc=pl', {
-                  'n6cc': [u'PL', u'RU'],
+                  'n6cc': ['PL', 'RU'],
                   'cn': ['org1'],
                   'n6rest-api-full-access': ['TRUE'],
                   'objectClass': ['n6Org', 'top', 'n6Criterion'],
-                  'name': [u'Organizacja 1'],
-                  'n6asn': [u'123', u'1456777'],
-                  'n6ip-network': [u'192.168.56.22/28', u'192.168.57.1/27'],
+                  'name': ['Organizacja 1'],
+                  'n6asn': ['123', '1456777'],
+                  'n6ip-network': ['192.168.56.22/28', '192.168.57.1/27'],
                   'n6org-group-refint': [
                       'cn=orgs-group1,ou=org-groups,dc=n6,dc=cert,dc=pl',
                       'cn=orgs-group2,ou=org-groups,dc=n6,dc=cert,dc=pl']}),
@@ -217,7 +216,10 @@ class LdapAPI(SQLAuthDBConfigMixin):
         search_results = list(self._generate_search_results())
         to_be_skipped_dn_seq = []
         self._normalize_search_results(search_results, to_be_skipped_dn_seq)
-        return list(self._generate_cleaned_search_results(search_results, to_be_skipped_dn_seq))
+        return list(self._generate_cleaned_search_results(
+            search_results,
+            to_be_skipped_dn_seq,
+            tick_callback=self.tick_callback))
 
 
     def _generate_search_results(self):
@@ -231,6 +233,11 @@ class LdapAPI(SQLAuthDBConfigMixin):
             self._generate_ou_system_groups,
         ]:
             for dn, coerced_attrs in generator():
+                self.tick_callback()
+                assert all(isinstance(value, str)
+                           for value_list in coerced_attrs.values()
+                               for value in value_list), \
+                    f'bug in {generator=!a} ({coerced_attrs=!a})'
                 yield dn, coerced_attrs
 
     def _generate_ou_orgs(self):
@@ -268,6 +275,7 @@ class LdapAPI(SQLAuthDBConfigMixin):
             for user in org.users:
                 yield self._make_dn_and_coerced_attrs('n6login', org_dn, **{
                     'n6login': user.login,
+                    'n6blocked': bool(user.is_blocked),
                     #'password': <for now, it is not needed here>,
                 })
             for access_zone in ['inside', 'search', 'threats']:
@@ -416,7 +424,7 @@ class LdapAPI(SQLAuthDBConfigMixin):
         return dn, coerced_attrs
 
     def _generate_coerced_search_res_attrs(self, attrs):
-        for key, value in attrs.iteritems():
+        for key, value in attrs.items():
             attr_values = list(self._generate_coerced_search_res_attr_values(value))
             if attr_values:
                 yield key, attr_values
@@ -429,28 +437,25 @@ class LdapAPI(SQLAuthDBConfigMixin):
             yield self._coerce_search_res_attr_value(value_or_seq)
 
     def _coerce_search_res_attr_value(self, value):
-        if isinstance(value, unicode):
+        if isinstance(value, str):
             return value
-        elif isinstance(value, str):
+        elif isinstance(value, bytes):
+            #assert False, 'should not happen'    # XXX: remove this execution branch
             return value.decode('utf-8')
         elif isinstance(value, bool):
             return ('TRUE' if value else 'FALSE')
-        elif isinstance(value, (int, long)):
-            return unicode(value)
+        elif isinstance(value, int):
+            return str(value)
         elif isinstance(value, datetime.datetime):
             return format_ldap_dt(value)
         elif isinstance(value, datetime.time):
             return value.strftime('%H:%M')
         else:
-            raise NotImplementedError('cannot coerce {!r} to a string '
+            raise NotImplementedError('cannot coerce {!a} to a `str` '
                                       '(unsupported class: {})'.format(value,
                                                                        get_class_name(value)))
 
-    def _make_dn(self, rdn_type, *unescaped_rdn_values, **kwargs):
-        parent = kwargs.pop('parent', None)
-        if kwargs:
-            raise TypeError('unexpected keyword arguments: {}'
-                            .format(', '.join(map(repr, sorted(kwargs)))))
+    def _make_dn(self, rdn_type, *unescaped_rdn_values, parent=None):
         parent_dn = (LDAP_TREE_ROOT_DN if parent is None
                      else (parent if parent.endswith(LDAP_TREE_ROOT_DN)
                            else '{},{}'.format(parent, LDAP_TREE_ROOT_DN)))
@@ -458,34 +463,156 @@ class LdapAPI(SQLAuthDBConfigMixin):
         return '{},{}'.format(rdn, parent_dn)
 
     def _make_rdn(self, rdn_type, *unescaped_rdn_values):
-        return ldap.dn.dn2str([
+        return self._ava_dn_to_str([
             [(rdn_type, unescaped_val, '')
              for unescaped_val in unescaped_rdn_values]
         ])
 
-    # rest methods are just copied from n6lib.ldap_api.LdapAPI
+    @classmethod
+    def _ava_dn_to_str(cls, ava_dn):
+        r"""
+        Copied from `dn2str()` in:
+        https://github.com/python-ldap/python-ldap/blob/python-ldap-2.5.2/Lib/ldap/dn.py
+        (and slightly adjusted).
+
+        This function takes a decomposed DN as parameter and returns
+        a single `str`. It will always return a DN in LDAPv3 format
+        compliant to RFC 4514.
+
+        >>> ava_dn = [
+        ...     [('n6login', ' @foo + bar', 1)],
+        ...     [('cn', '#spam = ham,albo;i,nie ', 1)],
+        ...     [('dc', 'n6', 1)],
+        ...     [('dc', 'cert', 1)],
+        ...     [('dc', 'pl', 1)],
+        ... ]
+        >>> LdapAPI._ava_dn_to_str(ava_dn)
+        'n6login=\\ @foo \\+ bar,cn=\\#spam \\= ham\\,albo\\;i\\,nie\\ ,dc=n6,dc=cert,dc=pl'
+        """
+        return ','.join([
+            '+'.join([
+                '='.join((rdn_type, cls._escape_dn_chars(rdn_val or '')))
+                for rdn_type, rdn_val, _ in rdn])
+            for rdn in ava_dn
+        ])
+
+    @classmethod
+    def _str_to_ava_dn(cls, str_dn,
+                       _not_escaped_plus_regex=re.compile(r'(?<!\\)(?:\\\\)*[+]'),
+                       _not_escaped_comma_regex=re.compile(r'(?<!\\)(?:\\\\)*[,]'),
+                       _not_escaped_equal_regex=re.compile(r'(?<!\\)(?:\\\\)*[=]')):
+        r"""
+        >>> str_dn = (
+        ...     'n6login=\\ @foo \\+ bar'
+        ...     ',cn=\\#spam \\= ham\\,albo\\;i\\,nie\\ '
+        ...     ',dc=n6,dc=cert,dc=pl')
+        >>> LdapAPI._str_to_ava_dn(str_dn) == [
+        ...     [('n6login', ' @foo + bar', 1)],
+        ...     [('cn', '#spam = ham,albo;i,nie ', 1)],
+        ...     [('dc', 'n6', 1)],
+        ...     [('dc', 'cert', 1)],
+        ...     [('dc', 'pl', 1)],
+        ... ]
+        True
+        """
+        if _not_escaped_plus_regex.search(str_dn):
+            raise NotImplementedError(
+                'we do not support multiple-value RDNs (just '
+                'for simplicity, we should not need them)')
+
+        rdn_seq = []
+        prev_end = 0
+        for comma_match in _not_escaped_comma_regex.finditer(str_dn):
+            rdn_seq.append(str_dn[prev_end : comma_match.end()-1])
+            prev_end = comma_match.end()
+        rdn_seq.append(str_dn[prev_end:])
+
+        ava_dn = []
+        for rdn in rdn_seq:
+            eq_match = _not_escaped_equal_regex.search(rdn)
+            if not eq_match:
+                raise ValueError(
+                    'invalid RDN: {!a} (whole DN: '
+                    '{!a})'.format(rdn, str_dn))
+            rdn_type = rdn[0 : eq_match.end()-1]
+            esc_rdn_val = rdn[eq_match.end():]
+            if _not_escaped_equal_regex.search(esc_rdn_val):
+                raise ValueError(
+                    'RDN value containing unescaped "=": {!a} '
+                    '(whole DN: {!a})'.format(rdn, str_dn))
+            rdn_val = cls._unescape_dn_chars(esc_rdn_val)
+            ava_dn.append([(rdn_type, rdn_val, 1)])
+        return ava_dn
+
+    @staticmethod
+    def _escape_dn_chars(val):
+        r"""
+        Copied from `escape_dn_chars()` in:
+        https://github.com/python-ldap/python-ldap/blob/python-ldap-2.5.2/Lib/ldap/dn.py
+        (and slightly adjusted).
+
+        Escape all DN special characters found in `val`
+        with a bac-slash (see RFC 4514, section 2.4).
+
+        >>> LdapAPI._escape_dn_chars('# Ala # "ma" , kota+<psa>; n=42 \\x00 \x00. ')
+        '\\# Ala # \\"ma\\" \\, kota\\+\\<psa\\>\\; n\\=42 \\\\x00 \\\x00.\\ '
+        """
+        if val:
+            val = val.replace('\\', '\\\\')
+            val = val.replace(',', '\\,')
+            val = val.replace('+', '\\+')
+            val = val.replace('"', '\\"')
+            val = val.replace('<', '\\<')
+            val = val.replace('>', '\\>')
+            val = val.replace(';', '\\;')
+            val = val.replace('=', '\\=')
+            val = val.replace('\000', '\\\000')
+            if val[0] == '#' or val[0] == ' ':
+                val = '\\' + val
+            if val[-1] == ' ':
+                val = val[:-1] + '\\ '
+        return val
+
+    @staticmethod
+    def _unescape_dn_chars(val):
+        r"""
+        >>> val = '\\# Ala # \\"ma\\" \\, kota\\+\\<psa\\>\\; n\\=42 \\\\x00 \\\x00.\\ '
+        >>> LdapAPI._unescape_dn_chars(val)
+        '# Ala # "ma" , kota+<psa>; n=42 \\x00 \x00. '
+        """
+        return re.sub(r'\\(.)', r'\1', val)
+
+
+    # The following methods were copied from the original `LdapAPI`
+    # class (then, here and there, slightly adjusted...).
 
     def _normalize_search_results(self, search_results, to_be_skipped_dn_seq):
         # note: `search_results` and `to_be_skipped_dn_seq` are modified in-place
         for dn, attrs in search_results:
+            self.tick_callback()
             try:
                 self._normalize_attrs(dn, attrs)
                 self._check_dn_rdn_consistency(dn, attrs)
             except _RDNError as exc:
                 to_be_skipped_dn_seq.append(dn)
-                LOGGER.error('The entry %r and all its subentries '
+                LOGGER.error('The entry %a and all its subentries '
                              'will be skipped! (%s)', dn, exc)
 
     @staticmethod
     def _normalize_attrs(dn, attrs):
-        for attr_name, value_list in list(attrs.iteritems()):
+        for attr_name, value_list in list(attrs.items()):
             if attr_name != ascii_str(attr_name):
                 raise ValueError(
-                    'LDAP attribute name {!r} is not '
+                    'LDAP attribute name {!a} is not '
                     'ASCII-only!'.format(attr_name))
-            assert all(isinstance(s, basestring) for s in value_list)
-            ready_value_list = _LdapAttrNormalizer.get_ready_value_list(dn, attr_name, value_list)
-            assert all(isinstance(s, basestring) for s in ready_value_list)
+            # TODO: get rid of binary-to-str coercions from the implementation
+            #       and tests of this module; NOTE that those coercions are not
+            #       needed anymore, because the SQL-related part of this class
+            #       already guarantees that only `str` values are contained
+            #       in the results generated by `_generate_search_results().`
+            #assert all(isinstance(s, str) for s in value_list)        # TODO: uncomment when got rid of the aforementioned coercions...
+            ready_value_list = ldap_attr_normalizer.get_ready_value_list(dn, attr_name, value_list)
+            #assert all(isinstance(s, str) for s in ready_value_list)  # TODO: uncomment when got rid of the aforementioned coercions...
             if ready_value_list:
                 attrs[attr_name] = ready_value_list
             else:
@@ -504,31 +631,31 @@ class LdapAPI(SQLAuthDBConfigMixin):
         ...     'foo': ['barr'], 'irrelevant': ['stuff']})      # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        _RDNError: ... RDN part is inconsistent with ...
+        n6lib.ldap_api_replacement._RDNError: ... RDN part is inconsistent with ...
 
         >>> cls._check_dn_rdn_consistency('foo=bar,dc=n6,dc=cert,dc=pl', {
         ...     'fooo': ['bar'], 'irrelevant': ['stuff']})      # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        _RDNError: ... expected exactly one value ...
+        n6lib.ldap_api_replacement._RDNError: ... expected exactly one value ...
 
         >>> cls._check_dn_rdn_consistency('foo=bar,dc=n6,dc=cert,dc=pl', {
         ...     'foo': ['bar', 'x'], 'irrelevant': ['stuff']})  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        _RDNError: ... expected exactly one value ...
+        n6lib.ldap_api_replacement._RDNError: ... expected exactly one value ...
 
         >>> cls._check_dn_rdn_consistency('foo=bar,dc=n6,dc=cert,dc=pl', {
         ...     'foo': [], 'irrelevant': ['stuff']})            # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        _RDNError: ... expected exactly one value ...
+        n6lib.ldap_api_replacement._RDNError: ... expected exactly one value ...
 
         >>> cls._check_dn_rdn_consistency('foo=bar,dc=n6,dc=cert,dc=pl', {
         ...     'irrelevant': ['stuff']})                       # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        _RDNError: ... expected exactly one value ...
+        n6lib.ldap_api_replacement._RDNError: ... expected exactly one value ...
         """
         node_key = cls._dn_to_node_key(dn)
         if not node_key:
@@ -538,25 +665,27 @@ class LdapAPI(SQLAuthDBConfigMixin):
         try:
             [normalized_rdn_attr_value] = normalized_attrs[rdn_attr_name_from_dn]
         except (KeyError, ValueError):
-            repr_of_values = (', '.join(map(repr, normalized_attrs.get(rdn_attr_name_from_dn, ())))
-                              ) or 'no values'
+            repr_of_values = (
+                ', '.join(map(ascii, normalized_attrs.get(rdn_attr_name_from_dn, ())))
+                ) or 'no values'
             raise _RDNError(
-                'problem with the LDAP entry whose DN is {!r}: '
+                'problem with the LDAP entry whose DN is {!a}: '
                 'expected exactly one value of the RDN '
-                'attribute {!r} (got: {})'.format(
+                'attribute {!a} (got: {})'.format(
                     dn,
                     rdn_attr_name_from_dn,
                     repr_of_values))
         if rdn_attr_value_from_dn != normalized_rdn_attr_value:
             raise _RDNError(
-                'problem with the LDAP entry whose DN is {!r}: '
+                'problem with the LDAP entry whose DN is {!a}: '
                 'its RDN part is inconsistent with the normalized '
-                'RDN attribute value {!r}'.format(
+                'RDN attribute value {!a}'.format(
                     dn,
                     normalized_rdn_attr_value))
 
     @classmethod
-    def _generate_cleaned_search_results(cls, search_results, to_be_skipped_dn_seq):
+    def _generate_cleaned_search_results(cls, search_results, to_be_skipped_dn_seq,
+                                         tick_callback=None):
         """
         >>> search_results = [
         ... ('ou=orgs,dc=n6,dc=cert,dc=pl', {'ou': ['orgs']}),
@@ -577,16 +706,19 @@ class LdapAPI(SQLAuthDBConfigMixin):
         # * the DN is found in the `to_be_skipped_dn_seq` sequence, or
         # * the DN is a sub-DN of any of DNs from `to_be_skipped_dn_seq`.
         for dn, attrs in search_results:
+            if tick_callback is not None:
+                tick_callback()
             for to_be_skipped_dn in to_be_skipped_dn_seq:
                 if dn == to_be_skipped_dn or dn.endswith(',' + to_be_skipped_dn):
-                    LOGGER.warning('Skipping LDAP entry %r (see the '
+                    LOGGER.warning('Skipping LDAP entry %a (see the '
                                    'related ERROR logged earlier...)', dn)
                     break
             else:
                 yield dn, attrs
 
     @classmethod
-    def _structuralize_search_results(cls, search_results, keep_dead_refints=False):
+    def _structuralize_search_results(cls, search_results, keep_dead_refints=False,
+                                      tick_callback=None):
         """
         >>> search_results = [
         ... ('ou=orgs,dc=n6,dc=cert,dc=pl', {
@@ -732,6 +864,9 @@ class LdapAPI(SQLAuthDBConfigMixin):
         dn_to_refint_lists = {}
         root_node = {'attrs': {}}
         for dn, attrs in search_results:
+            if tick_callback is not None:
+                tick_callback()
+
             node = root_node
 
             # traverse/create intermediate nodes and create the target node
@@ -744,20 +879,25 @@ class LdapAPI(SQLAuthDBConfigMixin):
             node['attrs'].update(copy.deepcopy(attrs))
 
             cls._remember_refints(dn, node, dn_to_refint_lists)
-        cls._clean_refints(root_node, dn_to_refint_lists, keep_dead_refints)
+        cls._clean_refints(root_node, dn_to_refint_lists, keep_dead_refints,
+                           tick_callback=tick_callback)
         return root_node
 
     @classmethod
     def _remember_refints(cls, dn, node, dn_to_refint_lists):
-        for attr_name, value_list in node['attrs'].iteritems():
+        for attr_name, value_list in node['attrs'].items():
             if attr_name.endswith('refint'):
                 # remember the reference to list of refint DNs
                 # (to be *modified in-place* by _clean_refints())
                 dn_to_refint_lists.setdefault(dn, []).append(value_list)
 
     @classmethod
-    def _clean_refints(cls, root_node, dn_to_refint_lists, keep_dead_refints):
-        for dn, lists in dn_to_refint_lists.iteritems():
+    def _clean_refints(cls, root_node, dn_to_refint_lists, keep_dead_refints,
+                       tick_callback=None):
+        for dn, lists in dn_to_refint_lists.items():
+            if tick_callback is not None:
+                tick_callback()
+
             for refint_list in lists:
                 initial_len = len(refint_list)
                 for i, refint_dn in enumerate(refint_list[::-1], start=1):
@@ -767,13 +907,13 @@ class LdapAPI(SQLAuthDBConfigMixin):
                         get_node(root_node, refint_dn)
                     except KeyError:
                         # detected a dead refint (whose DN does not exist)
-                        LOGGER.warning('Entry %r contains a dead refint: %r',
+                        LOGGER.warning('Entry %a contains a dead refint: %a',
                                        dn, refint_dn)
                         if keep_dead_refints:
                             continue
                     except Exception as exc:
-                        LOGGER.error('Entry %r contains an '
-                                     'erroneous refint: %r (%s: %s)',
+                        LOGGER.error('Entry %a contains an '
+                                     'erroneous refint: %a (%s: %s)',
                                       dn, refint_dn, get_class_name(exc),
                                       ascii_str(exc))
                     else:
@@ -782,22 +922,20 @@ class LdapAPI(SQLAuthDBConfigMixin):
                     # -- note: modifying the list *in-place*
                     del refint_list[initial_len - i]
 
-    @staticmethod
-    def _dn_to_node_key(dn,
+    # noinspection PyDefaultArgument
+    @classmethod
+    def _dn_to_node_key(cls, dn,
                         _const_ava_dn_suffix=[
                             [('dc', 'n6', 1)],
                             [('dc', 'cert', 1)],
-                            [('dc', 'pl', 1)]],
-                        _dn_to_ava=functools.partial(
-                            ldap.dn.str2dn,
-                            flags=ldap.DN_FORMAT_LDAPV3)):
+                            [('dc', 'pl', 1)]]):
         """
         >>> LdapAPI._dn_to_node_key('spam=ham,foo=bar,dc=n6,dc=cert,dc=pl')
         (('foo', 'bar'), ('spam', 'ham'))
         """
-        ava_dn = _dn_to_ava(dn)
+        ava_dn = cls._str_to_ava_dn(dn)
         if ava_dn[-3:] != _const_ava_dn_suffix:
-            raise ValueError('DN {0!r} does not end with the '
+            raise ValueError('DN {0!a} does not end with the '
                              'standard N6\'s DN suffix'.format(ava_dn))
         assert dn.endswith(LDAP_TREE_ROOT_DN)
         del ava_dn[-3:]
@@ -805,7 +943,7 @@ class LdapAPI(SQLAuthDBConfigMixin):
         for rdn_components in reversed(ava_dn):
             if len(rdn_components) > 1:
                 raise ValueError('multi-valued RDNs are not supported '
-                                 '(DN {0!r} contains such an RDN)'.format(dn))
+                                 '(DN {0!a} contains such an RDN)'.format(dn))
             # `rdn_type` -- RDN's attribute name (e.g.: 'n6login')
             # `rdn_val`  -- RDN's attribute value (e.g.: 'user@example.com')
             [(rdn_type, rdn_val, _)] = rdn_components
@@ -824,7 +962,6 @@ class LdapAPI(SQLAuthDBConfigMixin):
 
 
 
-@instance
 class _LdapAttrNormalizer(object):
 
     def get_ready_value_list(self, dn, ldap_attr_name, value_list):
@@ -838,9 +975,9 @@ class _LdapAttrNormalizer(object):
             # RDN one (i.e., being a part of DN) *and* the attribute is
             # one of those whose values are normalized (i.e., for whom
             # `normalizer_meth` is not None); thanks to this constraint
-            # we avoid potential str-vs-unicode-inequality-related
-            # discrepancies between DNs and normalized attribute
-            # values...
+            # we may avoid some corner cases... (Note: after migration
+            # to Py3, where we have no `str` vs. `unicode` discrepancy,
+            # that may not be necessary -- but just in case...)
             self._check_attr_is_ascii_only_if_rdn(dn, ldap_attr_name)
             return list(self._generate_normalized_values(
                 dn,
@@ -855,14 +992,15 @@ class _LdapAttrNormalizer(object):
             if normalizer_meth is None:
                 LOGGER.error(
                     '%s.%s() not implemented!',
-                    self.__class__.__name__,
+                    self.__class__.__qualname__,
                     normalizer_meth_name)
         elif self._is_o_being_client_org_id(dn, ldap_attr_name):
             normalizer_meth = self._clean_client_org_id
         elif self._is_cn_being_source_name(dn, ldap_attr_name):
             normalizer_meth = self._clean_source_name
         else:
-            # o (but not being a client org id) or
+            # n6blocked, or
+            # o (but not being a client org id), or
             # cn (but not being a source name), or
             # ou, cACertificate;binary, userCertificate;binary, etc.
             normalizer_meth = None
@@ -870,6 +1008,7 @@ class _LdapAttrNormalizer(object):
 
     def _is_regular_n6_attr(self, ldap_attr_name):
         return (ldap_attr_name.startswith('n6') and
+                ldap_attr_name != 'n6blocked' and  # (normalization of `n6blocked` is unnecessary)
                 ldap_attr_name != 'n6refint' and
                 not ldap_attr_name.endswith('-refint'))
 
@@ -914,9 +1053,9 @@ class _LdapAttrNormalizer(object):
         if (ldap_attr_name == rdn_attr_name_from_dn and
               rdn_attr_value_from_dn != ascii_str(rdn_attr_value_from_dn)):
             raise _RDNError(
-                'problem with the LDAP entry whose DN is {!r}: '
-                'the RDN value {!r} is not ASCII-only *and* (at '
-                'the same time) this RDN attribute ({!r}) is one '
+                'problem with the LDAP entry whose DN is {!a}: '
+                'the RDN value {!a} is not ASCII-only *and* (at '
+                'the same time) this RDN attribute ({!a}) is one '
                 'of those normalized by {}'.format(
                     dn,
                     rdn_attr_value_from_dn,
@@ -930,8 +1069,8 @@ class _LdapAttrNormalizer(object):
             except Exception as exc:
                 LOGGER.error(
                     'Problem with LDAP data: cannot normalize '
-                    'a value of the attribute %s of entry %r '
-                    '(%s: %s). The problematic value is: %r',
+                    'a value of the attribute %s of entry %a '
+                    '(%s: %s). The problematic value is: %a',
                     ldap_attr_name, dn,
                     get_class_name(exc), ascii_str(exc), val)
 
@@ -949,22 +1088,25 @@ class _LdapAttrNormalizer(object):
         return self._source_field_spec.clean_result_value(preclean_val)
 
     def _ascii_only_to_unicode_stripped(self, val):
-        if isinstance(val, unicode):
+        if isinstance(val, str):
             val.encode('ascii', 'strict')  # just to check against encoding errors
         else:
-            assert isinstance(val, str)
+            assert isinstance(val, bytes)
+            #assert False, 'should not happen'    # XXX: remove this execution branch
             val = val.decode('ascii', 'strict')
-        assert isinstance(val, unicode)
+        assert isinstance(val, str)
         return val.strip()
 
     def _to_unicode_stripped(self, val):
-        if isinstance(val, str):
+        if isinstance(val, bytes):
+            #assert False, 'should not happen'    # XXX: remove this execution branch
             val = val.decode('utf-8', 'strict')
-        assert isinstance(val, unicode)
+        assert isinstance(val, str)
         return val.strip()
 
     def _pass_unmodified(self, val):
-        assert isinstance(val, basestring)
+        assert isinstance(val, str) \
+               or isinstance(val, bytes)          # XXX: <- this possibility is to be removed...
         return val
 
 
@@ -1005,15 +1147,15 @@ class _LdapAttrNormalizer(object):
     def _normalize_n6asn(self, val):
         asn_as_int = self._asn_field_spec.clean_result_value(val)
         # Here we want to have it as a string -- because all other LDAP
-        # attr values are *strings* (str or unicode). It shall be
+        # attr values are *strings* (of the type `str`). It shall be
         # converted to an int at a later stage of processing...
-        return unicode(asn_as_int)
+        return str(asn_as_int)
 
     def _normalize_n6cc(self, val):
         return self._cc_field_spec.clean_result_value(self._to_unicode_stripped(val))
 
     def _normalize_n6fqdn(self, val):
-        return unicode(self._to_unicode_stripped(val).encode('idna').lower())
+        return as_unicode(self._to_unicode_stripped(val).encode('idna').lower())
 
     def _normalize_n6ip_network(self, val):
         val = self._ascii_only_to_unicode_stripped(val)
@@ -1027,7 +1169,7 @@ class _LdapAttrNormalizer(object):
     def _normalize_n6max_days_old(self, val):
         val = self._ascii_only_to_unicode_stripped(val)
         int(float(val))  # just to check against errors
-        return unicode(val)
+        return str(val)
 
     def _normalize_n6name(self, val):
         return self._name_field_spec.clean_result_value(val)
@@ -1036,8 +1178,8 @@ class _LdapAttrNormalizer(object):
         return self._ascii_only_to_unicode_stripped(val).lower()
 
     def _normalize_n6cert_request(self, val):
-        lines = self._ascii_only_to_unicode_stripped(val).splitlines()
-        return str('\n'.join(lines)) + '\n'
+        lines = splitlines_asc(self._ascii_only_to_unicode_stripped(val))
+        return '\n'.join(lines) + '\n'
 
     def _normalize_n6email_notifications_language(self, val):
         return self._ascii_only_to_unicode_stripped(val).lower()
@@ -1045,35 +1187,8 @@ class _LdapAttrNormalizer(object):
     def _normalize_n6email_notifications_address(self, val):
         val = self._ascii_only_to_unicode_stripped(val)
         if EMAIL_OVERRESTRICTED_SIMPLE_REGEX.search(val) is None:
-            raise ValueError('{!r} does not seem to be a valid '
+            raise ValueError('{!a} does not seem to be a valid '
                              'e-mail address'.format(val))
-        return val
-
-
-    # (for additional LDAP attributes related to formal
-    # properties/status of organizations and users...)
-    # [note: the methods of the `n6lib.ldap_api_replacement`'s
-    # variant of `LdapAPI` omit these attributes -- at least
-    # for now -- because AuthAPI does not make use of them]
-
-    _normalize_n6org_location = _to_unicode_stripped
-    _normalize_n6org_location_coords = _to_unicode_stripped
-    _normalize_n6org_address = _to_unicode_stripped
-    _normalize_n6user_name = _to_unicode_stripped
-    _normalize_n6user_surname = _to_unicode_stripped
-    _normalize_n6user_phone = _to_unicode_stripped
-    _normalize_n6user_title = _to_unicode_stripped
-
-    _normalize_n6org_verified = _pass_unmodified
-    _normalize_n6org_public = _pass_unmodified
-    _normalize_n6user_contact_point = _pass_unmodified
-
-    def _normalize_n6org_id_official(self, val):
-        val = self._ascii_only_to_unicode_stripped(val)
-        match = _N6ORG_ID_OFFICIAL_ATTR_REGEX.search(val)
-        if match is None:
-            raise ValueError('{!r} is not a valid official id'.format(val))
-        val = ''.join(match.groups()).upper().replace('-', '')
         return val
 
 
@@ -1114,6 +1229,36 @@ class _LdapAttrNormalizer(object):
         return RecordDict.data_spec
 
 
+    # Below: normalization of additional LDAP attributes...
+    # (XXX: Most probably, the following stuff can be removed,
+    #       as the current version of `LdapAPI` does not provide the
+    #       corresponding LDAP attributes because `AuthAPI` does not
+    #       make use of them).
+
+    _normalize_n6org_location = _to_unicode_stripped
+    _normalize_n6org_location_coords = _to_unicode_stripped
+    _normalize_n6org_address = _to_unicode_stripped
+    _normalize_n6user_name = _to_unicode_stripped
+    _normalize_n6user_surname = _to_unicode_stripped
+    _normalize_n6user_phone = _to_unicode_stripped
+    _normalize_n6user_title = _to_unicode_stripped
+
+    _normalize_n6org_verified = _pass_unmodified
+    _normalize_n6org_public = _pass_unmodified
+    _normalize_n6user_contact_point = _pass_unmodified
+
+    def _normalize_n6org_id_official(self, val):
+        val = self._ascii_only_to_unicode_stripped(val)
+        match = _N6ORG_ID_OFFICIAL_ATTR_REGEX.search(val)
+        if match is None:
+            raise ValueError('{!a} is not a valid official id'.format(val))
+        val = ''.join(match.groups()).upper().replace('-', '')
+        return val
+
+
+ldap_attr_normalizer = _LdapAttrNormalizer()
+
+
 class _RDNError(Exception):
     """
     Raised to signal that the normalized value of an RDN attribute may
@@ -1144,7 +1289,7 @@ def get_node(root_node, dn):
         contains:
 
         * the 'attrs' item whose value is a dict that maps entry
-          attributes (strings) to lists of values (strings);
+          attributes (`str`) to lists of values (`str`);
 
         * optional items whose keys are RDN attribute names of child
           entries and values are dicts mapping RDN attribute values of
@@ -1189,10 +1334,11 @@ def get_value_list(node, attr_name):
     If there is no attribute -- an empty list is returned.
     """
     value_list = node['attrs'].get(attr_name, [])
-    if (isinstance(value_list, collections.Sequence) and
-          not isinstance(value_list, basestring)):
+    if is_seq(value_list):
         return list(value_list)
-    raise TypeError('{!r} is not a non-string sequence'.format(value_list))
+    raise TypeError(
+        'expected a sequence not being a `str`, `bytes` '
+        'or `bytearray` (got: {!a})'.format(value_list))
 
 
 __sentinel = object()
@@ -1210,12 +1356,12 @@ def get_value(node, attr_name, default=__sentinel):
     """
     value_list = get_value_list(node, attr_name)
     if len(value_list) > 1:
-        raise ValueError('attribute {!r} has more than 1 value'.format(attr_name))
+        raise ValueError('attribute {!a} has more than 1 value'.format(attr_name))
     try:
         return value_list[0]
     except IndexError:
         if default is __sentinel:
-            raise ValueError('attribute {!r} has no value'.format(attr_name))
+            raise ValueError('attribute {!a} has no value'.format(attr_name)) from None
         else:
             return default
 
@@ -1258,7 +1404,7 @@ def format_ldap_dt(dt):
         `dt`: A datetime.datetime instance (naive or timezone-aware).
 
     Returns:
-        A string being `dt` after formatting it for LDAP, first UTC
+        A `str` being `dt` after formatting it for LDAP, first UTC
         normalized (e.g.: '199412161032Z').
 
     Raises:

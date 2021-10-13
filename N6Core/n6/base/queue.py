@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 # Note, however, that some parts of the QueuedBase class are patterned
 # after some examples from the docs of a 3rd-party library: `pika`; and
 # some of the docstrings are taken from or contain fragments of the
 # docs of the `pika` library.
 
+from __future__ import print_function
+from future.utils import raise_
 import collections
 import contextlib
 import copy
@@ -15,16 +17,20 @@ import pprint
 import re
 import sys
 import time
-import traceback
-import types
 
 try:
     import pika
     import pika.credentials
 except ImportError:
-    print >>sys.stderr, "Warning: pika is required to run AMQP components"
+    print("Warning: pika is required to run AMQP components", file=sys.stderr)
 
-from n6lib.amqp_helpers import get_amqp_connection_params_dict
+from n6corelib.timeout_callback_manager import TimeoutCallbackManager
+from n6lib.amqp_helpers import (
+    PIPELINE_OPTIONAL_COMPONENTS,
+    PIPELINE_OPTIONAL_GROUPS,
+    get_amqp_connection_params_dict,
+    get_pipeline_binding_states,
+)
 from n6lib.argument_parser import N6ArgumentParser
 from n6lib.auth_api import AuthAPICommunicationError
 from n6lib.common_helpers import (
@@ -33,7 +39,6 @@ from n6lib.common_helpers import (
     make_exc_ascii_str,
 )
 from n6lib.log_helpers import get_logger
-from n6lib.timeout_callback_manager import TimeoutCallbackManager
 
 
 LOGGER = get_logger(__name__)
@@ -66,7 +71,7 @@ class QueuedBase(object):
         "exchange": "<name of exchange to connect to>",
         "exchange_type": "<type of exchange>",
         "queue_name": "<name of queue to connect to>",
-        "binding_keys": <list of routing keys to bind to>,
+        "accepted_event_types": <list of event types accepted by the component>,
         "queue_exclusive": True|False,  # is queue exclusive (optional)
       }
 
@@ -139,7 +144,7 @@ class QueuedBase(object):
 
         Normally, this special method should not be overridden in
         subclasses. (If you really need that please *extend* it by
-        overridding and calling with super()).
+        overriding and calling with super()).
 
         The method causes that immediately after creating of a
         QueuedBase-derived class instance -- before calling __init__()
@@ -167,7 +172,7 @@ class QueuedBase(object):
         4) the preinit_hook() method is called (see its docs...).
         """
         # some unit tests are over-zealous about patching super()
-        from __builtin__ import super
+        from builtins import super
 
         self = super(QueuedBase, cls).__new__(cls, **kwargs)
 
@@ -198,6 +203,27 @@ class QueuedBase(object):
             An argparse.Namespace instance containing parsed commandline
             arguments.
 
+        For more information about the parsing see documentation
+        for the `parse_only_n6_args` method.
+        """
+        arg_parser = self.get_arg_parser()
+        return self.parse_only_n6_args(arg_parser)
+
+    @classmethod
+    def parse_only_n6_args(cls, arg_parser):
+        """
+        Parse commandline arguments (taken from sys.argv[1:])
+        using provided argument parser.
+
+        Args/kwargs:
+            `arg_parser`:
+                An `N6ArgumentParser` instance used to parse
+                the commandline arguments.
+
+        Returns:
+            An argparse.Namespace instance containing parsed commandline
+            arguments.
+
         Unrecognized commandline arguments starting with the 'n6' text
         prefixed by one or more '-' (hyphen) characters (such as
         '-n6recovery' or '--n6blahblah'...) cause the SystemExit
@@ -210,7 +236,6 @@ class QueuedBase(object):
         This method *should not* be overridden completely; instead, it
         can be *extended* (overridden + called with super()).
         """
-        arg_parser = self.get_arg_parser()
         cmdline_args, unknown = arg_parser.parse_known_args()
         illegal_n6_args = [arg for arg in unknown if re.match(r'\-+n6', arg)]
         if illegal_n6_args:
@@ -218,7 +243,8 @@ class QueuedBase(object):
                 ', '.join(illegal_n6_args)))
         return cmdline_args
 
-    def get_arg_parser(self):
+    @classmethod
+    def get_arg_parser(cls):
         """
         Make and configure argument parser.
 
@@ -262,7 +288,7 @@ class QueuedBase(object):
                                 metavar='SUFFIX',
                                 help=('add the specified suffix to all '
                                       'output AMQP exchange/queue names'))
-        if self.supports_n6recovery:  # <- True by default
+        if cls.supports_n6recovery:  # <- True by default
             arg_parser.add_argument('--n6recovery',
                                     action='store_true',
                                     help=('add the "_recovery" suffix to '
@@ -333,9 +359,166 @@ class QueuedBase(object):
         LOGGER.debug('output_queue: %r', self.output_queue)
 
         self.clear_amqp_communication_state_attributes()
+        self.configure_pipeline()
         self._conn_params_dict = self.get_connection_params_dict()
         self._amqp_setup_timeout_callback_manager = \
             self._make_timeout_callback_manager('AMQP_SETUP_TIMEOUT')
+
+    def configure_pipeline(self):
+        """
+        Place the component inside the pipeline, by creating
+        binding keys, which are used to determine which component's
+        output messages should be bound to the input queue
+        of currently initialized component.
+
+        If the component is configured in the pipeline config,
+        special keywords called "states" will be used to create
+        unique binding keys, joining one component's output
+        to other component's input. If no configuration
+        could be found, the method will look for a "hard-coded"
+        list of binding keys in the `input_queue` attribute.
+
+        Usually, each binding key is composed of four sections,
+        where the first section defines accepted types of
+        events, second section is the "state", and the last two
+        contain wildcards, matching all events originally routed
+        with keys consisting of `source` and `channel` part,
+        separated by dot.
+
+        Previously, the `input_queue` dict - a class attribute
+        (which has been transformed to an instance attribute) of
+        the component contained the `binding_keys` key, a fixed
+        list of input queue's binding keys of the component. Now,
+        the `binding_keys` list is generated using
+        the `accepted_event_types` list and the list of "binding
+        states" defined in pipeline configuration.
+
+        A different binding key is created for every "state".
+        Sample binding key: *.{state}.*.*, where {state} is
+        a "state" defined in the pipeline config. The behaviour
+        differs for such components as collectors, parsers
+        or DBarchiver - see their docstrings for more details.
+
+        If the `accepted_event_types` item of the `input_queue`
+        attribute is defined, it specifies the types of events,
+        the component should bind to. Otherwise, the component
+        will bind to all event types (the asterisk wildcard).
+
+        The pipeline config should be defined in the `pipeline`
+        section by default. Each component is configured through
+        the option, that is the component's lowercase class' name;
+        its values should be a list of "binding states", separated
+        by a comma, that will be used to create component's
+        binding keys, e.g. for the Enricher the config will look like:
+
+        [pipeline]
+        enricher = somestate, otherstate
+
+        Considering that Enricher has a following list of the
+        `accepted_event_types`:
+
+        ['event', 'bl', 'bl-update', 'suppressed']
+
+        Then the list of resulting binding keys for the Enricher
+        will be:
+
+        ['event.somestate.*.*', 'bl.somestate.*.*',
+        'bl-update.somestate.*.*', 'suppressed.somestate.*.*',
+        'event.otherstate.*.*', 'bl.otherstate.*.*',
+        'bl-update.*.*', 'suppressed.otherstate.*.*']
+
+        These "binding states" are parts of routing keys of messages
+        received by the component, that identify the component
+        which sent them. E.g., parsers send their messages with
+        routing keys using the format:
+        <event type>.parsed.<source label>.<source channel>
+        The second part of the routing key - "parsed" is
+        characteristic for parsers, being their "binding state".
+        If you want other component to receive messages from parsers,
+        then "parsed" should be on the list of values bound to
+        the option being the component's ID. So, for the Enricher
+        to receive this type of messages, it should have configuration
+        like:
+
+        [pipeline]
+        enricher = parsed
+
+        Each component is also bound to some group of components,
+        the `utils` group by default. Collectors are bound
+        to the `collectors` group and parsers - to `parsers`.
+        The "binding states" can be defined for a whole group.
+        The group's config will be used, in case, there is no config
+        for a component. Otherwise, a component's specific config
+        option has the priority over the group's option.
+
+        SEE: configuration template file with the "pipeline" section
+        for more examples.
+        """
+        if self.input_queue is not None:
+            self.set_queue_name()
+            pipeline_group, pipeline_name = self.get_component_group_and_id()
+            binding_states = get_pipeline_binding_states(pipeline_group, pipeline_name)
+            if binding_states:
+                assert(isinstance(binding_states, list))
+                accepted_event_types = self.input_queue.get('accepted_event_types')
+                if (accepted_event_types is not None and
+                        not isinstance(accepted_event_types, list)):
+                    raise TypeError('The `accepted_event_types` key of the `input_queue` dict, '
+                                    'if present and set, should be a list')
+                self.make_binding_keys(binding_states, accepted_event_types)
+            # if there is no pipeline configuration for the component,
+            # check if binding keys have been manually set in
+            # the `input_queue` attribute
+            elif ('binding_keys' in self.input_queue and
+                    self.input_queue['binding_keys'] is not None):
+                if not isinstance(self.input_queue['binding_keys'], list):
+                    raise TypeError('The `binding_keys` item of the `input_queue` attribute, '
+                                    'if manually set, has to be a list')
+            elif (pipeline_name not in PIPELINE_OPTIONAL_COMPONENTS and
+                  pipeline_group not in PIPELINE_OPTIONAL_GROUPS):
+                LOGGER.warning('The component `%s` is not configured in the pipeline '
+                               'config and the list of binding keys is not defined '
+                               'in the `input_queue` attribute. If the `input_queue` '
+                               'attribute is set, the list of binding keys should be '
+                               'defined', pipeline_name)
+                self.input_queue['binding_keys'] = []
+
+    def set_queue_name(self):
+        """
+        The hook that should be implemented by subclasses, which does
+        not have explicitly defined input queue's name, like
+        IntelMQ bots.
+        """
+
+    def get_component_group_and_id(self):
+        """
+        Get component's group name and its ID. These values are used
+        for the pipeline configuration mechanism.
+
+        Pipeline configuration-related methods search for these names
+        among the options of the `pipeline` config section.
+
+        If the component's ID or its group name is found in
+        the section, the list of values will be used as component's
+        'binding states'. Then these 'binding states' are used
+        to generate binding keys for component's input queue.
+
+        The method should be overridden in subclasses of components
+        of different groups, such as collectors or parsers.
+
+        Returns:
+            A tuple of component's group name and its ID.
+        """
+        return 'utils', self.__class__.__name__.lower()
+
+    def make_binding_keys(self, binding_states, accepted_event_types):
+        if not accepted_event_types:
+            accepted_event_types = ['*']
+        self.input_queue['binding_keys'] = []
+        for state in binding_states:
+            for event_type in accepted_event_types:
+                self.input_queue['binding_keys'].append(
+                    '{type}.{state}.*.*'.format(type=event_type, state=state))
 
     def clear_amqp_communication_state_attributes(self):
         self._connection = None
@@ -431,7 +614,7 @@ class QueuedBase(object):
 
     def _make_timeout_callback_manager(self, timeout_attribute_name):
         timeout = getattr(self, timeout_attribute_name)
-        timeout_expiry_msg = '{}.{}={!r} expired!'.format(self.__class__.__name__,
+        timeout_expiry_msg = '{}.{}={!r} expired!'.format(self.__class__.__name__,  #3: `__name__` -> `__qualname__`
                                                           timeout_attribute_name,
                                                           timeout)
         return TimeoutCallbackManager(timeout, sys.exit, timeout_expiry_msg)
@@ -476,8 +659,8 @@ class QueuedBase(object):
     def on_connection_error_open(self, connection, error_message='<not given>'):
         error_message = ascii_str(error_message)
         # in case logging via AMQP does not work...
-        print >>sys.stderr, ('Could not connect to RabbitMQ. '
-                             'Reason: {}.'.format(error_message))
+        print('Could not connect to RabbitMQ. Reason: {}.'.format(error_message),
+              file=sys.stderr)
         LOGGER.critical('Could not connect to RabbitMQ. Reason: %s', error_message)
         sys.exit(1)
 
@@ -519,8 +702,9 @@ class QueuedBase(object):
         else:
             # in case logging via AMQP does not work, let's additionally
             # print this error message to the standard error output
-            print >>sys.stderr, ('Error: AMQP connection has been closed with code: {}. '
-                                 'Reason: {}.'.format(reply_code, reply_text))
+            print('Error: AMQP connection has been closed with code: {}. '
+                  'Reason: {}.'.format(reply_code, reply_text),
+                  file=sys.stderr)
             LOGGER.error('AMQP connection has been closed with code: %s. Reason: %s',
                          reply_code, reply_text)
             sys.exit(1)
@@ -736,15 +920,19 @@ class QueuedBase(object):
         Args:
             method_frame: The Queue.DeclareOk frame
         """
-        LOGGER.debug('Binding %r to %r with %r',
-                     self.input_queue["exchange"],
-                     self.input_queue["queue_name"],
-                     self.input_queue["binding_keys"])
-        for binding_key in self.input_queue["binding_keys"]:
-            self._channel_in.queue_bind(self.on_bindok,
-                                        self.input_queue["queue_name"],
-                                        self.input_queue["exchange"],
-                                        binding_key)
+        if not self.input_queue['binding_keys']:
+            LOGGER.warning('The list of binding keys is empty for a queue %r.',
+                           self.input_queue['queue_name'])
+        else:
+            LOGGER.debug('Binding %r to %r with %r',
+                         self.input_queue["exchange"],
+                         self.input_queue["queue_name"],
+                         self.input_queue["binding_keys"])
+            for binding_key in self.input_queue["binding_keys"]:
+                self._channel_in.queue_bind(self.on_bindok,
+                                            self.input_queue["queue_name"],
+                                            self.input_queue["exchange"],
+                                            binding_key)
 
     def on_bindok(self, unused_frame):
         """
@@ -887,6 +1075,13 @@ class QueuedBase(object):
         exc_info = None
         delivery_tag = basic_deliver.delivery_tag
         routing_key = basic_deliver.routing_key
+        if not self._is_output_ready_or_none():
+            LOGGER.warn('Message received from the input_queue while the'
+                        'output queue has not been yet set up. '
+                        '[%s:%s] The message will be requeueud.',
+                        delivery_tag,
+                        routing_key)
+
         try:
             LOGGER.debug('Received message #%r routed with key %r)',
                          delivery_tag, routing_key)
@@ -921,7 +1116,7 @@ class QueuedBase(object):
             self.nacknowledge_message(delivery_tag, '{0!r} in {1!r}'.format(exc_info[1], self),
                                       requeue=True)
             # now we can re-raise the original exception
-            raise exc_info[0], exc_info[1], exc_info[2]
+            raise_(exc_info[0], exc_info[1], exc_info[2])
         else:
             self.acknowledge_message(delivery_tag)
         finally:
@@ -967,7 +1162,9 @@ class QueuedBase(object):
             with self.setting_error_event_info(event_record_dict):
                 <some operations that may raise errors>
         """
-        if isinstance(rid_or_record_dict, (basestring, types.NoneType)):
+        if rid_or_record_dict is None:
+            event_rid = event_id = None
+        elif isinstance(rid_or_record_dict, str):
             event_rid = rid_or_record_dict
             event_id = None
         else:
@@ -1466,7 +1663,7 @@ class QueuedBase(object):
             finally:
                 if is_present(to_be_raised_exc_info):
                     exc_type, exc_value, tb = to_be_raised_exc_info
-                    raise exc_type, exc_value, tb
+                    raise_(exc_type, exc_value, tb)
         finally:
             # (breaking traceback-related reference cycles, if any)
             # noinspection PyUnusedLocal
@@ -1482,6 +1679,7 @@ class QueuedBase(object):
         concrete_publishing_generator = self.publish_iteratively()
         try:
             try:
+                # TODO: analyze whether time.time() should be replaced e.g. with time.monotonic().
                 yield_time = time.time()
                 for marker in concrete_publishing_generator:
                     if marker not in (self.FLUSH_OUT, None):

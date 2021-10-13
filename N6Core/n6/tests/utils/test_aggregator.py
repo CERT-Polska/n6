@@ -4,12 +4,13 @@
 
 import datetime
 import json
+import os
+import tempfile
 import unittest
 from collections import namedtuple
 
 from mock import (
     MagicMock,
-    call,
     patch,
 )
 from unittest_expander import (
@@ -26,7 +27,6 @@ from n6.utils.aggregator import (
     AggregatorDataWrapper,
     HiFreqEventData,
     SourceData,
-    DEFAULT_TIME_TOLERANCE,
 )
 from n6lib.unit_test_helpers import TestCaseMixin
 
@@ -35,8 +35,12 @@ from n6lib.unit_test_helpers import TestCaseMixin
 @expand
 class TestAggregator(TestCaseMixin, unittest.TestCase):
 
+    sample_routing_key = "testsource.testchannel"
+    sample_dbpath = "/tmp/sample_dbfile"
     sample_time_tolerance = 600
-    sample_routing_key = 'testsource.testchannel'
+    sample_time_tolerance_per_source = {
+        'anothersource.andchannel': 1200,
+    }
     starting_datetime = datetime.datetime(2017, 6, 1, 10)
     mocked_utcnow = datetime.datetime(2017, 7, 1, 7, 0, 0)
     input_callback_proper_msg = (
@@ -54,6 +58,13 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         '"time": "2017-06-01 10:00:00"'
         '}'
     )
+    mocked_config = {
+        "aggregator": {
+            "dbpath": sample_dbpath,
+            "time_tolerance": str(sample_time_tolerance),
+            "time_tolerance_per_source": json.dumps(sample_time_tolerance_per_source),
+        }
+    }
 
 
     @paramseq
@@ -81,9 +92,9 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                 },
             ],
             expected_ids_to_single_events=[
-                'c4ca4238a0b923820dcc509a6f75849b',
-                'c81e728d9d4c2f636f067f89cc14862c',
-                'eccbc87e4b5ce2fe28308fd9f2a7baf3'
+                "c4ca4238a0b923820dcc509a6f75849b",
+                "c81e728d9d4c2f636f067f89cc14862c",
+                "eccbc87e4b5ce2fe28308fd9f2a7baf3"
             ],
         )
 
@@ -138,28 +149,28 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                 },
             ],
             expected_ids_to_single_events=[
-                'c4ca4238a0b923820dcc509a6f75849b',
-                'c81e728d9d4c2f636f067f89cc14862c',
-                'd41d8cd98f00b204e9800998ecf8426f',
-                'd41d8cd98f00b204e9800998ecf8427d'
+                "c4ca4238a0b923820dcc509a6f75849b",
+                "c81e728d9d4c2f636f067f89cc14862c",
+                "d41d8cd98f00b204e9800998ecf8426f",
+                "d41d8cd98f00b204e9800998ecf8427d"
             ],
             expected_ids_to_suppressed_events={
-                'c4ca4238a0b923820dcc509a6f75849b': {
+                "c4ca4238a0b923820dcc509a6f75849b": {
                     '_first_time': str(cls.starting_datetime),
                     # the 'until' value is the time of the
                     # excluding the event that triggered
                     # publishing of aggregated events
-                    'until': str(cls.starting_datetime + datetime.timedelta(hours=2)),
+                    "until": str(cls.starting_datetime + datetime.timedelta(hours=2)),
                     # the event that triggered publishing
                     # of aggregated events is not included
                     # in the count, it will be published
                     # with next group of aggregated events
-                    'count': 3,
+                    "count": 3,
                 },
-                'c81e728d9d4c2f636f067f89cc14862c': {
-                    '_first_time': str(cls.starting_datetime),
-                    'until': str(cls.starting_datetime + datetime.timedelta(hours=1)),
-                    'count': 2,
+                "c81e728d9d4c2f636f067f89cc14862c": {
+                    "_first_time": str(cls.starting_datetime),
+                    "until": str(cls.starting_datetime + datetime.timedelta(hours=1)),
+                    "count": 2,
                 },
             },
         )
@@ -470,6 +481,42 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             },
         )
 
+        # The second and fourth event is older than the current time,
+        # but fits the time tolerance for specific source, so it is
+        # still aggregated.
+        yield param(
+            input_data=[
+                {
+                    "id": "1",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2017-06-01 10:00:00",
+                },
+                {
+                    "id": "2",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2017-06-01 09:51:00",  # within time tolerance
+                },
+                {
+                    "id": "3",
+                    "source": "anothersource.andchannel",
+                    "_group": "group1",
+                    "time": '2017-06-01 11:00:00',
+                },
+                {
+                    "id": "4",
+                    "source": "anothersource.andchannel",
+                    "_group": "group1",
+                    "time": '2017-06-01 10:40:00',   # within time tolerance
+                },
+            ],
+            expected_ids_to_single_events=[
+                "1",
+                "3",
+            ],
+        )
+
         # The newest event, which triggers publishing of suppressed
         # events, has next day's date, but it also has to be
         # greater than the time of a checked group's last
@@ -650,6 +697,141 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             expected_last_event_dt_updates=2,
         )
 
+    @paramseq
+    def _unordered_data_to_process_event__buffer_may_contain_suppressed_event_1(cls):
+        # The first, second, and third event are published. The last event is unique.
+        # The first has a new group. The second with the same group achieved aggregated time.
+        # The third event has a new group. The last event is older than the time of the source,
+        # but it fits in the tolerance range. There is not a high-frequency event of 'group1'
+        # in the groups dict, but it still remains in the buffer. Because of it, the event is
+        # neither being published nor aggregated, but the count attribute of related high-frequency
+        # event in the buffer is incremented.
+        yield param(
+            input_data=[
+                {
+                    "id": "d41d8cd98f00b204e9800998hg351",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2020-01-01 00:00:00",
+                },
+                {
+                    "id": "d41d8cd98f00b204e9800998hg352",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2020-01-01 23:51:00",
+                },
+                {
+                    "id": "d41d8cd98f00b204e9800998hg353",
+                    "source": "testsource.testchannel",
+                    "_group": "group2",
+                    "time": "2020-01-02 00:01:00",
+                },
+                {
+                    "id": "d41d8cd98f00b204e9800998hg354",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2020-01-02 00:00:00",
+                },
+            ],
+            expected_ids_to_single_events=[
+                "d41d8cd98f00b204e9800998hg351",
+                "d41d8cd98f00b204e9800998hg352",
+                "d41d8cd98f00b204e9800998hg353",
+            ],
+            expected_last_event_dt_updates=3,
+        )
+
+    @paramseq
+    def _unordered_data_to_process_event__buffer_may_contain_suppressed_event_2(cls):
+        # The first and third event are published. The second is aggregated. The last event is
+        # unique. The first has a new group. The second with the same group fits in the aggregated
+        # range time. The third event has a new group so published.
+        # The last event is older than the time of the source, but it fits in the tolerance range.
+        # There is not a high-frequency event of 'group1' in the groups dict, but it still remains
+        # in the buffer. Because of it, the event is neither being published nor aggregated,
+        # but the count attribute of related high-frequency event in the buffer is incremented.
+        yield param(
+            input_data=[
+                {
+                    "id": "d41d8cd98f00b204e9800998hg351",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2020-01-01 22:00:00",
+                },
+                {
+                    "id": "d41d8cd98f00b204e9800998hg352",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2020-01-01 23:51:00",
+                },
+                {
+                    "id": "d41d8cd98f00b204e9800998hg353",
+                    "source": "testsource.testchannel",
+                    "_group": "group2",
+                    "time": "2020-01-02 00:01:00",
+                },
+                {
+                    "id": "d41d8cd98f00b204e9800998hg354",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2020-01-02 00:00:00",
+                },
+            ],
+            expected_ids_to_single_events=[
+                "d41d8cd98f00b204e9800998hg351",
+                "d41d8cd98f00b204e9800998hg353",
+            ],
+            expected_last_event_dt_updates=3,
+        )
+
+    @paramseq
+    def _unordered_data_to_process_event__buffer_may_contain_suppressed_event_3(cls):
+        # All events are published. The first has a new group. The second with the same group
+        # achieved aggregated time. The third event has a new group so published.
+        # The last event has a new group and is older than the time of the source, but it fits
+        # in the tolerance range. The difference between the case and other two similar
+        # cases is that it does not fulfill the condition, that a 'group1' hi-freq
+        # event still remains in the buffer - the buffer has been cleared, because
+        # the difference between the source time and 'until' time of the last event
+        # of 'group1' exceeds the tolerance range. So instead of suppressing the
+        # last 'group1' event and incrementing the hi-freq event's counter,
+        # the new event is being published.
+
+        yield param(
+            input_data=[
+                {
+                    "id": "d41d8cd98f00b204e9800998hg351",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2020-01-01 00:00:00",
+                },
+                {
+                    "id": "d41d8cd98f00b204e9800998hg352",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2020-01-01 20:51:00",
+                },
+                {
+                    "id": "d41d8cd98f00b204e9800998hg353",
+                    "source": "testsource.testchannel",
+                    "_group": "group2",
+                    "time": "2020-01-02 22:01:00",
+                },
+                {
+                    "id": "d41d8cd98f00b204e9800998hg354",
+                    "source": "testsource.testchannel",
+                    "_group": "group1",
+                    "time": "2020-01-02 22:00:00",
+                },
+            ],
+            expected_ids_to_single_events=[
+                "d41d8cd98f00b204e9800998hg351",
+                "d41d8cd98f00b204e9800998hg352",
+                "d41d8cd98f00b204e9800998hg353",
+                "d41d8cd98f00b204e9800998hg354",
+            ],
+            expected_last_event_dt_updates=4,
+        )
 
     def setUp(self):
         self._published_events = []
@@ -657,16 +839,20 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         aggr_data_wrapper = AggregatorDataWrapper.__new__(AggregatorDataWrapper)
         aggr_data_wrapper.aggr_data = AggregatorData()
         aggr_data_wrapper.time_tolerance = self.sample_time_tolerance
+        aggr_data_wrapper.time_tolerance_per_source = self.sample_time_tolerance_per_source
         self._mocked_datetime_counter = 0
         self._aggregator.db = aggr_data_wrapper
 
 
-    @foreach(_ordered_data_to_process)
-    def test_processing_ordered_events(self,
-                                       input_data,
-                                       expected_ids_to_single_events=None,
-                                       expected_ids_to_suppressed_events=None,
-                                       expected_last_event_dt_updates=None):
+    @foreach(_ordered_data_to_process
+             + _unordered_data_to_process_event__buffer_may_contain_suppressed_event_1
+             + _unordered_data_to_process_event__buffer_may_contain_suppressed_event_2
+             + _unordered_data_to_process_event__buffer_may_contain_suppressed_event_3)
+    def test_processing_events(self,
+                               input_data,
+                               expected_ids_to_single_events=None,
+                               expected_ids_to_suppressed_events=None,
+                               expected_last_event_dt_updates=None):
 
         if expected_last_event_dt_updates is None:
             expected_last_event_dt_updates = len(input_data)
@@ -687,55 +873,54 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         if expected_last_event_dt_updates is None:
             expected_last_event_dt_updates = len(input_data)
 
-        with self.assertRaisesRegexp(n6QueueProcessingException, r'\bEvent out of order\b'):
+        with self.assertRaisesRegexp(n6QueueProcessingException, r"\bEvent out of order\b"):
             self._test_process_event(input_data,
                                      expected_ids_to_single_events,
                                      expected_ids_to_suppressed_events,
                                      expected_last_event_dt_updates)
 
-
     @foreach([
         param(
             count=32767,
             expected_body_content={
-                'source': 'ham.spam',
-                'type': 'foobar',
-                'count': 32767,
+                "source": "ham.spam",
+                "type": "foobar",
+                "count": 32767,
             },
-        ).label('count not over limit'),
+        ).label("count not over limit"),
         param(
             count=32768,
             expected_body_content={
-                'source': 'ham.spam',
-                'type': 'foobar',
-                'count': 32767,
-                'count_actual': 32768,
+                "source": "ham.spam",
+                "type": "foobar",
+                "count": 32767,
+                "count_actual": 32768,
             },
-        ).label('count over limit'),
+        ).label("count over limit"),
     ])
     def test_publish_event(self, count, expected_body_content):
-        type_ = 'foobar'
+        type_ = "foobar"
         payload = {
-            'source': 'ham.spam',
-            '_group': 'something',
-            'count': count,
+            "source": "ham.spam",
+            "_group": "something",
+            "count": count,
         }
         data = type_, payload
-        expected_routing_key = 'foobar.aggregated.ham.spam'
+        expected_routing_key = "foobar.aggregated.ham.spam"
         self._aggregator.publish_output = MagicMock()
 
         self._aggregator.publish_event(data)
 
         self.assertEqual(len(self._aggregator.publish_output.mock_calls), 1)
         publish_output_kwargs = self._aggregator.publish_output.mock_calls[0][-1]
-        self.assertEqual(set(publish_output_kwargs.iterkeys()), {'routing_key', 'body'})
-        self.assertEqual(publish_output_kwargs['routing_key'], expected_routing_key)
-        self.assertJsonEqual(publish_output_kwargs['body'], expected_body_content)
+        self.assertEqual(set(publish_output_kwargs.iterkeys()), {"routing_key", "body"})
+        self.assertEqual(publish_output_kwargs["routing_key"], expected_routing_key)
+        self.assertJsonEqual(publish_output_kwargs["body"], expected_body_content)
 
 
     def test_input_callback(self):
-        with patch.object(Aggregator, 'process_event') as process_event_mock:
-            self._aggregator.input_callback('testsource.testchannel',
+        with patch.object(Aggregator, "process_event") as process_event_mock:
+            self._aggregator.input_callback("testsource.testchannel",
                                             self.input_callback_proper_msg,
                                             self.sample_routing_key)
         process_event_mock.assert_called_with(json.loads(self.input_callback_proper_msg))
@@ -743,10 +928,34 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
 
     def test_input_callback_with__group_missing(self):
         with self.assertRaisesRegexp(n6QueueProcessingException, r"\bmissing '_group' field\b"):
-            with patch.object(Aggregator, 'process_event'):
-                self._aggregator.input_callback('testsource.testchannel',
+            with patch.object(Aggregator, "process_event"):
+                self._aggregator.input_callback("testsource.testchannel",
                                                 self.input_callback_msg_no__group,
                                                 self.sample_routing_key)
+
+    @patch("n6.base.queue.QueuedBase.__init__", autospec=True)
+    @patch("n6lib.config.Config._load_n6_config_files", return_value=mocked_config)
+    def test_init_class(self, config_mock, init_mock):
+        with tempfile.NamedTemporaryFile() as fp:
+            config_mock.return_value["aggregator"]["dbpath"] = fp.name
+            self._aggregator.__init__()
+
+        # store dir does not exist
+        with tempfile.NamedTemporaryFile() as fp, \
+                self.assertRaisesRegexp(Exception, r"store dir does not exist, stop aggregator"):
+            config_mock.return_value["aggregator"]["dbpath"] = os.path.join(fp.name,
+                                                                            "nonexistent_file")
+            self._aggregator.__init__()
+
+        # store directory exists, but it has no rights to write
+        with tempfile.NamedTemporaryFile() as fp, \
+                patch("os.access", return_value=None), \
+                self.assertRaisesRegexp(Exception,
+                                        r"stop aggregator, remember to set the rights for user, "
+                                        r"which runs aggregator"):
+            config_mock.return_value["aggregator"]["dbpath"] = fp.name
+            self._aggregator.__init__()
+
 
     def _mocked_utcnow_method(self):
         """
@@ -773,8 +982,8 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         """
         expected_events = []
 
-        with patch('n6.utils.aggregator.datetime') as datetime_mock,\
-                patch.object(Aggregator, 'publish_output') as publish_output_mock:
+        with patch("n6.utils.aggregator.datetime") as datetime_mock,\
+                patch.object(Aggregator, "publish_output") as publish_output_mock:
             datetime_mock.datetime.utcnow.side_effect = self._mocked_utcnow_method
             datetime_mock.datetime.side_effect = (lambda *args, **kw:
                                                   datetime.datetime(*args, **kw))
@@ -783,15 +992,15 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             datetime_mock.timedelta.side_effect = (lambda *args, **kw:
                                                    datetime.timedelta(*args, **kw))
             for event in input_data:
-                if expected_ids_to_single_events and event['id'] in expected_ids_to_single_events:
-                    expected_events.append(self._get_expected_event_from_input_data(event.copy(),
-                                                                                    'event'))
-                if (expected_ids_to_suppressed_events and
-                        event['id'] in expected_ids_to_suppressed_events):
+                if expected_ids_to_single_events and event["id"] in expected_ids_to_single_events:
+                    expected_events.append(
+                        self._get_expected_event_from_input_data(event.copy(), "event"))
+                if (expected_ids_to_suppressed_events
+                        and event["id"] in expected_ids_to_suppressed_events):
                     new_suppressed = event.copy()
-                    new_suppressed.update(expected_ids_to_suppressed_events[event['id']])
-                    expected_events.append(self._get_expected_event_from_input_data(new_suppressed,
-                                                                                    'suppressed'))
+                    new_suppressed.update(expected_ids_to_suppressed_events[event["id"]])
+                    expected_events.append(
+                        self._get_expected_event_from_input_data(new_suppressed, "suppressed"))
                 self._aggregator.process_event(event)
         events_from_calls = self._get_events_from_calls(publish_output_mock.call_args_list)
         self.assertItemsEqual(expected_events, events_from_calls)
@@ -818,12 +1027,12 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             an event-like dict, that is expected to be created
             during the call to `process_event()`.
         """
-        input_data.update({'type': type_})
+        input_data.update({"type": type_})
         # final events do not contain field `_group`
-        del input_data['_group']
+        del input_data["_group"]
         return {
-            'body': input_data,
-            'routing_key': '{type}.aggregated.testsource.testchannel'.format(type=type_),
+            "body": input_data,
+            "routing_key": "{}.aggregated.{}".format(type_, input_data['source']),
         }
 
 
@@ -836,21 +1045,22 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         """
         events_from_calls = []
         for _, call_args in call_args_list:
-            events_from_calls.append({'body': json.loads(call_args['body']),
-                                      'routing_key': call_args['routing_key']})
+            events_from_calls.append({"body": json.loads(call_args["body"]),
+                                      "routing_key": call_args["routing_key"]})
         return events_from_calls
-
 
 
 @expand
 class TestAggregatorDataWrapper(unittest.TestCase):
 
+    tested_source_channel = "testsource.testchannel"
+    other_source_channel = "othersource.otherchannel"
+    sample_db_path = "/tmp/example.pickle"
     sample_time_tolerance = 600
-    sample_db_path = '/tmp/example.pickle'
+    sample_time_tolerance_per_source = {
+        other_source_channel: 1200,
+    }
     mocked_utcnow = datetime.datetime(2017, 7, 1, 12, 0, 0)
-
-    tested_source_channel = 'testsource.testchannel'
-    other_source_channel = 'othersource.otherchannel'
     sources_tested_for_inactivity = [tested_source_channel, other_source_channel]
 
     group1_expected_suppressed_payload = dict(
@@ -863,7 +1073,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         until="2017-06-01 09:00:00",
     )
     group1_expected_suppressed_event = (
-        'suppressed',
+        "suppressed",
         group1_expected_suppressed_payload,
     )
     group2_expected_suppressed_payload = dict(
@@ -876,11 +1086,11 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         until="2017-06-01 10:00:00",
     )
     group2_expected_suppressed_event = (
-        'suppressed',
+        "suppressed",
         group2_expected_suppressed_payload,
     )
     group3_expected_suppressed_event = (
-        'suppressed',
+        "suppressed",
         None,
     )
 
@@ -897,8 +1107,8 @@ class TestAggregatorDataWrapper(unittest.TestCase):
     # 'msg_index_to_payload': an index of element in the `messages`
     #   param, a dict, that is expected to be equal to a 'payload'
     #   attribute of the `HiFreqEventData` instance.
-    ExpectedHiFreqData = namedtuple('ExpectedHiFreqData', ('name', 'until', 'first', 'count',
-                                                           'msg_index_to_payload'))
+    ExpectedHiFreqData = namedtuple(
+        "ExpectedHiFreqData", ("name", "until", "first", "count", "msg_index_to_payload"))
 
 
     @paramseq
@@ -907,7 +1117,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
@@ -915,10 +1125,39 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             expected_source_time=datetime.datetime(2017, 6, 1, 10),
             expected_groups=[
                 cls.ExpectedHiFreqData(
-                    name='group1',
+                    name="group1",
                     until=datetime.datetime(2017, 6, 1, 10),
                     first=datetime.datetime(2017, 6, 1, 10),
                     count=1,
+                    msg_index_to_payload=0,
+                ),
+            ],
+        )
+
+        # Second message fits to specific `time_tolerance` parameter
+        # for the source.
+        yield param(
+            messages=[
+                {
+                    "id": "c4ca4238a0b923820dcc509a6f75849b",
+                    "source": cls.other_source_channel,
+                    "_group": "group1",
+                    "time": "2017-06-01 10:00:00",
+                },
+                {
+                    "id": "c4ca4238a0b923820dcc509a6f75850c",
+                    "source": cls.other_source_channel,
+                    "_group": "group1",
+                    "time": "2017-06-01 09:40:00",
+                },
+            ],
+            expected_source_time=datetime.datetime(2017, 6, 1, 10),
+            expected_groups=[
+                cls.ExpectedHiFreqData(
+                    name="group1",
+                    until=datetime.datetime(2017, 6, 1, 10),
+                    first=datetime.datetime(2017, 6, 1, 10),
+                    count=2,
                     msg_index_to_payload=0,
                 ),
             ],
@@ -928,13 +1167,13 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850c",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group2",
                     "time": "2017-06-01 12:00:00",
                 },
@@ -942,14 +1181,14 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             expected_source_time=datetime.datetime(2017, 6, 1, 12),
             expected_groups=[
                 cls.ExpectedHiFreqData(
-                    name='group1',
+                    name="group1",
                     until=datetime.datetime(2017, 6, 1, 10),
                     first=datetime.datetime(2017, 6, 1, 10),
                     count=1,
                     msg_index_to_payload=0,
                 ),
                 cls.ExpectedHiFreqData(
-                    name='group2',
+                    name="group2",
                     until=datetime.datetime(2017, 6, 1, 12),
                     first=datetime.datetime(2017, 6, 1, 12),
                     count=1,
@@ -962,31 +1201,31 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 11:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850c",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group2",
                     "time": "2017-06-01 12:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75851c",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group2",
                     "time": "2017-06-01 13:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75852b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 14:00:00",
                 },
@@ -994,14 +1233,14 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             expected_source_time=datetime.datetime(2017, 6, 1, 14),
             expected_groups=[
                 cls.ExpectedHiFreqData(
-                    name='group1',
+                    name="group1",
                     until=datetime.datetime(2017, 6, 1, 14),
                     first=datetime.datetime(2017, 6, 1, 10),
                     count=3,
                     msg_index_to_payload=0,
                 ),
                 cls.ExpectedHiFreqData(
-                    name='group2',
+                    name="group2",
                     until=datetime.datetime(2017, 6, 1, 13),
                     first=datetime.datetime(2017, 6, 1, 12),
                     count=2,
@@ -1022,43 +1261,43 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75851b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group2",
                     "time": "2017-06-01 10:15:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75751c",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group2",
                     "time": "2017-06-01 10:30:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 11:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850c",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 12:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75851c",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 13:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75852b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-02 14:00:00",
                 },
@@ -1066,14 +1305,14 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             expected_source_time=datetime.datetime(2017, 6, 2, 14),
             expected_groups=[
                 cls.ExpectedHiFreqData(
-                    name='group1',
+                    name="group1",
                     until=datetime.datetime(2017, 6, 2, 14),
                     first=datetime.datetime(2017, 6, 2, 14),
                     count=1,
                     msg_index_to_payload=6,
                 ),
                 cls.ExpectedHiFreqData(
-                    name='group2',
+                    name="group2",
                     until=datetime.datetime(2017, 6, 1, 10, 30),
                     first=datetime.datetime(2017, 6, 1, 10, 15),
                     count=2,
@@ -1082,7 +1321,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             ],
             expected_buffers=[
                 cls.ExpectedHiFreqData(
-                    name='group1',
+                    name="group1",
                     until=datetime.datetime(2017, 6, 1, 13),
                     first=datetime.datetime(2017, 6, 1, 10),
                     count=4,
@@ -1093,7 +1332,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
 
         # Messages of the "group1" are aggregated until the message
         # newer by more than 12 hours (by default) is processed.
-        #  It triggers publishing of aggregated
+        # It triggers publishing of aggregated
         # messages, and a `HiFreqEventData` for "group1" events
         # is replaced by the new instance.
         # *Important*: aggregated messages of different groups
@@ -1104,43 +1343,43 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 07:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 08:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75751b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group2",
                     "time": "2017-06-01 08:10:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75851b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group2",
                     "time": "2017-06-01 08:30:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850c",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 09:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75851c",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75852b",
-                    "source": "testsource.testchannel",
+                    "source": cls.tested_source_channel,
                     "_group": "group1",
                     "time": "2017-06-01 22:00:01",
                 },
@@ -1148,14 +1387,14 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             expected_source_time=datetime.datetime(2017, 6, 1, 22, 0, 1),
             expected_groups=[
                 cls.ExpectedHiFreqData(
-                    name='group1',
+                    name="group1",
                     until=datetime.datetime(2017, 6, 1, 22, 0, 1),
                     first=datetime.datetime(2017, 6, 1, 22, 0, 1),
                     count=1,
                     msg_index_to_payload=6,
                 ),
                 cls.ExpectedHiFreqData(
-                    name='group2',
+                    name="group2",
                     until=datetime.datetime(2017, 6, 1, 8, 30),
                     first=datetime.datetime(2017, 6, 1, 8, 10),
                     count=2,
@@ -1164,7 +1403,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             ],
             expected_buffers=[
                 cls.ExpectedHiFreqData(
-                    name='group1',
+                    name="group1",
                     until=datetime.datetime(2017, 6, 1, 10),
                     first=datetime.datetime(2017, 6, 1, 7),
                     count=4,
@@ -1260,13 +1499,64 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             expected_inactive_sources=[],
         )
 
-
     def setUp(self):
-        self._aggregator_data_wrapper = AggregatorDataWrapper.__new__(AggregatorDataWrapper)
-        self._aggregator_data_wrapper.time_tolerance = self.sample_time_tolerance
-        self._aggregator_data_wrapper.dbpath = self.sample_db_path
-        self._aggregator_data_wrapper.aggr_data = AggregatorData()
+        self._adw = AggregatorDataWrapper.__new__(AggregatorDataWrapper)
+        self._adw.time_tolerance = self.sample_time_tolerance
+        self._adw.time_tolerance_per_source = self.sample_time_tolerance_per_source
+        self._adw.dbpath = self.sample_db_path
+        self._adw.aggr_data = AggregatorData()
 
+    def test_store_restore_state(self):
+        """
+        Check validity of data stored in Pickle object and saved as temporary files
+        comparing its restored state.
+        """
+        message = {
+            "id": "c4ca4238a0b923820dcc509a6f75852b",
+            "source": self.tested_source_channel,
+            "_group": "group1",
+            "time": "2017-06-01 22:10:00",
+        }
+
+        expected_stored_message = {
+            "id": "c4ca4238a0b923820dcc509a6f75852b",
+            "source": self.tested_source_channel,
+            "_group": "group1",
+            "time": "2017-06-01 22:10:00",
+        }
+
+        self._adw.process_new_message(message)
+        with tempfile.NamedTemporaryFile() as fp:
+            self._adw.dbpath = fp.name
+            # store the state
+            self._adw.store_state()
+            # delete attribute with stored sources
+            del self._adw.aggr_data
+            # check restored state from existing file
+            self._adw.restore_state()
+            self.assertDictEqual(
+                self._adw.aggr_data.sources[self.tested_source_channel].groups[
+                    message["_group"]].payload,
+                expected_stored_message)
+            # assert given path exist
+            self.assertTrue(self._adw.dbpath)
+        # assert the exception is being raised when trying to store
+        # the state, but there is no access to the given path; first,
+        # make sure there actually is no access to the given path
+        tmp_db_path = "/root/example.pickle"
+        if not os.access(tmp_db_path, os.W_OK):
+            with patch.object(self._adw, "dbpath", tmp_db_path):
+                self.assertRaises(IOError, self._adw.store_state())
+        # assert the exception is being raised when trying to restore
+        # the state from nonexistent file; first, safely create
+        # a temporary file, then close and remove it, so the path
+        # most likely does not exist
+        with tempfile.NamedTemporaryFile() as fp:
+            tmp_db_path = fp.name
+        if not os.path.exists(tmp_db_path):
+            with patch.object(self._adw, "dbpath", tmp_db_path), \
+                    self.assertRaisesRegexp(IOError, r"No such file or directory"):
+                self._adw.restore_state()
 
     @foreach(_test_process_new_message_data)
     def test_process_new_message(self, messages, expected_source_time,
@@ -1276,7 +1566,8 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         and `buffer` attributes after processing of consecutive
         messages.
         """
-        with patch('n6.utils.aggregator.datetime') as datetime_mock:
+        test_sources = []
+        with patch("n6.utils.aggregator.datetime") as datetime_mock:
             datetime_mock.datetime.utcnow.return_value = self.mocked_utcnow
             datetime_mock.datetime.side_effect = (lambda *args, **kw:
                                                   datetime.datetime(*args, **kw))
@@ -1287,40 +1578,38 @@ class TestAggregatorDataWrapper(unittest.TestCase):
 
             # actual calls
             for msg in messages:
-                self._aggregator_data_wrapper.process_new_message(msg)
+                self._adw.process_new_message(msg)
+                if msg["source"] not in test_sources:
+                    test_sources.append(msg["source"])
 
-            self.assertIn(
-                'testsource.testchannel',
-                self._aggregator_data_wrapper.aggr_data.sources)
+            for test_source in test_sources:
+                # assertions for the source
+                created_source = self._adw.aggr_data.sources[test_source]
+                self.assertEqual(created_source.last_event, self.mocked_utcnow)
+                self.assertEqual(created_source.time, expected_source_time)
+                self.assertEqual(len(expected_groups), len(created_source.groups))
 
-            # assertions for the source
-            created_source = self._aggregator_data_wrapper.aggr_data.sources[
-                'testsource.testchannel']
-            self.assertEqual(created_source.last_event, self.mocked_utcnow)
-            self.assertEqual(created_source.time, expected_source_time)
-            self.assertEqual(len(expected_groups), len(created_source.groups))
-
-            # assertions for groups
-            for expected_group in expected_groups:
-                self.assertIn(expected_group.name, created_source.groups)
-                created_group = created_source.groups[expected_group.name]
-                self.assertIsInstance(created_group, HiFreqEventData)
-                self.assertEqual(expected_group.until, created_group.until)
-                self.assertEqual(expected_group.first, created_group.first)
-                self.assertEqual(expected_group.count, created_group.count)
-                self.assertEqual(
-                    messages[expected_group.msg_index_to_payload],
-                    created_group.payload)
-                # assertions for potential buffers
-                if expected_buffers:
-                    for expected_buffer in expected_buffers:
-                        created_buffer = created_source.buffer[expected_buffer.name]
-                        self.assertEqual(expected_buffer.until, created_buffer.until)
-                        self.assertEqual(expected_buffer.first, created_buffer.first)
-                        self.assertEqual(expected_buffer.count, created_buffer.count)
-                        self.assertEqual(
-                            messages[expected_buffer.msg_index_to_payload],
-                            created_buffer.payload)
+                # assertions for groups
+                for expected_group in expected_groups:
+                    self.assertIn(expected_group.name, created_source.groups)
+                    created_group = created_source.groups[expected_group.name]
+                    self.assertIsInstance(created_group, HiFreqEventData)
+                    self.assertEqual(expected_group.until, created_group.until)
+                    self.assertEqual(expected_group.first, created_group.first)
+                    self.assertEqual(expected_group.count, created_group.count)
+                    self.assertEqual(
+                        messages[expected_group.msg_index_to_payload],
+                        created_group.payload)
+                    # assertions for potential buffers
+                    if expected_buffers:
+                        for expected_buffer in expected_buffers:
+                            created_buffer = created_source.buffer[expected_buffer.name]
+                            self.assertEqual(expected_buffer.until, created_buffer.until)
+                            self.assertEqual(expected_buffer.first, created_buffer.first)
+                            self.assertEqual(expected_buffer.count, created_buffer.count)
+                            self.assertEqual(
+                                messages[expected_buffer.msg_index_to_payload],
+                                created_buffer.payload)
 
 
     @foreach(_test_generate_suppressed_events_for_source_data)
@@ -1336,44 +1625,41 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         another_source_data = self._get_source_data_for_suppressed_events_tests(
             self.other_source_channel)
         hifreq_new_data = HiFreqEventData(new_message)
-        tested_source_data.groups['group1'] = hifreq_new_data
+        tested_source_data.groups["group1"] = hifreq_new_data
         # `time` attribute should be equal to last message's
         tested_source_data.time = datetime.datetime.strptime(
-            new_message['time'], '%Y-%m-%d %H:%M:%S')
+            new_message["time"], "%Y-%m-%d %H:%M:%S")
         another_source_data.time = datetime.datetime(2017, 6, 1, 10)
         # `last_event` attribute is not relevant for the test
         tested_source_data.last_event = datetime.datetime(2017, 6, 2, 20)
         another_source_data.last_event = datetime.datetime(2017, 6, 2, 20)
-        self._aggregator_data_wrapper.aggr_data.sources[
-            self.tested_source_channel] = tested_source_data
-        self._aggregator_data_wrapper.aggr_data.sources[
-            'othersource.otherchannel'] = another_source_data
+        self._adw.aggr_data.sources[self.tested_source_channel] = tested_source_data
+        self._adw.aggr_data.sources[self.other_source_channel] = another_source_data
 
-        generated_events = list(
-            self._aggregator_data_wrapper.generate_suppresed_events_for_source(new_message))
+        generated_events = list(self._adw.generate_suppresed_events_for_source(new_message))
         self.assertItemsEqual(expected_results, generated_events)
         # new `HiFreqEventData` object of the "group1" should be
         # in `groups` attribute, but not in `buffer` - suppressed
         # event of the "group1" should have been generated
-        self.assertIn('group1', self._aggregator_data_wrapper.aggr_data.sources[
-            self.tested_source_channel].groups)
-        self.assertNotIn('group1', self._aggregator_data_wrapper.aggr_data.sources[
-            self.tested_source_channel].buffer)
+        self.assertIn(
+            "group1", self._adw.aggr_data.sources[self.tested_source_channel].groups)
+        self.assertNotIn(
+            "group1", self._adw.aggr_data.sources[self.tested_source_channel].buffer)
         # if aggregated events of the "group2" were generated, then
         # there should not be any `HiFreqEventData` objects of this
         # group in `groups` nor `buffer` attribute
         if self.group2_expected_suppressed_event in expected_results:
-            self.assertNotIn('group2', self._aggregator_data_wrapper.aggr_data.sources[
-                self.tested_source_channel].groups)
-            self.assertNotIn('group2', self._aggregator_data_wrapper.aggr_data.sources[
-                self.tested_source_channel].buffer)
+            self.assertNotIn(
+                "group2", self._adw.aggr_data.sources[self.tested_source_channel].groups)
+            self.assertNotIn(
+                "group2", self._adw.aggr_data.sources[self.tested_source_channel].buffer)
 
         # check if the other source's elements, for which suppressed
         # events were not generated, are unchanged
-        self.assertIn('group2', self._aggregator_data_wrapper.aggr_data.sources[
-            'othersource.otherchannel'].groups)
-        self.assertIn('group1', self._aggregator_data_wrapper.aggr_data.sources[
-            'othersource.otherchannel'].buffer)
+        self.assertIn(
+            "group2", self._adw.aggr_data.sources[self.other_source_channel].groups)
+        self.assertIn(
+            "group1", self._adw.aggr_data.sources[self.other_source_channel].buffer)
 
 
     @foreach(_test_generate_suppressed_events_after_timeout_data)
@@ -1394,14 +1680,12 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         another_source_data.time = datetime.datetime(2017, 6, 1, 10)
         tested_source_data.last_event = datetime.datetime(2017, 6, 1, 14)
         another_source_data.last_event = datetime.datetime(2017, 6, 1, 20)
-        self._aggregator_data_wrapper.aggr_data.sources[
-            self.tested_source_channel] = tested_source_data
-        self._aggregator_data_wrapper.aggr_data.sources[
-            'othersource.otherchannel'] = another_source_data
+        self._adw.aggr_data.sources[self.tested_source_channel] = tested_source_data
+        self._adw.aggr_data.sources[self.other_source_channel] = another_source_data
 
         source_to_expected_events = self._get_source_to_expected_events_mapping()
 
-        with patch('n6.utils.aggregator.datetime') as datetime_mock:
+        with patch("n6.utils.aggregator.datetime") as datetime_mock:
             datetime_mock.datetime.utcnow.return_value = mocked_utcnow
             datetime_mock.datetime.side_effect = (lambda *args, **kw:
                                                   datetime.datetime(*args, **kw))
@@ -1410,30 +1694,28 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             datetime_mock.timedelta.side_effect = (lambda *args, **kw:
                                                    datetime.timedelta(*args, **kw))
             # actual call
-            generated_events = list(
-                self._aggregator_data_wrapper.generate_suppresed_events_after_timeout())
-            expected_events = [event for source, vals in source_to_expected_events.iteritems() if
-                               source in expected_inactive_sources for event in vals]
+            generated_events = list(self._adw.generate_suppresed_events_after_timeout())
+            expected_events = [event for source, vals in source_to_expected_events.iteritems()
+                               if source in expected_inactive_sources for event in vals]
             self.assertEqual(expected_events, generated_events)
 
             for source in self.sources_tested_for_inactivity:
                 # check if `groups` and `buffers` were cleared
                 # for inactive sources
                 if source in expected_inactive_sources:
-                    self.assertFalse(
-                        self._aggregator_data_wrapper.aggr_data.sources[source].groups)
-                    self.assertFalse(
-                        self._aggregator_data_wrapper.aggr_data.sources[source].buffer)
+                    self.assertFalse(self._adw.aggr_data.sources[source].groups)
+                    self.assertFalse(self._adw.aggr_data.sources[source].buffer)
                 # make sure `groups` and `buffers` were intact
                 # for still active sources
                 else:
-                    self.assertTrue(self._aggregator_data_wrapper.aggr_data.sources[source].groups)
-                    self.assertTrue(self._aggregator_data_wrapper.aggr_data.sources[source].buffer)
+                    self.assertTrue(self._adw.aggr_data.sources[source].groups)
+                    self.assertTrue(self._adw.aggr_data.sources[source].buffer)
 
 
     # helper methods
     def _get_source_data_for_suppressed_events_tests(self, source_name):
-        source_data = SourceData(self.sample_time_tolerance)
+        source_data = SourceData(self._get_time_tolerance_from_source(source_name))
+
         group1_hifreq_buffered_data = HiFreqEventData.__new__(HiFreqEventData)
         group1_hifreq_buffered_data.payload = {
             "id": "c4ca4238a0b923820dcc509a6f75849b",
@@ -1444,7 +1726,8 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         group1_hifreq_buffered_data.first = datetime.datetime(2017, 6, 1, 7)
         group1_hifreq_buffered_data.until = datetime.datetime(2017, 6, 1, 9)
         group1_hifreq_buffered_data.count = 5
-        source_data.buffer['group1'] = group1_hifreq_buffered_data
+        source_data.buffer["group1"] = group1_hifreq_buffered_data
+
         group2_hifreq_data = HiFreqEventData.__new__(HiFreqEventData)
         group2_hifreq_data.payload = {
             "id": "c4ca4238a0b923820dcc509a6f75849c",
@@ -1455,7 +1738,8 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         group2_hifreq_data.until = datetime.datetime(2017, 6, 1, 10)
         group2_hifreq_data.first = datetime.datetime(2017, 6, 1, 8)
         group2_hifreq_data.count = 4
-        source_data.groups['group2'] = group2_hifreq_data
+        source_data.groups["group2"] = group2_hifreq_data
+
         group3_payload = {
             "id": "c4ca4238a0b923820dcc509a6f75849d",
             "source": source_name,
@@ -1463,17 +1747,17 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             "time": "2017-06-01 07:30:00",
         }
         group3_hifreq_data = HiFreqEventData(group3_payload)
-        source_data.groups['group3'] = group3_hifreq_data
-        return source_data
+        source_data.groups["group3"] = group3_hifreq_data
 
+        return source_data
 
     def _get_source_to_expected_events_mapping(self):
         group1_other_source_payload = self.group1_expected_suppressed_payload.copy()
-        group1_other_source_payload['source'] = self.other_source_channel
-        group1_other_source_event = ('suppressed', group1_other_source_payload)
+        group1_other_source_payload["source"] = self.other_source_channel
+        group1_other_source_event = ("suppressed", group1_other_source_payload)
         group2_other_source_payload = self.group2_expected_suppressed_payload.copy()
-        group2_other_source_payload['source'] = self.other_source_channel
-        group2_other_source_event = ('suppressed', group2_other_source_payload)
+        group2_other_source_payload["source"] = self.other_source_channel
+        group2_other_source_event = ("suppressed", group2_other_source_payload)
         group3_other_source_event = self.group3_expected_suppressed_event
         return {
             self.tested_source_channel: [
@@ -1488,19 +1772,26 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             ],
         }
 
+    def _get_time_tolerance_from_source(self, source):
+        return self.sample_time_tolerance_per_source.get(source) or self.sample_time_tolerance
 
 
 class TestAggregatorData(unittest.TestCase):
 
-    sample_source = 'testsource.testchannel'
-    sample_other_source = 'othersource.otherchannel'
+    sample_source = "testsource.testchannel"
+    sample_other_source = "othersource.otherchannel"
+    sample_group = "group1"
+    sample_other_group = "group2"
     sample_time_tolerance = 500
+    sample_time_tolerance_per_source = {
+        sample_other_source: 1000,
+    }
 
     groups_hifreq_data = HiFreqEventData(
         {
             "id": "c4ca4238a0b923820dcc509a6f75849c",
             "source": sample_source,
-            "_group": "group1",
+            "_group": sample_group,
             "time": "2017-06-02 12:00:00",
         }
     )
@@ -1508,61 +1799,62 @@ class TestAggregatorData(unittest.TestCase):
         {
             "id": "c4ca4238a0b923820dcc509a6f75849b",
             "source": sample_source,
-            "_group": "group1",
+            "_group": sample_group,
             "time": "2017-06-01 10:00:00",
         }
     )
-    buffer_hifreq_data.count = 4
-    new_event_new_source_payload = {
-        "id": "c4ca4238a0b923820dcc509a6f75851d",
-        "source": sample_other_source,
-        "_group": "group1",
-        "time": "2017-05-01 12:00:00",
-    }
-    new_event_existing_source_payload = {
-        "id": "c4ca4238a0b923820dcc509a6f75860f",
-        "source": sample_source,
-        "_group": "group2",
-        "time": "2017-05-01 12:00:00",
-    }
-
 
     def setUp(self):
         self._aggregator_data = AggregatorData()
-        self._sample_source_data = SourceData(500)
+        self._sample_source_data = SourceData(self.sample_time_tolerance)
         self._sample_source_data.time = datetime.datetime(2017, 6, 2, 12)
         self._sample_source_data.last_event = datetime.datetime(2017, 6, 2, 13)
-        self._sample_source_data.groups['group1'] = self.groups_hifreq_data
-        self._sample_source_data.buffer['group1'] = self.buffer_hifreq_data
+        self._sample_source_data.groups[self.sample_group] = self.groups_hifreq_data
+        self._sample_source_data.buffer[self.sample_group] = self.buffer_hifreq_data
         self._aggregator_data.sources[self.sample_source] = self._sample_source_data
-
 
     def test_create_new_source_data(self):
         source_data = self._aggregator_data.get_or_create_sourcedata(
-            self.new_event_new_source_payload)
+            {
+                "id": "c4ca4238a0b923820dcc509a6f75851d",
+                "source": self.sample_other_source,
+                "_group": self.sample_group,
+                "time": "2017-05-01 12:00:00",
+            },
+            self._get_time_tolerance_from_source(self.sample_other_source))
         self.assertIsInstance(source_data, SourceData)
         self.assertEqual(source_data.time, None)
         self.assertEqual(source_data.last_event, None)
         self.assertFalse(source_data.groups)
         self.assertFalse(source_data.buffer)
-        self.assertEqual(source_data.time_tolerance,
-                         datetime.timedelta(seconds=DEFAULT_TIME_TOLERANCE))
+        self.assertEqual(
+            source_data.time_tolerance,
+            datetime.timedelta(seconds=self._get_time_tolerance_from_source(
+                self.sample_other_source)))
         self.assertIs(source_data, self._aggregator_data.sources[self.sample_other_source])
-
 
     def test_get_existing_source_data(self):
         source_data = self._aggregator_data.get_or_create_sourcedata(
-            self.new_event_existing_source_payload,
-            time_tolerance=self.sample_time_tolerance)
+            {
+                "id": "c4ca4238a0b923820dcc509a6f75860f",
+                "source": self.sample_source,
+                "_group": self.sample_other_group,
+                "time": "2017-05-01 12:00:00",
+            },
+            self._get_time_tolerance_from_source(self.sample_other_source))
         self.assertIsInstance(source_data, SourceData)
         self.assertEqual(source_data.time, self._sample_source_data.time)
         self.assertEqual(source_data.last_event, self._sample_source_data.last_event)
-        self.assertEqual(source_data.time_tolerance,
-                         datetime.timedelta(seconds=self.sample_time_tolerance))
-        self.assertIn('group1', source_data.groups)
-        self.assertIn('group1', source_data.buffer)
+        self.assertEqual(
+            source_data.time_tolerance,
+            datetime.timedelta(seconds=self._get_time_tolerance_from_source(self.sample_source)))
+        self.assertIn(self.sample_group, source_data.groups)
+        self.assertIn(self.sample_group, source_data.buffer)
         self.assertEqual(1, len(source_data.groups))
         self.assertEqual(1, len(source_data.buffer))
-        self.assertEqual(self.groups_hifreq_data, source_data.groups['group1'])
-        self.assertEqual(self.buffer_hifreq_data, source_data.buffer['group1'])
+        self.assertEqual(self.groups_hifreq_data, source_data.groups[self.sample_group])
+        self.assertEqual(self.buffer_hifreq_data, source_data.buffer[self.sample_group])
         self.assertIs(source_data, self._aggregator_data.sources[self.sample_source])
+
+    def _get_time_tolerance_from_source(self, source):
+        return self.sample_time_tolerance_per_source.get(source) or self.sample_time_tolerance

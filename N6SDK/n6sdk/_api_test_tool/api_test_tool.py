@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2013-2016 NASK. All rights reserved.
+# Copyright (c) 2015-2021 NASK. All rights reserved.
 
 """
 This tool is a part of *n6sdk*.  It can analyse and verify an
@@ -9,14 +9,13 @@ and report any non-standard keys or "extra" result data.
 """
 
 import argparse
-import ConfigParser
+import configparser
+import json
 import random
 import sys
 from collections import defaultdict
-from urllib import urlencode
-from urlparse import urlparse
+from urllib.parse import urlencode, urlparse
 
-import cjson
 import requests
 import requests.packages.urllib3
 from pkg_resources import Requirement, resource_filename, cleanup_resources
@@ -30,18 +29,19 @@ from n6sdk._api_test_tool.validator_exceptions import (
 )
 
 
-def get_config_base_lines():
+def iter_config_base_lines():
     try:
         filename = resource_filename(Requirement.parse('n6sdk'),
                                      'n6sdk/_api_test_tool/config_base.ini')
-        with open(filename) as f:
-            return f.read().splitlines()
+        with open(filename, 'rb') as f:
+            for line in f.read().splitlines():
+                yield line.decode('utf-8')
     finally:
         cleanup_resources()
 
 def get_config(path):
-    config = ConfigParser.RawConfigParser()
-    config.read(path)
+    config = configparser.RawConfigParser()
+    config.read(path, encoding='utf-8')
     conf_dict = {}
     for section in config.sections():
         for key, value in config.items(section):
@@ -62,10 +62,10 @@ def make_url(url, constant_params, optional_params=None, renderer='sjson'):
     '''
     query = urlencode(constant_params)
     if not optional_params:
-        return "{0}?{1}".format(url, query)
+        return u"{0}?{1}".format(url, query)
     else:
         options = urlencode(optional_params)
-        return "{0}?{1}&{2}".format(url, query, options)
+        return u"{0}?{1}&{2}".format(url, query, options)
 
 def main():
     requests.packages.urllib3.disable_warnings()  # to turn off InsecureRequestWarning
@@ -86,8 +86,8 @@ def main():
     args = parser.parse_args()
 
     if args.generate_config:
-        for line in get_config_base_lines():
-            print line  # using OS-specific newlines
+        for line in iter_config_base_lines():
+            print(line)  # using OS-specific newlines
         sys.exit(0)
 
     config_handler, config = get_config(args.config)
@@ -112,7 +112,7 @@ def main():
 
     # Prepare data range sets for each key of returned json objects
     data_range = defaultdict(set)
-    composed_keys = set([u'address', u'client', u'injects'])
+    composed_keys = {u'address', u'client', u'injects'}
     additional_attributes = set([])
 
     report.info('Inferring data structure model + testing basic compliance', 1)
@@ -121,9 +121,9 @@ def main():
     try:
         response = client.get_stream(data_url)
         for data in response:
-            for key, val in data.viewitems():
+            for key, val in data.items():
                 if key in composed_keys:
-                    val = cjson.encode(val)
+                    val = json.dumps(val)
                 try:
                     data_range[key].add(val)
                 except TypeError:
@@ -156,9 +156,11 @@ def main():
 
     report.section("Testing a query with two random LEGAL params", 2)
     MAX_RETRY = 100
-    optional_params_keys = set(data_range.viewkeys()) - set(constant_params)
+    something_processed = False
+    test_legal_ok = True
+    optional_params_keys = data_range.keys() - constant_params.keys()
     optional_params_keys = ds_test.all_param_keys.intersection(optional_params_keys)
-    for i in xrange(MAX_RETRY):
+    for _ in range(MAX_RETRY):
         rand_keys = random.sample(optional_params_keys, 2)
         rand_vals = (random.sample(data_range[val], 1)[0] for val in rand_keys)
         optional_params = dict(zip(rand_keys, rand_vals))
@@ -172,7 +174,7 @@ def main():
                     something_processed = True
                     if args.verbose:
                         report.info('Testing URL: "{}"'.format(legal_query_url), 2)
-                for key, val in record.viewitems():
+                for key, val in record.items():
                     if key in optional_params and val != optional_params[key]:
                         report.error('Wrong filtering result with query: {}'.format(
                             optional_params), 2)
@@ -196,12 +198,12 @@ def main():
 
     report.section("Testing queries with ILLEGAL params", 3)
     illegal_query_urls = []
-    illegal_keys = data_range.viewkeys() - ds_test.all_param_keys - composed_keys
+    illegal_keys = data_range.keys() - ds_test.all_param_keys - composed_keys
     illegal_keys = illegal_keys.difference(additional_attributes)
     illegal_vals = (random.sample(data_range[val], 1)[0] for val in illegal_keys)
     illegal_params = dict(zip(illegal_keys, illegal_vals))
 
-    for key, val in illegal_params.viewitems():
+    for key, val in illegal_params.items():
         illegal_query_urls.append(make_url(base_url, constant_params, {key: val}))
 
     test_illegal_ok = True
@@ -213,15 +215,17 @@ def main():
             for record in filtered_illegal:
                 pass
             code = client.status()
+            exc_msg = '<no exception>'
         except APIClientException as e:
             code = getattr(e, 'code', None)
+            exc_msg = str(e)
         if code == requests.codes.bad_request:
             if args.verbose:
-                report.info("OK, proper behaviour: {}".format(e), 3)
+                report.info("OK, proper behaviour: {}".format(exc_msg), 3)
         else:
             test_illegal_ok = False
             if code is None:
-                report.error("Connection exception: {}".format(e), 3)
+                report.error("Connection exception: {}".format(exc_msg), 3)
             else:
                 report.error("Wrong response code: {}, should be: 400 (Bad Request).".format(
                     code), 3)
@@ -247,7 +251,7 @@ def main():
         try:
             filtered_legal = client.get_stream(legal_query_url)
             for record in filtered_legal:
-                for key, val in record.viewitems():
+                for key, val in record.items():
                     if key in opt_param and val != opt_param[key]:
                         report.error('Wrong filtering result with query: {}'.format(
                             opt_param), 4)
@@ -276,7 +280,7 @@ def main():
         try:
             filtered_legal = client.get_stream(legal_query_url)
             for record in filtered_legal:
-                for key, val in record.viewitems():
+                for key, val in record.items():
                     if key in opt_param and val != opt_param[key]:
                         report.error('Wrong filtering result with query: {}'.format(
                             opt_param), 5)

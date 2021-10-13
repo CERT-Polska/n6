@@ -1,0 +1,239 @@
+.login-container,
+.forgot-password-container,
+.reset-password-container {
+  background-color: #fff;
+  @include box-border;
+  padding: sizeToRem(80) 0 sizeToRem(44);
+  width: 100%;
+  min-height: 100vh;
+
+  @include media-breakpoint-up(md) {
+    @media (orientation: portrait) {
+      width: sizeToRem(600);
+      max-width: 100%;
+      min-height: auto;
+      margin: sizeToRem(80) auto sizeToRem(60);
+    }
+  }
+  @include media-breakpoint-up(lg) {
+    width: sizeToRem(600);
+    max-width: 100%;
+    min-height: auto;
+    margin: sizeToRem(64) auto sizeToRem(60);
+  }
+}
+
+.login-container.mfa {
+  padding: sizeToRem(44) 0 sizeToRem(30);
+}
+
+.login-content,
+.forgot-password-content,
+.reset-password-content {
+  position: relative;
+  max-width: sizeToRem(430);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 sizeToRem(16);
+}
+
+.login-content {
+  &.mfa {
+    max-width: sizeToRem(510);
+    word-break: break-all;
+    word-break: break-word;
+  }
+
+  &.mfa-config-summary .loader-wrapper {
+    background: white;
+
+    .loader-circle::before,
+    .loader-circle::after {
+      background: white;
+    }
+  }
+
+  @include media-breakpoint-up(sm) {
+    &.mfa-config-summary {
+      padding: 0;
+      max-width: sizeToRem(478);
+    }
+  }
+}
+
+.login-signup {
+  align-self: stretch;
+}
+
+.login-logo,
+.forgot-password-logo,
+.reset-password-logo {
+  margin-bottom: sizeToRem(56);
+  svg {
+    width: sizeToRem(212);
+  }
+
+  &.mfa {
+    margin-bottom: sizeToRem(44);
+    svg {
+      width: sizeToRem(160);
+    }
+  }
+}
+
+.login-section-title {
+  align-self: start;
+  margin-bottom: sizeToRem(20);
+
+  &.login-mfa-title {
+    text-align: center;
+    margin-bottom: sizeToRem(50);
+  }
+}
+
+.login-form,
+.mfa-config-form,
+.forgot-password-form,
+.reset-password-form {
+  .form-group {
+    margin-bottom: sizeToRem(4);
+  }
+}
+
+.login-forgot-password {
+  display: block;
+  text-align: center;
+  margin-top: sizeToRem(20);
+  font-weight: 500;
+}
+
+.mfa-config-step-wrapper {
+  width: 100%;
+  background: rgba($dark-lighter, 0.078);
+  padding: sizeToRem(20);
+  margin-bottom: sizeToRem(16);
+
+  p:last-of-type {
+    margin: 0;
+  }
+}
+
+.mfa-config-qrcode-wrapper {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: sizeToRem(30);
+
+  p {
+    margin: 0;
+    word-break: break-all;
+    margin-bottom: sizeToRem(8);
+    text-align: center;
+  }
+
+  @include media-breakpoint-up(sm) {
+    margin: 0;
+  }
+}
+
+.mfa-config-qr-code {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: sizeToRem(212);
+  height: sizeToRem(212);
+  margin-left: sizeToRem(-15);
+
+  canvas {
+    max-width: 100%;
+    max-height: 100%;
+  }
+  .qr-code-placeholder-wrapper {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    padding: sizeToRem(15);
+  }
+  .qr-code-placeholder {
+    border-radius: sizeToRem(5);
+    padding: sizeToRem(8);
+    display: flex;
+    text-align: center;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    background-color: $dark;
+    color: white;
+  }
+}
+
+.mfa-config-form-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.login-icon,
+.reset-password-icon,
+.forgot-password-icon {
+  color: rgba($dark-lighter, 0.3);
+  margin-bottom: sizeToRem(50);
+
+  svg {
+    width: sizeToRem(170);
+    height: sizeToRem(170);
+  }
+}
+
+.config-mfa-summary,
+.login-mfa-summary,
+.forgot-password-summary,
+.reset-password-summary {
+  text-align: center;
+
+  h1 {
+    margin-bottom: sizeToRem(14);
+  }
+  p {
+    font-size: sizeToRem(18);
+    color: $dark-lighter;
+    margin-bottom: sizeToRem(40);
+  }
+  .n6-button {
+    min-width: sizeToRem(130);
+  }
+}
+
+.reset-password-summary.error h1 {
+  margin-bottom: sizeToRem(40);
+  @include media-breakpoint-up(sm) {
+    min-width: sizeToRem(410);
+  }
+}
+
+.reset-password-form-wrapper {
+  width: 100%;
+
+  .form-group:first-of-type {
+    margin-bottom: sizeToRem(8);
+  }
+}
+
+.reset-password-form-diff-wrapper {
+  color: $danger;
+  height: sizeToRem(18);
+  margin-bottom: sizeToRem(16);
+  text-align: center;
+
+  p {
+    margin: 0;
+  }
+}

@@ -1,10 +1,5 @@
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2018-2021 NASK. All rights reserved.
 
-# For some code in this module:
-# Copyright (C) 2005-2020 the SQLAlchemy authors and contributors
-# (For more information -- see comments...)
-
-import collections
 import contextlib
 import copy
 
@@ -52,6 +47,7 @@ class SQLAuthDBConfigMixin(ConfigMixin):
         # (without any escaping!)
 
         # should be significantly greater than `pool_recycle` defined below
+        # (see the next config section)
         wait_timeout = 7200
         ...
 
@@ -59,6 +55,7 @@ class SQLAuthDBConfigMixin(ConfigMixin):
         [{config_section_connection_pool}]
 
         # (see: SQLAlchemy docs)
+        pool_pre_ping = true :: bool
         pool_recycle = 3600 :: int
         pool_timeout = 20 :: int
         pool_size = 15 :: int
@@ -88,14 +85,23 @@ class SQLAuthDBConfigMixin(ConfigMixin):
         # (<variable name (str)>, <variable value (str)>)
 
         # see: https://mariadb.com/kb/en/library/sql-mode/
-        ('sql_mode', ("'STRICT_ALL_TABLES"  # <- similar, but rather more strict, than default
-                                            #    for >= MariaDB 10.2.4 (`STRICT_TRANS_TABLES`)
+        ('sql_mode', ("'STRICT_ALL_TABLES"  # <- similar to, but rather more strict, than the
+                                            # default for >= MariaDB 10.2.4 (`STRICT_TRANS_TABLES`)
                       ",ERROR_FOR_DIVISION_BY_ZERO"  # <- default restriction for >= MariaDB 10.2.4
                       ",NO_AUTO_CREATE_USER"         # <- default restriction for >= MariaDB 10.1.7
                       ",NO_ENGINE_SUBSTITUTION"      # <- default restriction for >= MariaDB 10.1.7
                       ",NO_ZERO_DATE"                # <- non-default restriction
                       ",NO_ZERO_IN_DATE"             # <- non-default restriction
                       "'")),
+
+        # see: https://mariadb.com/kb/en/datetime/#time-zones
+        # (in particular, the sentence: "MariaDB validates DATETIME
+        # literals against the session's time zone. For example, if a
+        # specific time range never occurred in a specific time zone
+        # due to daylight savings time, then DATETIME values within
+        # that range would be invalid for that time zone."
+        # -- we do *not* want that, so let's set UTC+00:00 and be safe!)
+        ('time_zone', "'+00:00'"),
     )
 
     isolation_level = 'SERIALIZABLE'
@@ -124,12 +130,19 @@ class SQLAuthDBConfigMixin(ConfigMixin):
         self.engine = self.make_db_engine()
         self._dialect_specific_quote = self._make_dialect_specific_quote()
         self._install_session_variables_setter()
-        self._install_reconnector()
 
     def make_db_engine(self, url_overwrite_attrs=None):
         url = self._get_db_url(url_overwrite_attrs)
         create_engine_kwargs = self._get_create_engine_kwargs()
         return sqlalchemy.create_engine(url, **create_engine_kwargs)
+
+    def get_db_url_string(self):
+        url_string = self.config[self.config_section]['url']
+        if not url_string.startswith(self.SUPPORTED_URL_PREFIXES):
+            raise ValueError(
+                'database URL {!a} specifies unsupported '
+                'dialect+driver'.format(url_string))
+        return url_string
 
     def get_ssl_related_create_engine_kwargs(self):
         opts = self.config[self.config_section]
@@ -146,6 +159,12 @@ class SQLAuthDBConfigMixin(ConfigMixin):
             if opts['ssl_key'].lower() != 'none'
             else {})
 
+    # method to be used rather only when multiple short-lived
+    # instances are used (especially, in test suites); see also:
+    # https://docs.sqlalchemy.org/en/latest/core/connections.html#engine-disposal
+    def dispose_engine(self):
+        self.engine.dispose()
+
     # utility method (may be useful in subclasses or their client code)
     def quote_sql_identifier(self, sql_identifier):
         return self._dialect_specific_quote(sql_identifier)
@@ -159,53 +178,46 @@ class SQLAuthDBConfigMixin(ConfigMixin):
         return dialect.preparer(dialect).quote
 
     def _get_db_url(self, url_overwrite_attrs):
-        url_string = self._get_db_url_string()
+        url_string = self.get_db_url_string()
         url = self._make_db_url(url_string, url_overwrite_attrs)
         assert isinstance(url, URL)
         return url
-
-    def _get_db_url_string(self):
-        url_string = self.config[self.config_section]['url']
-        if not url_string.startswith(self.SUPPORTED_URL_PREFIXES):
-            raise ValueError(
-                'database URL {!r} specifies unsupported '
-                'dialect+driver'.format(url_string))
-        return url_string
 
     def _make_db_url(self, url_string, url_overwrite_attrs):
         url = make_url(url_string)
         assert isinstance(url, URL)
         if url_overwrite_attrs is not None:
-            for attr_name, attr_value in url_overwrite_attrs.iteritems():
+            for attr_name, attr_value in url_overwrite_attrs.items():
                 setattr(url, attr_name, attr_value)
         return url
 
     def _get_create_engine_kwargs(self):
         create_engine_kwargs = dict(isolation_level=self.isolation_level,
-                                    connect_args=dict(use_unicode=0,
-                                                      charset=MYSQL_CHARSET),
-                                    convert_unicode=True,
-                                    encoding='utf-8')
+                                    connect_args=dict(charset=MYSQL_CHARSET,
+                                                      use_unicode=True,
+                                                      binary_prefix=True))
         update_mapping_recursively(create_engine_kwargs,
                                    self.get_ssl_related_create_engine_kwargs(),
                                    self.config[self.config_section_connection_pool])
         return create_engine_kwargs
 
     def _install_session_variables_setter(self):
-        session_variables = collections.OrderedDict(self.constant_session_variables)
+        session_variables = dict(self.constant_session_variables)
         session_variables.update(
-            sorted(self.config[self.config_section_session_variables].iteritems()))
+            sorted(self.config[self.config_section_session_variables].items()))
 
         setter_sql = 'SET ' + ' , '.join(
             'SESSION {} = {}'.format(name, value)
-            for name, value in session_variables.iteritems())
+            for name, value in session_variables.items())
 
         @sqlalchemy.event.listens_for(self.engine, 'connect')
-        def set_session_variable(dbapi_connection, connection_record):
+        def set_session_variables(dbapi_connection, connection_record):
             """
-            Execute "SET SESSION <var1> = <val1>, ..." to set the
-            variables specified by the `constant_session_variables`
-            attribute and in the appropriate configuration section.
+            Execute
+            "SET SESSION <var1> = <val1>, SESSION <var2> = <val2>, ..."
+            to set the variables specified with the attribute
+            `constant_session_variables` and those specified
+            in the appropriate configuration section.
 
             To be called automatically whenever a new low-level
             connection to the database is established.
@@ -216,31 +228,8 @@ class SQLAuthDBConfigMixin(ConfigMixin):
             object attributes, of course) as a *trusted* source of
             data.
             """
-            cursor = dbapi_connection.cursor()
-            try:
+            with dbapi_connection.cursor() as cursor:
                 cursor.execute(setter_sql)
-                cursor.execute('COMMIT')
-            finally:
-                cursor.close()
-
-    # TODO after SQLAlchemy upgrade to 1.2+:
-    # * add `pool_pre_ping = true :: bool` to config
-    # * remove this method and the copyright note concerning this method...
-    def _install_reconnector(self):
-        # copied from:
-        # http://docs.sqlalchemy.org/en/rel_0_9/core/pooling.html#disconnect-handling-pessimistic
-        # and slightly adjusted
-        @sqlalchemy.event.listens_for(sqlalchemy.pool.Pool, "checkout")
-        def ping_connection(dbapi_connection, connection_record, connection_proxy):
-            cursor = dbapi_connection.cursor()
-            try:
-                cursor.execute("SELECT 1")
-            except Exception:
-                # dispose the whole pool instead of invalidating one at a time
-                connection_proxy._pool.dispose()
-                # pool will try connecting again up to three times before giving up
-                raise sqlalchemy.exc.DisconnectionError()
-            cursor.close()
 
 
 
@@ -259,7 +248,7 @@ class SQLAuthDBConnector(SQLAuthDBConfigMixin):
             db_host, db_name, db_user, db_password,
             settings, config_section)
         self.context_deposit = ThreadLocalContextDeposit(
-            repr_token=self.__class__.__name__,
+            repr_token=self.__class__.__qualname__,
             attr_factories={'audit_log_external_meta_items': dict})
         self.db_session_factory = None  # to be set in configure_db()
         self._audit_log = None          # to be set in configure_db()
@@ -292,12 +281,12 @@ class SQLAuthDBConnector(SQLAuthDBConfigMixin):
     def _verify_args_for_connection(self, **kwargs):
         if kwargs['db_host'] and kwargs['db_name'] and kwargs['db_user']:
             return True
-        incorrectly_specified_args = {name: val for name, val in kwargs.iteritems() if val}
+        incorrectly_specified_args = {name: val for name, val in kwargs.items() if val}
         if incorrectly_specified_args:
-            args_repr = ', '.join('{}={!r}'.format(name, val)
-                                  for name, val in incorrectly_specified_args.iteritems())
+            args_repr = ', '.join('{}={!a}'.format(name, val)
+                                  for name, val in incorrectly_specified_args.items())
             raise TypeError(
-                '{!r}\'s constructor: *either* the `db_host`, `db_name` '
+                '{!a}\'s constructor: *either* the `db_host`, `db_name` '
                 'and `db_user` arguments, plus optionally `db_password`, '
                 'should be given (as non-empty strings), *or* none of '
                 'them! (got: {})'.format(self, args_repr))

@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import json
 import logging
@@ -12,8 +10,8 @@ import threading
 import time
 import types
 import unittest
+from unittest.mock import ANY, MagicMock, call, patch, sentinel
 
-from mock import ANY, MagicMock, call, patch, sentinel
 from unittest_expander import expand, foreach, param
 
 from n6lib.amqp_getters_pushers import DoNotPublish
@@ -24,7 +22,6 @@ from n6lib.log_helpers import (
     AMQPHandler,
     configure_logging,
     get_logger,
-    _security_logging_config_monkeypatched_eval,
 )
 
 
@@ -34,6 +31,10 @@ class Test_monkeypached_Formatter_formats_utc_time(unittest.TestCase):
     # note: Formatter is monkey-patched when n6lib is being imported
     # [see: the n6lib.log_helpers.early_Formatter_class_monkeypatching()
     # function and its call in n6lib/__init__.py]
+
+    # TODO: cover also possibilities of:
+    #   * customized `Formatter.default_time_format`
+    #   * customized `Formatter.default_msec_format`
 
     @foreach(
         param(
@@ -172,8 +173,6 @@ class Test__configure_logging(unittest.TestCase):
                          [call(self.etc_path),
                           call(self.user_path)])
         self.assertFalse(mocked__fileConfig.called),
-        self.assertIs(mocked__logging.config.eval,
-                      _security_logging_config_monkeypatched_eval)
         # and when repeated...
         mocked__try_reading.reset_mock()
         with self.assertRaises(RuntimeError):
@@ -200,8 +199,6 @@ class Test__configure_logging(unittest.TestCase):
         self.assertEqual(mocked__fileConfig.call_args_list,
                          [call(self.etc_path,
                                disable_existing_loggers=False)])
-        self.assertIs(mocked__logging.config.eval,
-                      _security_logging_config_monkeypatched_eval)
         # and when repeated...
         mocked__fileConfig.reset_mock()
         mocked__try_reading.reset_mock()
@@ -228,8 +225,6 @@ class Test__configure_logging(unittest.TestCase):
         self.assertEqual(mocked__fileConfig.call_args_list,
                          [call(self.user_path,
                                disable_existing_loggers=False)])
-        self.assertIs(mocked__logging.config.eval,
-                      _security_logging_config_monkeypatched_eval)
         # and when repeated...
         mocked__fileConfig.reset_mock()
         mocked__try_reading.reset_mock()
@@ -257,8 +252,6 @@ class Test__configure_logging(unittest.TestCase):
                                disable_existing_loggers=False),
                           call(self.user_path,
                                disable_existing_loggers=False)])
-        self.assertIs(mocked__logging.config.eval,
-                      _security_logging_config_monkeypatched_eval)
         # and when repeated...
         mocked__fileConfig.reset_mock()
         mocked__try_reading.reset_mock()
@@ -285,8 +278,6 @@ class Test__configure_logging(unittest.TestCase):
                                disable_existing_loggers=False),
                           call(self.user_path_suffixed,
                                disable_existing_loggers=False)])
-        self.assertIs(mocked__logging.config.eval,
-                      _security_logging_config_monkeypatched_eval)
         # and when repeated...
         mocked__fileConfig.reset_mock()
         mocked__try_reading.reset_mock()
@@ -315,8 +306,6 @@ class Test__configure_logging(unittest.TestCase):
                                disable_existing_loggers=False),
                           call(self.user_path,
                                disable_existing_loggers=False)])
-        self.assertIs(mocked__logging.config.eval,
-                      _security_logging_config_monkeypatched_eval)
         # and then repeated with suffixes...
         mocked__fileConfig.reset_mock()
         mocked__try_reading.reset_mock()
@@ -350,8 +339,6 @@ class Test__configure_logging(unittest.TestCase):
         self.assertEqual(mocked__fileConfig.call_args_list,
                          [call(self.etc_path,
                                disable_existing_loggers=False)])
-        self.assertIs(mocked__logging.config.eval,
-                      _security_logging_config_monkeypatched_eval)
         # and when repeated...
         mocked__try_reading.reset_mock()
         mocked__fileConfig.reset_mock()
@@ -383,8 +370,6 @@ class Test__configure_logging(unittest.TestCase):
                                disable_existing_loggers=False),
                           call(self.user_path,
                                disable_existing_loggers=False)])
-        self.assertIs(mocked__logging.config.eval,
-                      _security_logging_config_monkeypatched_eval)
         # and when repeated...
         mocked__try_reading.reset_mock()
         mocked__fileConfig.reset_mock()
@@ -428,15 +413,14 @@ class _AMQPHandlerTestCaseMixin(TestCaseMixin):
             u'asctime': ANY,
             u'relativeCreated': ANY,
             u'thread': threading.current_thread().ident,
-            u'threadName': unicode(threading.current_thread().name),
+            u'threadName': str(threading.current_thread().name),
             u'processName': ANY,
             u'process': os.getpid(),
             u'py_ver': u'.'.join(map(str, sys.version_info)),
             u'py_64bits': (sys.maxsize > 2 ** 32),
-            u'py_ucs4': (sys.maxunicode > 0xffff),
-            u'py_platform': unicode(sys.platform),
-            u'hostname': unicode(cls.get_hostname()),
-            u'script_basename': unicode(cls.get_script_basename()),
+            u'py_platform': str(sys.platform),
+            u'hostname': str(cls.get_hostname()),
+            u'script_basename': str(cls.get_script_basename()),
         }
         items.update(custom_items)
         return items
@@ -501,6 +485,7 @@ class TestAMQPHandler_cooperation_with_real_logger(_AMQPHandlerTestCaseMixin, un
             raise ValueError('hahaha ć')
         except ValueError:
             self.logger.error('Oh! Error:', exc_info=True)
+        self.logger.info('Oh! Stack info provided:', stack_info=True)
 
         time.sleep(0.2)
 
@@ -519,10 +504,18 @@ class TestAMQPHandler_cooperation_with_real_logger(_AMQPHandlerTestCaseMixin, un
                 properties=ANY,
                 mandatory=False,
             ),
+            call(
+                exchange='logging',
+                routing_key=self.rk_template.format(levelname='INFO'),
+                body=ANY,
+                properties=ANY,
+                mandatory=False,
+            ),
         ])
-        (_, _, kwargs1), (_, _, kwargs2) = self.channel_mock.basic_publish.mock_calls
+        ((_, _, kwargs1),
+         (_, _, kwargs2),
+         (_, _, kwargs3)) = self.channel_mock.basic_publish.mock_calls
 
-        self.maxDiff = None
         self.assertJsonEqual(kwargs1['body'], dict(
             self.constant_log_record_items,
             message='Spam 12345',
@@ -547,22 +540,46 @@ class TestAMQPHandler_cooperation_with_real_logger(_AMQPHandlerTestCaseMixin, un
             exc_type_repr=repr(ValueError),
             exc_ascii_str='hahaha \\u0107',
             exc_text=ANY,
-            formatted_call_stack=ANY,  # <- only for errors
+            formatted_call_stack=ANY,  # <- by default, only for errors
         ))
         kwargs2_body = json.loads(kwargs2['body'])
-        self.assertRegexpMatches(
+        self.assertRegex(
             kwargs2_body['exc_text'],
             r'^Traceback \(most recent call last\):\n  File',
         )
-        self.assertRegexpMatches(
+        self.assertRegex(
             kwargs2_body['formatted_call_stack'],
-            r'^  File ',
+            r'^Stack \(most recent call last\):\n  File',
         )
         self.assertEqual(
             kwargs2_body['formatted_call_stack'].splitlines()[-1],
             r"    self.logger.error('Oh! Error:', exc_info=True)",
         )
         self.assertEqual(kwargs2['properties'], dict(
+            content_type='application/json',
+            delivery_mode=1,
+        ))
+
+        self.assertJsonEqual(kwargs3['body'], dict(
+            self.constant_log_record_items,
+            message='Oh! Stack info provided:',
+            msg='Oh! Stack info provided:',
+            args=[],  # (list as it was JSON-ed)
+            levelname='INFO',
+            levelno=logging.INFO,
+            exc_text=None,
+            formatted_call_stack=ANY,  # <- explicitly requested by passing `stack_info=True`
+        ))
+        kwargs3_body = json.loads(kwargs3['body'])
+        self.assertRegex(
+            kwargs3_body['formatted_call_stack'],
+            r'^Stack \(most recent call last\):\n  File',
+        )
+        self.assertEqual(
+            kwargs3_body['formatted_call_stack'].splitlines()[-1],
+            r"    self.logger.info('Oh! Stack info provided:', stack_info=True)",
+        )
+        self.assertEqual(kwargs3['properties'], dict(
             content_type='application/json',
             delivery_mode=1,
         ))

@@ -1,0 +1,31 @@
+Welcome to the *n6* system!
+
+{% filter wordwrap(width=76) -%}
+A new organization{% if data_dict.org_actual_name %}, {{ data_dict.org_actual_name }},{% endif %} with id {{ data_dict.org_id }} has been added to the system. For that organization a new user account with login {{ data_dict.user_login }} has been created.
+{%- endfilter %}
+
+To set a new n6 Portal password for that user, please visit the login
+page, use the "Forgot password?" link, and follow the displayed instructions.
+
+The first time you log in to the n6 Portal as that user, you will be
+asked to set up multi-factor authentication. Please follow the
+instructions that will be displayed by the n6 Portal.
+
+
+Best regards,
+
+- the administrators of this *n6* instance
+
+
+
+{#- *** TEMPLATE COMMENTS ***
+
+The rendering context used with this template includes the `data_dict`
+variable which is a dictionary that contains the items described below.
+
+* `user_login`
+* `org_id`
+* `org_actual_name` (may be `None`)
+* `lang` (may be `None`)
+
+-#}

@@ -2,6 +2,7 @@
 // Commented out as a part of disabling username and password login
 // import qs from 'qs';
 import axios from 'axios';
+import { mapGetters } from 'vuex';
 import Spinner from 'vue-spinner-component/src/Spinner';
 import BaseButton from './BaseButton';
 import BaseForm from './BaseForm';
@@ -11,6 +12,7 @@ import BaseFormMessage from './BaseFormMessage';
 import BaseInput from './BaseInput';
 import BaseLink from './BaseLink';
 import CONFIG from '@/config/config.json';
+import {FLASH_MESSAGE_LABELS} from '@/helpers/constants';
 
 // Commented out as a part of disabling username and password login
 // const INVALID_CREDENTIALS_MESSAGE = 'You provided invalid login information. Try again.';
@@ -43,7 +45,6 @@ export default {
       orgId: '',
       password: '',
       errorMessage: undefined,
-      flashStore: this.flash(),
       loginPending: false,
     };
   },
@@ -51,14 +52,31 @@ export default {
   beforeRouteEnter (to, from, next) {
     next(vm => {
       if (vm.isCertificateFetched) {
-        vm.flash('You are ready to sign in with certificate', 'success', {
-          timeout: 0,
+        vm.$notify({
+          group: 'flash',
+          type: 'info',
+          data: {
+            label: FLASH_MESSAGE_LABELS.cert_avail_label,
+          },
+          text: 'You are ready to sign in with certificate',
+          duration: -1,
         });
       }
     });
   },
 
+  beforeRouteLeave (to, from, next) {
+    this.destroyMsgByLabel(FLASH_MESSAGE_LABELS.cert_avail_label, 'main_notifications');
+    next();
+  },
+
+  inject: ['destroyMsgByLabel'],
+
   computed: {
+    ...mapGetters('session', [
+      'isInsideAvailable',
+      'isSearchAvailable',
+    ]),
     isCertificateFetched() {
       const result = this.$store.state.session.isCertificateFetched;
       // The line setting error message should be removed, as soon as logging in
@@ -70,6 +88,9 @@ export default {
   },
 
   methods: {
+    sign_up() {
+      this.$router.push({name: 'register'});
+    },
     login() {
       // Commented as a part of temporarily disabling logging in with username
       // and password
@@ -118,10 +139,42 @@ export default {
     },
 
     login_success() {
+      // In case there is a remaining 'dashboardPayload' localStorage
+      // key (hasn't been deleted on log out), delete it now, to avoid
+      // the error, where cached dashboard data related to some
+      // organization will be used as other organization's data.
+      this.$store.dispatch('dashboard/uncachePayload');
       this.errorMessage = undefined;
-      this.flashStore.destroyAll();
-      this.flash('You have been logged in.', 'success');
-      this.$router.push({name: 'main'});
+      this.$notify({
+        group: 'flash',
+        type: 'success',
+        text: 'You have been logged in',
+      });
+      // Use the VueX session state to determine the next route after
+      // the successful login:
+      // * If the user has access to the 'Inside' resource, but not
+      //   'Search' - go to the 'dashboard' view.
+      // * If he has access to both 'Inside' and 'Search' - go to
+      //   the 'search' view.
+      // * If he does not have access to the 'Inside' - go to
+      //   the 'search' view.
+      //
+      // This conditions are being resolved here, because it is
+      // possible to easily fetch the session info. It would have
+      // been better to resolve it in a function assigned to the
+      // route's 'redirect' property in the Router, but there is no
+      // access to the session info there. Also the proper place would
+      // have been the Router's 'beforeEach' navigation guard, but
+      // adding the condition causes the infinite loop.
+      this.$store.dispatch('session/loadSessionInfo').then(() => {
+        if (this.isInsideAvailable && !this.isSearchAvailable) {
+          this.$router.push({name: 'dashboard'});
+        } else {
+          this.$router.push({name: 'search'});
+        }
+      }).catch(() => {
+        this.$router.push({name: 'main'});
+      });
     },
 
     // messages is a map of HTTP request status codes to error messages
@@ -205,16 +258,24 @@ export default {
 
     <!-- Login with certificate -->
     <base-form-actions
-      v-if="isCertificateFetched"
+      :disabled="loginPending"
     >
       <!-- Signing with certificate -->
       <base-button
+        v-if="isCertificateFetched"
         @click.native="cert_login"
         type="button"
         role="primary"
-        :disabled="loginPending"
       >
         Sign in with certificate
+      </base-button>
+      <base-button
+        v-else
+        @click.native="sign_up"
+        type="button"
+        role="primary"
+      >
+        Sign up your organization
       </base-button>
     </base-form-actions>
 

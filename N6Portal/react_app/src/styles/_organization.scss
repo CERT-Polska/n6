@@ -1,0 +1,143 @@
+.organization-header {
+  @include box-border;
+  padding: sizeToRem(16);
+  margin-bottom: sizeToRem(30);
+
+  @include media-breakpoint-up(sm) {
+    padding: sizeToRem(30);
+  }
+}
+
+.organization-name {
+  justify-content: center;
+  padding-bottom: sizeToRem(5);
+
+  @include media-breakpoint-up(sm) {
+    justify-content: flex-start;
+    align-items: center;
+    padding-bottom: 0;
+  }
+
+  h2 {
+    text-align: center;
+    font-size: sizeToRem(24);
+
+    @include media-breakpoint-up(sm) {
+      text-align: left;
+      font-size: sizeToRem(30);
+    }
+  }
+}
+
+.organization-details-wrapper {
+  padding-top: sizeToRem(5);
+
+  @include media-breakpoint-up(sm) {
+    padding: sizeToRem(6) 0;
+  }
+}
+
+.organization-details {
+  @include media-breakpoint-up(sm) {
+    flex-direction: column;
+  }
+
+  span {
+    font-size: sizeToRem(14);
+
+    @include media-breakpoint-up(sm) {
+      font-size: sizeToRem(16);
+    }
+  }
+}
+
+.organization-header-icon {
+  width: sizeToRem(16);
+  margin-right: sizeToRem(12);
+
+  @include media-breakpoint-up(sm) {
+    width: sizeToRem(40);
+    margin-right: sizeToRem(20);
+  }
+}
+
+.organization-card {
+  min-height: sizeToRem(220);
+  height: 100%;
+  background-color: $light-background;
+  padding: sizeToRem(16);
+  flex-direction: column;
+  @include box-border;
+
+  @include media-breakpoint-up(sm) {
+    padding: sizeToRem(20);
+    min-height: sizeToRem(290);
+  }
+
+  &.wide-col {
+    min-height: sizeToRem(110);
+    flex-direction: row;
+
+    .organization-title-wrapper {
+      margin-right: sizeToRem(16);
+    }
+
+    @include media-breakpoint-up(sm) {
+      min-height: sizeToRem(290);
+      flex-direction: column;
+
+      .organization-title-wrapper {
+        margin-right: 0;
+      }
+    }
+  }
+}
+
+.organization-card-value-wrapper {
+  flex-grow: 1;
+}
+
+.organization-card-value {
+  font-size: sizeToRem(40);
+  font-weight: 600;
+
+  &.zero {
+    color: $secondary;
+  }
+
+  @include media-breakpoint-up(sm) {
+    font-size: sizeToRem(60);
+  }
+
+  @include media-breakpoint-up(xl) {
+    font-size: sizeToRem(80);
+  }
+}
+
+.organization-title-wrapper {
+  flex-direction: column;
+
+  @include media-breakpoint-up(sm) {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  h3 {
+    color: $dark-lighter;
+    word-break: break-word;
+    @include media-breakpoint-up(sm) {
+      font-size: sizeToRem(18);
+      margin-top: sizeToRem(10);
+    }
+  }
+}
+
+.organization-tooltip-button {
+  width: sizeToRem(36);
+  margin-left: 0;
+
+  @include media-breakpoint-up(sm) {
+    margin-left: sizeToRem(10);
+  }
+}

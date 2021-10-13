@@ -1,9 +1,14 @@
 {
   "baseURL": "https://192.168.56.110",
-  "authCookieName": "auth_tkt",
   "APIURLs": {
     "eventSearch": "/search/events.json",
     "insideThreats": "/report/inside.json",
-    "otherThreats": "/report/threats.json"
-  }
+    "otherThreats": "/report/threats.json",
+    "dashboard": "/dashboard",
+    "register": "/register",
+    "settings": "/org_config"
+  },
+  "authCookieName": "auth_tkt",
+  "dashboardRefreshRateInSeconds": 600,
+  "multivaluedInputLimit": 100
 }

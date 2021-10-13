@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
 import contextlib
@@ -10,14 +8,14 @@ import random
 import re
 import string
 import unittest
-
-from mock import (
+from unittest.mock import (
     MagicMock,
     Mock,
     call,
     patch,
     sentinel as sen,
 )
+
 from unittest_expander import (
     expand,
     foreach,
@@ -27,6 +25,7 @@ from unittest_expander import (
 
 from n6lib.auth_api import (
     AuthAPI,
+    _DataPreparer,
     AuthAPIUnauthenticatedError,
     InsideCriteriaResolver,
     cached_basing_on_ldap_root_node,
@@ -34,8 +33,14 @@ from n6lib.auth_api import (
 from n6lib.auth_related_test_helpers import (
     EXAMPLE_SEARCH_RAW_RETURN_VALUE,
     EXAMPLE_ORG_IDS_TO_ACCESS_INFOS,
+    EXAMPLE_ORG_IDS_TO_ACTUAL_NAMES,
     EXAMPLE_SOURCE_IDS_TO_SUBS_TO_STREAM_API_ACCESS_INFOS,
     EXAMPLE_SOURCE_IDS_TO_NOTIFICATION_ACCESS_INFO_MAPPINGS,
+)
+from n6lib.common_helpers import (
+    ip_network_as_tuple,
+    ip_network_tuple_to_min_max_ip,
+    ip_str_to_int,
 )
 from n6lib.record_dict import RecordDict
 from n6lib.unit_test_helpers import (
@@ -45,13 +50,6 @@ from n6lib.unit_test_helpers import (
 from n6lib.sqlalchemy_related_test_helpers import (
     sqlalchemy_expr_to_str,
 )
-
-
-# NOTE: in many parts of the tests defined in this module (like in many
-# other n6 tests...) differences between the str and unicode types are
-# neglected (often str values are used, for convenience, even in cases
-# for whom unicode is used/expected in the "real world") -- because, in
-# those test parts, it should not matter...
 
 
 # the following variable (+function) make it possible to instrumentalize
@@ -65,41 +63,52 @@ class _AuthAPILdapDataBasedMethodTestMixIn(object):
 
     @contextlib.contextmanager
     def standard_context(self, search_flat_return_value):
-        with self._singleton_off(), \
-             patch('n6lib.auth_api.LdapAPI.get_config_section',
+        # Note: considering how this method is implemented, it is
+        # usable when testing `AuthAPI` but *not* when testing
+        # `AuthAPIWithPrefetching`.  To make use of this class
+        # (`_AuthAPILdapDataBasedMethodTestMixIn`) when testing
+        # the latter you need to override or patch this method
+        # (`standard_context()`).  As an example, refer to the
+        # relevant parts of the definition of the function
+        # `_patch_AuthAPILdapDataBasedMethodTestMixIn()` in
+        # the `./auth_related_quicktest.py` script.
+        with patch('n6lib.auth_api.LdapAPI.get_config_section',
                    return_value=collections.defaultdict(lambda: NotImplemented)), \
              patch('n6lib.auth_api.LdapAPI.set_config', create=True), \
              patch('n6lib.auth_api.LdapAPI.configure_db', create=True):
             self.auth_api = AuthAPI()
+            self.data_preparer = _DataPreparer()
             try:
                 with patch('n6lib.auth_api.LdapAPI._make_ssl_connection', create=True), \
                      patch('n6lib.auth_api.LdapAPI._db_session_maker', create=True), \
                      patch('n6lib.auth_api.LdapAPI._search_flat',
                            return_value=search_flat_return_value), \
-                     patch.object(AuthAPI, '_get_root_node',
-                                  AuthAPI._get_root_node.func):  # unmemoized (not cached)
+                     self.unmemoized_root_node_getter(auth_api_class=self.auth_api.__class__):
                     yield
             finally:
                 self.auth_api = None
+                self.data_preparer = None
 
     @staticmethod
     @contextlib.contextmanager
-    def _singleton_off():
-        was_instantiated = AuthAPI._singleton_already_instantiated
-        try:
-            AuthAPI._singleton_already_instantiated = False
+    def unmemoized_root_node_getter(auth_api_class):
+        # noinspection PyProtectedMember
+        unmemoized__get_root_node = getattr(auth_api_class._get_root_node, 'func', None)
+        if unmemoized__get_root_node:
+            with patch.object(auth_api_class, '_get_root_node', unmemoized__get_root_node):
+                yield
+        else:
             yield
-        finally:
-            AuthAPI._singleton_already_instantiated = was_instantiated
 
     def assert_problematic_orgs_logged(self, LOGGER_error_mock, problematic_org_ids):
         error_calls_args = [args for _, args, _ in map(tuple, LOGGER_error_mock.mock_calls)]
         self.assertTrue(error_calls_args)
         self.assertTrue(all(
-            (isinstance(args[0], basestring) and
+            (isinstance(args[0], str) and
              args[0].startswith('Problem with LDAP data for ') and
-             isinstance(args[1], basestring) and
-             isinstance(args[2], ValueError))
+             isinstance(args[1], str) and
+             isinstance(args[2], str) and
+             args[2].startswith('ValueError'))
             for args in error_calls_args))
         self.assertEqual(
             problematic_org_ids,
@@ -107,7 +116,7 @@ class _AuthAPILdapDataBasedMethodTestMixIn(object):
 
     @staticmethod
     def _pick_o(s):
-        [org_name] = re.findall(r'\bo[0-9]+\b', s)
+        [org_name] = re.findall(r'\bo[0-9]+\b', s, re.ASCII)
         return org_name
 
 
@@ -232,45 +241,6 @@ class TestAuthAPI__context_manager(
     ## TODO later?: testing for multithreading etc....
 
 
-class TestAuthAPI__authenticate(unittest.TestCase):
-
-    def setUp(self):
-        self.mock = Mock(__class__=AuthAPI)
-        self.meth = MethodProxy(AuthAPI, self.mock)
-
-    def test_for_specified_user_id_and_org_id(self):
-        self.mock.configure_mock(**{
-            'get_user_ids_to_org_ids.return_value': {
-                sen.user_id: sen.org_id,
-                sen.xxx: sen.yyy,
-            },
-        })
-        auth_data = self.meth.authenticate(sen.org_id, sen.user_id)
-        self.assertEqual(
-            auth_data,
-            {'user_id': sen.user_id, 'org_id': sen.org_id})
-
-    def test_raises_AuthAPIUnauthenticatedError_if_org_ids_do_not_match(self):
-        self.mock.configure_mock(**{
-            'get_user_ids_to_org_ids.return_value': {
-                sen.user_id: sen.another_org_id,
-                sen.xxx: sen.yyy,
-            },
-        })
-        with self.assertRaises(AuthAPIUnauthenticatedError):
-            self.meth.authenticate(sen.org_id, sen.user_id)
-
-    def test_raises_AuthAPIUnauthenticatedError_if_no_org_for_specified_user_id(self):
-        self.mock.configure_mock(**{
-            'get_user_ids_to_org_ids.return_value': {
-                sen.another_user_id: sen.org_id,
-                sen.xxx: sen.yyy,
-            },
-        })
-        with self.assertRaises(AuthAPIUnauthenticatedError):
-            self.meth.authenticate(sen.org_id, sen.user_id)
-
-
 class TestAuthAPI__get_user_ids_to_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
                                            unittest.TestCase):
 
@@ -288,7 +258,12 @@ class TestAuthAPI__get_user_ids_to_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
                 ('n6login=login3@foo.bar,o=o3,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
                 ('n6login=login4@foo.bar,o=o4,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
                 ('n6login=login5@foo.bar,o=o1,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
-                ('n6login=login6@foo.bar,o=o4,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+                ('n6login=login6@foo.bar,o=o4,ou=orgs,dc=n6,dc=cert,dc=pl', {
+                    'n6blocked': ['FALSE'],
+                }),
+                ('n6login=blocked-guy@foo.bar,o=o4,ou=orgs,dc=n6,dc=cert,dc=pl', {
+                    'n6blocked': ['TRUE'],
+                }),
             ],
             {
                 'login1@foo.bar': 'o1',
@@ -351,14 +326,14 @@ class TestAuthAPI__get_inside_criteria_resolver(_AuthAPILdapDataBasedMethodTestM
 
     def test(self):
         with self.standard_context([]):
-            self.auth_api._get_inside_criteria = Mock(
+            self.auth_api._data_preparer._get_inside_criteria = Mock(
                 return_value=sen.inside_criteria)
             with patch(
                     'n6lib.auth_api.InsideCriteriaResolver',
                     return_value=sen.resolver_instance) as InsideCriteriaResolver_mock:
                 actual_result = self.auth_api.get_inside_criteria_resolver()
-                self.assertEqual(self.auth_api._get_inside_criteria.mock_calls, [
-                    call(),
+                self.assertEqual(self.auth_api._data_preparer._get_inside_criteria.mock_calls, [
+                    call({'attrs': {}}),
                 ])
                 self.assertEqual(InsideCriteriaResolver_mock.mock_calls, [
                     call(sen.inside_criteria),
@@ -467,20 +442,29 @@ class TestAuthAPI__get_access_info(unittest.TestCase):
         self.meth = MethodProxy(AuthAPI, self.mock)
         self.auth_data = {'user_id': sen.user_id, 'org_id': sen.org_id}
 
-    def test_returns_dict_for_existing_org(self):
+    def test_returns_dict_for_existing_org_id(self):
+        example_access_info = {
+            'access_zone_conditions': {
+                'inside': sen.list_of_conditions,
+            },
+            'rest_api_resource_limits': {
+                '/report/inside': sen.dict_of_res_limits
+            },
+            'rest_api_full_access': False,
+        }
         self.mock.configure_mock(**{
             'get_org_ids_to_access_infos.return_value': {
-                sen.org_id: sen.access_info,
-                sen.another_org_od: sen.another_access_info,
+                sen.org_id: example_access_info,
+                sen.another_org_id: sen.another_access_info,
             }
         })
         access_info = self.meth.get_access_info(self.auth_data)
-        self.assertIs(access_info, sen.access_info)
+        self.assertIs(access_info, example_access_info)
 
-    def test_returns_None_for_nonexistent_org(self):
+    def test_returns_None_for_missing_org_id(self):
         self.mock.configure_mock(**{
             'get_org_ids_to_access_infos.return_value': {
-                sen.another_org_od: sen.another_access_info,
+                sen.another_org_id: sen.another_access_info,
             }
         })
         access_info = self.meth.get_access_info(self.auth_data)
@@ -497,18 +481,60 @@ class TestAuthAPI__get_org_ids_to_access_infos(
         search_flat_return_value = EXAMPLE_SEARCH_RAW_RETURN_VALUE
         expected_result = EXAMPLE_ORG_IDS_TO_ACCESS_INFOS
 
-        _get_condition = AuthAPI._get_condition_for_subsource_and_full_access_flag.__func__
+        _get_condition = _DataPreparer._get_condition_for_subsource_and_full_access_flag
 
         def _get_condition_as_str(*args, **kwargs):
             return sqlalchemy_expr_to_str(_get_condition(*args, **kwargs))
 
-        with patch('n6lib.auth_api.AuthAPI._get_condition_for_subsource_and_full_access_flag',
+        with patch('n6lib.auth_api._DataPreparer._get_condition_for_subsource_and_full_access_flag',
                    _get_condition_as_str), \
              self.standard_context(search_flat_return_value):
             actual_result = self.auth_api.get_org_ids_to_access_infos()
 
         self.assertEqual(actual_result, expected_result)
         self.assert_problematic_orgs_logged(LOGGER_error_mock, {'o3', 'o4', 'o6'})
+
+
+class TestAuthAPI__get_org_actual_name(unittest.TestCase):
+
+    def setUp(self):
+        self.mock = Mock(__class__=AuthAPI)
+        self.meth = MethodProxy(AuthAPI, self.mock)
+        self.auth_data = {'user_id': sen.user_id, 'org_id': sen.org_id}
+
+    def test_returns_dict_for_existing_org_id(self):
+        self.mock.configure_mock(**{
+            'get_org_ids_to_actual_names.return_value': {
+                sen.org_id: sen.actual_name,
+                sen.another_org_id: sen.another_actual_name,
+            }
+        })
+        actual_name = self.meth.get_org_actual_name(self.auth_data)
+        self.assertIs(actual_name, sen.actual_name)
+
+    def test_returns_None_for_missing_org_id(self):
+        self.mock.configure_mock(**{
+            'get_org_ids_to_actual_names.return_value': {
+                sen.another_org_id: sen.another_actual_name,
+            }
+        })
+        actual_name = self.meth.get_org_actual_name(self.auth_data)
+        self.assertIs(actual_name, None)
+
+
+class TestAuthAPI__get_org_ids_to_actual_names(
+        _AuthAPILdapDataBasedMethodTestMixIn,
+        unittest.TestCase):
+
+    def test(self):
+        # see: n6lib.auth_related_test_helpers
+        search_flat_return_value = EXAMPLE_SEARCH_RAW_RETURN_VALUE
+        expected_result = EXAMPLE_ORG_IDS_TO_ACTUAL_NAMES
+
+        with self.standard_context(search_flat_return_value):
+            actual_result = self.auth_api.get_org_ids_to_actual_names()
+
+        self.assertEqual(actual_result, expected_result)
 
 
 class TestAuthAPI__get_source_ids_to_subs_to_stream_api_access_infos(
@@ -648,7 +674,6 @@ class TestAuthAPI__get_org_ids_to_notification_configs(_AuthAPILdapDataBasedMeth
                         'name': False,
                         'n6stream-api-enabled': False,
                         'n6email-notifications-business-days-only': False,
-                        'n6email-notifications-language': 'pl'
                     },
                 },
             ),
@@ -731,14 +756,13 @@ class TestAuthAPI__get_org_ids_to_notification_configs(_AuthAPILdapDataBasedMeth
                          'n6stream-api-enabled': True,
                          'name': 'testname5',
                          'n6email-notifications-business-days-only': False,
-                         'n6email-notifications-language': 'pl',
                     }
                 },
             ),
         ]
 
-    # let the last case contain the data from all previous cases
-    # (needed by `auth_api_with_ldap_api_replacement_quicktest`)
+    # Let the last case contain the data from all previous cases
+    # (needed by the `./auth_related_quicktest.py` script).
     accumulated_search_flat_return_value = []
     accumulated_expected_result = {}
     for (search_flat_return_value,
@@ -816,10 +840,11 @@ class TestAuthAPI___get_inside_criteria(_AuthAPILdapDataBasedMethodTestMixIn,
         for (search_flat_return_value,
              expected_result) in self.search_flat_return_values__and__expected_results:
             with self.standard_context(search_flat_return_value):
-                with patch('n6lib.auth_api.AuthAPI._check_org_length') \
+                with patch('n6lib.auth_api._DataPreparer._check_org_length') \
                      as _check_org_length_mock:
-                    actual_result = self.auth_api._get_inside_criteria()
-                    self.assertItemsEqual(actual_result, expected_result)
+                    root_node = self.auth_api.get_ldap_root_node()
+                    actual_result = self.auth_api._data_preparer._get_inside_criteria(root_node)
+                    self.assertCountEqual(actual_result, expected_result)
                     self.assertTrue(_check_org_length_mock.called)
 
 
@@ -936,8 +961,8 @@ class TestAuthAPI___make_request_parameters_dict(unittest.TestCase):
     ]
 
     def setUp(self):
-        self.mock = Mock(__class__=AuthAPI)
-        self.meth = MethodProxy(AuthAPI, self.mock)
+        self.mock = Mock(__class__=_DataPreparer)
+        self.meth = MethodProxy(_DataPreparer, self.mock)
 
     def test_for_valid_rest_api_resources(self):
         for rest_api_resource, expected_result in self.rest_api_resources__and__expected_results:
@@ -956,22 +981,22 @@ class TestAuthAPI___parse_notification_time(_AuthAPILdapDataBasedMethodTestMixIn
                                             unittest.TestCase):
     def test(self):
         with self.standard_context([]):
-            actual_result = self.auth_api._parse_notification_time('1')
+            actual_result = self.data_preparer._parse_notification_time('1')
             self.assertEqual(actual_result, datetime.time(1, 0))
-            actual_result = self.auth_api._parse_notification_time('0')
+            actual_result = self.data_preparer._parse_notification_time('0')
             self.assertEqual(actual_result, datetime.time(0, 0))
-            actual_result = self.auth_api._parse_notification_time('23')
+            actual_result = self.data_preparer._parse_notification_time('23')
             self.assertEqual(actual_result, datetime.time(23, 0))
-            actual_result = self.auth_api._parse_notification_time('15:12')
+            actual_result = self.data_preparer._parse_notification_time('15:12')
             self.assertEqual(actual_result, datetime.time(15, 12))
-            actual_result = self.auth_api._parse_notification_time(' 23 : 59 ')
+            actual_result = self.data_preparer._parse_notification_time(' 23 : 59 ')
             self.assertEqual(actual_result, datetime.time(23, 59))
-            actual_result = self.auth_api._parse_notification_time('3.00 ')
+            actual_result = self.data_preparer._parse_notification_time('3.00 ')
             self.assertEqual(actual_result, datetime.time(3, 0))
             # exceptions
-            self.assertRaises(ValueError, self.auth_api._parse_notification_time, '24')
-            self.assertRaises(ValueError, self.auth_api._parse_notification_time, '12:12:67')
-            self.assertRaises(ValueError, self.auth_api._parse_notification_time, '12,43')
+            self.assertRaises(ValueError, self.data_preparer._parse_notification_time, '24')
+            self.assertRaises(ValueError, self.data_preparer._parse_notification_time, '12:12:67')
+            self.assertRaises(ValueError, self.data_preparer._parse_notification_time, '12,43')
 
 
 ##
@@ -2359,6 +2384,71 @@ EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_COMPLEX_IP_CRITERIA = [
     ]),
 ]
 
+def _ip_min_max(ip_network):
+    return ip_network_tuple_to_min_max_ip(ip_network_as_tuple(ip_network))
+_ip = ip_str_to_int
+
+SPECIFIC_IP_CRITERIA = [
+    # list of dicts, as returned by AuthAPI._get_inside_criteria()
+    {
+        'org_id': 'o30',
+        'ip_min_max_seq': [
+            # all addresses from the `10.10.10.0/24` network *except* `10.10.10.152`
+            _ip_min_max('10.10.10.0/25'),
+            _ip_min_max('10.10.10.128/28'),
+            _ip_min_max('10.10.10.144/29'),
+            _ip_min_max('10.10.10.153/32'),
+            _ip_min_max('10.10.10.154/31'),
+            _ip_min_max('10.10.10.156/30'),
+            _ip_min_max('10.10.10.160/27'),
+            _ip_min_max('10.10.10.192/26'),
+        ],
+    },
+]
+
+EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_SPECIFIC_IP_CRITERIA = [
+    # list of pairs [corresponds to SPECIFIC_IP_CRITERIA]:
+    #     (<expected `client_org_ids` set>,
+    #      <list of cases: each being a set of integers representing
+    #       IP addresses from `address` of the given record dict>)
+    (set(), [
+        {0},
+        {_ip('10.10.9.255')},
+        {_ip('10.10.10.152')},
+        {_ip('10.10.11.0')},
+        {MAX_IP},
+        {
+            0,
+            _ip('10.10.9.255'),
+            _ip('10.10.10.152'),
+            _ip('10.10.11.0'),
+            MAX_IP,
+        },
+    ]),
+
+    ({'o30'}, [
+        {_ip('10.10.10.{}'.format(i))}
+        for i in range(256)
+        if i != 152
+    ] + [
+        {
+            _ip('10.10.10.{}'.format(i))
+            for i in range(256)
+            if i != 152
+        },
+        {
+            _ip('10.10.10.{}'.format(i))
+            for i in range(256)
+            # (here we do not skip `...152`)
+        } | {
+            0,
+            _ip('10.10.9.255'),
+            _ip('10.10.11.0'),
+            MAX_IP,
+        },
+    ]),
+]
+
 URL_CRITERIA = [
     # list of dicts, as returned by AuthAPI._get_inside_criteria()
     {
@@ -2516,7 +2606,7 @@ EXPECTED_RESULTS_AND_GIVEN_URL_PATTERNS = [
                 u'http://qwerty.zdns.pl/42?ham=spam'],
         'o27': [u'https://zażółć.gęślą.jaźń/here/and/there/'],
      }), [
-        r'//\w+\.\w+\.\w+/',  # making use of the re.UNICODE regex flag (for o27)
+        r'//\w+\.\w+\.\w+/',  # making use of the Unicode-related regex features (for o27)
     ]),
 
     (({'o25', 'o28'}, {
@@ -2945,6 +3035,40 @@ class TestInsideCriteriaResolver_initialization(TestCaseMixin, unittest.TestCase
                 ],
             ),
         ),
+
+        param(
+            inside_criteria=SPECIFIC_IP_CRITERIA,
+            expected_content=(
+                    [
+                        -1,  # guard item
+                        _ip('10.10.10.0'),
+                        _ip('10.10.10.128'),
+                        _ip('10.10.10.144'),
+                        _ip('10.10.10.152'),
+                        _ip('10.10.10.153'),
+                        _ip('10.10.10.154'),
+                        _ip('10.10.10.156'),
+                        _ip('10.10.10.160'),
+                        _ip('10.10.10.192'),
+                        _ip('10.10.11.0'),
+                        2 ** 32,  # guard item
+                    ],
+                    [
+                        frozenset(),  # guard item
+                        frozenset(['o30']),
+                        frozenset(['o30']),
+                        frozenset(['o30']),
+                        frozenset(),
+                        frozenset(['o30']),
+                        frozenset(['o30']),
+                        frozenset(['o30']),
+                        frozenset(['o30']),
+                        frozenset(['o30']),
+                        frozenset(),
+                        frozenset(),  # guard item
+                    ],
+            ),
+        ),
     )
     def test___border_ips_and_corresponding_id_sets(self, inside_criteria, expected_content):
         with self.assertStateUnchanged(inside_criteria):
@@ -2978,11 +3102,14 @@ class TestInsideCriteriaResolver__get_client_org_ids_and_urls_matched(TestCaseMi
             FQDN_CRITERIA +
             EXTREME_IP_CRITERIA +
             COMPLEX_IP_CRITERIA +
+            SPECIFIC_IP_CRITERIA +
             URL_CRITERIA)
         NO_EXPECTED_RESULTS_AND_VARIOUS_RD_CONTENTS = [
             (set(), rdc_cases)
             for _, rdc_cases in EXPECTED_RESULTS_AND_GIVEN_RD_CONTENTS_FOR_VARIOUS_CRITERIA]
 
+        prng = random.Random()
+        prng.seed(12345)
         for inside_criteria, expected_results_and_given_data_cases, kind_of_data in [
                 (
                     NO_CRITERIA,
@@ -3020,6 +3147,11 @@ class TestInsideCriteriaResolver__get_client_org_ids_and_urls_matched(TestCaseMi
                     'ip_set',
                 ),
                 (
+                    SPECIFIC_IP_CRITERIA,
+                    EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_SPECIFIC_IP_CRITERIA,
+                    'ip_set',
+                ),
+                (
                     URL_CRITERIA,
                     EXPECTED_RESULTS_AND_GIVEN_URL_PATTERNS,
                     'url_pattern',
@@ -3031,11 +3163,13 @@ class TestInsideCriteriaResolver__get_client_org_ids_and_urls_matched(TestCaseMi
                         expected_results,
                         given_data,
                         kind_of_data,
+                        prng,
                     )
                     yield param(**param_kwargs)
 
     @classmethod
-    def _prepare_param_kwargs(cls, inside_criteria, expected_results, given_data, kind_of_data):
+    def _prepare_param_kwargs(cls,
+                              inside_criteria, expected_results, given_data, kind_of_data, prng):
         if isinstance(expected_results, tuple):
             (expected_org_ids,
              expected_urls_matched) = expected_results
@@ -3045,7 +3179,7 @@ class TestInsideCriteriaResolver__get_client_org_ids_and_urls_matched(TestCaseMi
         else:
             raise RuntimeError(
                 'bug in the test: unsupported type of `expected_results` '
-                '{!r}'.format(expected_results))
+                '{!a}'.format(expected_results))
 
         if kind_of_data == 'rd_content':
             rd_content = given_data
@@ -3058,7 +3192,7 @@ class TestInsideCriteriaResolver__get_client_org_ids_and_urls_matched(TestCaseMi
         else:
             raise RuntimeError(
                 'bug in the test: unknown `kind_of_data` '
-                '{!r}'.format(kind_of_data))
+                '{!a}'.format(kind_of_data))
 
         param_kwargs = dict(
             inside_criteria=inside_criteria,
@@ -3066,7 +3200,7 @@ class TestInsideCriteriaResolver__get_client_org_ids_and_urls_matched(TestCaseMi
             expected_org_ids=expected_org_ids,
             expected_urls_matched=expected_urls_matched)
 
-        if rd_content.get('category') in cls.FQDN_ONLY_CATEGORIES or random.randint(0, 1):
+        if rd_content.get('category') in cls.FQDN_ONLY_CATEGORIES or prng.randint(0, 1):
             param_kwargs['fqdn_only_categories'] = cls.FQDN_ONLY_CATEGORIES
 
         return param_kwargs

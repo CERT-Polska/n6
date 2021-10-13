@@ -1,0 +1,45 @@
+{
+  "org_id": {
+    "label": "Organization domain",
+    "help": "Official organization's domain"
+  },
+  "actual_name": {
+    "label": "Entity name",
+    "help": "Official name of organization"
+  },
+  "email": {
+    "label": "E-mail",
+    "help": "Your e-mail address in organization's domain"
+  },
+  "submitter_title": {
+    "label": "Company title",
+    "help": "Your position in organization"
+  },
+  "submitter_firstname_and_surname": {
+    "label": "First and last name",
+    "help": "Your first and last name"
+  },
+  "csr": {
+    "label": "CSR file"
+  },
+  "notification_language": {
+    "label": "Language of notifications",
+    "help": "Language of e-mail notifications"
+  },
+  "notification_emails": {
+    "label": "E-mail addresses for notifications",
+    "help": "E-mail addresses to use for notifications"
+  },
+  "asns": {
+    "label": "ASN",
+    "help": "Autonomous system number the organization is assigned to. Owner must mach with RIPE database"
+  },
+  "fqdns": {
+    "label": "FQDN",
+    "help": "Fully qualified domain names you have"
+  },
+  "ip_networks": {
+    "label": "IP network",
+    "help": "Networks owned by your organization. Owner must match with RIPE database"
+  }
+}

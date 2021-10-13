@@ -1,27 +1,38 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
 import contextlib
-import Queue
+import re
+import queue
 import time
 import unittest
-
-import pika.credentials
-from mock import (
+from unittest.mock import (
     ANY,
     Mock,
     call,
     sentinel as sen,
 )
 
+import pika.credentials
+
 from n6lib.unit_test_helpers import (
+    AnyMatchingRegex,
     MethodProxy,
     RLockedMagicMock,
     rlocked_patch,
 )
 from n6lib.amqp_getters_pushers import AMQPThreadedPusher, DoNotPublish
+
+
+CONN_PARAM_CLIENT_PROP_INFORMATION = AnyMatchingRegex(re.compile(
+    r'\A'
+    r'Host: [^,]+, '
+    r'PID: [0-9]+, '
+    r'script: [^,]+, '
+    r'args: \[.*\], '
+    r'modified: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+    r'\Z',
+    re.ASCII))
 
 
 class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
@@ -44,7 +55,7 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         self.assertIsNone(self.mock._serialize)
         self.assertEqual(self.mock._prop_kwargs, AMQPThreadedPusher.DEFAULT_PROP_KWARGS)
         self.assertEqual(self.mock._mandatory, False)
-        self.assertIs(self.mock._output_fifo.__class__, Queue.Queue)
+        self.assertIs(self.mock._output_fifo.__class__, queue.Queue)
         self.assertEqual(self.mock._output_fifo.maxsize, 20000)
         self.assertIsNone(self.mock._error_callback)
         # calls
@@ -54,11 +65,18 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         ])
         self.assertEqual(connection_params_dict_mock.mock_calls, [
             call.get('ssl'),
+            ('__contains__', ('client_properties',), {}),  # because cannot use `call.__contains__`
+            call.__setitem__('client_properties', ANY),
         ])
+        self.assertIsInstance(
+            # 2nd argument passed to __setitem__()
+            connection_params_dict_mock.__setitem__.mock_calls[0][-2][1],
+            dict)
 
     def test__init__specifying_all__with_ssl(self):
         connection_params_dict_mock = RLockedMagicMock()
         connection_params_dict_mock.get.return_value = True
+        connection_params_dict_mock.__contains__.return_value = True
         self.meth.__init__(connection_params_dict=connection_params_dict_mock,
                            exchange={'exchange': sen.exchange, 'foo': sen.foo},
                            queues_to_declare=sen.queues_to_declare,
@@ -77,7 +95,7 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         self.assertEqual(self.mock._serialize, sen.serialize)
         self.assertEqual(self.mock._prop_kwargs, sen.prop_kwargs)
         self.assertEqual(self.mock._mandatory, sen.mandatory)
-        self.assertIs(self.mock._output_fifo.__class__, Queue.Queue)
+        self.assertIs(self.mock._output_fifo.__class__, queue.Queue)
         self.assertEqual(self.mock._output_fifo.maxsize, 12345)
         self.assertEqual(self.mock._error_callback, sen.error_callback)
         # calls
@@ -88,14 +106,17 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         self.assertEqual(connection_params_dict_mock.mock_calls, [
             call.get('ssl'),
             call.setdefault('credentials', ANY),
+            ('__contains__', ('client_properties',), {}),  # because cannot use `call.__contains__`
         ])
         self.assertIsInstance(
-            connection_params_dict_mock.setdefault.mock_calls[0][-2][1],  # 2nd arg for setdefault
+            # 2nd argument passed to setdefault()
+            connection_params_dict_mock.setdefault.mock_calls[0][-2][1],
             pika.credentials.ExternalCredentials)
 
     def test__init__specifying_all_and_obtaining_global_conn_params__with_ssl(self):
-        connection_params_dict_mock = RLockedMagicMock()
+        connection_params_dict_mock = RLockedMagicMock(name='connection_params_dict')
         connection_params_dict_mock.get.return_value = True
+        connection_params_dict_mock.__contains__.return_value = True
         with rlocked_patch('n6lib.amqp_getters_pushers.get_amqp_connection_params_dict', **{
                 'return_value': connection_params_dict_mock}
         ) as get_amqp_conn_params_mock:
@@ -123,7 +144,7 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         self.assertEqual(self.mock._serialize, sen.serialize)
         self.assertEqual(self.mock._prop_kwargs, sen.prop_kwargs)
         self.assertEqual(self.mock._mandatory, sen.mandatory)
-        self.assertIs(self.mock._output_fifo.__class__, Queue.Queue)
+        self.assertIs(self.mock._output_fifo.__class__, queue.Queue)
         self.assertEqual(self.mock._output_fifo.maxsize, 54321)
         self.assertEqual(self.mock._error_callback, sen.error_callback)
         # calls
@@ -137,6 +158,7 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         self.assertEqual(connection_params_dict_mock.mock_calls, [
             call.get('ssl'),
             call.setdefault('credentials', ANY),
+            ('__contains__', ('client_properties',), {}),  # because cannot use `call.__contains__`
         ])
         self.assertIsInstance(
             connection_params_dict_mock.setdefault.mock_calls[0][-2][1],  # 2nd arg for setdefault
@@ -145,7 +167,7 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
     def test__repr(self):
         string_repr = self.meth.__repr__()
         self.assertIs(type(string_repr), str)
-        self.assertRegexpMatches(string_repr,
+        self.assertRegex(string_repr,
                                  r'<AMQPThreadedPusher object at 0x[0-9a-f]+ with .*>')
 
 
@@ -262,10 +284,14 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
 
     def _assert_setup_done(self):
         self.assertEqual(self.pika_mock.mock_calls, [
-            call.ConnectionParameters(conn_param=sen.param_value),
+            call.ConnectionParameters(
+                    conn_param=sen.param_value,
+                    client_properties={'information': CONN_PARAM_CLIENT_PROP_INFORMATION}),
             call.BlockingConnection(sen.conn_parameters),
             # repeated after pika.exceptions.AMQPConnectionError:
-            call.ConnectionParameters(conn_param=sen.param_value),
+            call.ConnectionParameters(
+                    conn_param=sen.param_value,
+                    client_properties={'information': CONN_PARAM_CLIENT_PROP_INFORMATION}),
             call.BlockingConnection(sen.conn_parameters),
         ])
         self.assertEqual(self.time_mock.sleep.mock_calls, [
@@ -357,7 +383,7 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
             self.obj.push(sen.data3, sen.rk3)
 
 
-    def _error_test_commons(self, subcall_mock, expected_subcall_count):
+    def _error_case_commons(self, subcall_mock, expected_subcall_count):
         self._make_obj()
         try:
             self._assert_setup_done()
@@ -457,15 +483,18 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
             self.pika_mock.mock_calls,
             # 10 calls because CONNECTION_ATTEMPTS == 10)
             10 * [
-                call.ConnectionParameters(conn_param=sen.param_value),
+                call.ConnectionParameters(
+                    conn_param=sen.param_value,
+                    client_properties={'information': CONN_PARAM_CLIENT_PROP_INFORMATION}),
                 call.BlockingConnection(sen.conn_parameters),
             ]
         )
         self.assertEqual(
             self.time_mock.sleep.mock_calls,
             # (call(0.5) because CONNECTION_RETRY_DELAY == 0.5;
-            # 10 calls because CONNECTION_ATTEMPTS == 10)
-            10 * [call(0.5)],
+            # 9 calls because CONNECTION_ATTEMPTS == 10
+            # and there is no delay after the last attempt)
+            9 * [call(0.5)],
         )
         self.assertEqual(self.channel_mock.basic_publish.call_count, 0)
         self.assertEqual(self.error_callback.call_count, 0)
@@ -484,7 +513,7 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
             'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
             side_effect=self._side_effect_for_publish(exceptions_from_publish)
         ) as _publish_mock:
-            self._error_test_commons(_publish_mock, expected_publish_call_count)
+            self._error_case_commons(_publish_mock, expected_publish_call_count)
 
         self.assertEqual(self.optional_setup_communication_mock.mock_calls, [call()])
         self.assertEqual(_publish_mock.mock_calls, [
@@ -522,7 +551,7 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
             'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
             side_effect=self._side_effect_for_publish(exceptions_from_publish)
         ) as _publish_mock:
-            self._error_test_commons(_publish_mock, expected_publish_call_count)
+            self._error_case_commons(_publish_mock, expected_publish_call_count)
 
         self.assertEqual(_publish_mock.mock_calls, [
             call(sen.data, sen.rk, None),
@@ -551,7 +580,7 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
             'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
             side_effect=self._side_effect_for_publish(exceptions_from_publish)
         ) as _publish_mock:
-            self._error_test_commons(_publish_mock, expected_publish_call_count)
+            self._error_case_commons(_publish_mock, expected_publish_call_count)
 
         assert self.error_callback is None, "bug in test case"
 
@@ -581,7 +610,7 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
             'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
             side_effect=self._side_effect_for_publish(exceptions_from_publish)
         ) as _publish_mock:
-            self._error_test_commons(_publish_mock, expected_publish_call_count)
+            self._error_case_commons(_publish_mock, expected_publish_call_count)
 
         self.assertEqual(_publish_mock.mock_calls, [
             call(sen.data, sen.rk, None),
@@ -590,7 +619,7 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
         self.assertEqual(self.optional_setup_communication_mock.mock_calls, [call()])
         self.assertEqual(self.error_callback.mock_calls, [call(ANY)])
         self.assertEqual(self.traceback_mock.print_exc.mock_calls, [call()])
-        self.assertTrue(self.stderr_mock.mock_calls)  # print >>sys.stderr used...
+        self.assertTrue(self.stderr_mock.mock_calls)  # `print(..., file=sys.stderr)` used...
 
         # the message has not been published
         self.assertFalse(self.pika_mock.BasicProperties.mock_calls)
@@ -603,7 +632,7 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
         with rlocked_patch(
             'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish'
         ) as _publish_mock:
-            self._error_test_commons(self.serialize, expected_serialize_call_count)
+            self._error_case_commons(self.serialize, expected_serialize_call_count)
 
         self.assertEqual(self.serialize.mock_calls, [call(sen.data)])
         self.assertEqual(self.error_callback.mock_calls, [call(ANY)])
@@ -659,7 +688,7 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
                            collections.deque)), "test case's assumption is invalid"
         underlying_deque = self.obj._output_fifo.queue
         self.assertEqual(underlying_deque, collections.deque([sen.item]))
-        with self.assertRaisesRegexp(
+        with self.assertRaisesRegex(
                 ValueError,
                 'pending messages'):
             self.obj.shutdown()
@@ -689,7 +718,7 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
             # shutdown() will *not* wake-up the pub. thread
             self.obj._output_fifo.put_nowait = output_fifo_put_nowait_mock
 
-            with self.assertRaisesRegexp(
+            with self.assertRaisesRegex(
                     RuntimeError,
                     'pushing thread seems to be still alive'):
                 self.obj.shutdown()

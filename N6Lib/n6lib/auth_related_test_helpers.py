@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2015-2021 NASK. All rights reserved.
 
 from n6lib.db_filtering_abstractions import AbstractConditionBuilder
 from n6lib.ldap_related_test_helpers import (
@@ -46,7 +44,7 @@ def fa_false_sql(sql_str):
 
 # The `EXAMPLE_SEARCH_RAW_RETURN_VALUE` list, that is incrementally
 # built below, is a fake result of
-# n6lib.{ldap_api,ldap_api_replacement}.LdapAPI._search_flat() --
+# n6lib.ldap_api_replacement.LdapAPI._search_flat() --
 # representing the following authorization data structure:
 #
 # * twelve organizations:
@@ -55,7 +53,7 @@ def fa_false_sql(sql_str):
 #               (such as 'n6time-window'...)
 #   * 'o2' -- with flags: n6stream-api-enabled
 #             + with disabled resource '/report/inside'
-#               (i.e., missing `cn=res-inside,...` LDAP subentry)
+#               (i.e., missing `cn=res-inside,...` subentry)
 #             + with some attributes (such as 'n6time-window'...) of the
 #               '/search/events' and '/report/threats' resources
 #   * 'o3' -- with flags: n6stream-api-enabled
@@ -85,15 +83,15 @@ def fa_false_sql(sql_str):
 #   * 'go5' -- which includes no organizations
 #
 # * nine subsources:
-#   * beloning to source 'source.one':
+#   * belonging to source 'source.one':
 #      * 'p1'
-#      * 'p2
+#      * 'p2'
 #      * 'p3'
-#   * beloning to source 'source.two':
+#   * belonging to source 'source.two':
 #      * 'p4'
 #      * 'p5'
 #      * 'p6'
-#   * beloning to source 'xyz.some-other':
+#   * belonging to source 'xyz.some-other':
 #      * 'p7'
 #      * 'p8'
 #      * 'p9'
@@ -271,6 +269,7 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
         'n6email-notifications-enabled': ['TRUE'],
         'n6org-group-refint': [_GO.dn(1)],
         'foo': ['bar...'],
+        'name': [u'Actual Name Zażółć'],
     }),
     _O(2, {
         'n6rest-api-full-access': ['FALSE'],
@@ -296,6 +295,7 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
         'n6email-notifications-enabled': ['truE'],  # ok, value is auto-uppercased
         # lack of 'n6rest-api-full-access' -> FALSE
         # lack of 'n6org-group-refint' means that the organization does not belong to a group
+        'name': [u'Actual Name Five'],
     }),
     _O(6, {
         'n6rest-api-full-access': ['True'],          # ok, value is auto-uppercased
@@ -315,6 +315,7 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
     }),
     _O(9, {
         'n6stream-api-enabled': ['TRUE', 'TRUE'],    # multiple values -> log error and FALSE
+        'name': [u'Actual Name Nine'],
     }),
     _O(10, {}),                                      # lack of 'n6stream-api-enabled'/
     _O(11, {}),                                      # /`n6email-notifications-enabled` -> FALSE
@@ -1208,4 +1209,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o12'] = {
     },
     'rest_api_full_access': False,
     'rest_api_resource_limits': {}  # note: empty dict because no resources enabled
+}
+
+
+EXAMPLE_ORG_IDS_TO_ACTUAL_NAMES = {
+    'o1': u'Actual Name Zażółć',
+    'o5': u'Actual Name Five',
+    'o9': u'Actual Name Nine',
 }

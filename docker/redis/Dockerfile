@@ -1,0 +1,2 @@
+ARG DOCKER_IMAGE=redis:6.0-alpine
+FROM $DOCKER_IMAGE

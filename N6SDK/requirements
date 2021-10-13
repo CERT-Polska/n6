@@ -1,4 +1,2 @@
-ipaddr
-pyramid<=1.5.7
-python-cjson
-requests
+pyramid==1.10.8
+requests==2.25.1

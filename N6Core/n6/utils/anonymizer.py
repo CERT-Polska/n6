@@ -35,9 +35,6 @@ class Anonymizer(QueuedBase):
         'exchange': 'event',
         'exchange_type': 'topic',
         'queue_name': 'anonymizer',
-        'binding_keys': [
-            '*.filtered.*.*',
-        ],
     }
 
     output_queue = {

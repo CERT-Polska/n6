@@ -1,4 +1,8 @@
 #!/usr/bin/python
+
+# Let's apply n6 specific monkey-patching as early as possible.
+import n6lib  # noqa
+
 from pyramid.paster import get_app, setup_logging
 ini_path = '/home/dataman/n6/etc/web/conf/api.ini'
 setup_logging(ini_path)

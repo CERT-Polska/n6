@@ -1,0 +1,152 @@
+.date-picker-field-container {
+  display: grid;
+  grid-template-columns: auto sizeToRem(144);
+  grid-template-rows: auto auto;
+}
+
+.date-picker-label-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.date-picker-label {
+  font-size: sizeToRem(16);
+  margin-bottom: 0;
+  margin-right: sizeToRem(10);
+  @include media-breakpoint-down(xs) {
+    font-size: sizeToRem(14);
+  }
+}
+
+.date-picker-input-wrapper {
+  position: relative;
+  width: sizeToRem(144);
+  .date-picker-input-field {
+    min-height: sizeToRem(40) !important;
+    padding-left: sizeToRem(10);
+  }
+
+  .date-picker-icon-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    right: sizeToRem(8);
+    background-color: transparent;
+    padding: 0;
+  }
+}
+
+.calendar-popover {
+  border: none;
+  background-color: transparent;
+  box-shadow: none;
+  .arrow {
+    display: none !important;
+  }
+}
+
+.date-picker-calendar {
+  width: sizeToRem(268);
+  box-shadow: 0 sizeToRem(10) sizeToRem(20) rgba(#6e7296, 0.1);
+  border: 1px solid rgba($grey-base, 0.4);
+  border-radius: $border-radius;
+  padding-bottom: sizeToRem(25);
+  background-color: white;
+
+  .calendar-header {
+    display: flex;
+    justify-content: space-between;
+    padding: sizeToRem(18) sizeToRem(45);
+  }
+
+  .calendar-row {
+    display: flex;
+    padding: 0 sizeToRem(14);
+  }
+
+  .calendar-day {
+    font-size: sizeToRem(14);
+    line-height: 1.15;
+    text-align: center;
+    flex: 1;
+    font-weight: 500;
+    padding: sizeToRem(4) 0;
+    margin: sizeToRem(2);
+    border-radius: $border-radius;
+    color: $dark;
+    background-color: white;
+    &:hover {
+      background-color: rgba($grey-base, 0.2);
+    }
+
+    &.not-in-range {
+      color: rgba($grey-base, 0.6);
+    }
+
+    &.is-selected {
+      color: white;
+      background-color: $primary;
+    }
+  }
+
+  .calendar-day-name {
+    text-align: center;
+    flex: 1;
+    font-weight: 500;
+    font-size: sizeToRem(12);
+    color: $dark-lighter;
+  }
+
+  .calendar-divider {
+    border-top: 1px solid rgba($grey-base, 0.4);
+    margin: 0 0 sizeToRem(6);
+  }
+
+  /* CALENDAR SELECT */
+
+  .calendar-select-btn {
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+    &:hover,
+    &:focus {
+      background: transparent !important;
+    }
+  }
+
+  .calendar-select-chevron {
+    width: sizeToRem(9);
+    height: sizeToRem(5);
+    margin-left: sizeToRem(8);
+    transition: transform 0.3s ease;
+  }
+
+  .calendar-dropdown.show {
+    .calendar-select-chevron {
+      transform: rotate(180deg);
+    }
+  }
+
+  .calendar-select-text {
+    color: $dark;
+    font-weight: 500;
+  }
+
+  .calendar-select-menu {
+    min-width: auto;
+    padding: sizeToRem(4);
+    max-height: sizeToRem(300);
+    overflow-y: scroll;
+  }
+
+  .calendar-select-option {
+    padding: 0 sizeToRem(22);
+    margin-bottom: sizeToRem(2);
+    border-radius: $border-radius;
+    text-align: center;
+    &.is-selected {
+      color: white;
+      background-color: $primary;
+    }
+  }
+}

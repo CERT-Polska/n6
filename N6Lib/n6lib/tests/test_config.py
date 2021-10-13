@@ -1,20 +1,18 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
-import ConfigParser
-import cStringIO
+import configparser
 import datetime
+import io
 import sys
 import unittest
-
-from mock import (
+from unittest.mock import (
     DEFAULT,
     call,
     patch,
     sentinel as sen,
 )
+
 from unittest_expander import (
     expand,
     foreach,
@@ -25,7 +23,7 @@ from unittest_expander import (
 from n6lib.common_helpers import (
     DictWithSomeHooks,
     reduce_indent,
-    string_to_bool,
+    str_to_bool,
 )
 from n6lib.config import (
     ConfigError,
@@ -70,7 +68,7 @@ class _ConfigExampleDataAndMocksMixin(object):
                 # another comment
                 [third]
                 xx = note that section names are always case-sensitive
-                [second\xc5\x9b]
+                [second\u015b]
                 a = 3.2
                 B = 4.2
                 c = 5.2 ; yet another comment
@@ -78,7 +76,7 @@ class _ConfigExampleDataAndMocksMixin(object):
         ('/x/y/abc.conf', reduce_indent('''
                 [first]
                 hij = 43
-                      44 \xc5\x9b \t
+                      44 \u015b \t
                       45
 
                 klm.RST =
@@ -92,7 +90,7 @@ class _ConfigExampleDataAndMocksMixin(object):
                 a = 123
                 bb = cc
 
-                [second\xc5\x9b]
+                [second\u015b]
                 b : 44.2
                 c : 45.2
                 d : 46.2
@@ -102,28 +100,27 @@ class _ConfigExampleDataAndMocksMixin(object):
     # example `settings` arg for modern variant of __init__() call
     # (Pyramid-like `settings` dict)
     DEFAULT_SETTINGS = {
-        # unicode keys to be, at first,    # below -- notes about particular example values:
-        # coerced to str (using UTF-8)
+                                           # below -- notes about particular example values:
         'aaa': 'qwerty',
-        u'first.a': 'xyz',
+        'first.a': 'xyz',
         'first.b': ' 1 ',
-        u'first.bcd': u'4 , 5 , 6',        # to be, at first, auto-coerced to str (using UTF-8)
+        'first.bcd': b'4 , 5 , 6',         # to be, at first, auto-coerced to str (+warning logged)
         'first.efg': 42.0,                 # to be, at first, auto-coerced to str (+warning logged)
-        u'first.hij': '43\n44 \xc5\x9b\n45',
+        'first.hij': '43\n44 \u015b\n45',
         'first.klm.rst': ' 1,false, NO ,oN , FALSE',
-        u'second\u015b.a': '     3.2',
-        'second\xc5\x9b.b': '    44.20',
-        u'second\u015b.c': '    45.200 ',
-        'second\xc5\x9b.d': '000046.2000',
-        u'THIRD.xx': u'Zażółć Gęślą Jaźń',  # to be, at first, auto-coerced to str (using UTF-8)
+        'second\u015b.a': '     3.2',
+        'second\u015b.b': '    44.20',
+        'second\u015b.c': '    45.200 ',
+        'second\u015b.d': '000046.2000',
+        'THIRD.xx': 'Zażółć Gęślą Jaźń'.encode('utf-8'),  # to be, at first, auto... (as above)
         'THIRD.zz': '{ 1 : 2 } ',
-        u'THIRD.qq': '',
+        'THIRD.qq': '',
         'third.xx': 'irrelevant because...',
-        u'third.yy': '...section names are always case-sensitive',
+        'third.yy': '...section names are always case-sensitive',
         'irrelevant opt': 'irrelevant value',
-        u'irrelevant.a': 123,              # to be, at first, auto-coerced to str (+warning logged)
+        'irrelevant.a': 123,               # to be, at first, auto-coerced to str (+warning logged)
         'irrelevant.bb': 'cc',
-        42: 'to-be-skipped',   # non-string key -- to be just skipped (+warning logged)
+        42: 'to-be-skipped',   # non-str key -- to be just skipped (+warning logged)
     }
 
     # example `config_spec` arg for modern variant of __init__() call
@@ -138,7 +135,7 @@ class _ConfigExampleDataAndMocksMixin(object):
         klm.rst :: list_of_bool
         N = 2016-02-25 23:24:25.1234 , 1410-07-15T12:01+02:00::list_of_datetime
 
-        [second\xc5\x9b]
+        [second\u015b]
         ... :: float
 
         [THIRD]
@@ -182,22 +179,22 @@ class _ConfigExampleDataAndMocksMixin(object):
             'b': 1,
             'bcd': '4 , 5 , 6',
             'efg': 42.0,
-            'hij': '43\n44 \xc5\x9b\n45',
+            'hij': '43\n44 \u015b\n45',
             'klm.rst': [True, False, False, True, False],
             'n': [
                 datetime.datetime(2016, 2, 25, 23, 24, 25, 123400),
                 datetime.datetime(1410, 7, 15, 10, 1),
             ],
         },
-        'second\xc5\x9b': {
+        'second\u015b': {
             'a': 3.2,
             'b': 44.2,
             'c': 45.2,
             'd': 46.2,
         },
         'THIRD': {
-            'xx': u'Zażółć Gęślą Jaźń',
-            'yy': {u'a': 42},
+            'xx': 'Zażółć Gęślą Jaźń',
+            'yy': {'a': 42},
             'zz': {1: 2},
             'qq': '',
         },
@@ -217,10 +214,10 @@ class _ConfigExampleDataAndMocksMixin(object):
             'b': '1',
             'bcd': '4 , 5 , 6',
             'efg': '42',
-            'hij': '43\n44 \xc5\x9b\n45',
+            'hij': '43\n44 \u015b\n45',
             'klm.rst': '\nyes,\noff,\nFalse,\ntrue,\n0,',
         },
-        'second\xc5\x9b': {
+        'second\u015b': {
             'a': '3.2',
             'b': '44.2',
             'c': '45.2',
@@ -260,14 +257,14 @@ class _ConfigExampleDataAndMocksMixin(object):
     def adjust_expected_open_calls(self, expected_open_calls):
         if expected_open_calls is DEFAULT:
             expected_open_calls = [
-                call(path)
+                call(path, encoding='utf-8')
                 for path in self.CONFIG_FILE_PATH_TO_DEFAULT_CONTENT]
         return expected_open_calls
 
     def patch_file_ops(self, config_files_content):
         self._unmemoize__Config__load_n6_config_files()
         self._patch__os_walk()
-        self._patch__ConfigParser_open(config_files_content)
+        self._patch__configparser_open(config_files_content)
         self._patch__sys_stderr()
 
     #
@@ -298,16 +295,16 @@ class _ConfigExampleDataAndMocksMixin(object):
         self.os_walk_mock = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _patch__ConfigParser_open(self, config_files_content):
+    def _patch__configparser_open(self, config_files_content):
         def side_effect(path, *args, **kwargs):
             assert path in self.CONFIG_FILE_PATH_TO_DEFAULT_CONTENT, 'bug in test'
             if config_files_content is DEFAULT:
                 content = self.CONFIG_FILE_PATH_TO_DEFAULT_CONTENT[path]
             else:
                 content = config_files_content
-            return cStringIO.StringIO(content)
-        patcher = patch('ConfigParser.open', create=True, side_effect=side_effect)
-        self.ConfigParser_open_mock = patcher.start()
+            return io.StringIO(content)
+        patcher = patch('configparser.open', create=True, side_effect=side_effect)
+        self.configparser_open_mock = patcher.start()
         self.addCleanup(patcher.stop)
 
     def _patch__sys_stderr(self):
@@ -338,9 +335,9 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             expected_result=[42, 43, 44, 45, 46, 47],
         ),
         param(
-            item_converter=string_to_bool,
+            item_converter=str_to_bool,
             optional_kwargs=dict(delimiter=';.;'),
-            expected_name='__string_to_bool__list__converter',
+            expected_name='__str_to_bool__list__converter',
             expected_delimiter=';.;',
             example_arg=' 0;.;  1  ;.;TRUE\n;.; \tfalse;.;Off;.;no ;.; ',
             expected_result=[False, True, True, False, False, False],
@@ -354,9 +351,9 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             expected_result=[42.0, 43.0, 44.0, 45.2],
         ),
         param(
-            item_converter=long,
+            item_converter=bytearray,
             optional_kwargs={},
-            expected_name='__long__list__converter',
+            expected_name='__bytearray__list__converter',
             expected_delimiter=',',
             example_arg=' ',
             expected_result=[],
@@ -377,27 +374,36 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
     def test__BASIC_CONVERTERS__general_features(self):
         self.assertIsInstance(Config.BASIC_CONVERTERS, dict)
         self.assertEqualIncludingTypes(set(Config.BASIC_CONVERTERS), {
-            'str', 'unicode', 'bool', 'int', 'float', 'date', 'datetime',
-            'list_of_str', 'list_of_unicode',
+            'str', 'bytes', 'unicode',
+            'bool', 'int', 'float',
+            'date', 'datetime',
+            'list_of_str', 'list_of_bytes', 'list_of_unicode',
             'list_of_bool', 'list_of_int', 'list_of_float',
             'list_of_date', 'list_of_datetime',
             'importable_dotted_name',
-            'py', 'json',
+            'py', 'py_namespaces_dict',
+            'json',
         })
-        self.assertTrue(all(callable(v) for v in Config.BASIC_CONVERTERS.itervalues()))
+        self.assertTrue(all(callable(v) for v in Config.BASIC_CONVERTERS.values()))
 
 
     @foreach(
         ('str', 'abc', 'abc'),
-        ('unicode', 'abc', u'abc'),
+        ('str', '\u015b', '\u015b'),
+        ('unicode', 'abc', 'abc'),
+        ('bytes', 'abc', b'abc'),
+        ('bytes', '\u015b', b'\xc5\x9b'),
         ('bool', 'Yes', True),
         ('int', '42', 42),
         ('float', '42', 42.0),
         ('date', '1410-07-15', datetime.date(1410, 7, 15)),
         ('datetime', '2016-02-29T23:24:25.1234+02:00',
             datetime.datetime(2016, 2, 29, 21, 24, 25, 123400)),
-        ('py', "{u'\xc5\x9b': [False,]}", {u'ś': [False]}),
-        ('json', '{"\\u015b": [false]}', {u'ś': [False]}),
+        ('py', b"{'\xc5\x9b': [False,]}", {'\u015b': [False]}),
+        ('py', b"{'\\u015b': [False,]}", {'\u015b': [False]}),
+        ('py', "{'\u015b': [False,]}", {'\u015b': [False]}),
+        ('py', "{'\\u015b': [False,]}", {'\u015b': [False]}),
+        ('json', '{"\\u015b": [false]}', {'\u015b': [False]}),
     )
     def test__BASIC_CONVERTERS__most_of_single_value_converters(self, name, arg, expected_result):
         converter = Config.BASIC_CONVERTERS[name]
@@ -424,7 +430,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
     @foreach(
         ('str', 'abc , def ,ghi,jkl ', ['abc', 'def', 'ghi', 'jkl']),
         ('str', '', []),
-        ('unicode', ' abc,def, ghi ,jkl', [u'abc', u'def', u'ghi', u'jkl']),
+        ('unicode', ' abc,def, ghi ,jkl', ['abc', 'def', 'ghi', 'jkl']),
+        ('bytes', 'abc , def ,ghi,jkl ', [b'abc', b'def', b'ghi', b'jkl']),
         ('bool', ' Yes,no \t  , OFF', [True, False, False]),
         ('int', '42, 43', [42, 43]),
         ('int', ' \t , \t ', []),
@@ -449,7 +456,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
 
 
     @paramseq
-    def modern_init_test_params(cls):
+    def modern_init_case_params(cls):
         yield param(
                 config_spec='',
                 optional_kwargs=dict(),
@@ -471,8 +478,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         yield param(
                 config_spec='',
                 optional_kwargs=dict(
-                    custom_converters=dict(weird=u"-*- {0} -*-".format),
-                    default_converter="| {0!r} |".format,
+                    custom_converters=dict(weird='-*- {0} -*-'.format),
+                    default_converter="| {0!a} |".format,
                 ),
                 config_files_content='',
                 expected_open_calls=DEFAULT,
@@ -483,8 +490,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 config_spec='',
                 optional_kwargs=dict(
                     settings={},
-                    custom_converters=dict(weird=u"-*- {0} -*-".format),
-                    default_converter="| {0!r} |".format,
+                    custom_converters=dict(weird='-*- {0} -*-'.format),
+                    default_converter="| {0!a} |".format,
                 ),
                 config_files_content=sen.irrelevant,
                 expected_open_calls=[],
@@ -530,7 +537,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         yield param(
                 config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
                 optional_kwargs=dict(
-                    custom_converters=dict(weird=u"-*- {0} -*-".format),
+                    custom_converters=dict(weird='-*- {0} -*-'.format),
                 ),
                 config_files_content=DEFAULT,
                 expected_open_calls=DEFAULT,
@@ -538,14 +545,14 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     cls.EXPECTED_CONFIG_BASE, **{
                         'first': dict(
                             cls.EXPECTED_CONFIG_BASE['first'],
-                            efg=u"-*- 42 -*-",
+                            efg='-*- 42 -*-',
                         ),
-                        'second\xc5\x9b': dict(
-                            cls.EXPECTED_CONFIG_BASE['second\xc5\x9b'],
-                            a=u"-*- 3.2 -*-",
-                            b=u"-*- 44.2 -*-",
-                            c=u"-*- 45.2 -*-",
-                            d=u"-*- 46.2 -*-",
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*- 3.2 -*-',
+                            b='-*- 44.2 -*-',
+                            c='-*- 45.2 -*-',
+                            d='-*- 46.2 -*-',
                         ),
                     }
                 ),
@@ -555,7 +562,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
                 optional_kwargs=dict(
                     settings=dict(cls.DEFAULT_SETTINGS),
-                    custom_converters=dict(weird=u"-*- {0} -*-".format),
+                    custom_converters=dict(weird='-*- {0} -*-'.format),
                 ),
                 config_files_content=sen.irrelevant,
                 expected_open_calls=[],
@@ -563,14 +570,14 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     cls.EXPECTED_CONFIG_BASE, **{
                         'first': dict(
                             cls.EXPECTED_CONFIG_BASE['first'],
-                            efg=u"-*- 42.0 -*-",
+                            efg='-*- 42.0 -*-',
                         ),
-                        'second\xc5\x9b': dict(
-                            cls.EXPECTED_CONFIG_BASE['second\xc5\x9b'],
-                            a=u"-*-      3.2 -*-",
-                            b=u"-*-     44.20 -*-",
-                            c=u"-*-     45.200  -*-",
-                            d=u"-*- 000046.2000 -*-",
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*-      3.2 -*-',
+                            b='-*-     44.20 -*-',
+                            c='-*-     45.200  -*-',
+                            d='-*- 000046.2000 -*-',
                         ),
                     }
                 ),
@@ -579,7 +586,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         yield param(
                 config_spec=cls.DEFAULT_CONFIG_SPEC,
                 optional_kwargs=dict(
-                    default_converter="| {0!r} |".format,
+                    default_converter="| {0!a} |".format,
                 ),
                 config_files_content=DEFAULT,
                 expected_open_calls=DEFAULT,
@@ -613,8 +620,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     cls.EXPECTED_CONFIG_BASE,
                     first=dict(
                         cls.EXPECTED_CONFIG_BASE['first'],
-                        a=[u'xyz'],
-                        bcd=[u'4', u'5', u'6'],
+                        a=['xyz'],
+                        bcd=['4', '5', '6'],
                     ),
                     THIRD=dict(
                         cls.EXPECTED_CONFIG_BASE['THIRD'],
@@ -622,7 +629,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     ),
                     fourth=dict(
                         cls.EXPECTED_CONFIG_BASE['fourth'],
-                        zzz=[u'ZZZ'],
+                        zzz=['ZZZ'],
                     ),
                 ),
             ).label('settings, other kwargs: `default_converter` [here: str]')
@@ -630,8 +637,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         yield param(
                 config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
                 optional_kwargs=dict(
-                    custom_converters=dict(weird=u"-*- {0} -*-".format),
-                    default_converter="| {0!r} |".format,
+                    custom_converters=dict(weird='-*- {0} -*-'.format),
+                    default_converter="| {0!a} |".format,
                 ),
                 config_files_content=DEFAULT,
                 expected_open_calls=DEFAULT,
@@ -641,14 +648,14 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                             cls.EXPECTED_CONFIG_BASE['first'],
                             a="| 'xyz' |",
                             bcd="| '4 , 5 , 6' |",
-                            efg=u"-*- 42 -*-",
+                            efg='-*- 42 -*-',
                         ),
-                        'second\xc5\x9b': dict(
-                            cls.EXPECTED_CONFIG_BASE['second\xc5\x9b'],
-                            a=u"-*- 3.2 -*-",
-                            b=u"-*- 44.2 -*-",
-                            c=u"-*- 45.2 -*-",
-                            d=u"-*- 46.2 -*-",
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*- 3.2 -*-',
+                            b='-*- 44.2 -*-',
+                            c='-*- 45.2 -*-',
+                            d='-*- 46.2 -*-',
                         ),
                         'THIRD': dict(
                             cls.EXPECTED_CONFIG_BASE['THIRD'],
@@ -666,8 +673,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
                 optional_kwargs=dict(
                     settings=dict(cls.DEFAULT_SETTINGS),
-                    custom_converters=dict(weird=u"-*- {0} -*-".format),
-                    default_converter="| {0!r} |".format,
+                    custom_converters=dict(weird='-*- {0} -*-'.format),
+                    default_converter="| {0!a} |".format,
                 ),
                 config_files_content=sen.irrelevant,
                 expected_open_calls=[],
@@ -677,14 +684,14 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                             cls.EXPECTED_CONFIG_BASE['first'],
                             a="| 'xyz' |",
                             bcd="| '4 , 5 , 6' |",
-                            efg=u"-*- 42.0 -*-",
+                            efg='-*- 42.0 -*-',
                         ),
-                        'second\xc5\x9b': dict(
-                            cls.EXPECTED_CONFIG_BASE['second\xc5\x9b'],
-                            a=u"-*-      3.2 -*-",
-                            b=u"-*-     44.20 -*-",
-                            c=u"-*-     45.200  -*-",
-                            d=u"-*- 000046.2000 -*-",
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*-      3.2 -*-',
+                            b='-*-     44.20 -*-',
+                            c='-*-     45.200  -*-',
+                            d='-*- 000046.2000 -*-',
                         ),
                         'THIRD': dict(
                             cls.EXPECTED_CONFIG_BASE['THIRD'],
@@ -702,9 +709,9 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 config_spec=cls.DEFAULT_CONFIG_SPEC,
                 optional_kwargs=dict(),
                 config_files_content=(
-                    '\n'.join(cls.CONFIG_FILE_PATH_TO_DEFAULT_CONTENT.itervalues()) +
+                    '\n'.join(cls.CONFIG_FILE_PATH_TO_DEFAULT_CONTENT.values()) +
                     reduce_indent('''
-                        [second\xc5\x9b]
+                        [second\u015b]
                         unknown = 42
                         [THIRD]
                         unknown = 42
@@ -713,8 +720,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 expected_open_calls=DEFAULT,
                 expected_outcome=Config.make(
                     cls.EXPECTED_CONFIG_BASE, **{
-                        'second\xc5\x9b': dict(
-                            cls.EXPECTED_CONFIG_BASE['second\xc5\x9b'],
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
                             unknown=42.0,
                         ),
                         'THIRD': dict(
@@ -738,17 +745,18 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         strange_settings.update({
             'unknown': '42',                # no section name -> section name is ''
             '.UnkNown': ' 4321 ',           # uppercase chars in opt name (to be kept as-is)
-            '': u'43',                      # no section&option name -> both are ''
-            'second\xc5\x9b.unknown': '42',
-            'second\xc5\x9b.UNKNOWN': ' 4321 ',     # uppercase-only opt name (to be kept as-is)
-            'second\xc5\x9b. \t ': '12345',         # whitespace-only opt name (to be kept as-is)
-            'second\xc5\x9b.': u'43',               # empty option name '' (to be kept as-is)
+            '': '43',                       # no section&option name -> both are ''
+            'second\u015b.unknown': '42',
+            'second\u015b.UNKNOWN': ' 4321 ',     # uppercase-only opt name (to be kept as-is)
+            'second\u015b. \t ': '12345',         # whitespace-only opt name (to be kept as-is)
+            'second\u015b.': '43',                # empty option name '' (to be kept as-is)
             'THIRD.unknown': '42',
             'THIRD.UnkNown': ' 4321 ',      # uppercase chars in opt name (to be kept as-is)
-            u'THIRD....\u015b': '12345',    # unicode + non-standard chars (to be encoded to utf-8)
+            'THIRD....\u015b': '12345',     # non-standard chars (to be kept as-is)
             'fourth.unknown': '42',
-            'fourth....\xc5\x9b': '12345',  # non-standard chars (to be kept as-is)
-            123: '997',                     # non-string settings key (to be skipped)
+            'fourth....\u015b': '12345',  # non-standard chars (to be kept as-is)
+            123: '997',                     # non-str settings key (to be skipped)
+            b'spam': '997',                 # non-str settings key (to be skipped)
         })
         yield param(
                 config_spec=(
@@ -770,8 +778,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                             'aaa': 'qwerty',
                             'irrelevant opt': 'irrelevant value',
                         },
-                        'second\xc5\x9b': dict(
-                            cls.EXPECTED_CONFIG_BASE['second\xc5\x9b'], **{
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'], **{
                                 'unknown': 42.0,
                                 'UNKNOWN': 4321.0,
                                 ' \t ': 12345.0,
@@ -782,13 +790,13 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                             cls.EXPECTED_CONFIG_BASE['THIRD'], **{
                                 'unknown': '42',
                                 'UnkNown': ' 4321 ',
-                                '...\xc5\x9b': '12345',
+                                '...\u015b': '12345',
                             }
                         ),
                         'fourth': dict(
                             cls.EXPECTED_CONFIG_BASE['fourth'], **{
                                 'unknown': 42,
-                                '...\xc5\x9b': 12345,
+                                '...\u015b': 12345,
                             }
                         ),
                     }
@@ -822,10 +830,10 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                             datetime.datetime(1410, 7, 15, 10, 1),
                         ],
                     },
-                    'second\xc5\x9b': {},
+                    'second\u015b': {},
                     'THIRD': {
-                        'xx': u'',
-                        'yy': {u'a': 42},
+                        'xx': '',
+                        'yy': {'a': 42},
                         'zz': None,
                     },
                     'fourth': {
@@ -846,7 +854,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                         'first.b': '43',
                         'first.hij': 44,  # (the non-str value will be coerced to str)
                         'first.klm.rst': '1',
-                        'THIRD.xx': u'',  # (the non-str values will be coerced to str)
+                        'THIRD.xx': b'',  # (the non-str values will be coerced to str)
                         'THIRD.zz': ' None ',
                     },
                 ),
@@ -865,10 +873,10 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                             datetime.datetime(1410, 7, 15, 10, 1),
                         ],
                     },
-                    'second\xc5\x9b': {},
+                    'second\u015b': {},
                     'THIRD': {
-                        'xx': u'',
-                        'yy': {u'a': 42},
+                        'xx': '',
+                        'yy': {'a': 42},
                         'zz': None,
                     },
                     'fourth': {
@@ -900,7 +908,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             ).label('error: wrong spec [using settings]')
 
         yield param(
-                config_spec=u'[spam]\na b c = foo',
+                config_spec=b'[spam]\na b c = foo',
                 optional_kwargs=dict(),
                 config_files_content=DEFAULT,
                 expected_open_calls=[],
@@ -908,7 +916,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             ).label('error: wrong type of spec [using config]')
 
         yield param(
-                config_spec=u'[spam]\na b c = foo',
+                config_spec=b'[spam]\na b c = foo',
                 optional_kwargs=dict(
                     settings=dict(cls.DEFAULT_SETTINGS)
                 ),
@@ -944,18 +952,20 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 config_spec='',
                 optional_kwargs=dict(),
                 config_files_content='abc = foo\n',
-                expected_open_calls=[call('a/b/00_global.conf')],
+                expected_open_calls=[call('a/b/00_global.conf', encoding='utf-8')],
                 expected_outcome=(ConfigError, r'MissingSectionHeaderError:'),
             ).label('error: wrong config syntax [here: missing section header]')
 
-        class WithTroublesomeStr(object):
+        class WithTroublesomeStrAndRepr(object):
             def __str__(self):
-                return u'\u015b'.encode('ascii')  # will raise UnicodeEncodeError...
+                return '\u015b'.encode('ascii')  # will raise UnicodeEncodeError...
+            def __repr__(self):
+                return str(self)
         yield param(
                 config_spec='',
                 optional_kwargs=dict(
                     settings={
-                        'abc': WithTroublesomeStr(),
+                        'abc': WithTroublesomeStrAndRepr(),
                     },
                 ),
                 config_files_content=sen.irrelevant,
@@ -1029,7 +1039,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 config_spec=cls.DEFAULT_CONFIG_SPEC,
                 optional_kwargs=dict(),
                 config_files_content=(
-                    '\n'.join(cls.CONFIG_FILE_PATH_TO_DEFAULT_CONTENT.itervalues()) +
+                    '\n'.join(cls.CONFIG_FILE_PATH_TO_DEFAULT_CONTENT.values()) +
                     reduce_indent('''
                         [first]
                         unknown = 1
@@ -1129,7 +1139,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     ),
                     THIRD=dict(
                         cls.EXPECTED_CONFIG_BASE['THIRD'],
-                        yy={u'a': 321},
+                        yy={'a': 321},
                     ),
                 ),
             ).label('config with some options overridden with --n6config-override'
@@ -1138,7 +1148,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     'first.a=abc',
                     'THIRD.yy={"a": 321}'])
 
-    @foreach(modern_init_test_params)
+    @foreach(modern_init_case_params)
     def test_modern_init(self,
                          config_spec,
                          optional_kwargs,
@@ -1154,7 +1164,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
 
 
     @paramseq
-    def legacy_init_test_params(cls):
+    def legacy_init_case_params(cls):
         yield param(
                 args=[],
                 kwargs=dict(),
@@ -1216,9 +1226,9 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 args=[cls.DEFAULT_LEGACY_REQUIRED],
                 kwargs=dict(),
                 config_files_content='abc = foo\n',
-                expected_open_calls=[call('a/b/00_global.conf')],
+                expected_open_calls=[call('a/b/00_global.conf', encoding='utf-8')],
                 expected_outcome=(
-                    ConfigParser.MissingSectionHeaderError,
+                    configparser.MissingSectionHeaderError,
                     r'no section headers'),
             ).label('error: wrong config syntax [here: missing section header]')
 
@@ -1320,7 +1330,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 '-foo',
                 '--bar'])
 
-    @foreach(legacy_init_test_params)
+    @foreach(legacy_init_case_params)
     def test_legacy_init(self,
                          args,
                          kwargs,
@@ -1336,7 +1346,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
 
 
     @paramseq
-    def config_sections_logging_test_params(cls):
+    def config_sections_logging_case_params(cls):
         yield param(
                 config_spec='''
                     [foo]
@@ -1420,7 +1430,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     extendable_section=dict(
                         first_opt=123,
                         second_opt='abcd',
-                        nonimplemented_opt={u'key': u'some_val'},
+                        nonimplemented_opt={'key': 'some_val'},
                         nondeclared_opt='http://example.com/'
                     ),
                     nonextendable_section=dict(
@@ -1454,7 +1464,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     ...
                     [extendable_section_three]
                     some_opt
-                    some_second_opt = unicode_opt :: unicode
+                    some_second_opt = bytes_opt :: bytes
                     ...
                 ''',
                 config_files_content=reduce_indent('''
@@ -1468,14 +1478,14 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
     
                     [extendable_section_three]
                     some_opt = example
-                    some_second_opt = overridden unicode option
+                    some_second_opt = overridden bytes option
                     some_nondeclared_opt = trigger_warning
                 '''),
                 expected_outcome=Config.make(
                     extendable_section_one=dict(
                         first_opt=123.89,
                         second_opt=['one', 'two', 'three'],
-                        nonimplemented_opt={u'key': u'some_val'},
+                        nonimplemented_opt={'key': 'some_val'},
                         nondeclared_opt='9989',
                     ),
                     extendable_section_two=dict(
@@ -1483,7 +1493,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     ),
                     extendable_section_three=dict(
                         some_opt='example',
-                        some_second_opt=u'overridden unicode option',
+                        some_second_opt=b'overridden bytes option',
                         some_nondeclared_opt='trigger_warning',
                     )
                 ),
@@ -1511,7 +1521,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     ...
                     [extendable_section_three]
                     some_opt
-                    some_second_opt = unicode_opt :: unicode
+                    some_second_opt = bytes_opt :: bytes
                     some_third_opt = third option
                     ...
                 ''',
@@ -1527,14 +1537,14 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
     
                     [extendable_section_three]
                     some_opt = example
-                    some_second_opt = overridden unicode option
+                    some_second_opt = overridden bytes option
                     some_third_opt = some third option
                 '''),
                 expected_outcome=Config.make(
                     extendable_section_one=dict(
                         first_opt=123.89,
                         second_opt=['one', 'two', 'three'],
-                        third_opt={u'opt': u'example option'},
+                        third_opt={'opt': 'example option'},
                     ),
                     extendable_section_two=dict(
                         example_opt='implemented option',
@@ -1542,7 +1552,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     ),
                     extendable_section_three=dict(
                         some_opt='example',
-                        some_second_opt=u'overridden unicode option',
+                        some_second_opt=b'overridden bytes option',
                         some_third_opt='some third option',
                     ),
                 ),
@@ -1597,7 +1607,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             ).label('Warning and error are logged because of the missing nonrequired section '
                     'and a possibility of a typo in option names.')
 
-    @foreach(config_sections_logging_test_params)
+    @foreach(config_sections_logging_case_params)
     def test_modern_init_logging_uncertainties(self,
                                                config_spec,
                                                config_files_content,
@@ -1620,8 +1630,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     log_args, _ = log_method_mock.call_args
                     logged_msg = log_args[0]
                     logged_sect_names = [x.strip('"') for x in log_args[1].split(', ')]
-                    self.assertRegexpMatches(logged_msg, log_invocation.msg_regex)
-                    self.assertItemsEqual(logged_sect_names, log_invocation.section_names,
+                    self.assertRegex(logged_msg, log_invocation.msg_regex)
+                    self.assertCountEqual(logged_sect_names, log_invocation.section_names,
                                           "Logged section names are not equal to expected ones.")
             else:
                 # no messages are expected to be logged, every
@@ -1653,9 +1663,9 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             # expected outcome is an exception raised
             expected_exc_class, expected_exc_regex = expected_outcome
             assert issubclass(expected_exc_class, BaseException), 'bug in test'
-            with self.assertRaisesRegexp(expected_exc_class, expected_exc_regex):
+            with self.assertRaisesRegex(expected_exc_class, expected_exc_regex):
                 Config(*args, **kwargs)
-        self.assertEqual(self.ConfigParser_open_mock.mock_calls, expected_open_calls)
+        self.assertEqual(self.configparser_open_mock.mock_calls, expected_open_calls)
 
 
     @foreach(
@@ -1665,7 +1675,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             'cc': [1, 2, 3],
         })),
         ('second', ConfigSection('second', {
-            'foo.bar': u'Spam',
+            'foo.bar': 'Spam',
         })),
         ('xyz', NoConfigSectionError),
         ('FIRST', NoConfigSectionError),
@@ -1679,7 +1689,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 'cc': [1, 2, 3],
             },
             'second': {
-                'foo.bar': u'Spam',
+                'foo.bar': 'Spam',
             },
         })
         if isinstance(expected_outcome, ConfigSection):

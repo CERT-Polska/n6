@@ -1,3 +1,5 @@
+# Copyright (c) 2015-2021 NASK. All rights reserved.
+
 from n6sdk.data_spec import AllSearchableDataSpec
 from n6sdk.exceptions import (
     FieldValueError,
@@ -37,4 +39,4 @@ class DataSpecTest(AllSearchableDataSpec):
         pass
 
     def get_nonstandard_fields(self, data):
-        return frozenset(data.viewkeys()).difference(self.all_result_keys)
+        return frozenset(data.keys()).difference(self.all_result_keys)

@@ -1,30 +1,29 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
 import bisect
 import datetime
 import fnmatch
 import functools
-import os
 import re
+import time
 import traceback
+import threading
 
-import ldap
+from sqlalchemy.exc import SQLAlchemyError
 
-from n6lib.class_helpers import (
-    get_class_name,
-    singleton,
-)
+from n6lib.class_helpers import get_class_name
 from n6lib.common_helpers import (
+    LimitedDict,
     ascii_str,
     ip_network_as_tuple,
     ip_network_tuple_to_min_max_ip,
     ipv4_to_int,
+    make_exc_ascii_str,
     memoized,
     deep_copying_result,
 )
+from n6lib.config import Config
 from n6lib.const import CLIENT_ORGANIZATION_MAX_LENGTH
 from n6lib.context_helpers import ThreadLocalContextDeposit
 from n6lib.db_events import n6NormalizedData
@@ -33,35 +32,46 @@ from n6lib.db_filtering_abstractions import (
     PredicateConditionBuilder,
     SQLAlchemyConditionBuilder,
 )
+from n6lib.jwt_helpers import (
+    JWT_ALGO_HMAC_SHA256,
+    JWTDecodeError,
+    jwt_decode,
+    jwt_encode,
+)
 from n6lib.log_helpers import get_logger
-try:
-    if os.getenv('N6_FORCE_LDAP_API_REPLACEMENT'):
-        raise ImportError
-    import n6lib.ldap_api
-except ImportError:
-    from n6lib.ldap_api_replacement import (
-        LdapAPI,
-        LdapAPIConnectionError,
-        get_attr_value,
-        get_attr_value_list,
-        get_dn_segment_value,
-        get_node,
-    )
-    LDAP_API_REPLACEMENT = True
-else:
-    from n6lib.ldap_api import (
-        LdapAPI,
-        LdapAPIConnectionError,
-        get_attr_value,
-        get_attr_value_list,
-        get_dn_segment_value,
-        get_node,
-    )
-    LDAP_API_REPLACEMENT = False
+from n6lib.ldap_api_replacement import (
+    LdapAPI,
+    LdapAPIConnectionError,
+    LdapAPIReplacementWrongOrgUserAPIKeyIdError,
+    get_attr_value,
+    get_attr_value_list,
+    get_dn_segment_value,
+    get_node,
+)
+from n6lib.threaded_async import LoopedTask
+from n6lib.typing_helpers import (
+    AccessZone,
+    EventDataResourceId,
+)
 
 
 
-__all__ = 'AuthAPI', 'AuthAPIUnauthenticatedError'
+__all__ = (
+    'DEFAULT_MAX_DAYS_OLD',
+    'DEFAULT_RESOURCE_LIMIT_WINDOW',
+    'RESOURCE_ID_TO_ACCESS_ZONE',
+    'EVENT_DATA_RESOURCE_IDS',
+    'ACCESS_ZONE_TO_RESOURCE_ID',
+    'ACCESS_ZONES',
+
+    'AuthAPIError',
+    'AuthAPIUnauthenticatedError',
+    'AuthAPICommunicationError',
+
+    'AuthAPI',
+    'AuthAPIWithPrefetching',
+    'InsideCriteriaResolver',
+)
 
 
 
@@ -72,22 +82,25 @@ LOGGER = get_logger(__name__)
 DEFAULT_MAX_DAYS_OLD = 100
 DEFAULT_RESOURCE_LIMIT_WINDOW = 3600
 
-# There is a direct 1-to-1 relation between the following three REST API
-# resources ("data stream" resources) and the three access zones.  NOTE
-# that, apart from them, there are also other REST API resources (such
-# as /device/...) which are *not* related to any particular access zone.
+# As you can see here, there is a direct 1-to-1 relation between the
+# three REST API *event data resources* (aka "data stream" resources)
+# and the three *access zones*.
 RESOURCE_ID_TO_ACCESS_ZONE = {
     '/report/inside': 'inside',
     '/report/threats': 'threats',
     '/search/events': 'search',
 }
+EVENT_DATA_RESOURCE_IDS = frozenset(RESOURCE_ID_TO_ACCESS_ZONE)
 ACCESS_ZONE_TO_RESOURCE_ID = dict(
     (az, res_id)
-    for res_id, az in RESOURCE_ID_TO_ACCESS_ZONE.iteritems())
+    for res_id, az in RESOURCE_ID_TO_ACCESS_ZONE.items())
 ACCESS_ZONES = frozenset(ACCESS_ZONE_TO_RESOURCE_ID)
 
+assert set(AccessZone.__args__) == ACCESS_ZONES
+assert set(EventDataResourceId.__args__) == EVENT_DATA_RESOURCE_IDS
+
 _BOOL_TO_FLAG = {True: 'TRUE', False: 'FALSE'}
-_FLAG_TO_BOOL = {f: b for b, f in _BOOL_TO_FLAG.iteritems()}
+_FLAG_TO_BOOL = {f: b for b, f in _BOOL_TO_FLAG.items()}
 
 
 
@@ -100,6 +113,7 @@ class AuthAPIUnauthenticatedError(AuthAPIError):
 
 
 class AuthAPICommunicationError(AuthAPIError):
+
     """Raised when low-level communication is broken."""
 
     def __init__(self, exc_info_msg, low_level_exc=None):
@@ -137,15 +151,14 @@ def cached_basing_on_ldap_root_node(func):
 
 
 
-@singleton
 class AuthAPI(object):
 
     """
     An API that provides common set of authentication/authorization methods.
 
     The constructor takes one optional argument: `settings` (to be used
-    by n6lib.{ldap_api,ldap_api_replacement}.LdapAPI constructor; see
-    also the docs of the n6lib.config.Config class).
+    by n6lib.ldap_api_replacement.LdapAPI constructor; see also the docs
+    of the n6lib.config.Config class).
 
     Use the (reentrant) context manager interface to ensure that a series
     of method calls will be consistent in terms of LDAP data state (i.e.
@@ -155,16 +168,24 @@ class AuthAPI(object):
         with auth_api:
             inside_crit_resolver = auth_api.get_inside_criteria_resolver()
             org_id_to_acc_inf = auth_api.get_org_ids_to_access_infos()
+
+    **Note:** N6ConfigHelper (defined in n6lib.pyramid_commons) installs
+    a tween which makes the whole view-level handling of each Pyramid
+    request (including the entire process of generating the chunks of a
+    stream response) be automatically wrapped in the Auth API's context
+    manager (see: n6lib.pyramid_commons.auth_api_context_tween_factory).
     """
 
-    # XXX: [ticket #3312] Is this tween operational for stream responses???
-    # [ad: "Note: n6lib.pyramid_commons.N6ConfigHelper adds a tween that
-    # automatically applies that context manager to pyramid requests."]
-
+    config_spec = '''
+        [api_key_based_auth]
+        server_secret = :: str
+    '''
 
     def __init__(self, settings=None):
-        self._root_node_deposit = ThreadLocalContextDeposit(repr_token=self.__class__.__name__)
+        self._root_node_deposit = ThreadLocalContextDeposit(repr_token=self.__class__.__qualname__)
         self._ldap_api = LdapAPI(settings)
+        self._data_preparer = _DataPreparer()
+        self._config_full = Config(self.config_spec, settings=settings)
 
 
     #
@@ -188,56 +209,82 @@ class AuthAPI(object):
             root_node = self._get_root_node()
         return root_node
 
-    def authenticate(self, org_id, user_id):
-        """
-        Authenticates by org_id and user_id.
+    def is_api_key_authentication_enabled(self):
+        return bool(self._config_full['api_key_based_auth']['server_secret'].strip())
 
-        Args/kwargs:
-            `org_id`: organization id as a string.
-            `user_id`: user id as a string.
+    def get_api_key_as_jwt_or_none(self, user_id, api_key_id):
+        server_secret = self._config_full['api_key_based_auth']['server_secret']
+        if not server_secret.strip():
+            return None
+        api_key = jwt_encode({'login': user_id, 'api_key_id': api_key_id},
+                             server_secret,
+                             algorithm=JWT_ALGO_HMAC_SHA256)
+        return api_key
+
+    def authenticate_with_api_key(self, api_key):
+        server_secret = self._config_full['api_key_based_auth']['server_secret']
+        if not server_secret.strip():
+            raise AuthAPIUnauthenticatedError
+        try:
+            payload = jwt_decode(api_key,
+                                 server_secret,
+                                 accepted_algorithms=[JWT_ALGO_HMAC_SHA256],
+                                 required_claims={'login', 'api_key_id'})
+        except JWTDecodeError:
+            raise AuthAPIUnauthenticatedError
+
+        assert 'login' in payload and 'api_key_id' in payload
+        user_id = payload['login']
+        api_key_id = payload['api_key_id']
+
+        auth_data = self._get_auth_data_for_user(user_id)
+        org_id = auth_data['org_id']
+        assert auth_data == {'user_id': user_id, 'org_id': org_id}
+        try:
+            self._ldap_api.authenticate_with_api_key_id(org_id, user_id, api_key_id)
+        except LdapAPIReplacementWrongOrgUserAPIKeyIdError:
+            raise AuthAPIUnauthenticatedError
+        return auth_data
+
+    def _get_auth_data_for_user(self, user_id):
+        """
+        Verify that the given `user_id` is the login of an existing and
+        non-blocked user, then return an appropriate *auth data* dict.
+
+        Args:
+            `user_id`: user id (login) as a str.
 
         Returns:
-            {'org_id': <organization id>,
-             'user_id': <user id>}
+            {'org_id': <organization id (str)>,
+             'user_id': <user id *aka* login> (str)}
 
         Raises:
-            AuthAPIUnauthenticatedError: user or organization does not exist.
+            AuthAPIUnauthenticatedError if:
+            * the given `user_id` is empty, or
+            * the user does not exist, or
+            * the user is blocked.
         """
-        assert org_id is not None
-        assert user_id is not None
+        if not user_id:
+            raise AuthAPIUnauthenticatedError
         user_ids_to_org_ids = self.get_user_ids_to_org_ids()
         try:
-            stored_org_id = user_ids_to_org_ids[user_id]
+            org_id = user_ids_to_org_ids[user_id]
         except KeyError:
             raise AuthAPIUnauthenticatedError
-        if stored_org_id != org_id:
-            raise AuthAPIUnauthenticatedError
+        assert user_id is not None
+        assert org_id is not None
         return {'user_id': user_id, 'org_id': org_id}
-
-    def authenticate_with_password(self, org_id, user_id, password):
-        self._ldap_api.authenticate_with_password(org_id, user_id, password)
 
     @deep_copying_result  # <- just defensive programming
     @cached_basing_on_ldap_root_node
     def get_user_ids_to_org_ids(self):
         """
         Returns the user-id-to-org-id mapping (as a dict).
+
+        (*Only* non-blocked users are included.)
         """
-        result = {}
-        org_id_to_node = self.get_ldap_root_node()['ou']['orgs'].get('o', {})
-        for org_id, org in org_id_to_node.iteritems():
-            self._check_org_length(org_id)
-            user_id_to_node = org.get('n6login', {})
-            for user_id, user in user_id_to_node.iteritems():
-                stored_org_id = result.setdefault(user_id, org_id)
-                if stored_org_id != org_id:
-                    LOGGER.error(
-                        'Problem with LDAP data: user %r belongs to '
-                        'more than one organization (%r and %r '
-                        '-- only the former will be stored in the '
-                        'user-id-to-org-id mapping)',
-                        user_id, stored_org_id, org_id)
-        return result
+        return self._data_preparer.get_user_ids_to_org_ids(
+            self.get_ldap_root_node())
 
     # note: @deep_copying_result is unnecessary here as results are purely immutable
     @cached_basing_on_ldap_root_node
@@ -245,10 +292,8 @@ class AuthAPI(object):
         """
         Returns a frozenset of all organization ids (typically, already cached).
         """
-        all_org_ids = frozenset(self.get_ldap_root_node()['ou']['orgs'].get('o', frozenset()))
-        for org_id in all_org_ids:
-            self._check_org_length(org_id)
-        return all_org_ids
+        return self._data_preparer.get_org_ids(
+            self.get_ldap_root_node())
 
     # note: @deep_copying_result is unnecessary here as InsideCriteriaResolver's
     # public interface does not include any mutating methods or properties
@@ -257,8 +302,8 @@ class AuthAPI(object):
         """
         Returns an InsideCriteriaResolver instance (typically already cached).
         """
-        inside_criteria = self._get_inside_criteria()
-        return InsideCriteriaResolver(inside_criteria)
+        return self._data_preparer.get_inside_criteria_resolver(
+            self.get_ldap_root_node())
 
     @deep_copying_result  # <- just defensive programming
     @cached_basing_on_ldap_root_node
@@ -268,28 +313,17 @@ class AuthAPI(object):
 
         {
             'forward_mapping': {
-                 <source id>: <anonymized source id>,
+                 <source id (str)>: <anonymized source id (str)>,
                  ...
             },
             'reverse_mapping': {
-                 <anonymized source id>: <source id>,
+                 <anonymized source id (str)>: <source id (str)>,
                  ...
             },
         }
         """
-        source_id_to_node = self.get_ldap_root_node()['ou']['sources'].get('cn', {})
-        forward_mapping = {}
-        for source_id, node in source_id_to_node.iteritems():
-            try:
-                forward_mapping[source_id] = get_attr_value(node, 'n6anonymized')
-            except ValueError as exc:
-                LOGGER.error('Problem with LDAP data for the source %r: %s',
-                             source_id, exc)
-        reverse_mapping = {anonymized_id: source_id
-                           for source_id,
-                               anonymized_id in forward_mapping.iteritems()}
-        return {'forward_mapping': forward_mapping,
-                'reverse_mapping': reverse_mapping}
+        return self._data_preparer.get_anonymized_source_mapping(
+            self.get_ldap_root_node())
 
     # note: @deep_copying_result is unnecessary here as results are purely immutable
     @cached_basing_on_ldap_root_node
@@ -298,17 +332,8 @@ class AuthAPI(object):
         Returns a frozenset of source ids (typically already cached) for
         which anonymization of `dip` is *not enabled*.
         """
-        source_id_to_node = self.get_ldap_root_node()['ou']['sources'].get('cn', {})
-        return frozenset(
-            source_id
-            for source_id, node in source_id_to_node.iteritems()
-            if not self._is_flag_enabled(
-                node,
-                caption='the source {!r}'.format(source_id),
-                attribute='n6dip-anonymization-enabled',
-                on_missing=False,  # <- by default, anonymization is disabled -- though...
-                on_illegal=True,   # <- ...let's be on the safe side when LDAP data are malformed
-            ))
+        return self._data_preparer.get_dip_anonymization_disabled_source_ids(
+            self.get_ldap_root_node())
 
     #@deep_copying_result <- we cannot use it here as part of defensive programming
     #                        because there are problems with copying ColumnElement objects
@@ -320,15 +345,34 @@ class AuthAPI(object):
         Args:
             `auth_data`:
                 Authenticated organization data in format:
-                {'org_id': <org id>, 'user_id': <user id>}.
+                {'org_id': <org id (str)>, 'user_id': <user id *aka* login (str)>}.
 
         Returns:
             None or a dictionary (for a single organization), provided by
-            getting: <AuthAPI instance>.get_org_ids_to_access_infos()[<org id>]
+            getting: <AuthAPI instance>.get_org_ids_to_access_infos().get(<org id>)
+
+        Note: even if the organization exists, this method may still
+        return None (this is the case when the organization has no
+        access to any subsource for any access zone).
         """
         org_id = auth_data['org_id']
         all_access_infos = self.get_org_ids_to_access_infos()
-        return all_access_infos.get(org_id)
+        access_info = all_access_infos.get(org_id)
+        assert (access_info is None
+                or (isinstance(access_info, dict)
+                    and access_info.keys() == {
+                        'access_zone_conditions',
+                        'rest_api_resource_limits',
+                        'rest_api_full_access',
+                    }
+                    and (isinstance(access_info['access_zone_conditions'], dict)
+                         and access_info['access_zone_conditions'].keys()
+                             <= ACCESS_ZONES)
+                    and (isinstance(access_info['rest_api_resource_limits'], dict)
+                         and access_info['rest_api_resource_limits'].keys()
+                             <= EVENT_DATA_RESOURCE_IDS)
+                    and isinstance(access_info['rest_api_full_access'], bool)))
+        return access_info
 
     #@deep_copying_result <- we cannot use it here as part of defensive programming
     #                        because there are problems with copying ColumnElement objects
@@ -341,7 +385,7 @@ class AuthAPI(object):
         Returns a dict (typically already cached):
 
         {
-            <organization id as string>: {
+            <organization id (str)>: {
                 'access_zone_conditions': {
                     <access zone: 'inside' or 'threats' or 'search'>: [
                         <an sqlalchemy.sql.expression.ColumnElement instance
@@ -350,9 +394,8 @@ class AuthAPI(object):
                     ],
                     ...
                 },
-                'rest_api_full_access': <True or False>,
                 'rest_api_resource_limits': {
-                    <resource id (URL-path-based)>: {
+                    <resource id (one of EVENT_DATA_RESOURCE_IDS)>: {
                         'window': <int>,
                         'queries_limit': <int>,
                         'results_limit': <int>,
@@ -364,6 +407,7 @@ class AuthAPI(object):
                         }>,
                     },
                     ...
+                'rest_api_full_access': <True or False>,
                 },
             },
             ...
@@ -372,8 +416,9 @@ class AuthAPI(object):
         Note that:
 
         * Organizations for whom some (or even all) REST API "data
-          stream" resources are *disabled* (i.e., whose LDAP entries do
-          not have any `cn=res-...` child entries) *are still included*.
+          stream" resources are *disabled* (i.e., whose `access_to_...`
+          flags are False) *are still included* -- but **with the
+          reservation of the next point** (below).
 
         * NOTE, however, that organizations that do *not* have access to
           any subsource for any access zone *are excluded*.
@@ -382,10 +427,9 @@ class AuthAPI(object):
           zones for whom the given organization does have access to any
           subsource.
 
-        * Only the "data stream" resources of REST API (those identified
+        * Only the event data resources of REST API (those identified
           by the resource ids: '/report/inside', '/report/threats',
-          '/search/events'; *not* other REST API resources such as
-          '/device/...') are covered by the `rest_api_resource_limits`
+          '/search/events') are covered by the `rest_api_resource_limits`
           information -- and *only provided that* the given resource is
           enabled for the given organization, i.e., the organization's
           LDAP entry *does* have the appropriate `cn=res-...'  child
@@ -400,11 +444,123 @@ class AuthAPI(object):
         'internal'` condition for organizations for whom
         `rest_api_full_access` is False.
         """
-        root_node = self.get_ldap_root_node()
-        org_id_to_node = root_node['ou']['orgs'].get('o', {})
-        result = self._make_org_ids_to_access_infos(root_node, org_id_to_node)
-        self._set_resource_limits(result, root_node, org_id_to_node)
-        return result
+        return self._data_preparer.get_org_ids_to_access_infos(
+            self.get_ldap_root_node())
+
+    # note: @deep_copying_result is unnecessary here as results are purely immutable
+    def get_org_actual_name(self, auth_data):
+        """
+        Get the *actual name* (aka `name`) of the specified organization
+        (if the organization exists *and* has its *actual name*;
+        otherwise `None` is got).
+
+        Args:
+            `auth_data`:
+                Authenticated organization data in format:
+                {'org_id': <org id (str)>, 'user_id': <user id *aka* login (str)>}.
+
+        Returns:
+            None or a str (for a single organization), provided by
+            getting: <AuthAPI instance>.get_org_ids_to_actual_names().get(<org id>)
+        """
+        org_id = auth_data['org_id']
+        all_actual_names = self.get_org_ids_to_actual_names()
+        return all_actual_names.get(org_id)
+
+    @deep_copying_result  # <- just defensive programming
+    @cached_basing_on_ldap_root_node
+    def get_org_ids_to_actual_names(self):
+        """
+        Get a dict that maps str objects being organization identifiers
+        to str objects being the organizations' *actual names*.
+
+        The dict includes only organizations that have *actual names* set.
+        """
+        return self._data_preparer.get_org_ids_to_actual_names(
+            self.get_ldap_root_node())
+
+    # note: @deep_copying_result is unnecessary here as the
+    # `get_org_ids_to_combined_configs()` method (which is called
+    # from this method) is already wrapped using that decorator
+    def get_combined_config(self, auth_data):
+        """
+        Get the combined config (related to e-mail notifications and the
+        "inside" criteria used by n6filter) for the specified organization.
+
+        Args:
+            `auth_data`:
+                Authenticated organization data in format:
+                {'org_id': <org id (str)>, 'user_id': <user id *aka* login (str)>}.
+
+        Returns:
+            None or a dictionary (for a single organization), provided by
+            getting: <AuthAPI instance>.get_org_ids_to_combined_configs().get(<org id>)
+        """
+        org_id = auth_data['org_id']
+        all_combined_configs = self.get_org_ids_to_combined_configs()
+        return all_combined_configs.get(org_id)
+
+    @deep_copying_result  # <- just defensive programming
+    @cached_basing_on_ldap_root_node
+    def get_org_ids_to_combined_configs(self):
+        """
+        Get a dict that maps organization ids to their combined configs
+        related to e-mail notifications and to "inside" criteria used by
+        n6filter.
+
+        Returns a dict (typically already cached):
+
+        {
+            <org id>: {
+                'email_notifications': {                                 # optional
+                    'email_notification_addresses': [<str>, ...],                  # sorted
+                    'email_notification_times': [<datetime.time>, ...],            # sorted
+                    'email_notification_language': <str>,                          # optional
+                    'email_notification_business_days_only': <bool>,
+                },
+                'inside_criteria': {                                     # optional
+                    'fqdn_seq': [<fqdn (str)>, ...],                               # sorted
+                    'asn_seq': [<asn (int)>, ...],                                 # sorted
+                    'cc_seq': [<cc (str)>, ...],                                   # sorted
+                    'ip_min_max_seq': [(<min. ip (int)>, <max. ip (int)>), ...],   # sorted
+                    'url_seq': [<url (str)>, ...],                                 # sorted
+                },
+            },
+            ...
+        }
+
+        The key of each item of the resultant dict is the identifier
+        of an organization.
+
+        The value of each item of the resultant dict is also a dict;
+        it contains up to two items, which are the following:
+
+        * the `email_notifications` item (if present) is
+          a dict containing the same data as returned by
+          `get_org_ids_to_notification_configs()`, but:
+
+            * omitting the `name` and `n6stream-api-enabled` items;
+
+            * having rest of the keys adjusted in such a way that
+              all `n6email-notifications` prefixes are replaced
+              with `email_notification` ones, and with all `-`
+              characters replaced with `_` (in other words,
+              adjusted to be consistent with the names of the
+              corresponding attributes of `n6lib.auth_db.models.Org`,
+              rather than the legacy LDAP attributes).
+
+        * the `inside_criteria` item (if present) is a
+          dict containing the same data as a non-empty
+          dict that is an item of the list returned by
+          `_get_inside_criteria()`, but:
+
+          * omitting the `org_id` item;
+
+          * with all lists (which are the dict's values)
+            being sorted.
+        """
+        return self._data_preparer.get_org_ids_to_combined_configs(
+            self.get_ldap_root_node())
 
     # note: @deep_copying_result is unnecessary here as results are purely immutable
     @cached_basing_on_ldap_root_node
@@ -414,9 +570,8 @@ class AuthAPI(object):
         organizations for whom the `n6stream-api-enabled` flag is set
         to "TRUE".
         """
-        root_node = self.get_ldap_root_node()
-        org_id_to_node = root_node['ou']['orgs'].get('o', {})
-        return frozenset(self._generate_stream_api_enabled_org_ids(org_id_to_node))
+        return self._data_preparer.get_stream_api_enabled_org_ids(
+            self.get_ldap_root_node())
 
     # note: @deep_copying_result is unnecessary here as results are purely immutable
     @cached_basing_on_ldap_root_node
@@ -426,9 +581,8 @@ class AuthAPI(object):
         organizations for whom the `n6stream-api-enabled` flag is set
         to "FALSE", or to some illegal content (e.g., multiple values).
         """
-        root_node = self.get_ldap_root_node()
-        org_id_to_node = root_node['ou']['orgs'].get('o', {})
-        return frozenset(self._generate_stream_api_disabled_org_ids(org_id_to_node))
+        return self._data_preparer.get_stream_api_disabled_org_ids(
+            self.get_ldap_root_node())
 
     @deep_copying_result  # <- just defensive programming
     @cached_basing_on_ldap_root_node
@@ -441,14 +595,14 @@ class AuthAPI(object):
 
         {
             <source id>: {
-                <subsource DN (string)>: (
+                <subsource DN (str)>: (
                     <filtering predicate: a callable that takes an instance of
                      n6lib.db_filtering_abstractions.RecordFacadeForPredicates
                      as the sole argument and returns True or False>,
                     {
-                        'inside': <set of organization ids>,
-                        'threats': <set of organization ids>,
-                        'search': <set of organization ids>,
+                        'inside': <set of organization ids (str)>,
+                        'threats': <set of organization ids (str)>,
+                        'search': <set of organization ids (str)>,
                     }
                 ),
                 ...
@@ -477,11 +631,8 @@ class AuthAPI(object):
         'internal'` condition (because, for Stream API, all
         organizations are treated as they had *no full access*).
         """
-        root_node = self.get_ldap_root_node()
-        org_id_to_node = root_node['ou']['orgs'].get('o', {})
-        return self._make_source_ids_to_subs_to_stream_api_access_infos(
-            root_node,
-            org_id_to_node)
+        return self._data_preparer.get_source_ids_to_subs_to_stream_api_access_infos(
+            self.get_ldap_root_node())
 
     @deep_copying_result  # <- just defensive programming
     @cached_basing_on_ldap_root_node
@@ -494,11 +645,11 @@ class AuthAPI(object):
 
         {
             <source id>: {
-                (<subsource DN (string)>, <for full access orgs? (bool)>): (
+                (<subsource DN (str)>, <for full access orgs? (bool)>): (
                     <filtering predicate: a callable that takes an instance of
                       n6lib.db_filtering_abstractions.RecordFacadeForPredicates
                       as the sole argument and returns True or False>,
-                    <set of organization ids>,
+                    <set of organization ids (str)>,
                 ),
                 ...
             },
@@ -525,11 +676,8 @@ class AuthAPI(object):
         Important: predicates *for non-full-access organizations*
         already include the `restriction != 'internal'` condition.
         """
-        root_node = self.get_ldap_root_node()
-        org_id_to_node = root_node['ou']['orgs'].get('o', {})
-        return self._make_source_ids_to_notification_access_info_mappings(
-            root_node,
-            org_id_to_node)
+        return self._data_preparer.get_source_ids_to_notification_access_info_mappings(
+            self.get_ldap_root_node())
 
     @deep_copying_result  # <- just defensive programming
     @cached_basing_on_ldap_root_node
@@ -541,10 +689,12 @@ class AuthAPI(object):
 
         {
             <org id>: {
-                'n6email-notifications-times': [<datetime.time instance>, ...],  # sorted
-                'n6email-notifications-address': [<string>, ...],                # sorted
-                'name': <a string or False (bool)>,
+                'name': <a str or False (bool)>,
                 'n6stream-api-enabled': <bool>,
+                'n6email-notifications-address': [<str>, ...],            # sorted
+                'n6email-notifications-times': [<datetime.time>, ...],    # sorted
+                'n6email-notifications-language': <str>,                  # optional
+                'n6email-notifications-business-days-only': <bool>,
             },
             ...
         }
@@ -553,88 +703,715 @@ class AuthAPI(object):
         `n6email-notifications-enabled` flag is not set to sole "TRUE")
         are *not* included.
 
-        A value for 'n6email-notifications-times' or
-        'n6email-notifications-address' is always a sorted list; it can
-        be an empty list.
+        A value for 'n6email-notifications-address'
+        or 'n6email-notifications-times' is always
+        a sorted list; it can be an empty list.
         """
-        notification_config = {}
-        root_node = self.get_ldap_root_node()
-        org_id_to_node = root_node['ou']['orgs'].get('o', {})
-        for org_id, org in org_id_to_node.iteritems():
-            self._check_org_length(org_id)
-            if self._is_flag_enabled_for_org(org, org_id, 'n6email-notifications-enabled'):
-                email_notification_time = []
-                for time in get_attr_value_list(org, 'n6email-notifications-times'):
-                    try:
-                        email_notification_time.append(self._parse_notification_time(time))
-                    except ValueError as exc:
-                        LOGGER.error(
-                            'Incorrect format of notification time %r for org id %r (%s)',
-                            time, org_id, exc)
-                if not email_notification_time:
-                    LOGGER.warning('No notification times for org id %r', org_id)
-                email_notification_address = get_attr_value_list(
-                    org, 'n6email-notifications-address')
-                if not email_notification_address:
-                    LOGGER.warning('No notification email addresses for org id %r', org_id)
-                name = get_attr_value(org, 'name', default=False)
-                if not name:
-                    LOGGER.info('No name for org id %r', org_id)
-                if self._is_flag_enabled_for_org(org, org_id, 'n6stream-api-enabled'):
-                    n6stream_api_enabled = True
-                else:
-                    n6stream_api_enabled = False
-                if self._is_flag_enabled_for_org(
-                        org, org_id, 'n6email-notifications-business-days-only'):
-                    notifications_business_days_only = True
-                else:
-                    notifications_business_days_only = False
-                email_notifications_language = get_attr_value(org, 'n6email-notifications-language', default='pl')
-
-                notification_config[org_id] = {
-                    'n6email-notifications-times': sorted(email_notification_time),
-                    'n6email-notifications-address': sorted(email_notification_address),
-                    'name': name,
-                    'n6stream-api-enabled': n6stream_api_enabled,
-                    'n6email-notifications-business-days-only': notifications_business_days_only,
-                    'n6email-notifications-language': email_notifications_language,
-                }
-
-        return notification_config
-
+        return self._data_preparer.get_org_ids_to_notification_configs(
+            self.get_ldap_root_node())
 
     #
     # Non-public methods
 
     @memoized(expires_after=600, max_size=3)
     def _get_root_node(self):
-        ## NOTE: possible future optimization: fetching ldap root node
-        ## data in a separate thread... (see n6lib.ldap_dict at changeset
-        ## 98b8dca0b01d for inspiration)
         try:
             with self._ldap_api as ldap_api:
                 return ldap_api.search_structured()
-        except (LdapAPIConnectionError, ldap.LDAPError) as exc:
+        except (LdapAPIConnectionError, SQLAlchemyError) as exc:
             raise AuthAPICommunicationError(traceback.format_exc(), exc)
 
-    def _get_inside_criteria(self):
-        # returns a list of dicts, such as:
-        #     [
-        #         {
-        #             'org_id': <organization id (string)>,
+
+
+def _make_method_with_result_cache_bound_to_prefetched_root_nodes(
+        parent_qualname,
+        name,
+        list_of_such_method_names):
+
+    def method_func(self):
+        assert hasattr(AuthAPI, name)
+        assert hasattr(_DataPreparer, name)
+        with self:
+            root_node = self.get_ldap_root_node()
+            method_to_cached_result = self._result_cache_bound_to_prefetched_root_nodes[root_node]
+            try:
+                return method_to_cached_result[name]
+            except KeyError:
+                # Honestly, this should not happen, unless some
+                # `with <AuthAPIWithPrefetching instance>: ...`
+                # block lasts a few dozens of minutes (hardly
+                # probable); anyway, in such a case we still
+                # obtain the desired data, just with a worse
+                # performance (which then should not matter).
+                AuthAPI_method = getattr(AuthAPI, name)
+                return AuthAPI_method(self)
+
+    method_func.__name__ = name
+    method_func.__qualname__ = '{}.{}'.format(parent_qualname, name)
+    list_of_such_method_names.append(name)
+
+    return method_func
+
+
+class AuthAPIWithPrefetching(AuthAPI):
+
+    """
+    A variant of the Auth API that spawns an internal *prefetch
+    task* that refreshes the data cache in the background.  Thanks
+    to that we can eliminate the nasty delays encountered on
+    data cache expiration by the base variant of the Auth API.
+    """
+
+    # Note: we want the *prefetch task* to repeatedly obtain
+    # the following data in the background (as obtaining
+    # them in the foreground is too much time-consuming,
+    # at least in the case of the REST API and Portal):
+    #
+    # * the "root node", i.e., the result of calling the
+    #   `LdapAPI`'s method `search_structured()` (which
+    #   involves a lot of Auth DB queries as well as much
+    #   of Python-level data processing);
+    #
+    # * the results of certain Auth API's public methods
+    #   -- such ones that use the "root node" as their input,
+    #   and involve much of additional, time-consuming, data
+    #   processing.
+    #
+    # At the same time, we *do* want to keep the guarantee that Auth
+    # API's public methods provide consistent results when used within
+    # the same `with <Auth API instance>:` block.  That's why we make
+    # the task's future object expose the "root node" as its result
+    # value *and* use the `_result_cache_bound_to_prefetched_root_nodes`
+    # key-value store -- keyed by "root node" objects -- to cache the
+    # results of the most time-consuming Auth API's public methods.
+
+
+    _SLEEP_BETWEEN_PREFETCH_TASK_FUNCTION_CALLS = 300
+
+    _methods_with_result_cache_bound_to_prefetched_root_nodes = []
+
+
+    def __init__(self, settings=None):
+        super(AuthAPIWithPrefetching, self).__init__(settings=settings)
+
+        self._result_cache_bound_to_prefetched_root_nodes = (
+            _IdentityBasedThreadSafeCache(max_size=3))
+
+        self._prefetch_task_data_preparer = _DataPreparer()
+        self._prefetch_task = LoopedTask(
+            target=self._get_prefetch_task_func(),
+            loop_iteration_hook=self._get_loop_iteration_hook(),
+            cancel_and_join_at_python_exit=True,
+
+            # This initial delay is added to make sure that the
+            # following *tick-callback*-related stuff is set up
+            # before the start of the actual task's operation.
+            initial_sleep=0.5)
+
+        self._future = self._prefetch_task.async_start()
+
+        backends_tick_callback = self._get_backends_tick_callback_checking_for_cancel(self._future)
+        # Note: the `backends_tick_callback` callable does *not* need to
+        # be thread-safe because all relevant uses of `self._ldap_api`
+        # and `self._prefetch_task_data_preparer` are local to the
+        # prefetching task thread.
+        self._ldap_api.tick_callback = backends_tick_callback
+        self._prefetch_task_data_preparer.tick_callback = backends_tick_callback
+
+
+    #
+    # Overridden AuthAPI methods
+
+    get_org_ids_to_access_infos = _make_method_with_result_cache_bound_to_prefetched_root_nodes(
+        'AuthAPIWithPrefetching',
+        'get_org_ids_to_access_infos',
+        _methods_with_result_cache_bound_to_prefetched_root_nodes)
+
+    get_org_ids_to_combined_configs = _make_method_with_result_cache_bound_to_prefetched_root_nodes(
+        'AuthAPIWithPrefetching',
+        'get_org_ids_to_combined_configs',
+        _methods_with_result_cache_bound_to_prefetched_root_nodes)
+
+
+    def _get_root_node(self):
+        return self._future.result()
+
+
+    #
+    # Internal helpers
+
+    def _get_prefetch_task_func(self):
+        ldap_api_cm = self._ldap_api
+        preparer = self._prefetch_task_data_preparer
+
+        methods_with_result_cache = self._methods_with_result_cache_bound_to_prefetched_root_nodes
+        result_cache = self._result_cache_bound_to_prefetched_root_nodes
+
+        def prefetch_task_func():
+            try:
+                with ldap_api_cm as ldap_api:
+                    root_node = ldap_api.search_structured()
+            except (LdapAPIConnectionError, SQLAlchemyError) as exc:
+                raise AuthAPICommunicationError(traceback.format_exc(), exc)
+            else:
+                method_to_cached_result = result_cache[root_node]
+                for name in methods_with_result_cache:
+                    method = getattr(preparer, name)
+                    method_to_cached_result[name] = method(root_node)
+                return root_node
+
+        return prefetch_task_func
+
+
+    @classmethod
+    def _get_loop_iteration_hook(cls):
+        max_duration = cls._SLEEP_BETWEEN_PREFETCH_TASK_FUNCTION_CALLS
+
+        def loop_iteration_hook(future):
+            future.sleep_until_cancelled(max_duration)
+
+        return loop_iteration_hook
+
+
+    @staticmethod
+    def _get_backends_tick_callback_checking_for_cancel(future):
+        MIN_INTERVAL_BETWEEN_CHECKS = 0.1
+
+        class PrefetchingCancelled(Exception):
+            pass
+
+        future_cancelled = future.cancelled
+        cur_time = time.time
+        tbox = [cur_time()]         # PY3: we can replace it with a free variable...
+
+        def backends_tick_callback():
+            t = cur_time()
+            if t >= tbox[0] + MIN_INTERVAL_BETWEEN_CHECKS:
+                if future_cancelled():
+                    # Note that the following exception will be
+                    # "shadowed" by a FutureCancelled exception.
+                    raise PrefetchingCancelled
+                tbox[0] = t
+
+        # Note: the returned callable does *not* need to be
+        # thread-safe (see the comment in `__init__()`...).
+        return backends_tick_callback
+
+
+
+class InsideCriteriaResolver(object):
+
+    """
+    The class implements efficiently the main part of the Filter's job:
+    to determine the contents of the `client` and `urls_matched`
+    normalized event data items.
+
+    The InsideCriteriaResolver constructor takes one argument: a
+    sequence of criteria for the `inside` access zone (as returned by
+    _DataPreparer._get_inside_criteria(root_node), i.e., a list of dicts:
+
+        [
+            {
+                'org_id': <organization id (str)>,
+
+                # the rest of items are optional:
+                'fqdn_seq': [<fqdn suffix (str)>, ...],
+                'asn_seq': [<asn (int)>, ...],
+                'cc_seq': [<cc (str)>, ...],
+                'ip_min_max_seq': [(<min. ip (int)>, <max. ip (int)>), ...],
+                'url_seq': [<url (str)>, ...],
+            },
+            ...
+        ]
+
+    An InsideCriteriaResolver instance has one public method:
+    get_client_org_ids_and_urls_matched() (see its docs for details).
+
+    It is assumed that the given data are valid (correct types, no org
+    id duplicates in the criteria passed in to the constructor, min. ip
+    is never greater than the corresponding max. ip...); it is the
+    responsibility of the callers of the constructor and the callers of
+    the get_client_org_ids_and_urls_matched() method to ensure that.
+    """
+
+    _IP_LO_GUARD = -1
+    _IP_HI_GUARD = 2 ** 32
+
+
+    def __init__(self, inside_criteria):
+        if not inside_criteria:
+            LOGGER.warning('something wrong: `inside_criteria` is empty!')
+
+        # a mapping containing information extracted from `n6ip-network`
+        # values; it maps integers representing IP addresses to lists of
+        # pairs (2-tuples):
+        #   (<org id (str)>,
+        #    <is it the *lower* endpoint of an IP interval? (bool)>)
+        # important: IP addresses of *upper* endpoints are
+        # converted to delimit a particular IP interval in an
+        # *exclusive* manner (that is, 1 is added to integer
+        # representing the *upper* IP of each IP network range)
+        ip_to_id_endpoints = collections.defaultdict(list, {
+            # (these guards are needed because of how the
+            # get_client_org_ids_and_urls_matched() method
+            # is implemented)
+            self._IP_LO_GUARD: [],
+            self._IP_HI_GUARD: [],
+        })
+
+        # mappings that map values of `n6fqdn`/`n6asn`/`n6cc` (coerced
+        # or normalized if applicable...) to lists of org ids
+        self._fqdn_suffix_to_ids = collections.defaultdict(list)
+        self._asn_to_ids = collections.defaultdict(list)
+        self._cc_to_ids = collections.defaultdict(list)
+
+        # a list of pairs: (<org id>, <tuple of `n6url` values>)
+        self._ids_and_urls = []
+
+        _seen_ids = set()  # <- for sanity assertions only
+        for cri in inside_criteria:
+            org_id = cri['org_id']
+            assert org_id not in _seen_ids
+            _seen_ids.add(org_id)
+
+            # IPs
+            for min_ip, max_ip in cri.get('ip_min_max_seq', ()):
+                assert min_ip <= max_ip
+                ip_to_id_endpoints[min_ip].append((org_id, True))
+                ip_to_id_endpoints[max_ip + 1].append((org_id, False))
+
+            # FQDN suffixes, ASNs, CCs
+            for mapping, which_seq in [
+                (self._fqdn_suffix_to_ids, 'fqdn_seq'),
+                (self._asn_to_ids, 'asn_seq'),
+                (self._cc_to_ids, 'cc_seq'),
+            ]:
+                for key in cri.get(which_seq, ()):
+                    mapping[key].append(org_id)
+
+            # URLs
+            url_seq = cri.get('url_seq')
+            if url_seq:
+                self._ids_and_urls.append((org_id, tuple(url_seq)))
+
+        # [related to IPs]
+        # a pair (2-tuple) consisting of:
         #
-        #             # the rest of items are optional:
-        #             'fqdn_seq': [<fqdn (unicode string)>, ...],
-        #             'asn_seq': [<asn (int)>, ...],
-        #             'cc_seq': [<cc (unicode string)>, ...],
-        #             'ip_min_max_seq': [(<min. ip (int)>, <max. ip (int)>), ...],
-        #             'url_seq': [<url (unicode string)>, ...],
+        # * the `border ips` list -- being a sorted list of unique
+        #   integers that represent borderline IPs, that is, IPs being
+        #   lower and/or upper endpoints of IP intervals extracted from
+        #   `n6ip-network` IP ranges; remember that upper endpoints
+        #   delimit their intervals in an *exclusive* manner
+        #
+        # * the `corresponding id sets` list -- containing sets of org
+        #   ids; each set includes org ids appropriate for a particular
+        #   IP interval; each interval is half-closed, that is, could be
+        #   denoted as "[a, b)" (or "a <= `IP within the interval` < b")
+        #   where *a* is the corresponding borderline IP from the
+        #   `border ips` list and *b* is the next IP from that list
+        self._border_ips_and_corresponding_id_sets = (
+            self._get_border_ips_and_corresponding_id_sets(ip_to_id_endpoints))
+
+
+    def _get_border_ips_and_corresponding_id_sets(self, ip_to_id_endpoints):
+        border_ips = []
+        corresponding_id_sets = []
+        org_id_to_unclosed_ranges_count = collections.Counter()
+
+        def current_id_set():
+            return frozenset(org_id_to_unclosed_ranges_count.elements())
+
+        for ip, id_endpoints in sorted(ip_to_id_endpoints.items()):
+            for org_id, is_lower_endpoint in sorted(id_endpoints):
+                if is_lower_endpoint:
+                    org_id_to_unclosed_ranges_count[org_id] += 1
+                else:
+                    org_id_to_unclosed_ranges_count[org_id] -= 1
+            border_ips.append(ip)
+            corresponding_id_sets.append(current_id_set())
+        assert not current_id_set()
+
+        assert (
+            border_ips[0] == self._IP_LO_GUARD and
+            border_ips[-1] == self._IP_HI_GUARD and
+            corresponding_id_sets[0] == corresponding_id_sets[-1] == frozenset())
+        return border_ips, corresponding_id_sets
+
+
+    def get_client_org_ids_and_urls_matched(self,
+                                            record_dict,
+                                            fqdn_only_categories=frozenset()):
+
+        """
+        Get org ids that the given event's `clients` attribute should
+        include + additional information about `org <-> URL` matches
+        according to the event's `url_pattern` attribute.
+
+        Obligatory args:
+            `record_dict` (a RecordDict instance):
+                The examined event data.  Note that this method does
+                *not* add anything to `record_dict`.
+
+        Optional args/kwargs:
+            `fqdn_only_categories` (a set-like container):
+                The categories for whom only `fqdn` shall be checked
+                (for rest categories also `address` and `url_pattern`
+                are checked).  Default value: empty frozenset.
+
+        Returns:
+            A pair (2-tuple) containing the following items:
+
+            * a set (note: a set, not a list) of all matching org ids,
+            * a dict mapping org ids to lists of (sorted) matching URLs.
+        """
+        client_org_ids = set()
+        urls_matched = dict()
+
+        # FQDN
+        fqdn = record_dict.get('fqdn')
+        if fqdn is not None:
+            fqdn_suffix_to_ids = self._fqdn_suffix_to_ids
+            fqdn_parts = fqdn.split('.')
+            for i in range(len(fqdn_parts)):
+                suffix = '.'.join(fqdn_parts[i:])
+                id_seq = fqdn_suffix_to_ids.get(suffix)
+                if id_seq is not None:
+                    client_org_ids.update(id_seq)
+
+        # the rest of the criteria...
+        if record_dict['category'] not in fqdn_only_categories:
+            asn_to_ids = self._asn_to_ids
+            cc_to_ids = self._cc_to_ids
+
+            bisect_right = bisect.bisect_right
+            border_ips, corresponding_id_sets = self._border_ips_and_corresponding_id_sets
+            border_ips_length = len(border_ips)
+            assert len(corresponding_id_sets) == border_ips_length
+
+            for adr in record_dict.get('address', ()):
+
+                # ASN
+                asn = adr.get('asn')
+                if asn is not None:
+                    id_seq = asn_to_ids.get(asn)
+                    if id_seq is not None:
+                        client_org_ids.update(id_seq)
+
+                # CC
+                cc = adr.get('cc')
+                if cc is not None:
+                    id_seq = cc_to_ids.get(cc)
+                    if id_seq is not None:
+                        client_org_ids.update(id_seq)
+
+                # IP
+                ip = ipv4_to_int(adr['ip'])
+                index = bisect_right(border_ips, ip) - 1
+                client_org_ids.update(corresponding_id_sets[index])
+
+                # sanity assertion (can be commented out):
+                assert index + 1 < border_ips_length and ip < border_ips[index + 1] and (
+                    index >= 1 and ip > border_ips[index - 1] if ip == border_ips[index]
+                    else index >= 0 and ip > border_ips[index])
+
+            # URL
+            url_pattern = record_dict.get('url_pattern')
+            if url_pattern is not None:
+                assert url_pattern  # (already assured by RecordDict machinery)
+                try:
+                    try:
+                        ### XXX: don't we want to use the re.ASCII flag here???
+                        match1 = re.compile(url_pattern).search
+                    except re.error:
+                        match1 = re.compile(fnmatch.translate(url_pattern)).match
+                        match2 = None
+                    else:
+                        try:
+                            match2 = re.compile(fnmatch.translate(url_pattern)).match
+                        except re.error:
+                            match2 = None
+                except Exception as exc:
+                    LOGGER.warning(
+                        'Exception occurred when trying to process `url_pattern` (%a) '
+                        '-- %s', url_pattern, make_exc_ascii_str(exc))
+                else:
+                    for org_id, urls in self._ids_and_urls:
+                        org_matching_urls = set()
+                        for url in urls:
+                            if match1(url) is not None or (
+                                    match2 is not None and
+                                    match2(url) is not None):
+                                client_org_ids.add(org_id)
+                                org_matching_urls.add(url)
+                        if org_matching_urls:
+                            urls_matched[org_id] = sorted(org_matching_urls)
+
+        return client_org_ids, urls_matched
+
+
+
+class _DataPreparer(object):
+
+    def __init__(self):
+        # Can be set by client code to an arbitrary argumentless callable
+        # (to be called relatively often during long-lasting operations):
+        self.tick_callback = lambda: None
+
+    def get_user_ids_to_org_ids(self, root_node):
+        result = {}
+        org_id_to_node = root_node['ou']['orgs'].get('o', {})
+        for org_id, org in org_id_to_node.items():
+            self._check_org_length(org_id)
+            user_id_to_node = org.get('n6login', {})
+            for user_id, user in user_id_to_node.items():
+                user_is_blocked = self._is_flag_enabled(
+                    user,
+                    caption='the user {0!a}'.format(user_id),
+                    attribute='n6blocked')
+                if user_is_blocked:
+                    continue
+                stored_org_id = result.setdefault(user_id, org_id)
+                if stored_org_id != org_id:
+                    LOGGER.error(
+                        'Problem with LDAP data: user %a belongs to '
+                        'more than one organization (%a and %a '
+                        '-- only the former will be stored in the '
+                        'user-id-to-org-id mapping)',
+                        user_id, stored_org_id, org_id)
+        return result
+
+    def get_org_ids(self, root_node):
+        all_org_ids = frozenset(root_node['ou']['orgs'].get('o', frozenset()))
+        for org_id in all_org_ids:
+            self._check_org_length(org_id)
+        return all_org_ids
+
+    def get_inside_criteria_resolver(self, root_node):
+        inside_criteria = self._get_inside_criteria(root_node)
+        inside_criteria_resolver = InsideCriteriaResolver(inside_criteria)
+        return inside_criteria_resolver
+
+    def get_anonymized_source_mapping(self, root_node):
+        # {
+        #     'forward_mapping': {
+        #          <source id>: <anonymized source id>,
+        #          ...
+        #     },
+        #     'reverse_mapping': {
+        #          <anonymized source id>: <source id>,
+        #          ...
+        #     },
+        # }
+        source_id_to_node = root_node['ou']['sources'].get('cn', {})
+        forward_mapping = {}
+        for source_id, node in source_id_to_node.items():
+            try:
+                forward_mapping[source_id] = get_attr_value(node, 'n6anonymized')
+            except ValueError as exc:
+                LOGGER.error('Problem with LDAP data for the source %a -- %s',
+                             source_id, make_exc_ascii_str(exc))
+        reverse_mapping = {anonymized_id: source_id
+                           for source_id, anonymized_id in forward_mapping.items()}
+        return {'forward_mapping': forward_mapping,
+                'reverse_mapping': reverse_mapping}
+
+    def get_dip_anonymization_disabled_source_ids(self, root_node):
+        source_id_to_node = root_node['ou']['sources'].get('cn', {})
+        return frozenset(
+            source_id
+            for source_id, node in source_id_to_node.items()
+            if not self._is_flag_enabled(
+                node,
+                caption='the source {!a}'.format(source_id),
+                attribute='n6dip-anonymization-enabled',
+                on_missing=False,  # <- by default, anonymization is disabled -- though...
+                on_illegal=True,   # <- ...let's be on the safe side when LDAP data are malformed
+            ))
+
+    def get_org_ids_to_access_infos(self, root_node):
+        # {
+        #     <organization id as str>: {
+        #         'access_zone_conditions': {
+        #             <access zone: 'inside' or 'threats' or 'search'>: [
+        #                 <an sqlalchemy.sql.expression.ColumnElement instance
+        #                  implementing SQL condition for a subsource>,
+        #                 ...
+        #             ],
+        #             ...
         #         },
+        #         'rest_api_resource_limits': {
+        #             <resource id (one of EVENT_DATA_RESOURCE_IDS)>: {
+        #                 'window': <int>,
+        #                 'queries_limit': <int>,
+        #                 'results_limit': <int>,
+        #                 'max_days_old': <int>,
+        #                 'request_parameters': <None or {
+        #                     <user query parameter name>: <is required?
+        #                                                   -- True or False>
+        #                     ...
+        #                 }>,
+        #             },
+        #             ...
+        #         'rest_api_full_access': <True or False>,
+        #         },
+        #     },
+        #     ...
+        # }
+        org_id_to_node = root_node['ou']['orgs'].get('o', {})
+        result = self._make_org_ids_to_access_infos(root_node, org_id_to_node)
+        self._set_resource_limits(result, root_node, org_id_to_node)
+        return result
+
+    def get_org_ids_to_actual_names(self, root_node):
+        # {
+        #     <organization id as a str>: <organization's *actual name* (`name`) as a str>
+        #     ...
+        # }
+        org_id_to_node = root_node['ou']['orgs'].get('o', {})
+        org_id_name_pairs = (
+            (org_id,
+             get_attr_value(org, 'name', default=None))
+            for org_id, org in org_id_to_node.items())
+        return {
+            org_id: name
+            for org_id, name in org_id_name_pairs
+            if name is not None}
+
+
+    def get_org_ids_to_combined_configs(self, root_node):
+        # {
+        #     <org id>: {
+        #         'email_notifications': {                                 # optional
+        #             'email_notification_addresses': [<str>, ...],                  # sorted
+        #             'email_notification_times': [<datetime.time>, ...],            # sorted
+        #             'email_notification_language': <str>,                          # optional
+        #             'email_notification_business_days_only': <bool>,
+        #         },
+        #         'inside_criteria': {                                     # optional
+        #             'fqdn_seq': [<fqdn (str)>, ...],                               # sorted
+        #             'asn_seq': [<asn (int)>, ...],                                 # sorted
+        #             'cc_seq': [<cc (str)>, ...],                                   # sorted
+        #             'ip_min_max_seq': [(<min. ip (int)>, <max. ip (int)>), ...],   # sorted
+        #             'url_seq': [<url (str)>, ...],                                 # sorted
+        #         },
+        #     },
+        #     ...
+        # }
+        result = {}
+
+        for org_id, nt_conf in self.get_org_ids_to_notification_configs(root_node).items():
+            result[org_id] = {
+                'email_notifications': {
+                    'email_notification_addresses': nt_conf['n6email-notifications-address'],
+                    'email_notification_times': nt_conf['n6email-notifications-times'],
+                    'email_notification_business_days_only':
+                            nt_conf['n6email-notifications-business-days-only'],
+                },
+            }
+            email_notification_language = nt_conf.get('n6email-notifications-language')
+            if email_notification_language is not None:
+                result[org_id]['email_notifications'][
+                        'email_notification_language'] = email_notification_language
+
+        for org_criteria in self._get_inside_criteria(root_node):
+            org_id = org_criteria.pop('org_id')
+            if org_criteria:
+                if org_id not in result:
+                    result[org_id] = {}
+                assert all(isinstance(seq, list) for seq in org_criteria.values())
+                result[org_id]['inside_criteria'] = {key: sorted(seq)
+                                                     for key, seq in org_criteria.items()}
+
+        return result
+
+    def get_stream_api_enabled_org_ids(self, root_node):
+        org_id_to_node = root_node['ou']['orgs'].get('o', {})
+        return frozenset(self._generate_stream_api_enabled_org_ids(org_id_to_node))
+
+    def get_stream_api_disabled_org_ids(self, root_node):
+        org_id_to_node = root_node['ou']['orgs'].get('o', {})
+        return frozenset(self._generate_stream_api_disabled_org_ids(org_id_to_node))
+
+    def get_source_ids_to_subs_to_stream_api_access_infos(self, root_node):
+        # {
+        #     <source id>: {
+        #         <subsource DN (str)>: (
+        #             <filtering predicate: a callable that takes an instance of
+        #              n6lib.db_filtering_abstractions.RecordFacadeForPredicates
+        #              as the sole argument and returns True or False>,
+        #             {
+        #                 'inside': <set of organization ids (str)>,
+        #                 'threats': <set of organization ids (str)>,
+        #                 'search': <set of organization ids (str)>,
+        #             }
+        #         ),
         #         ...
-        #     ]
+        #     },
+        #     ...
+        # }
+        org_id_to_node = root_node['ou']['orgs'].get('o', {})
+        return self._make_source_ids_to_subs_to_stream_api_access_infos(
+            root_node,
+            org_id_to_node)
+
+    def get_source_ids_to_notification_access_info_mappings(self, root_node):
+        # {
+        #     <source id>: {
+        #         (<subsource DN (str)>, <for full access orgs? (bool)>): (
+        #             <filtering predicate: a callable that takes an instance of
+        #               n6lib.db_filtering_abstractions.RecordFacadeForPredicates
+        #               as the sole argument and returns True or False>,
+        #             <set of organization ids (str)>,
+        #         ),
+        #         ...
+        #     },
+        #     ...
+        # }
+        org_id_to_node = root_node['ou']['orgs'].get('o', {})
+        return self._make_source_ids_to_notification_access_info_mappings(
+            root_node,
+            org_id_to_node)
+
+    def get_org_ids_to_notification_configs(self, root_node):
+        # {
+        #     <org id>: {
+        #         'name': <a str or False (bool)>,
+        #         'n6stream-api-enabled': <bool>,
+        #         'n6email-notifications-address': [<str>, ...],                # sorted
+        #         'n6email-notifications-times': [<datetime.time>, ...],        # sorted
+        #         'n6email-notifications-language': <str>,                      # optional
+        #         'n6email-notifications-business-days-only': <bool>,
+        #     },
+        #     ...
+        # }
+        result = {}
+        org_id_to_node = root_node['ou']['orgs'].get('o', {})
+        for org_id, org in org_id_to_node.items():
+            org_notification_config = self._get_org_notification_config(org_id, org)
+            if org_notification_config is not None:
+                result[org_id] = org_notification_config
+        return result
+
+    #
+    # Internal methods
+
+    def _get_inside_criteria(self, root_node):
+        # [
+        #     {
+        #         'org_id': <organization id (str)>,
+        #
+        #         # the rest of items are optional:
+        #         'fqdn_seq': [<fqdn (str)>, ...],
+        #         'asn_seq': [<asn (int)>, ...],
+        #         'cc_seq': [<cc (str)>, ...],
+        #         'ip_min_max_seq': [(<min. ip (int)>, <max. ip (int)>), ...],
+        #         'url_seq': [<url (str)>, ...],
+        #     },
+        #     ...
+        # ]
         result = []
-        org_id_to_node = self.get_ldap_root_node()['ou']['orgs'].get('o', {})
-        for org_id, org in org_id_to_node.iteritems():
+        org_id_to_node = root_node['ou']['orgs'].get('o', {})
+        for org_id, org in org_id_to_node.items():
             self._check_org_length(org_id)
             asn_seq = list(map(int, get_attr_value_list(org, 'n6asn')))
             cc_seq = list(get_attr_value_list(org, 'n6cc'))
@@ -658,12 +1435,12 @@ class AuthAPI(object):
         return result
 
     def _generate_stream_api_enabled_org_ids(self, org_id_to_node):
-        for org_id, org in org_id_to_node.iteritems():
+        for org_id, org in org_id_to_node.items():
             if self._is_flag_enabled_for_org(org, org_id, 'n6stream-api-enabled'):
                 yield org_id
 
     def _generate_stream_api_disabled_org_ids(self, org_id_to_node):
-        for org_id, org in org_id_to_node.iteritems():
+        for org_id, org in org_id_to_node.items():
             if not self._is_flag_enabled_for_org(org, org_id, 'n6stream-api-enabled'):
                 yield org_id
 
@@ -672,6 +1449,7 @@ class AuthAPI(object):
         cond_builder = SQLAlchemyConditionBuilder(n6NormalizedData)
         grouped_set = self._get_org_subsource_az_tuples(root_node, org_id_to_node)
         for org_id, subsource_refint, access_zone in sorted(grouped_set):  # (deterministic order)
+            self.tick_callback()
             org = org_id_to_node[org_id]
             source_id = get_dn_segment_value(subsource_refint, 1)
             full_access = self._is_flag_enabled_for_org(
@@ -683,9 +1461,8 @@ class AuthAPI(object):
             if access_info is None:
                 access_info = {
                     'access_zone_conditions': {access_zone: [cond]},
+                    'rest_api_resource_limits': {},  # <- to be populated in _set_resource_limits()
                     'rest_api_full_access': full_access,
-                    # to be filled in _set_resource_limits():
-                    'rest_api_resource_limits': {},
                 }
                 result[org_id] = access_info
             else:
@@ -703,6 +1480,7 @@ class AuthAPI(object):
             resource_id = ACCESS_ZONE_TO_RESOURCE_ID[access_zone]
             if not self._is_resource_enabled_for_org(resource_id, org, org_id):
                 continue
+            self.tick_callback()
             source_id = get_dn_segment_value(subsource_refint, 1)
             subsource_to_saa_info = result.setdefault(source_id, {})
             saa_info = subsource_to_saa_info.get(subsource_refint)
@@ -736,7 +1514,7 @@ class AuthAPI(object):
                 ) and (
                     saa_info[1] is az_to_org_ids and
                     isinstance(az_to_org_ids, dict) and
-                    az_to_org_ids.viewkeys() == ACCESS_ZONES and
+                    az_to_org_ids.keys() == ACCESS_ZONES and
                     access_zone in ACCESS_ZONES and
                     isinstance(az_to_org_ids[access_zone], set) and
                     org_id in az_to_org_ids[access_zone]))
@@ -758,6 +1536,7 @@ class AuthAPI(object):
                 resource_id = ACCESS_ZONE_TO_RESOURCE_ID[access_zone]
                 if not self._is_resource_enabled_for_org(resource_id, org, org_id):
                     continue
+                self.tick_callback()
                 source_id = get_dn_segment_value(subsource_refint, 1)
                 full_access = self._is_flag_enabled_for_org(
                     org, org_id, 'n6rest-api-full-access')
@@ -776,12 +1555,67 @@ class AuthAPI(object):
         return result
 
     def _set_resource_limits(self, org_id_to_access_info, root_node, org_id_to_node):
-        for org_id, access_info in org_id_to_access_info.iteritems():
+        event_data_resource_ids = sorted(EVENT_DATA_RESOURCE_IDS)  # (deterministic order)
+        for org_id, access_info in org_id_to_access_info.items():
+            self.tick_callback()
             org = org_id_to_node[org_id]
-            for resource_id in RESOURCE_ID_TO_ACCESS_ZONE:
+            for resource_id in event_data_resource_ids:
                 limits = self._get_resource_limits_for_org(resource_id, org, org_id)
                 if limits is not None:
                     access_info['rest_api_resource_limits'][resource_id] = limits
+
+    def _get_org_notification_config(self, org_id, org):
+        #   None
+        # or
+        #   {
+        #       'name': <a str or False (bool)>,
+        #       'n6stream-api-enabled': <bool>,
+        #       'n6email-notifications-address': [<str>, ...],                # sorted
+        #       'n6email-notifications-times': [<datetime.time>, ...],        # sorted
+        #       'n6email-notifications-language': <str>,                      # optional
+        #       'n6email-notifications-business-days-only': <bool>,
+        #   }
+        self._check_org_length(org_id)
+
+        if not self._is_flag_enabled_for_org(org, org_id, 'n6email-notifications-enabled'):
+            return None
+
+        name = get_attr_value(org, 'name', default=False)
+        if not name:
+            LOGGER.info('No name for org id %a', org_id)
+
+        email_notification_addresses = get_attr_value_list(org, 'n6email-notifications-address')
+        if not email_notification_addresses:
+            LOGGER.warning('No notification email addresses for org id %a', org_id)
+
+        email_notification_times = []
+        for time in get_attr_value_list(org, 'n6email-notifications-times'):
+            try:
+                email_notification_times.append(self._parse_notification_time(time))
+            except ValueError as exc:
+                LOGGER.error(
+                    'Incorrect format of notification time %a for org id %a (%s)',
+                    time, org_id, make_exc_ascii_str(exc))
+        if not email_notification_times:
+            LOGGER.warning('No notification times for org id %a', org_id)
+
+        result = {
+            'name': name,
+            'n6stream-api-enabled': self._is_flag_enabled_for_org(
+                org, org_id, 'n6stream-api-enabled'),
+            'n6email-notifications-address': sorted(email_notification_addresses),
+            'n6email-notifications-times': sorted(email_notification_times),
+            'n6email-notifications-business-days-only': self._is_flag_enabled_for_org(
+                org, org_id, 'n6email-notifications-business-days-only'),
+        }
+
+        email_notification_language = get_attr_value(org,
+                                                     'n6email-notifications-language',
+                                                     default=None)
+        if email_notification_language:
+            result['n6email-notifications-language'] = email_notification_language
+
+        return result
 
     def _get_org_subsource_az_tuples(self, root_node, org_id_to_node):
         # returns a set of (<org id>, <subsource DN>, <access zone>) tuples
@@ -798,7 +1632,8 @@ class AuthAPI(object):
 
     def _iter_org_subsource_az_off_tuples(self, root_node, org_id_to_node):
         # yields (<org id>, <subsource DN>, <access zone>, <is excluding?>) tuples
-        for org_id, org in org_id_to_node.iteritems():
+        for org_id, org in org_id_to_node.items():
+            self.tick_callback()
             self._check_org_length(org_id)
             org_props = org.get('cn')
             if org_props:
@@ -876,7 +1711,7 @@ class AuthAPI(object):
             criteria_container_node = get_node(root_node, criteria_refint)
             criteria_container_items = sorted(  # (sorting to make the order deterministic)
                 (attr_name[2:], value_list)
-                for attr_name, value_list in criteria_container_node['attrs'].iteritems()
+                for attr_name, value_list in criteria_container_node['attrs'].items()
                 if attr_name in ('n6asn', 'n6cc', 'n6ip-network', 'n6category', 'n6name'))
             if criteria_container_items:
                 crit_conditions = tuple(
@@ -884,7 +1719,7 @@ class AuthAPI(object):
                 if not crit_conditions:
                     raise AssertionError(
                         'criteria_container_items containing (only) empty value '
-                        'lists??? ({!r})'.format(criteria_container_items))
+                        'lists??? ({!a})'.format(criteria_container_items))
                 yield cond_builder.or_(*crit_conditions)
 
     def _iter_crit_conditions(self, criteria_container_items, cond_builder):
@@ -893,8 +1728,8 @@ class AuthAPI(object):
                 continue
             if None in value_list:
                 raise AssertionError(
-                    'value_list containing None??? ({!r}; whole '
-                    'criteria_container_items: {!r})'.format(
+                    'value_list containing None??? ({!a}; whole '
+                    'criteria_container_items: {!a})'.format(
                         value_list, criteria_container_items))
             if name == 'ip-network':
                 for ip_network_str in value_list:
@@ -912,7 +1747,7 @@ class AuthAPI(object):
                                  on_missing=False, on_illegal=False):
         return self._is_flag_enabled(
             org,
-            caption='the organization {0!r}'.format(org_id),
+            caption='the organization {0!a}'.format(org_id),
             attribute=attribute,
             on_missing=on_missing,
             on_illegal=on_illegal)
@@ -923,10 +1758,12 @@ class AuthAPI(object):
             attrib_flag = get_attr_value(node, attribute, _BOOL_TO_FLAG[on_missing]).upper()
             if attrib_flag not in _FLAG_TO_BOOL:
                 raise ValueError(
-                    "{} is neither 'TRUE' nor 'FALSE' (got: {!r})"
+                    "{} is neither 'TRUE' nor 'FALSE' (got: {!a})"
                     .format(attribute, attrib_flag))
         except ValueError as exc:
-            LOGGER.error('Problem with LDAP data for %s: %s', caption, exc)
+            LOGGER.error(
+                'Problem with LDAP data for %s: %s',
+                ascii_str(caption), make_exc_ascii_str(exc))
             return on_illegal
         else:
             return _FLAG_TO_BOOL[attrib_flag]
@@ -943,8 +1780,8 @@ class AuthAPI(object):
                 try:
                     return self._make_resource_limits_dict(rest_api_resource)
                 except ValueError as exc:
-                    LOGGER.error('Problem with LDAP data for the organization %r: %s',
-                                 org_id, exc)
+                    LOGGER.error('Problem with LDAP data for the organization %a: %s',
+                                 org_id, make_exc_ascii_str(exc))
         return None
 
     def _get_resource_ldap_cn(self, resource_id):
@@ -976,8 +1813,8 @@ class AuthAPI(object):
             if not required_parameters.issubset(all_parameters):
                 raise ValueError('n6request-required-parameters ({}) '
                                  'is not a subset of n6request-parameters ({})'
-                                 .format(', '.join(sorted(map(repr, required_parameters))),
-                                         ', '.join(sorted(map(repr, all_parameters)))))
+                                 .format(', '.join(sorted(map(ascii, required_parameters))),
+                                         ', '.join(sorted(map(ascii, all_parameters)))))
         else:
             if required_parameters:
                 raise ValueError('n6request-required-parameters are illegal when the '
@@ -991,7 +1828,7 @@ class AuthAPI(object):
         """Check the `org_id` length; log a warning if it is too long."""
         if len(org_id) > CLIENT_ORGANIZATION_MAX_LENGTH:
             LOGGER.warning(
-                'The length of the organization id %r is %s '
+                'The length of the organization id %a is %s '
                 '-- so it exceeded the limit (which is %s)',
                 org_id, len(org_id), CLIENT_ORGANIZATION_MAX_LENGTH)
 
@@ -1011,251 +1848,31 @@ class AuthAPI(object):
         return dt.time()
 
 
+class _IdentityBasedThreadSafeCache(object):
 
-class InsideCriteriaResolver(object):
+    def __init__(self, max_size):
+        self.__mutex = threading.RLock()
+        self.__limited_dict = LimitedDict(maxlen=max_size)
 
-    """
-    The class implements efficiently the main part of the Filter's job:
-    to determine the contents of the `client` and `urls_matched`
-    normalized event data items.
-
-    The InsideCriteriaResolver constructor takes one argument: a
-    sequence of criteria for the `inside` access zone, as returned by
-    AuthAPI._get_inside_criteria(), i.e., a list of dicts:
-
-        [
-            {
-                'org_id': <organization id (string)>,
-
-                # the rest of items are optional:
-                'fqdn_seq': [<fqdn suffix (unicode string)>, ...],
-                'asn_seq': [<asn (int)>, ...],
-                'cc_seq': [<cc (string)>, ...],
-                'ip_min_max_seq': [(<min. ip (int)>, <max. ip (int)>), ...],
-                'url_seq': [<url (unicode string)>, ...],
-            },
-            ...
-        ]
-
-    An InsideCriteriaResolver instance has one public method:
-    get_client_org_ids_and_urls_matched() (see its docs for details).
-
-    It is assumed that the given data are valid (correct types, no org
-    id duplicates in the criteria passed in to the constructor, min. ip
-    is never greater than the corresponding max. ip...); it is the
-    responsibility of the callers of the constructor and the callers of
-    the get_client_org_ids_and_urls_matched() method to ensure that.
-    """
-
-    _IP_LO_GUARD = -1
-    _IP_HI_GUARD = 2 ** 32
+    def __getitem__(self, key_obj):
+        actual_key = _IdentityBasedKey(key_obj)
+        with self.__mutex:
+            try:
+                method_to_cached_result = self.__limited_dict[actual_key]
+            except KeyError:
+                self.__limited_dict[actual_key] = method_to_cached_result = {}
+        return method_to_cached_result
 
 
-    def __init__(self, inside_criteria):
-        if not inside_criteria:
-            LOGGER.warning('something wrong: `inside_criteria` is empty!')
+class _IdentityBasedKey(object):
 
-        # a mapping containing information extracted from `n6ip-network`
-        # values; it maps integers representing IP addresses to lists of
-        # pairs (2-tuples):
-        #   (<org id (string)>,
-        #    <is it the *lower* endpoint of an IP interval? (bool)>)
-        # important: IP addresses of *upper* endpoints are
-        # converted to delimit a particular IP interval in an
-        # *exclusive* manner (that is, 1 is added to integer
-        # representing the *upper* IP of each IP network range)
-        ip_to_id_endpoints = collections.defaultdict(list, {
-            # (these guards are needed because of how the
-            # get_client_org_ids_and_urls_matched() method
-            # is implemented)
-            self._IP_LO_GUARD: [],
-            self._IP_HI_GUARD: [],
-        })
+    def __init__(self, obj):
+        self._obj = obj
 
-        # mappings that map values of `n6fqdn`/`n6asn`/`n6cc` (coerced
-        # or normalized if applicable...) to lists of org ids
-        self._fqdn_suffix_to_ids = collections.defaultdict(list)
-        self._asn_to_ids = collections.defaultdict(list)
-        self._cc_to_ids = collections.defaultdict(list)
+    def __hash__(self):
+        return object.__hash__(self._obj)
 
-        # a list of pairs: (<org id>, <tuple of `n6url` values>)
-        self._ids_and_urls = []
-
-        _seen_ids = set()  # <- for sanity assertions only
-        for cri in inside_criteria:
-            org_id = cri['org_id']
-            assert org_id not in _seen_ids
-            _seen_ids.add(org_id)
-
-            # IPs
-            for min_ip, max_ip in cri.get('ip_min_max_seq', ()):
-                assert min_ip <= max_ip
-                ip_to_id_endpoints[min_ip].append((org_id, True))
-                ip_to_id_endpoints[max_ip + 1].append((org_id, False))
-
-            # FQDN suffixes, ASNs, CCs
-            for mapping, which_seq in [
-                (self._fqdn_suffix_to_ids, 'fqdn_seq'),
-                (self._asn_to_ids, 'asn_seq'),
-                (self._cc_to_ids, 'cc_seq'),
-            ]:
-                for key in cri.get(which_seq, ()):
-                    mapping[key].append(org_id)
-
-            # URLs
-            url_seq = cri.get('url_seq')
-            if url_seq:
-                self._ids_and_urls.append((org_id, tuple(url_seq)))
-
-        # [related to IPs]
-        # a pair (2-tuple) consisting of:
-        #
-        # * the `border ips` list -- being a sorted list of unique
-        #   integers that represent borderline IPs, that is, IPs being
-        #   lower and/or upper endpoints of IP intervals extracted from
-        #   `n6ip-network` IP ranges; remember that upper endpoints
-        #   delimit their intervals in an *exclusive* manner
-        #
-        # * the `corresponding id sets` list -- containing sets of org
-        #   ids; each set includes org ids appropriate for a particular
-        #   IP interval; each interval is half-closed, that is, could be
-        #   denoted as "[a, b)" (or "a <= `IP within the interval` < b")
-        #   where *a* is the corresponding borderline IP from the
-        #   `border ips` list and *b* is the next IP from that list
-        self._border_ips_and_corresponding_id_sets = (
-            self._get_border_ips_and_corresponding_id_sets(ip_to_id_endpoints))
-
-
-    def _get_border_ips_and_corresponding_id_sets(self, ip_to_id_endpoints):
-        border_ips = []
-        corresponding_id_sets = []
-        org_id_to_unclosed_ranges_count = collections.Counter()
-
-        def current_id_set():
-            return frozenset(org_id_to_unclosed_ranges_count.elements())
-
-        for ip, id_endpoints in sorted(ip_to_id_endpoints.iteritems()):
-            for org_id, is_lower_endpoint in sorted(id_endpoints):
-                if is_lower_endpoint:
-                    org_id_to_unclosed_ranges_count[org_id] += 1
-                else:
-                    org_id_to_unclosed_ranges_count[org_id] -= 1
-            border_ips.append(ip)
-            corresponding_id_sets.append(current_id_set())
-        assert not current_id_set()
-
-        assert (
-            border_ips[0] == self._IP_LO_GUARD and
-            border_ips[-1] == self._IP_HI_GUARD and
-            corresponding_id_sets[0] == corresponding_id_sets[-1] == frozenset())
-        return border_ips, corresponding_id_sets
-
-
-    def get_client_org_ids_and_urls_matched(self,
-                                            record_dict,
-                                            fqdn_only_categories=frozenset()):
-
-        """
-        Get org ids that the given event's `clients` attribute should include.
-
-        Obligatory args:
-            `record_dict` (a RecordDict instance):
-                The examined event data.  Note that this method does
-                *not* add anything to `record_dict`.
-
-        Optional args/kwargs:
-            `fqdn_only_categories` (a set-like container):
-                The categories for whom only `fqdn` shall be checked
-                (for rest categories also `address` and `url_pattern`
-                are checked).  Default value: empty frozenset.
-
-        Returns:
-            A pair (2-tuple) containing the following items:
-
-            * a set (note: a set, not a list) of all matching org ids,
-            * a dict mapping org ids to lists of (sorted) matching ulrs.
-        """
-
-        client_org_ids = set()
-        urls_matched = dict()
-
-        # FQDN
-        fqdn = record_dict.get('fqdn')
-        if fqdn is not None:
-            fqdn_suffix_to_ids = self._fqdn_suffix_to_ids
-            fqdn_parts = fqdn.split('.')
-            for i in xrange(0, len(fqdn_parts)):
-                suffix = '.'.join(fqdn_parts[i:])
-                id_seq = fqdn_suffix_to_ids.get(suffix)
-                if id_seq is not None:
-                    client_org_ids.update(id_seq)
-
-        # the rest of the criteria...
-        if record_dict['category'] not in fqdn_only_categories:
-            asn_to_ids = self._asn_to_ids
-            cc_to_ids = self._cc_to_ids
-
-            bisect_right = bisect.bisect_right
-            border_ips, corresponding_id_sets = self._border_ips_and_corresponding_id_sets
-            border_ips_length = len(border_ips)
-            assert len(corresponding_id_sets) == border_ips_length
-
-            for adr in record_dict.get('address', ()):
-
-                # ASN
-                asn = adr.get('asn')
-                if asn is not None:
-                    id_seq = asn_to_ids.get(asn)
-                    if id_seq is not None:
-                        client_org_ids.update(id_seq)
-
-                # CC
-                cc = adr.get('cc')
-                if cc is not None:
-                    id_seq = cc_to_ids.get(cc)
-                    if id_seq is not None:
-                        client_org_ids.update(id_seq)
-
-                # IP
-                ip = ipv4_to_int(adr['ip'])
-                index = bisect_right(border_ips, ip) - 1
-                client_org_ids.update(corresponding_id_sets[index])
-
-                # sanity assertion (can be commented out):
-                assert index + 1 < border_ips_length and ip < border_ips[index + 1] and (
-                    index >= 1 and ip > border_ips[index - 1] if ip == border_ips[index]
-                    else index >= 0 and ip > border_ips[index])
-
-            # URL
-            url_pattern = record_dict.get('url_pattern')
-            if url_pattern is not None:
-                assert url_pattern  # (already assured by RecordDict machinery)
-                try:
-                    try:
-                        ### XXX: do we really want to use the re.UNICODE flag here???
-                        match1 = re.compile(url_pattern, re.UNICODE).search
-                    except re.error:
-                        match1 = re.compile(fnmatch.translate(url_pattern)).match
-                        match2 = None
-                    else:
-                        try:
-                            match2 = re.compile(fnmatch.translate(url_pattern)).match
-                        except re.error:
-                            match2 = None
-                except Exception as exc:
-                    LOGGER.warning(
-                        'Exception occurred when trying to process `url_pattern` (%r) '
-                        '-- %s: %s', url_pattern, get_class_name(exc), ascii_str(exc))
-                else:
-                    for org_id, urls in self._ids_and_urls:
-                        org_matching_urls = set()
-                        for url in urls:
-                            if match1(url) is not None or (
-                                  match2 is not None and
-                                  match2(url) is not None):
-                                client_org_ids.add(org_id)
-                                org_matching_urls.add(url)
-                        if org_matching_urls:
-                            urls_matched[org_id] = sorted(org_matching_urls)
-
-        return client_org_ids, urls_matched
+    def __eq__(self, other):
+        if isinstance(other, _IdentityBasedKey):
+            return self._obj is other._obj
+        return NotImplemented

@@ -1,9 +1,7 @@
-# -*- coding: utf-8 -*-
-
-# Copyright (c) 2013-2019 NASK. All rights reserved.
-
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
+import collections.abc as collections_abc
 
 from pyramid.decorator import reify
 
@@ -33,6 +31,10 @@ from n6sdk.data_spec.fields import (
     UnicodeLimitedField,
     URLField,
     URLSubstringField,
+)
+from n6sdk.encoding_helpers import (
+    ascii_str,
+    verified_as_ascii_str,
 )
 from n6sdk.exceptions import (
     FieldValueError,
@@ -123,7 +125,7 @@ class Ext(dict):
     """
 
     def __repr__(self):
-        return '{}({})'.format(self.__class__.__name__,
+        return '{}({})'.format(self.__class__.__qualname__,
                                super(Ext, self).__repr__())
 
     def copy(self):
@@ -135,14 +137,14 @@ class Ext(dict):
         return field.__class__(**merged_init_kwargs)
 
     def nondestructive_update(self, other):
-        if isinstance(other, collections.Mapping):
-            other = other.iteritems()
+        if isinstance(other, collections_abc.Mapping):
+            other = other.items()
         for key, value in other:
             stored_value = self.setdefault(key, value)
             if (stored_value is not value) and isinstance(stored_value, Ext):
                 if isinstance(value, Field):
                     self[key] = stored_value.make_extended_field(value)
-                elif isinstance(value, collections.Mapping):
+                elif isinstance(value, collections_abc.Mapping):
                     merged_value = stored_value.copy()
                     merged_value.nondestructive_update(value)
                     self[key] = merged_value
@@ -215,9 +217,9 @@ class BaseDataSpec(object):
 
         Args:
             `params` (:class:`dict`):
-                A dictionary that maps strings being query parameter
-                keys (param field names) to lists of *raw (uncleaned)*
-                values of these parameters.
+                A dictionary that maps text strings (:class:`str`) being
+                query parameter keys (param field names) to lists of
+                *raw (uncleaned)* values of these parameters.
 
         Kwargs (each being an iterable container, empty by default):
             `ignored_keys`: to be treated as they did not exist at all;
@@ -247,15 +249,15 @@ class BaseDataSpec(object):
            dictionary.
         """
         empty_value_list_keys = frozenset(
-            key for key, param_values in params.iteritems()
+            key for key, param_values in params.items()
             # (this superficial check is enough here; note that later
             # -- in _iter_clean_param_items() -- it is supplemented
             # with some more precise checks...)
             if isinstance(param_values, list) and not param_values)
         keys = self._clean_keys(
-            params.viewkeys() - (empty_value_list_keys | frozenset(ignored_keys)),
-            self._all_param_fields.viewkeys() - frozenset(forbidden_keys),
-            self._required_param_fields.viewkeys() | frozenset(extra_required_keys),
+            params.keys() - (empty_value_list_keys | frozenset(ignored_keys)),
+            self._all_param_fields.keys() - frozenset(forbidden_keys),
+            self._required_param_fields.keys() | frozenset(extra_required_keys),
             frozenset(discarded_keys),
             exc_class=ParamKeyCleaningError)
         return dict(self._iter_clean_param_items(params, keys))
@@ -271,8 +273,9 @@ class BaseDataSpec(object):
 
         Args:
             `result` (:class:`dict`):
-                A dictionary that maps strings being result keys (result
-                field names) to corresponding *raw (uncleaned)* values.
+                A dictionary that maps text strings (:class:`str`) being
+                result keys (result field names) to corresponding *raw
+                (uncleaned)* values.
 
         Kwargs (each being an iterable container, empty by default):
             `ignored_keys`: to be treated as they did not exist at all;
@@ -306,9 +309,9 @@ class BaseDataSpec(object):
            or :obj:`None`.
         """
         keys = self._clean_keys(
-            result.viewkeys() - frozenset(ignored_keys),
-            self._all_result_fields.viewkeys() - frozenset(forbidden_keys),
-            self._required_result_fields.viewkeys() | frozenset(extra_required_keys),
+            result.keys() - frozenset(ignored_keys),
+            self._all_result_fields.keys() - frozenset(forbidden_keys),
+            self._required_result_fields.keys() | frozenset(extra_required_keys),
             frozenset(discarded_keys),
             exc_class=ResultKeyCleaningError)
         return dict(self._iter_clean_result_items(result, keys))
@@ -346,9 +349,9 @@ class BaseDataSpec(object):
             self._required_param_fields,
             **kwargs)
         if not multi:
-            field_items &= self._single_param_fields.viewitems()
+            field_items &= self._single_param_fields.items()
         if not single:
-            field_items -= self._single_param_fields.viewitems()
+            field_items -= self._single_param_fields.items()
         return dict(field_items)
 
     def result_field_specs(self, which='all', **kwargs):
@@ -420,18 +423,18 @@ class BaseDataSpec(object):
             The returned container must be an object that is a *dict
             items view* or a *set-like* object, i.e., an object that:
 
-            * either is a result of a ``<dict instance>.viewitems()``
+            * either is a result of a ``<dict instance>.items()``
               call
 
             * or satisfies the ``isinstance(<the set-like object>,
-              collections.Set)`` condition.
+              collections.abc.Set)`` condition.
 
         Raises:
             :exc:`~exceptions.ValueError` if the `which` argument is not
             valid.
         """
-        all_fields = all_fields_dict.viewitems()
-        required_fields = required_fields_dict.viewitems()
+        all_fields = all_fields_dict.items()
+        required_fields = required_fields_dict.items()
         assert required_fields <= all_fields
         if which == 'all':
             return all_fields
@@ -440,7 +443,7 @@ class BaseDataSpec(object):
         elif which == 'optional':
             return all_fields - required_fields
         raise ValueError(
-            "{!r} is not one of: 'all', 'required', 'optional'"
+            "{!a} is not one of: 'all', 'required', 'optional'"
             .format(which))
 
 
@@ -456,7 +459,7 @@ class BaseDataSpec(object):
     def _set_fields(self):
         key_to_field = {}
         for key, field in self._iter_all_field_specs():
-            key = key.decode('ascii')
+            key = verified_as_ascii_str(key)
             key_to_field[key] = field
             if field.in_params is not None:
                 self._all_param_fields[key] = field
@@ -481,7 +484,7 @@ class BaseDataSpec(object):
         seen_keys = set()
         attr_containers = (self,) + self.__class__.__mro__
         for ac in attr_containers:
-            for key, obj in vars(ac).iteritems():
+            for key, obj in vars(ac).items():
                 if isinstance(obj, Ext):
                     key_to_ext[key].nondestructive_update(obj)
                     continue
@@ -496,12 +499,12 @@ class BaseDataSpec(object):
                         yield extra
 
     def _iter_extra_param_specs(self, key, parent_field):
-        for key_suffix, xfield in parent_field.extra_params.iteritems():
+        for key_suffix, xfield in parent_field.extra_params.items():
             if xfield is None:
                 # field was masked ("removed") using Ext, e.g. in a subclass
                 continue
             if not isinstance(xfield, Field):
-                raise TypeError('{!r} is not a {!r} instance'
+                raise TypeError('{!a} is not a {!a} instance'
                                 .format(xfield, Field))
             xkey = '{}.{}'.format(key, key_suffix)
             xfield = self.get_adjusted_field(xkey, xfield)
@@ -518,7 +521,8 @@ class BaseDataSpec(object):
         if illegal_keys or missing_keys:
             assert issubclass(exc_class, _KeyCleaningErrorMixin)
             raise exc_class(illegal_keys, missing_keys)
-        return {key.decode('ascii') for key in (keys - discarded_keys)}
+        return {verified_as_ascii_str(key)
+                for key in (keys - discarded_keys)}
 
     def _iter_clean_param_items(self, params, keys):
         error_info_seq = []
@@ -527,16 +531,22 @@ class BaseDataSpec(object):
             assert key in params
             field = self._all_param_fields[key]
             param_values = params[key]
-            if not (isinstance(param_values, list) and
-                    all(isinstance(val, basestring) for val in param_values)):
-                raise TypeError('{}={!r}, not being a list of strings'
-                                .format(key, param_values))
+            if not (isinstance(param_values, list) and all(isinstance(val, str)
+                                                           for val in param_values)):
+                safe_repr_func = ((lambda obj: ascii_str(object.__repr__(obj)))
+                                  if field.sensitive
+                                  else ascii)
+                raise TypeError('{}={}, not being a list of str'
+                                .format(key, safe_repr_func(param_values)))
             assert param_values
             assert hasattr(field, 'single_param')
             if field.single_param and len(param_values) > 1:
+                safe_values = list(
+                    self._get_value_or_safe_replacement(field, value)
+                    for value in param_values)
                 error_info_seq.append((
                     key,
-                    param_values,
+                    safe_values,
                     FieldValueError(public_message=(
                         u'Multiple values for a single-value-only field.'))
                 ))
@@ -546,7 +556,11 @@ class BaseDataSpec(object):
                     try:
                         cleaned_val = field.clean_param_value(value)
                     except Exception as exc:
-                        error_info_seq.append((key, value, exc))
+                        error_info_seq.append((
+                            key,
+                            self._get_value_or_safe_replacement(field, value),
+                            self._get_safe_exc(field, exc),
+                        ))
                     else:
                         cleaned_values.append(cleaned_val)
                 if cleaned_values:
@@ -564,9 +578,23 @@ class BaseDataSpec(object):
             try:
                 yield key, field.clean_result_value(value)
             except Exception as exc:
-                error_info_seq.append((key, value, exc))
+                error_info_seq.append((
+                    key,
+                    self._get_value_or_safe_replacement(field, value),
+                    self._get_safe_exc(field, exc),
+                ))
         if error_info_seq:
             raise ResultValueCleaningError(error_info_seq)
+
+    def _get_safe_exc(self, field, exc):
+        if field.sensitive and not getattr(exc, 'safe_for_sensitive', False):
+            return FieldValueError(public_message=field.default_error_msg_if_sensitive)
+        return exc
+
+    def _get_value_or_safe_replacement(self, field, value):
+        if field.sensitive:
+            return ascii_str(object.__repr__(value))
+        return value
 
 
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
 import cPickle
@@ -11,9 +11,12 @@ from n6.base.queue import (
     QueuedBase,
     n6QueueProcessingException,
 )
-from n6lib.config import Config
+from n6lib.config import ConfigMixin
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
-from n6lib.log_helpers import get_logger, logging_configured
+from n6lib.log_helpers import (
+    get_logger,
+    logging_configured,
+)
 from n6lib.record_dict import RecordDict
 
 
@@ -29,14 +32,11 @@ SOURCE_INACTIVITY_TIMEOUT = 24
 # in seconds, tick between checks of inactive sources
 TICK_TIMEOUT = 3600
 
-# in seconds
-DEFAULT_TIME_TOLERANCE = 600
-
 
 class HiFreqEventData(object):
 
     def __init__(self, payload):
-        self.group = payload.get("_group")
+        self.group = payload.get('_group')
         self.until = parse_iso_datetime_to_utc(payload.get('time'))
         self.first = parse_iso_datetime_to_utc(payload.get('time'))
         self.count = 1  # XXX: see ticket #6243
@@ -105,7 +105,7 @@ class SourceData(object):
             return True
 
         if (event_time > event.until + datetime.timedelta(hours=AGGREGATE_WAIT) or
-            event_time.date() > self.time.date()):
+                event_time.date() > self.time.date()):
             LOGGER.debug("A suppressed event is generated for the '%s' group of "
                          "'%s' source due to passing of %s hours between events.",
                          data['_group'], data['source'], AGGREGATE_WAIT)
@@ -155,10 +155,10 @@ class SourceData(object):
             del self.buffer[k]
 
     def generate_suppressed_events_after_inactive(self):
-        for k, v in self.buffer.iteritems():
+        for _, v in self.buffer.iteritems():
             # XXX: see ticket #6243 (check whether here is OK or also will need to be changed)
             yield 'suppressed', v.to_dict() if v.count > 1 else None
-        for k, v in self.groups.iteritems():
+        for _, v in self.groups.iteritems():
             # XXX: see ticket #6243 (check whether here is OK or also will need to be changed)
             yield 'suppressed', v.to_dict() if v.count > 1 else None
         self.groups.clear()
@@ -174,7 +174,7 @@ class AggregatorData(object):
     def __init__(self):
         self.sources = {}
 
-    def get_or_create_sourcedata(self, event, time_tolerance=DEFAULT_TIME_TOLERANCE):
+    def get_or_create_sourcedata(self, event, time_tolerance):
         source = event['source']
         sd = self.sources.get(source)
         if sd is None:
@@ -182,50 +182,66 @@ class AggregatorData(object):
             self.sources[source] = sd
         return sd
 
+    def get_sourcedata(self, event):
+        # event['source'] exists because it was created in
+        # `Aggregator.process_event()` where `process_new_message(data)`
+        # is run before `generate_suppresed_events_for_source(data)`.
+        return self.sources[event['source']]
+
     def __repr__(self):
         return repr(self.sources)
 
 
 class AggregatorDataWrapper(object):
 
-    def __init__(self, dbpath, time_tolerance):
+    def __init__(self, dbpath, time_tolerance, time_tolerance_per_source):
         self.aggr_data = None
         self.dbpath = dbpath
         self.time_tolerance = time_tolerance
+        self.time_tolerance_per_source = time_tolerance_per_source
         try:
             self.restore_state()
         except:
-            LOGGER.error("Error restoring state from: %r", self.dbpath)
+            LOGGER.error('Error restoring state from: %r', self.dbpath)
             self.aggr_data = AggregatorData()
 
     def store_state(self):
         try:
-            with open(self.dbpath, "w") as f:
+            with open(self.dbpath, 'w') as f:
                 cPickle.dump(self.aggr_data, f)
         except IOError:
-            LOGGER.error("Error saving state to: %r", self.dbpath)
+            LOGGER.error('Error saving state to: %r', self.dbpath)
 
     def restore_state(self):
-        with open(self.dbpath, "r") as f:
+        with open(self.dbpath, 'r') as f:
             self.aggr_data = cPickle.load(f)
 
     def process_new_message(self, data):
-        """Processes a message and validates agains db to detect suppressed event.
+        """
+        Processes a message and validates agains db to detect suppressed
+        event.
         Adds new entry to db if necessary (new) or updates entry.
 
         Returns:
-            True: when first event in the group received (i.e. should not be suppressed)
-            False: when next event in group received (i.e. should be suppressed and count updated)
+            True: when first event in the group received
+                  (i.e. should not be suppressed)
+            False: when next event in group received
+                   (i.e. should be suppressed and count updated)
         """
 
-        source_data = self.aggr_data.get_or_create_sourcedata(data, self.time_tolerance)
+        source_data = self.aggr_data.get_or_create_sourcedata(
+            data,
+            self.time_tolerance_per_source.get(data['source']) or self.time_tolerance,
+        )
         result = source_data.process_event(data)
         return result
 
     def generate_suppresed_events_for_source(self, data):
-        """Called after each event in a given source was processed. Yields suppressed events
         """
-        source_data = self.aggr_data.get_or_create_sourcedata(data)
+        Called after each event in a given source was processed.
+        Yields suppressed events.
+        """
+        source_data = self.aggr_data.get_sourcedata(data)
         for event in source_data.generate_suppressed_events():
             yield event
 
@@ -245,22 +261,31 @@ class AggregatorDataWrapper(object):
                     yield type_, event
 
 
-class Aggregator(QueuedBase):
+class Aggregator(ConfigMixin, QueuedBase):
 
-    input_queue = {"exchange": "event",
-                   "exchange_type": "topic",
-                   "queue_name": "aggregator",
-                   "binding_keys": ["hifreq.parsed.*.*"]
-                   }
-    output_queue = {"exchange": "event",
-                    "exchange_type": "topic"
-                    }
+    input_queue = {
+        'exchange': 'event',
+        'exchange_type': 'topic',
+        'queue_name': 'aggregator',
+        'accepted_event_types': [
+            'hifreq',
+        ],
+    }
+    output_queue = {
+        'exchange': 'event',
+        'exchange_type': 'topic',
+    }
+
+    config_spec = '''
+        [aggregator]
+        dbpath
+        time_tolerance :: int
+        time_tolerance_per_source = {} :: json
+    '''
 
     def __init__(self, **kwargs):
-        config = Config(required={"aggregator": ("dbpath", "time_tolerance")})
-        self.aggregator_config = config["aggregator"]
-        self.aggregator_config["dbpath"] = os.path.expanduser(self.aggregator_config["dbpath"])
-        dbpath_dirname = os.path.dirname(self.aggregator_config["dbpath"])
+        self.aggregator_config = self.get_config_section()
+        dbpath_dirname = os.path.dirname(self.aggregator_config['dbpath'])
         try:
             os.makedirs(dbpath_dirname, 0700)
         except OSError:
@@ -268,27 +293,29 @@ class Aggregator(QueuedBase):
         super(Aggregator, self).__init__(**kwargs)
         # store dir doesn't exist, stop aggregator
         if not os.path.isdir(dbpath_dirname):
-            raise Exception('store dir does not exist, stop aggregator,  path:',
-                            self.aggregator_config["dbpath"])
+            raise Exception('store dir does not exist, stop aggregator, path:',
+                            self.aggregator_config['dbpath'])
         # store directory exists, but it has no rights to write
         if not os.access(dbpath_dirname, os.W_OK):
             raise Exception('stop aggregator, remember to set the rights'
                             ' for user, which runs aggregator,  path:',
-                            self.aggregator_config["dbpath"])
-        self.db = AggregatorDataWrapper(self.aggregator_config["dbpath"], int(self.aggregator_config["time_tolerance"]))
-        self.timeout_id = None # id of the 'tick' timeout that executes source cleanup
-
-    def run(self):
-        super(Aggregator, self).run()
+                            self.aggregator_config['dbpath'])
+        self.db = AggregatorDataWrapper(self.aggregator_config['dbpath'],
+                                        self.aggregator_config['time_tolerance'],
+                                        self.aggregator_config['time_tolerance_per_source'])
+        self.timeout_id = None   # id of the 'tick' timeout that executes source cleanup
 
     def start_publishing(self):
-        """Called on startup.
-        Processes data from db and generates new timeouts for remaining entries
+        """
+        Called on startup.
+        Processes data from db and generates new timeouts for remaining
+        entries.
         """
         self.set_timeout()
 
     def on_timeout(self):
-        """Callback called periodically after given timeout.
+        """
+        Callback called periodically after given timeout.
         """
         LOGGER.debug('Tick passed')
         for type_, event in self.db.generate_suppresed_events_after_timeout():
@@ -297,8 +324,10 @@ class Aggregator(QueuedBase):
         self.set_timeout()
 
     def process_event(self, data):
-        """Processes the event aggregation.
-        Each event also triggers additional suppressed events based on time of the given source.
+        """
+        Processes the event aggregation.
+        Each event also triggers additional suppressed events based
+        on time of the given source.
         """
         do_publish_new_message = self.db.process_new_message(data)
         if do_publish_new_message:
@@ -308,23 +337,23 @@ class Aggregator(QueuedBase):
                 self.publish_event((type_, event))
 
     # XXX: can be removed after resolving ticket #6324
-    def _clean_count_related_stuff(self, cleaned_payload):
-        COUNT_MAX = RecordDict.data_spec.count.max_value
+    @staticmethod
+    def _clean_count_related_stuff(cleaned_payload):
+        count_max = RecordDict.data_spec.count.max_value
         count = cleaned_payload.get('count', 1)
-        if count > COUNT_MAX:
+        if count > count_max:
             cleaned_payload['count_actual'] = count
-            cleaned_payload['count'] = COUNT_MAX
+            cleaned_payload['count'] = count_max
 
     def _get_cleaned_payload(self, type_, payload):
         cleaned_payload = payload.copy()
-        cleaned_payload["type"] = type_
+        cleaned_payload['type'] = type_
         cleaned_payload.pop('_group', None)
         self._clean_count_related_stuff(cleaned_payload)
         return cleaned_payload
 
     def publish_event(self, data):
-        """Publishes event to the output queue
-        """
+        """Publishes event to the output queue"""
         type_, payload = data
         if type_ is None:
             return
@@ -342,7 +371,7 @@ class Aggregator(QueuedBase):
         record_dict = RecordDict.from_json(body)
         with self.setting_error_event_info(record_dict):
             data = dict(record_dict) ## FIXME?: maybe it could be just the record_dict?
-            if "_group" not in data:
+            if '_group' not in data:
                 raise n6QueueProcessingException("Hi-frequency source missing '_group' field.")
             self.process_event(data)
 
