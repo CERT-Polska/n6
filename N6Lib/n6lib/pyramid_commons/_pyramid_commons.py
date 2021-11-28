@@ -16,6 +16,7 @@ from pyramid.httpexceptions import (
     HTTPBadRequest,
     HTTPConflict,
     HTTPForbidden,
+    HTTPNotFound,
     HTTPUnauthorized,
 )
 from pyramid.authentication import AuthTktAuthenticationPolicy
@@ -1317,7 +1318,8 @@ class N6OrgConfigView(EssentialAPIsViewMixin,
                     assert (isinstance(req_id, str)
                             and isinstance(req_pure_data, dict))
 
-                    to_addresses = api.get_org_user_logins(org_id=self.org_id)
+                    to_addresses = api.get_org_user_logins(org_id=self.org_id,
+                                                           only_nonblocked=True)
                     assert (isinstance(to_addresses, list)
                             and all(isinstance(email, str)
                                     for email in to_addresses))
@@ -1362,7 +1364,14 @@ class N6OrgConfigView(EssentialAPIsViewMixin,
             if notice_data is not None:
                 assert to_addresses is not None
                 assert req_id is not None
-                self._try_to_send_email_notices(to_addresses, notice_data)
+                if to_addresses:
+                    self._try_to_send_email_notices(to_addresses, notice_data)
+                else:
+                    LOGGER.error(
+                        'No e-mail notices about an organization config '
+                        'update request (#%s, org_id="%s") could be sent '
+                        'because no matching non-blocked users exist!',
+                        req_id, self.org_id)
 
             assert isinstance(org_config_info['update_info'], dict)
             assert isinstance(org_config_info['post_accepted'], bool)

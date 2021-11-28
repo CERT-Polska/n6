@@ -1,2 +1,5 @@
-#n6collector_xxx = n6datasources.collectors.xxx:main
-#n6parser_xxx = n6datasources.parsers.xxx:main
+# collectors
+n6collector_abusechfeodotracker = n6datasources.collectors.abuse_ch:AbuseChFeodoTrackerCollector_main
+
+# parsers
+n6parser_abusechfeodotracker202110 = n6datasources.parsers.abuse_ch:AbuseChFeodoTracker202110Parser_main

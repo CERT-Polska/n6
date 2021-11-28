@@ -1,10 +1,10 @@
 # Supervisor
 
 Supervisor is a system for controlling processes' state under UNIX,
-useful to manage the *n6* pipeline (`N6Core`) components.
+useful to manage the *n6* pipeline (`N6DataPipeline`) components and (`N6DataSources`) sources.
 
 ```bash
-(env)$ pip install supervisor
+(env_py3k)$ pip install supervisor
 ```
 
 ## Configuration
@@ -15,19 +15,34 @@ You can find example configuration in *n6* repository, in
 `/home/dataman/n6/etc/supervisord/supervisord.conf`.
 
 ```bash
-(env)$ mkdir -p ~/supervisord/{log,programs}
-(env)$ cp ~/n6/etc/supervisord/supervisord.conf ~/supervisord
+(env_py3k)$ mkdir -p ~/supervisord/{log,programs}
+(env_py3k)$ cp ~/n6/etc/supervisord/supervisord.conf ~/supervisord
+```
+
+or for Python 2 `N6Core` components:
+
+```bash
+(env)$ mkdir -p ~/supervisord/{log,programs_py2k}
+(env)$ cp ~/n6/etc/supervisord/supervisord_py2k.conf ~/supervisord
 ```
 
 Generate config files for *n6* parsers and copy them to the `supervisord` directory:
 
 ```bash
-(env)$ cd ~/n6/etc/supervisord/
-(env)$ python get_parsers_conf.py
-(env)$ cp programs/*.conf ~/supervisord/programs/
+(env_py3k)$ cd ~/n6/etc/supervisord/
+(env_py3k)$ python get_parsers_conf.py
+(env_py3k)$ cp programs/*.conf ~/supervisord/programs
 ```
 
-If you install *n6* in a different Virtualenv than recommended (i.e., other than `env`),
+If you want to use configuration files for Python 2:
+
+```bash
+(env)$ cd ~/n6/etc/supervisord/
+(env)$ python get_parsers_conf_py2k.py
+(env)$ cp programs/*.conf ~/supervisord/programs_py2k
+```
+
+If you install *n6* in a different Virtualenv than recommended (i.e., other than `env_py3k`),
 then you have to adjust a proper path in all of the files in `n6/etc/supervisord/programs` in
 the `PATH` environment variable and in the `command` option:
 
@@ -40,7 +55,12 @@ environment=PATH="/home/dataman/<ENV_NAME>/bin/"
 To run the `supervisord` process:
 
 ```bash
-(env)$ supervisord -c ~/supervisord/supervisord.conf
+(env_py3k)$ supervisord -c ~/supervisord/supervisord.conf
+```
+
+If you want to run the `supervisord` process for components in Python 2:
+```bash
+(env_py3k)$ supervisord -c ~/supervisord/supervisord_py2k.conf
 ```
 
 ## Controlling the processes
@@ -55,36 +75,7 @@ n6archiveraw                            RUNNING   pid 3942, uptime 0:00:15
 n6comparator                            RUNNING   pid 3957, uptime 0:00:15
 n6enrich:n6enrich_00                    STARTING  
 n6filter                                RUNNING   pid 3927, uptime 0:00:15
-n6parser_abusechfeodotracker            RUNNING   pid 3929, uptime 0:00:15
-n6parser_abusechfeodotracker201908      RUNNING   pid 3951, uptime 0:00:15
-n6parser_abusechpalevodoms              RUNNING   pid 3938, uptime 0:00:15
-n6parser_abusechpalevodoms201406        RUNNING   pid 3937, uptime 0:00:15
-n6parser_abusechpalevoips               RUNNING   pid 3948, uptime 0:00:15
-n6parser_abusechpalevoips201406         RUNNING   pid 3943, uptime 0:00:15
-n6parser_abusechransomwaretracker       RUNNING   pid 3934, uptime 0:00:15
-n6parser_abusechspyeyedoms              RUNNING   pid 3946, uptime 0:00:15
-n6parser_abusechspyeyedoms201406        RUNNING   pid 3928, uptime 0:00:15
-n6parser_abusechspyeyeips               RUNNING   pid 3921, uptime 0:00:15
-n6parser_abusechspyeyeips201406         RUNNING   pid 3950, uptime 0:00:15
-n6parser_abusechsslblacklist            RUNNING   pid 3935, uptime 0:00:15
-n6parser_abusechsslblacklist201902      RUNNING   pid 3923, uptime 0:00:15
-n6parser_abusechsslblacklistdyre        RUNNING   pid 3925, uptime 0:00:15
-n6parser_abusechurlhausurls             RUNNING   pid 3932, uptime 0:00:15
-n6parser_abusechzeusdoms                RUNNING   pid 3947, uptime 0:00:15
-n6parser_abusechzeusdoms201406          RUNNING   pid 3936, uptime 0:00:15
-n6parser_abusechzeusips                 RUNNING   pid 3955, uptime 0:00:15
-n6parser_abusechzeusips201406           RUNNING   pid 3940, uptime 0:00:15
-n6parser_abusechzeustracker             RUNNING   pid 3949, uptime 0:00:15
-n6parser_badipsserverexploitlist        RUNNING   pid 3953, uptime 0:00:15
-n6parser_dnsbhmalwaredomainscom         RUNNING   pid 3945, uptime 0:00:15
-n6parser_dnsbhmalwaredomainscom201412   RUNNING   pid 3941, uptime 0:00:15
-n6parser_dnsbhmalwaredomainscom201906   RUNNING   pid 3931, uptime 0:00:15
-n6parser_greensnow                      RUNNING   pid 3944, uptime 0:00:15
-n6parser_misp                           RUNNING   pid 3939, uptime 0:00:15
-n6parser_packetmailothers               RUNNING   pid 3924, uptime 0:00:15
-n6parser_packetmailratware              RUNNING   pid 3933, uptime 0:00:15
-n6parser_packetmailscanning             RUNNING   pid 3926, uptime 0:00:15
-n6parser_spam404                        RUNNING   pid 3954, uptime 0:00:15
+n6parser_abusechfeodotracker202110.conf RUNNING   pid 3929, uptime 0:00:15
 n6recorder                              RUNNING   pid 3930, uptime 0:00:15
 ```
 

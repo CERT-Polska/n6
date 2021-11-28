@@ -95,9 +95,10 @@ def install_default_config():
 
     try:
         config_template_dir = 'n6/data/conf/'
-        files = resource_listdir(Requirement.parse("n6"), config_template_dir)
+        files = resource_listdir(Requirement.parse("n6core-py2"), config_template_dir)
         for f in files:
-            filename = resource_filename(Requirement.parse("n6"), os.path.join(config_template_dir, f))
+            filename = resource_filename(Requirement.parse("n6core-py2"),
+                                         os.path.join(config_template_dir, f))
             try:
                 if not os.path.isdir(install_to):
                     os.makedirs(install_to)

@@ -13,6 +13,11 @@ import pprint
 import re
 import sys
 import time
+from typing import (
+    Optional,
+    SupportsBytes,
+    Union,
+)
 
 import pika
 import pika.credentials
@@ -26,11 +31,13 @@ from n6lib.amqp_helpers import (
 from n6lib.argument_parser import N6ArgumentParser
 from n6lib.auth_api import AuthAPICommunicationError
 from n6lib.common_helpers import (
+    as_bytes,
     ascii_str,
     exiting_on_exception,
     make_exc_ascii_str,
 )
 from n6lib.log_helpers import get_logger
+from n6lib.typing_helpers import KwargsDict
 
 
 LOGGER = get_logger(__name__)
@@ -80,8 +87,8 @@ class LegacyQueuedBase(object):
     LegacyQueuedBase should handle unexpected interactions with RabbitMQ
     such as channel and connection closures.
 
-    Dev note: if child classes are defining __init__(), it should accept
-    **kwargs and call super(ChildClass, self).__init__(**kwargs)
+    Dev note: if a child class defines __init__(), it should accept
+    **kwargs and call super().__init__(**kwargs)
     """
 
     #
@@ -166,7 +173,7 @@ class LegacyQueuedBase(object):
         # some unit tests are over-zealous about patching super()
         from builtins import super
 
-        self = super(LegacyQueuedBase, cls).__new__(cls, **kwargs)
+        self = super().__new__(cls, **kwargs)
 
         if cls.input_queue is not None and not isinstance(self.input_queue, dict):
             raise TypeError('The `input_queue` class attribute must be a dict or None')
@@ -345,7 +352,7 @@ class LegacyQueuedBase(object):
     # Actual initialization
 
     def __init__(self, **kwargs):
-        super(LegacyQueuedBase, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
         LOGGER.debug('input_queue: %a', self.input_queue)
         LOGGER.debug('output_queue: %a', self.output_queue)
@@ -1069,7 +1076,11 @@ class LegacyQueuedBase(object):
             `properties`: A pika.Spec.BasicProperties object.
             `body`: The message body.
         """
-        exc_info = None
+        # Note: here we coerce `body` to bytes *just in case*; generally,
+        # that coercion should not be necessary, as we expect that `pika`
+        # passes in a `bytes` object.
+        body = as_bytes(body, encode_error_handling='strict')
+
         delivery_tag = basic_deliver.delivery_tag
         routing_key = basic_deliver.routing_key
         if not self._is_output_ready_or_none():
@@ -1115,7 +1126,10 @@ class LegacyQueuedBase(object):
         else:
             self.acknowledge_message(delivery_tag)
 
-    def input_callback(self, routing_key, body, properties):
+    def input_callback(self,
+                       routing_key: str,
+                       body: bytes,
+                       properties: pika.BasicProperties) -> None:
         """
         Placeholder for input_callback defined by child classes.
 
@@ -1242,7 +1256,11 @@ class LegacyQueuedBase(object):
         are ready.  Publishers should override this method.
         """
 
-    def publish_output(self, routing_key, body, prop_kwargs=None, exchange=None):
+    def publish_output(self,
+                       routing_key: str,
+                       body: Union[str, bytes, bytearray, memoryview, SupportsBytes],
+                       prop_kwargs: Optional[KwargsDict] = None,
+                       exchange: Optional[str] = None):
         """
         Publish to the (default or specified) output exchange.
 
@@ -1250,7 +1268,12 @@ class LegacyQueuedBase(object):
             `routing_key`:
                 The routing key to send the message with.
             `body`:
-                The body of the message.
+                The body of the message, typically a `bytes`/`bytearray`
+                instance, which can contain arbitrary binary data
+                (it can also be a `str`, but then: (1) it will be
+                automatically encoded to `bytes` using UTF-8; (2) it
+                must *not* contain Unicode surrogate code points, or
+                `UnicodeEncodeError` will be raised).
             `prop_kwargs` (optional):
                 Custom keyword arguments for pika.BasicProperties.
             `exchange` (optional):
@@ -1258,6 +1281,8 @@ class LegacyQueuedBase(object):
                 the first item of the `output_queue` instance attribute
                 will be used.
         """
+        body = as_bytes(body, encode_error_handling='strict')
+
         if self._closing:
             # CRITICAL because for a long time (since 2013-04-26!) there was a silent return here!
             LOGGER.critical('Trying to publish when the `_closing` flag is true!')
@@ -1296,7 +1321,11 @@ class LegacyQueuedBase(object):
                 '(routing key: {2!a}, body length: {3})'.format(
                     self._closing, self.output_ready, routing_key, len(body)))
 
-    def basic_publish(self, exchange, routing_key, body, properties):
+    def basic_publish(self,
+                      exchange: str,
+                      routing_key: str,
+                      body: bytes,
+                      properties: pika.BasicProperties):
         """
         Thin wrapper around pika's basic_publish -- for easier testing/mocking.
 

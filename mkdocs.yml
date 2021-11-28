@@ -1,6 +1,13 @@
-site_name: n6 Documentation
+site_name: "n6 Documentation"
+site_url: "https://n6.readthedocs.io/"
+site_description: "The documentation of n6 - a system to collect, manage and distribute security information on a large scale."
+
+copyright: "Copyright (c) 2013-2021 Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network).  All rights reserved.  License: GNU Affero General Public License, Version 3."
+repo_url: "https://github.com/CERT-Polska/n6"
+
 nav:
     - Home: index.md
+    - n6 Architecture and Data Flow Overview: data_flow_overview.md
     - Docker-Based Installation Guide: docker.md
     - Step-by-Step Installation Guide:
       - Introduction: installation/index.md
@@ -10,7 +17,11 @@ nav:
       - Certificates: installation/certs.md
       - HTTP Services: installation/n6_web.md
       - Supervisor: installation/supervisord.md
-      - Data Flow Overview: installation/pipeline.md
+      - Data Flow: installation/pipeline.md
+    - Running IntelMQ Bots in the n6 Pipeline:
+      - Introduction: guides/intelmq/index.md
+      - Installation and Configuration: guides/intelmq/config.md
+      - Running IntelMQ Bots and Message Format Adapters: guides/intelmq/running.md
     - Implementing a New Data Source (Developer Guide):
       - Introduction: guides/new_source/index.md
       - Collectors:
@@ -27,3 +38,5 @@ nav:
         - Parser Tests: guides/new_source/parsers/testing.md
 
 theme: readthedocs
+markdown_extensions:
+    - smarty

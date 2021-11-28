@@ -1,7 +1,7 @@
 # Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import collections
-import cPickle
+import pickle
 import datetime
 import json
 import os
@@ -11,6 +11,7 @@ from n6.base.queue import (
     QueuedBase,
     n6QueueProcessingException,
 )
+from n6lib.common_helpers import open_file
 from n6lib.config import ConfigMixin
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.log_helpers import (
@@ -131,7 +132,7 @@ class SourceData(object):
         cutoff_time = self.time - datetime.timedelta(hours=AGGREGATE_WAIT)
         cutoff_check_complete = False
         for_cleanup = []
-        for k, v in self.groups.iteritems():
+        for k, v in self.groups.items():
             if v.until >= cutoff_time:
                 cutoff_check_complete = True
             if cutoff_check_complete and v.until.date() == self.time.date():
@@ -145,7 +146,7 @@ class SourceData(object):
         # generate suppressed events from buffer
         cutoff_time = self.time - self.time_tolerance
         for_cleanup = []
-        for k, v in self.buffer.iteritems():
+        for k, v in self.buffer.items():
             if v.until >= cutoff_time:
                 break
             for_cleanup.append(k)
@@ -155,10 +156,10 @@ class SourceData(object):
             del self.buffer[k]
 
     def generate_suppressed_events_after_inactive(self):
-        for _, v in self.buffer.iteritems():
+        for _, v in self.buffer.items():
             # XXX: see ticket #6243 (check whether here is OK or also will need to be changed)
             yield 'suppressed', v.to_dict() if v.count > 1 else None
-        for _, v in self.groups.iteritems():
+        for _, v in self.groups.items():
             # XXX: see ticket #6243 (check whether here is OK or also will need to be changed)
             yield 'suppressed', v.to_dict() if v.count > 1 else None
         self.groups.clear()
@@ -207,14 +208,14 @@ class AggregatorDataWrapper(object):
 
     def store_state(self):
         try:
-            with open(self.dbpath, 'w') as f:
-                cPickle.dump(self.aggr_data, f)
+            with open_file(self.dbpath, 'wb') as f:
+                pickle.dump(self.aggr_data, f, protocol=2)
         except IOError:
             LOGGER.error('Error saving state to: %r', self.dbpath)
 
     def restore_state(self):
-        with open(self.dbpath, 'r') as f:
-            self.aggr_data = cPickle.load(f)
+        with open_file(self.dbpath, 'rb') as f:
+            self.aggr_data = pickle.load(f)
 
     def process_new_message(self, data):
         """
@@ -252,7 +253,7 @@ class AggregatorDataWrapper(object):
         """
         LOGGER.debug('Detecting inactive sources after tick timout')
         time_now = datetime.datetime.utcnow()
-        for source in self.aggr_data.sources.itervalues():
+        for source in self.aggr_data.sources.values():
             LOGGER.debug('Checking source: %r', source)
             if source.last_event + datetime.timedelta(hours=SOURCE_INACTIVITY_TIMEOUT) < time_now:
                 LOGGER.debug('Source inactive. Generating suppressed events')
@@ -287,7 +288,7 @@ class Aggregator(ConfigMixin, QueuedBase):
         self.aggregator_config = self.get_config_section()
         dbpath_dirname = os.path.dirname(self.aggregator_config['dbpath'])
         try:
-            os.makedirs(dbpath_dirname, 0700)
+            os.makedirs(dbpath_dirname, 0o700)
         except OSError:
             pass
         super(Aggregator, self).__init__(**kwargs)

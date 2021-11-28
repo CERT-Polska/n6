@@ -149,17 +149,23 @@ class EssentialAPIsViewMixin(object):
 
         login_seq = [login] if isinstance(login, str) else list(login)
         if not login_seq:
-            raise ValueError('At least one user login must be given')
+            raise ValueError('at least one user login must be given')
 
         sent_to_anyone = False
         with self.mail_notices_api.dispatcher(notice_key,
                                               suppress_and_log_smtp_exc=True) as dispatch:
             for user_login in login_seq:
+                if self.auth_manage_api.is_user_blocked(user_login):
+                    LOGGER.error('Cannot send a %a mail notice to the '
+                                 'user %a because that user is blocked!',
+                                 notice_key, user_login)
+                    continue
                 try:
                     basic_info = self.auth_manage_api.get_user_and_org_basic_info(user_login)
                 except AuthDatabaseAPILookupError:
-                    LOGGER.error('Cannot send a mail notice to the user %a '
-                                 'because that user does not exist!', user_login)
+                    LOGGER.error('Cannot send a %a mail notice to the '
+                                 'user %a because that user does not exist!',
+                                 notice_key, user_login)
                 else:
                     notice_data = {}
                     notice_data.update(basic_info)

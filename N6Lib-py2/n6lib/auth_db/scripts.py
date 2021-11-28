@@ -387,7 +387,7 @@ class CreateAndInitializeAuthDB(DropDatabaseIfExistsMixin, BaseAuthDBScript):
             'Invoking appropriate Alembic tools to stamp the auth database '
             'as being at the `{}` Alembic revision...'.format(revision))
         alembic_ini_path = resource_filename(
-            Requirement.parse('n6lib'),
+            Requirement.parse('n6lib-py2'),
             'n6lib/auth_db/alembic.ini')
         with self.patched_os_environ_var(
                 ALEMBIC_DB_CONFIGURATOR_SETTINGS_DICT_ENVIRON_VAR_NAME,

@@ -113,7 +113,11 @@ def find_collectors():
 
 n6_version = get_n6_version('.n6-version')
 
-requirements = ['n6sdk==' + n6_version, 'n6lib==' + n6_version, 'n6corelib==' + n6_version]
+requirements = [
+    'n6sdk-py2==' + n6_version,
+    'n6lib-py2==' + n6_version,
+    'n6corelib-py2==' + n6_version,
+]
 console_scripts_list = ['n6config = n6.base.config:install_default_config']
 
 if not collectors_only:
@@ -123,7 +127,7 @@ find_collectors()
 
 
 setup(
-    name="n6",
+    name="n6core-py2",
     version=n6_version,
 
     packages=find_packages(),

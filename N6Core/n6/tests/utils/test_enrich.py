@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2020 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import datetime
 import hashlib
 import os
 import unittest
 
-import iptools
+import iptools                                                                              #3 --remove-replace iptools
 import mock
 from geoip2.errors import GeoIP2Error
 from dns.exception import DNSException
@@ -640,7 +640,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
 
     def test__get_excluded_ips__with_excluded_ips_in_config(self):
         self._prepare_config_for_excluded_ips(['1.1.1.1', '2.2.2.2', '3.3.3.3'])
-        expected = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')
+        expected = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')                             #3 --replace iptools
         result = self.enricher._get_excluded_ips()
         self.assertItemsEqual(expected, result)
 
@@ -701,7 +701,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self.assertEqual(ip_to_enr_mock.mock_calls, ip_to_enr_expected_calls)
 
     def test__filter_out_excluded_ips__with_no_ip_in_excluded_ips(self):
-        self.enricher.excluded_ips = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')
+        self.enricher.excluded_ips = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')           #3 --replace iptools
         data = RecordDict({
             "url": "http://www.nask.pl/asd",
             "address": [{'ip': '1.1.1.5'}, {'ip': '2.1.1.1'}],
@@ -717,7 +717,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self.assertEqual(ip_to_enr_mock.mock_calls, ip_to_enr_expected_calls)
 
     def test__filter_out_excluded_ips__with_ip_in_excluded_ips__1(self):
-        self.enricher.excluded_ips = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')
+        self.enricher.excluded_ips = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')           #3 --replace iptools
         data = RecordDict({
             "url": "http://www.nask.pl/asd",
             "address": [{'ip': '1.1.1.1'}, {'ip': '1.1.1.6'}],
@@ -735,7 +735,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self.assertEqual(ip_to_enr_mock.mock_calls, ip_to_enr_expected_calls)
 
     def test__filter_out_excluded_ips__with_ip_in_excluded_ips__2(self):
-        self.enricher.excluded_ips = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')
+        self.enricher.excluded_ips = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')           #3 --replace iptools
         data = RecordDict({
             "url": "http://www.nask.pl/asd",
             "address": [{'ip': '1.1.1.1', 'asn': 1234}],
@@ -753,7 +753,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self.assertEqual(ip_to_enr_mock.mock_calls, ip_to_enr_expected_calls)
 
     def test__filter_out_excluded_ips__with_range_of_ips(self):
-        self.enricher.excluded_ips = iptools.IpRangeList('3.0.0.0/8')
+        self.enricher.excluded_ips = iptools.IpRangeList('3.0.0.0/8')                               #3 --replace iptools
         data = RecordDict({
             "url": "http://www.nask.pl/asd",
             "address": [

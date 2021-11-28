@@ -72,6 +72,7 @@ ENV/
 n6-env/
 env.bak/
 venv.bak/
+env_py3k/
 
 # logs, runtime data
 *.log

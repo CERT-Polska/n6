@@ -32,7 +32,7 @@ Generated entrypoint functions will create a collector instance with
 the arguments taken from the `get_script_init_kwargs` and then
 start the collector. They also take care of logging from the collector.
 
-## Private collectors
+## Private collector classes
 
 It is important to note that the command will not be generated for the
 collectors in the `generic` module as well as any collector class whose

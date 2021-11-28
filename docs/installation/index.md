@@ -9,6 +9,11 @@ how you can interact with it.
 > **Note:** if you are in a hurry you may want to try the
 > [Docker-Based Installation Guide](../docker) instead.
 
+**TBD: this guide and/or configuration-related stuff in the code repo
+needs an update regarding the stuff that now works under Python 3.9 and
+resides in `N6DataPipeline` and `N6DataSources` (and, in particular,
+*not* in `N6Core` where only the legacy Python-2.7 stuff resides).**
+
 
 ## Important: what these materials *are* and what they are *not*
 

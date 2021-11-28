@@ -34,7 +34,7 @@ from n6sdk._api_test_tool.validator_exceptions import (
 
 def iter_config_base_lines():
     try:
-        filename = resource_filename(Requirement.parse('n6sdk'),
+        filename = resource_filename(Requirement.parse('n6sdk-py2'),
                                      'n6sdk/_api_test_tool/config_base.ini')
         with open(filename, 'rb') as f:
             for line in f.read().splitlines():

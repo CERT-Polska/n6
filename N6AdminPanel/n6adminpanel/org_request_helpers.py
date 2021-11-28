@@ -1,5 +1,6 @@
 # Copyright (c) 2020-2021 NASK. All rights reserved.
 
+from collections.abc import Iterable
 import html
 import re
 import string
@@ -591,19 +592,18 @@ class _OrgConfigUpdateRequestStatusTransitionHandlerKit(_BaseStatusTransitionHan
             self.try_to_send_mail_notices(notice_key='org_config_update_rejected',
                                           req_id=org_request.id)
 
-    def get_notice_data(self, req_id):
-        # type: (...) -> dict
+    def get_notice_data(self, req_id) -> dict:
         notice_data = g.n6_org_config_info
         notice_data['update_info']['update_request_id'] = req_id
         return notice_data
 
-    def get_notice_lang(self, notice_data):
-        # type: (dict) -> Union[str, None]
-        return notice_data['notification_language']  # TODO?: separate per-user setting?...
-
-    def get_notice_recipients(self, notice_data):
+    def get_notice_recipients(self, notice_data: dict) -> Iterable[str]:
         with g.n6_auth_manage_api_adapter as api:
-            return api.get_org_user_logins(org_id=notice_data['org_id'])
+            return api.get_org_user_logins(org_id=notice_data['org_id'],
+                                           only_nonblocked=True)
+
+    def get_notice_lang(self, notice_data: dict) -> Union[str, None]:
+        return notice_data['notification_language']  # TODO?: separate per-user setting?...
 
 
 #

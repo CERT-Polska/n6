@@ -57,7 +57,10 @@ n6_version = get_n6_version('.n6-version')
 
 pip_install = False
 setup_install = False
-requirements = ['n6sdk==' + n6_version, 'n6lib==' + n6_version]
+requirements = [
+    'n6sdk-py2==' + n6_version,
+    'n6lib-py2==' + n6_version,
+]
 requirements_pip = []
 dep_links = []
 for line in setup_data_line_generator('requirements'):
@@ -81,7 +84,7 @@ for line in setup_data_line_generator('requirements'):
 
 
 setup(
-    name="n6corelib",
+    name="n6corelib-py2",
     version=n6_version,
 
     packages=find_packages(),

@@ -1,53 +1,71 @@
-# Collectors
+# Introduction to the *Collectors* part
 
 Collectors are *n6*'s entry points for any external data to flow in.
-Data harvested with a collector is then sent to its corresponding parser.
+Data harvested with a collector are then sent to its corresponding parser.
 So the pipeline at this stage looks like this:
 
-![Pipeline](c_p_pipe.png)
+![`(External Data) → [Collector] → [Parser] → ...`](c_p_pipe.png)
 
-Parsers translate the obtained data to the *n6*-understandable normalized format.
+> **Note:** For a broader overview, you may want to take a look at
+> the [*n6* architecture and data flow](../../../data_flow_overview.md) diagram.
 
-To state it shortly: the role of a collector is to acquire data from an
-external source and send those data further down the pipeline so that
-other components do not have to concern themselves with external
-connections.
-
-## Using a collector
-
-As of the time this documentation is being created collectors are
-used each as its own process, possibly being started from `cron` using
-the generated collectors' commands. 
-
-### Persistent state
-
-What is more, some collectors need to maintain a state (for example, the *id* of the
-last downloaded record so that on next collector runs we will download only new records),
-stored between consecutive runs.
-
-Each class of such a stateful collector need to refer to its own state that
-will not be shared with other classes.
-*n6*'s helper class `CollectorStateMixIn` takes care of that.
+To describe collectors' job more technically: a collector obtains data
+from its respective external source (e.g., by downloading files from a
+certain security-focused web site), and sends them further down the *n6*
+data processing pipeline (by pushing those data -- in a form as similar
+to the original as possible -- into the appropriate RabbitMQ exchange).
 
 
-## Collector implementation
+## RabbitMQ-based pipeline
 
-All collectors interact with their respective task queue to send the
-collected data to the parser. To deal with messaging queues *n6* uses
-[`RabbitMQ`](https://www.rabbitmq.com/) which uses the AMQP protocol.
-
-However if you implement collector you should not interact with
-the queue by yourself. There are many base classes
-for your collector implementation to derive from that take
-care of most of the communication, initialization and shutting down
-functionality so that you can focus solely on the collectors' logic.
-All of those classes can be found in `N6Core` in the module
-`n6.collectors.generic`. (The path of the module file in the *n6*
-source code repository is: `N6Core/n6/collectors/generic.py`.)
+Most of the *n6* pipeline components -- in particular, all collectors --
+send their output data to a [RabbitMQ](https://www.rabbitmq.com/)
+message broker instance (using the AMQP 0.9.1 protocol), so that the
+pipeline components that are supposed to consume those data (in
+particular, the parser corresponding to the given collector) will be
+able to take the data from the respective RabbitMQ queue.
 
 
-Contents
---------
+## Running a collector
+
+Each collector is run as a separate program (OS process).  Depending on
+the type of the external source a particular collector is related to, it
+may be spawned by a [`cron`-like](https://en.wikipedia.org/wiki/Cron)
+scheduler (the most typical way), by a
+[`procmail`-like](https://en.wikipedia.org/wiki/Procmail) agent (this
+is typical for *e-mail*-based sources), or in some other way.
+
+
+## Collector base classes
+
+Each collector needs to have a network connection to the RabbitMQ
+broker; however, typically, there is no need for you, as the programmer
+who implements a collector, to deal with that stuff directly.  There are
+several base classes your collector class can derive from which take
+care of various repeatable tasks, especially of the stuff related to
+initialization of, communication by, and shutting down the RabbitMQ
+connection -- so that you can focus solely on your collector's logic. 
+
+Those base classes can be found in the `N6Core` subdirectory of the *n6*
+source code repository, in the
+[`n6.collectors.generic`](https://github.com/CERT-Polska/n6/blob/master/N6Core/n6/collectors/generic.py)
+module. (The module's file path in the repository is
+`N6Core/n6/collectors/generic.py`.)
+
+### Stateful collectors
+
+Some collectors need to maintain a state, stored between consecutive
+collector runs (for example, to remember the *id* and creation *time* of
+the last downloaded record, so that, on the next run, the collector will
+download and send, as its output, only newer records).
+
+Each class of such a stateful collector needs to refer to its own state
+that will not be shared with other collectors.  The
+[`n6.collectors.generic.CollectorWithStateMixin`](https://github.com/CERT-Polska/n6/blob/master/N6Core/n6/collectors/generic.py#L124)
+class helps to take care of that.
+
+
+# The *Collectors* part's chapters
 
 * [Collector Executable Commands](command.md)
 * [Collector Base Classes](classes.md)

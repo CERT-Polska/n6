@@ -69,11 +69,11 @@ RUN \
             -u 1000 dataman && \
     echo "dataman	ALL=(ALL:ALL) NOPASSWD:ALL" >> /etc/sudoers; \
     # n6 directory structure
-    bash -c "mkdir -p /etc/{n6,ssh} /home/dataman/{.n6,logs,tmp} /var/www /etc/apache2/sites-available /home/dataman/.cache/n6/n6api/{python-eggs,python3k-eggs} /home/dataman/.cache/n6/n6portal/{python-eggs,python3k-eggs} /home/dataman/.cache/n6/n6adminpanel/{python-eggs,python3k-eggs}" && \
+    bash -c "mkdir -p /etc/ssh /home/dataman/{.n6,logs,tmp} /var/www /etc/apache2/sites-available /home/dataman/.cache/n6/n6api/{python-eggs,python3k-eggs} /home/dataman/.cache/n6/n6portal/{python-eggs,python3k-eggs} /home/dataman/.cache/n6/n6adminpanel/{python-eggs,python3k-eggs}" && \
     chown -R dataman:dataman \
-        /etc/n6 /home/dataman/ /var/www /etc/ssh/ /etc/apache2/sites-available && \
+        /home/dataman/ /var/www /etc/ssh/ /etc/apache2/sites-available && \
     chmod -R 755 \
-        /etc/n6 /home/dataman/ /var/www /etc/ssh/ /etc/apache2/sites-available; \
+        /home/dataman/ /var/www /etc/ssh/ /etc/apache2/sites-available; \
     chown -R dataman:www-data \
         /home/dataman/.cache/n6/n6api/python-eggs /home/dataman/.cache/n6/n6api/python3k-eggs \
         /home/dataman/.cache/n6/n6portal/python-eggs /home/dataman/.cache/n6/n6portal/python3k-eggs \
@@ -163,11 +163,9 @@ RUN \
         pytest-cov==2.12.1 \
         coverage
 
-RUN rm -rf n6
+RUN rm -rf /home/dataman/n6
 
 ENTRYPOINT ["/home/dataman/entrypoint.sh"]
 
 # Command to build:
 # docker build -t n6_base -f docker/base/Dockerfile .
-
-RUN rm -rf /home/dataman/n6

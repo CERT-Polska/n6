@@ -329,7 +329,7 @@ class _load_cert_metadata_by_label(_LoadByCertLabelMixin,
 def _get_pki_test_data_path():
     try:
         return resource_filename(
-            Requirement.parse("n6lib"),
+            Requirement.parse("n6lib-py2"),
             'n6lib/tests/certs_and_requests_for_testing/')
     finally:
         cleanup_resources()

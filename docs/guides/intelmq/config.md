@@ -1,4 +1,4 @@
-# Installation of the IntelMQ package
+# Installation and Configuration
 
 ## Necessary n6 packages
 

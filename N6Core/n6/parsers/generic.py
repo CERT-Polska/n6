@@ -849,6 +849,9 @@ class BlackListParser(BaseParser):
 
 
 
+# LEGACY STUFF -- we DO NOT want to migrate it to `n6datasources.parsers.base`.
+# IF it is really needed in Py3, please (TODO?) migrate it to
+# `n6datasources.parsers.base_legacy`.
 class TabDataParser(BaseParser):
 
     """
@@ -1000,6 +1003,9 @@ class TabDataParser(BaseParser):
 
 
 
+# LEGACY STUFF -- we DO NOT want to migrate it to `n6datasources.parsers.base`.
+# IF it is really needed in Py3, please (TODO?) migrate it to
+# `n6datasources.parsers.base_legacy`.
 class BlackListTabDataParser(TabDataParser, BlackListParser):
 
     """
@@ -1012,6 +1018,10 @@ class BlackListTabDataParser(TabDataParser, BlackListParser):
 #       (+ adding process_row_fields() method placeholder)
 #       -- then update the wiki page about parsers...
 # XXX: is it tested?
+#
+# LEGACY STUFF -- we DO NOT want to migrate it to `n6datasources.parsers.base`.
+# IF it is really needed in Py3, please (TODO?) migrate it to
+# `n6datasources.parsers.base_legacy`.
 class XmlDataParser(BaseParser):
 
     """
@@ -1057,6 +1067,11 @@ class XmlDataParser(BaseParser):
 
 
 
+#
+# Script/entry point factories
+
+# LEGACY STUFF -- we DO NOT want to migrate it to n6datasources...
+# (replaced by `n6datasources.parsers.base.BaseParser.run_script()`)
 def generate_parser_main(parser_class):
     def parser_main():
         with logging_configured():
@@ -1066,6 +1081,8 @@ def generate_parser_main(parser_class):
     return parser_main
 
 
+# LEGACY STUFF -- we DO NOT want to migrate it to n6datasources...
+# (use `n6datasources.parsers.base.add_parser_entry_point_functions()` instead)
 def entry_point_factory(module):
     for parser_class in all_subclasses(BaseParser):
         if (not parser_class.__module__.endswith('.generic') and

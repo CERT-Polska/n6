@@ -2,14 +2,14 @@
 
 import collections
 import os
-import urlparse
+import urllib.parse
 
 import dns.resolver
 # TODO: After migration to Pyton 3.x: remove the `iptools` dependency,
 #       adjusting our code to use std lib's `ipaddress` (maybe also
 #       adding IPv4/v6/both-dedicated config converters?), and/or our
 #       own existing IP-address-related helpers...
-import iptools
+import iptools                                                                              #3 --remove-replace iptools
 import maxminddb.const
 from dns.exception import DNSException
 from geoip2 import database, errors
@@ -70,7 +70,7 @@ class Enricher(ConfigMixin, QueuedBase):
 
     def _get_excluded_ips(self):
         if self._enrich_config['excluded_ips']:
-            return iptools.IpRangeList(*self._enrich_config['excluded_ips'])
+            return iptools.IpRangeList(*self._enrich_config['excluded_ips'])                        #3 --replace iptools
         return None
 
     def _setup_dnsresolver(self, dnshost, dnsport):
@@ -244,13 +244,13 @@ class Enricher(ConfigMixin, QueuedBase):
                 for name in enriched_keys)
             assert all(
                 set(addr_keys).issubset(ip_to_addr[ip])
-                for ip, addr_keys in ip_to_enriched_address_keys.iteritems())
+                for ip, addr_keys in list(ip_to_enriched_address_keys.items()))
 
     #
     # Resolution helpers
 
     def url_to_fqdn_or_ip(self, url):
-        parsed_url = urlparse.urlparse(url)
+        parsed_url = urllib.parse.urlparse(url)
         if parsed_url.netloc.endswith(':'):
             # URL is probably wrong -- something like: "http://http://..."
             return ''

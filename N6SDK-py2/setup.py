@@ -54,7 +54,7 @@ with open(osp.join(setup_dir, 'requirements')) as f:                      #3: ad
 
 
 setup(
-    name="n6sdk",
+    name="n6sdk-py2",
     version=n6_version,
 
     packages=find_packages(),
@@ -68,6 +68,8 @@ setup(
             'n6sdk_api_test = n6sdk._api_test_tool.api_test_tool:main',
         ],
     },
+    tests_require=(requirements + ['mock==3.0.5', 'unittest_expander==0.3.1']),  #3: `'mock==3.0.5', `--
+    test_suite="n6sdk.tests",
 
     description='An *n6*-like REST API server framework.',
     url='https://github.com/CERT-Polska/n6',

@@ -50,6 +50,7 @@ LOGGER = get_logger(__name__)
 #
 # Exceptions
 
+# LEGACY STUFF -- we DO NOT want to migrate it to n6datasources...
 class n6CollectorException(Exception):
     pass
 
@@ -73,6 +74,7 @@ class CollectorConfigMixin(ConfigMixin):
             self.config = ConfigSection('<no section declared>')
 
 
+# LEGACY STUFF -- we DO NOT want to migrate it to n6datasources...
 class CollectorStateMixIn(object):
 
     """DO NOT USE THIS CLASS IN NEW CODE, USE ONLY CollectorWithStateMixin!"""
@@ -112,6 +114,7 @@ class CollectorStateMixIn(object):
         return self.config['source'] + ".txt"
 
 
+# LEGACY STUFF -- we DO NOT want to migrate it to n6datasources...
 class CollectorStateMixInPlus(CollectorStateMixIn):
 
     """
@@ -650,6 +653,7 @@ class BaseOneShotCollector(BaseCollector):
         self.inner_stop()
 
 
+# TODO: migrate it to `n6datasources.collectors.base` when needed...
 class BaseEmailSourceCollector(BaseOneShotCollector):
 
     """
@@ -690,6 +694,8 @@ class BaseEmailSourceCollector(BaseOneShotCollector):
         return prop_kwargs
 
 
+# LEGACY STUFF -- we DO NOT want to migrate it to n6datasources...
+# (use `n6datasources.collectors.base.BaseDownloadingCollector` instead)
 class BaseUrlDownloaderCollector(BaseCollector):
 
     config_group = None
@@ -868,6 +874,9 @@ class BaseUrlDownloaderCollector(BaseCollector):
                     break
 
 
+# LEGACY STUFF -- we DO NOT want to migrate it to n6datasources...
+# **unless** (TODO) modernized to use `BaseDownloadingCollector`
+# (instead of `BaseUrlDownloaderCollector`).
 class BaseRSSCollector(BaseOneShotCollector, BaseUrlDownloaderCollector):
 
     type = 'stream'
@@ -1477,6 +1486,8 @@ class BaseDownloadingTimeOrderedRowsCollector(BaseDownloadingCollector,
 #
 # Script/entry point factories
 
+# LEGACY STUFF -- we DO NOT want to migrate it to n6datasources...
+# (replaced by `n6datasources.collectors.base.AbstractBaseCollector.run_script()`)
 def generate_collector_main(collector_class):
     def collector_main():
         with logging_configured():
@@ -1485,7 +1496,8 @@ def generate_collector_main(collector_class):
             collector.run_handling()
     return collector_main
 
-
+# LEGACY STUFF -- we DO NOT want to migrate it to n6datasources...
+# (use `n6datasources.collectors.base.add_collector_entry_point_functions()` instead)
 def entry_point_factory(module):
     for collector_class in all_subclasses(AbstractBaseCollector):
         if (not collector_class.__module__.endswith('.generic') and

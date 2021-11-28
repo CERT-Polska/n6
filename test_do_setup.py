@@ -3,7 +3,10 @@
 # Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import argparse
-import collections as collections_abc               #3: `import collections.abc as collections_abc`
+try:
+    import collections.abc as collections_abc
+except ImportError:
+    import collections as collections_abc
 import contextlib
 import copy
 import os
@@ -49,7 +52,8 @@ def using_template_and_cases(cls):
             with patch(do_setup, 'PY2', (py == 2)):
                 return self.TEMPLATE(*test_args)
         test.__name__ = 'test__{}'.format(label)
-        test.__qualname__ = '{}.{}'.format(cls.__name__, test.__name__)        #3: `cls.__name__` -> `cls.__qualname__`
+        cls_qualname = getattr(cls, '__qualname__', cls.__name__)              #3--
+        test.__qualname__ = '{}.{}'.format(cls_qualname, test.__name__)        #3: `cls_qualname` -> `cls.__qualname__`
         return test
 
     for label, case in cls.CASES.items():

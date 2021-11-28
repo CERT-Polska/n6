@@ -1,4 +1,4 @@
-# Running IntelMQ bots and message format adapters
+# Running IntelMQ Bots and Message Format Adapters
 
 ## Running a bot
 
@@ -11,6 +11,7 @@ Arguments:
 * **-h, --help** show help message
 * **-e, --exception-proof** Run the bot in the "exception-proof" mode, where it will send
 forward incoming messages, even if an exception is raised
+
 
 ## Running message format adapters
 

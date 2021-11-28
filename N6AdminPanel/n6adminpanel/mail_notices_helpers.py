@@ -1,16 +1,19 @@
 #  Copyright (c) 2021 NASK. All rights reserved.
 
-from typing import (
-    Iterable,
-    Union,
-)
+from collections.abc import Iterable
+from typing import Union
 
 from flask import (
     flash,
     g,
 )
 
+from n6lib.auth_db.api import AuthDatabaseAPILookupError
 from n6lib.common_helpers import ascii_str
+
+
+class NoRecipients(Exception):
+    pass
 
 
 class MailNoticesMixin(object):
@@ -21,10 +24,16 @@ class MailNoticesMixin(object):
                    'for notice_key={!a}.'.format(ascii_str(notice_key)))
             flash(msg, 'warning')
             return
-        notice_data = self.get_notice_data(**get_notice_data_kwargs)
+        try:
+            notice_data = self.get_notice_data(**get_notice_data_kwargs)
+            notice_recipients = list(self.get_notice_recipients(notice_data))
+            if not notice_recipients:
+                raise NoRecipients('no matching non-blocked user(s) could be found')
+        except NoRecipients as exc:
+            flash(f'No e-mail notices could be sent because {exc}!', 'error')
+            return
         notice_lang = self.get_notice_lang(notice_data)
         assert notice_lang is None or isinstance(notice_lang, str) and len(notice_lang) == 2
-        notice_recipients = list(self.get_notice_recipients(notice_data))
         gathered_ok_recipients = []
         with g.n6_mail_notices_api.dispatcher(notice_key,
                                               suppress_and_log_smtp_exc=True) as dispatch:
@@ -43,18 +52,20 @@ class MailNoticesMixin(object):
 
     # (The following hooks can be overridden in subclasses.)
 
-    def get_notice_data(self, user_login):
-        # type: (...) -> dict
-        with g.n6_auth_manage_api_adapter as api:
-            user_and_org_basic_info = api.get_user_and_org_basic_info(user_login)
+    def get_notice_data(self, user_login) -> dict:
+        try:
+            with g.n6_auth_manage_api_adapter as api:
+                if api.is_user_blocked(user_login):
+                    raise NoRecipients('the user {user_login!a} is blocked')
+                user_and_org_basic_info = api.get_user_and_org_basic_info(user_login)
+        except AuthDatabaseAPILookupError:
+            raise NoRecipients('the user {user_login!a} does not exist')
         return dict(
             user_and_org_basic_info,
             user_login=user_login)
 
-    def get_notice_lang(self, notice_data):
-        # type: (dict) -> Union[str, None]
-        return notice_data['lang']
-
-    def get_notice_recipients(self, notice_data):
-        # type: (dict) -> Iterable[str]
+    def get_notice_recipients(self, notice_data: dict) -> Iterable[str]:
         return [notice_data['user_login']]
+
+    def get_notice_lang(self, notice_data: dict) -> Union[str, None]:
+        return notice_data['lang']

@@ -913,7 +913,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
 
         self.assertEqual(len(self._aggregator.publish_output.mock_calls), 1)
         publish_output_kwargs = self._aggregator.publish_output.mock_calls[0][-1]
-        self.assertEqual(set(publish_output_kwargs.iterkeys()), {"routing_key", "body"})
+        self.assertEqual(set(publish_output_kwargs.keys()), {"routing_key", "body"})
         self.assertEqual(publish_output_kwargs["routing_key"], expected_routing_key)
         self.assertJsonEqual(publish_output_kwargs["body"], expected_body_content)
 
@@ -1544,19 +1544,26 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         # the state, but there is no access to the given path; first,
         # make sure there actually is no access to the given path
         tmp_db_path = "/root/example.pickle"
-        if not os.access(tmp_db_path, os.W_OK):
-            with patch.object(self._adw, "dbpath", tmp_db_path):
-                self.assertRaises(IOError, self._adw.store_state())
+        assert not os.access(tmp_db_path, os.W_OK), ('The test case relies on the assumption that '
+                                                     'the user running the tests does not '
+                                                     'have permission to write '
+                                                     'to: {!r}'.format(tmp_db_path))
+        self._adw.dbpath = tmp_db_path
+        with patch('n6.utils.aggregator.LOGGER') as patched_logger:
+            self._adw.store_state()
+            patched_logger.error.assert_called_once()
         # assert the exception is being raised when trying to restore
         # the state from nonexistent file; first, safely create
         # a temporary file, then close and remove it, so the path
         # most likely does not exist
         with tempfile.NamedTemporaryFile() as fp:
             tmp_db_path = fp.name
-        if not os.path.exists(tmp_db_path):
-            with patch.object(self._adw, "dbpath", tmp_db_path), \
-                    self.assertRaisesRegexp(IOError, r"No such file or directory"):
-                self._adw.restore_state()
+        assert not os.path.exists(tmp_db_path), ('The randomly generated temporary directory: '
+                                                 '{!r} still exists, so the test cannot '
+                                                 'be correctly performed'.format(tmp_db_path))
+        with patch.object(self._adw, "dbpath", tmp_db_path), \
+                self.assertRaisesRegexp(IOError, r"No such file or directory"):
+            self._adw.restore_state()
 
     @foreach(_test_process_new_message_data)
     def test_process_new_message(self, messages, expected_source_time,
@@ -1695,7 +1702,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
                                                    datetime.timedelta(*args, **kw))
             # actual call
             generated_events = list(self._adw.generate_suppresed_events_after_timeout())
-            expected_events = [event for source, vals in source_to_expected_events.iteritems()
+            expected_events = [event for source, vals in source_to_expected_events.items()
                                if source in expected_inactive_sources for event in vals]
             self.assertEqual(expected_events, generated_events)
 

@@ -1,14 +1,11 @@
 # Copyright (c) 2019-2021 NASK. All rights reserved.
 
+from collections.abc import Iterable
 import datetime
 import operator
 import re
 import sys
-from typing import (
-    Iterable,
-    List,
-    Optional,
-)
+from typing import Optional
 
 from sqlalchemy import and_
 from sqlalchemy.exc import (
@@ -46,7 +43,6 @@ from n6lib.data_spec.fields import (
     UnicodeLimitedField,
     UnicodeRegexField,
 )
-from n6lib.typing_helpers import String as Str
 from n6sdk.data_spec.fields import FlagField
 from n6sdk.data_spec.utils import cleaning_kwargs_as_params_with_data_spec
 from n6sdk.exceptions import (
@@ -193,19 +189,22 @@ class AuthManageAPI(_AuthDatabaseAPI):
             single_param=True,
             in_params='required',
         ),
+        _non_param_kwarg_names={'only_nonblocked'},
     )
-    def get_org_user_logins(self, org_id):
-        # type: (Str) -> List[Str]
+    def get_org_user_logins(self,
+                            org_id: str,
+                            *, only_nonblocked: bool = False) -> list[str]:
         org = self._get_by_primary_key(models.Org, org_id)
-        return _attr_list(org.users, 'login')
+        users = org.users
+        if only_nonblocked:
+            users = [u for u in users if not u.is_blocked]
+        return _attr_list(users, 'login')
 
-    def get_user_org_id(self, login):
-        # type: (Str) -> Str
+    def get_user_org_id(self, login: str) -> str:
         user = self._get_user_by_login(login)
         return user.org_id
 
-    def get_user_and_org_basic_info(self, login):
-        # type: (Str) -> dict
+    def get_user_and_org_basic_info(self, login: str) -> dict:
         user = self._get_user_by_login(login)
         return {
             'org_id': user.org.org_id,
@@ -213,19 +212,16 @@ class AuthManageAPI(_AuthDatabaseAPI):
             'lang': user.org.email_notification_language,  # TODO?: separate per-user setting?...
         }
 
-    def set_user_password(self, login, password):
-        # type: (Str, Str) -> None
+    def set_user_password(self, login: str, password: str) -> None:
         user = self._get_user_by_login(login, for_update=True)
         password_hash = models.User.get_password_hash_or_none(password)
         user.password = password_hash
 
-    def is_user_blocked(self, login):
-        # type: (Str) -> bool
+    def is_user_blocked(self, login: str) -> bool:
         user = self._get_user_by_login(login)
         return bool(user.is_blocked)
 
-    def do_nonblocked_user_and_password_exist_and_match(self, login, password):
-        # type: (Str, Str) -> bool
+    def do_nonblocked_user_and_password_exist_and_match(self, login: str, password: str) -> bool:
         try:
             user = self._get_user_by_login(login)
         except AuthDatabaseAPILookupError:
@@ -234,8 +230,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
                     and user.password
                     and user.verify_password(password))
 
-    def do_nonblocked_user_and_org_exist_and_match(self, login, org_id):
-        # type: (Str, Str) -> bool
+    def do_nonblocked_user_and_org_exist_and_match(self, login: str, org_id: str) -> bool:
         try:
             user = self._get_user_by_login(login)
         except AuthDatabaseAPILookupError:
@@ -243,8 +238,10 @@ class AuthManageAPI(_AuthDatabaseAPI):
         return bool(not user.is_blocked
                     and user.org_id == org_id)
 
-    def create_web_token_for_nonblocked_user(self, token_id, token_type, login):
-        # type: (Str, Str, Str) -> datetime.datetime
+    def create_web_token_for_nonblocked_user(self,
+                                             token_id: str,
+                                             token_type: str,
+                                             login: str) -> datetime.datetime:
         if self.is_user_blocked(login):
             raise AuthDatabaseAPILookupError('User "{}" is blocked.'.format(login))
         # noinspection PyArgumentList
@@ -255,48 +252,47 @@ class AuthManageAPI(_AuthDatabaseAPI):
         self._db_session.add(token)
         return token.created_on
 
-    def get_login_of_nonblocked_web_token_owner(self, token_id):
-        # type: (Str) -> Str
+    def get_login_of_nonblocked_web_token_owner(self, token_id: str) -> str:
         token = self._get_by_primary_key(models.WebToken, token_id)
         if token.user.is_blocked:
             raise AuthDatabaseAPILookupError('User "{}" is blocked.'.format(token.user_login))
         return token.user_login
 
-    def get_web_token_type(self, token_id):
-        # type: (Str) -> Str
+    def get_web_token_type(self, token_id: str) -> str:
         token = self._get_by_primary_key(models.WebToken, token_id)
         return token.token_type
 
-    def delete_web_token(self, token_id):
-        # type: (Str) -> None
+    def delete_web_token(self, token_id: str) -> None:
         self._delete_all(
             models.WebToken,
             models.WebToken.token_id == token_id)
 
-    def delete_web_tokens_of_given_type_and_owner(self, token_type, login):
-        # type: (Str, Str) -> None
+    def delete_web_tokens_of_given_type_and_owner(self,
+                                                  token_type: str,
+                                                  login: str) -> None:
         self._delete_all(
             models.WebToken,
             and_(models.WebToken.token_type == token_type,
                  models.WebToken.user_login == login))
 
-    def delete_outdated_web_tokens_of_given_type(self, token_type, token_max_age):
-        # type: (Str, int) -> None
+    def delete_outdated_web_tokens_of_given_type(self,
+                                                 token_type: str,
+                                                 token_max_age: int) -> None:
         now = datetime.datetime.utcnow()
         self._delete_all(
             models.WebToken,
             and_(models.WebToken.token_type == token_type,
                  models.WebToken.created_on < now - datetime.timedelta(seconds=token_max_age)))
 
-    def create_provisional_mfa_config(self, mfa_key_base, token_id):
-        # type: (Str, Str) -> None
+    def create_provisional_mfa_config(self,
+                                      mfa_key_base: str,
+                                      token_id: str) -> None:
         # noinspection PyArgumentList
         provisional_mfa_config = models.UserProvisionalMFAConfig(mfa_key_base=mfa_key_base,
                                                                  token_id=token_id)
         self._db_session.add(provisional_mfa_config)
 
-    def get_provisional_mfa_key_base_or_none(self, token_id):
-        # type: (Str) -> Optional[Str]
+    def get_provisional_mfa_key_base_or_none(self, token_id: str) -> Optional[str]:
         try:
             cfg = self._db_session.query(models.UserProvisionalMFAConfig).filter(
                 models.UserProvisionalMFAConfig.token_id == token_id).one()
@@ -304,8 +300,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             return None
         return cfg.mfa_key_base
 
-    def get_actual_mfa_key_base_or_none(self, login):
-        # type: (Str) -> Optional[Str]
+    def get_actual_mfa_key_base_or_none(self, login: str) -> Optional[str]:
         try:
             user = self._db_session.query(models.User).filter(
                 models.User.login == login).one()
@@ -313,13 +308,11 @@ class AuthManageAPI(_AuthDatabaseAPI):
             return None
         return user.mfa_key_base
 
-    def set_actual_mfa_key_base(self, login, mfa_key_base):
-        # type: (Str, Str) -> None
+    def set_actual_mfa_key_base(self, login: str, mfa_key_base: str) -> None:
         user = self._get_user_by_login(login, for_update=True)
         user.mfa_key_base = mfa_key_base
 
-    def is_mfa_code_spent_for_user(self, mfa_code, login):
-        # type: (Str, Str) -> bool
+    def is_mfa_code_spent_for_user(self, mfa_code: str, login: str) -> bool:
         try:
             self._db_session.query(models.UserSpentMFACode).filter(
                 and_(models.UserSpentMFACode.user_login == login,
@@ -334,8 +327,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             return False
         return True
 
-    def delete_outdated_spent_mfa_codes(self, mfa_code_max_age):
-        # type: (int) -> None
+    def delete_outdated_spent_mfa_codes(self, mfa_code_max_age: int) -> None:
         now = datetime.datetime.utcnow()
         self._delete_all(
             models.UserSpentMFACode,
@@ -869,13 +861,13 @@ def _pure_data_from_org_config_update_request(req):
     return req_pure_data
 
 
-def _attr_list(objects, attr_name):
-    # type: (Iterable, Str) -> list
-    return sorted(map(operator.attrgetter(attr_name), objects))  # type: list
+def _attr_list(objects: Iterable,
+               attr_name: str) -> list:
+    return sorted(map(operator.attrgetter(attr_name), objects))
 
 
-def _notif_time_attr_list(objects, attr_name):
-    # type: (Iterable, Str) -> List[datetime.time]
-    values = _attr_list(objects, attr_name)
+def _notif_time_attr_list(objects: Iterable,
+                          attr_name: str) -> list[datetime.time]:
+    values: list[datetime.time] = _attr_list(objects, attr_name)
     return [t.replace(second=0, microsecond=0)  # (defense against overspecified values in DB)
             for t in values]

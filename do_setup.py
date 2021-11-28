@@ -71,7 +71,6 @@ def get_excluded_from_all():
     """
     excluded_from_all = {
         'N6GridFSMount',    # maybe TODO later: move to the appropriate branch of the following `if`...
-        'N6Core3k',         # TODO later: remove after removing the `N6Core3k` dir
     }
     if PY2:
         # For Python 2: let's exclude any Python-3-only stuff.

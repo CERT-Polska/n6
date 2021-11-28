@@ -33,7 +33,7 @@ services:
     container_name: n6
     hostname: n6
     environment:
-      N6_PORTAL_AUTH_2021:
+      N6_PORTAL_AUTH_2021: "yes"
     command: >
       bash -c "n6/docker/bin/wait-for-services.sh
       && supervisord -c supervisord/supervisord.conf"
@@ -46,7 +46,7 @@ services:
       dockerfile: ./docker/web/Dockerfile
     hostname: apache
     environment:
-      N6_PORTAL_AUTH_2021:
+      N6_PORTAL_AUTH_2021: "yes"
     restart: always
     container_name: web
     ports:

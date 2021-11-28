@@ -57,7 +57,7 @@ n6_version = get_n6_version('.n6-version')
 
 pip_install = False
 setup_install = False
-requirements = ['n6sdk==' + n6_version]
+requirements = ['n6sdk-py2==' + n6_version]
 requirements_pip = []
 dep_links = []
 for line in setup_data_line_generator('requirements'):
@@ -81,13 +81,15 @@ for line in setup_data_line_generator('requirements'):
 
 
 setup(
-    name="n6lib",
+    name="n6lib-py2",
     version=n6_version,
 
     packages=find_packages(),
     include_package_data=True,
     python_requires='==2.7.*',
     zip_safe=False,
+    tests_require=["mock==3.0.5", 'unittest_expander==0.3.1'],                   #3: `"mock==3.0.5", `--
+    test_suite="n6lib.tests",
     dependency_links=dep_links,
     install_requires=requirements,
     entry_points={

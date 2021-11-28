@@ -1,17 +1,52 @@
 # Copyright (c) 2020-2021 NASK. All rights reserved.
 
 import csv
+import cStringIO                                                                 #3--
+from io import StringIO
+
 import sys                                                                       #3--
 
 from n6lib.common_helpers import open_file
 
 
-def open_csv_file(*args, **kwargs):
+def open_csv_file(file, mode=None, **open_kwargs):
+    """
+    Open a file suitable for a CSV reader's source or writer's target.
+    """
     if sys.version_info[0] < 3:                                                  #3--
-        return open_file(*args, **kwargs)                                        #3--
-    # From the docs: "If *csvfile* is a file object, it should be opened with newline=''."
-    # (https://docs.python.org/3/library/csv.html#module-contents)
-    return open_file(*args, newline='', **kwargs)
+        # Python 2:                                                              #3--
+        if mode is None:                                                         #3--
+            mode = 'rb'                                                          #3--
+        return open_file(file, mode, **open_kwargs)                              #3--
+
+    # Python 3:
+    if mode is None:
+        mode = 'r'
+    elif 'b' in mode:
+        raise ValueError("the given mode ({0!a}) is binary (which is "
+                         "not suitable for a CSV reader's source or "
+                         "writer's target in Python 3)".format(mode))
+    # Important: CSV source/target file should be opened with newline=''
+    # (see: https://docs.python.org/3/library/csv.html#module-contents).
+    return open_file(file, mode, newline='', **open_kwargs)
+
+
+def csv_string_io(s=''):
+    """
+    Make a *String IO* pseudo-file suitable for a CSV reader's source or
+    writer's target.
+
+    The function takes one optional argument (a `str`; empty by default)
+    and returns an appropriate *String IO* object.
+    """
+    if sys.version_info[0] < 3:                                                  #3--
+        # Python 2:                                                              #3--
+        return cStringIO.StringIO(s) if s else cStringIO.StringIO()              #3--
+
+    # Python 3:
+    # Important: CSV source/target file should be opened with newline=''
+    # (see: https://docs.python.org/3/library/csv.html#module-contents).
+    return StringIO(s, newline='')
 
 
 def split_csv_row(row, delimiter=',', quotechar='"', **kwargs):

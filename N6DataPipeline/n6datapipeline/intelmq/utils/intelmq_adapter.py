@@ -9,6 +9,8 @@ with IntelMQ System.
 from logging import getLogger
 from typing import Type
 
+import pika
+
 from n6datapipeline.base import LegacyQueuedBase
 from n6datapipeline.intelmq.utils.intelmq_converter import (
     IntelToN6Converter,
@@ -49,7 +51,10 @@ class IntelMQAdapter(LegacyQueuedBase):
     def get_component_group_and_id(self):
         return 'intelmq-utils', self.components_id
 
-    def input_callback(self, routing_key, body, properties):
+    def input_callback(self,
+                       routing_key: str,
+                       body: bytes,
+                       properties: pika.BasicProperties) -> None:
         for converted in self.converter.convert(body.decode()):
             rk = replace_segment(routing_key, 1, self.components_id)
             self.publish_output(routing_key=rk, body=converted)

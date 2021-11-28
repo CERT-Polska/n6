@@ -6,6 +6,7 @@ from functools import wraps
 from logging import getLogger
 from typing import Optional
 
+import pika
 from intelmq.lib.bot import CollectorBot
 from intelmq.lib.message import MessageFactory
 
@@ -178,7 +179,10 @@ class QueuedBaseExtended(LegacyQueuedBase):
             super(QueuedBaseExtended, self).make_binding_keys(binding_states,
                                                               accepted_event_types)
 
-    def input_callback(self, routing_key, body, properties):
+    def input_callback(self,
+                       routing_key: str,
+                       body: bytes,
+                       properties: pika.BasicProperties) -> None:
         self.current_routing_key = routing_key
         input_msg = body.decode('utf-8')
         self.current_message = input_msg

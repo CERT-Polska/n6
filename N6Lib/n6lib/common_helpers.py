@@ -3510,13 +3510,19 @@ def open_file(file, mode='r', **open_kwargs):
             Typically it is a string specifying the name (path) of the
             file to be opened. For more information, see the docs of the
             built-in function `open()`.
-        `mode` (default: 'r'):
+        `mode` (default: `'r'`):
             An optional string that specifies the mode in which the file
-            is opened. If it contains 'b' then it will be a binary mode;
+            is opened. If it contains `'b'` then it will be a binary mode;
             otherwise -- a text mode. For more information, see the docs
             of the built-in function `open()`.
         Other optional arguments, only as *keyword* (named) ones:
             See the docs of the built-in function `open()`.
+            *Additional feature:* if `mode` does *not* contain the `'b'`
+            marker (i.e., if the file is being opened in a text mode)
+            *and* keyword arguments do *not* include `encoding` then the
+            `encoding` argument is automatically set to `'utf-8'`;
+            see: https://www.python.org/dev/peps/pep-0597/ and
+            https://docs.python.org/3.10/library/io.html#text-encoding
 
     Returns:
         A file object (for details, see the docs of the built-in
@@ -3524,11 +3530,6 @@ def open_file(file, mode='r', **open_kwargs):
 
     Raises:
         See the docs of the built-in function `open()`.
-
-    *Additional feature:* if `mode` does *not* contain the 'b' marker
-    (i.e., if the file is being opened in a text mode) *and* keyword
-    arguments do *not* include `encoding` then the `encoding` argument
-    is automatically set to 'utf-8'.
     """
     if 'b' not in mode:
         open_kwargs.setdefault('encoding', 'utf-8')
@@ -3537,11 +3538,11 @@ def open_file(file, mode='r', **open_kwargs):
 
 def read_file(file, mode='r', **open_kwargs):
     """
-    Open `file` using the `open_file()` helper (see its docstring...),
-    then read and return the file's content.
+    Open `file` using the `open_file()` helper, then read the file's
+    content (using the `read()` method) and return it.
 
     Args/kwargs:
-        See the docstring of `open_file()`.
+        See the docstring of the `open_file()` helper.
 
     Returns:
         The file's content (`str` or `bytes`, depending on `mode` --

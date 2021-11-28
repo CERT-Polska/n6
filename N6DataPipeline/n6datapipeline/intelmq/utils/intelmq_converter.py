@@ -23,7 +23,7 @@ field unknown to either system                             ignored
 import bisect
 import json
 import logging
-from collections import MutableMapping
+from collections.abc import MutableMapping
 from copy import deepcopy
 
 
