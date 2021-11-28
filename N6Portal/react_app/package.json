@@ -35,7 +35,7 @@
     "react-window": "^1.8.6",
     "sanitize-html": "^2.3.3",
     "use-lilius": "^1.1.1",
-    "validator": "^13.6.0",
+    "validator": "^13.7.0",
     "web-vitals": "^1.1.2"
   },
   "scripts": {
