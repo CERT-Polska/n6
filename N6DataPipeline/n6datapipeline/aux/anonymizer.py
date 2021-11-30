@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 # Copyright (c) 2013-2021 NASK. All rights reserved.
 
 """
@@ -10,7 +7,7 @@ before publishing them using the (STOMP-based) Stream API.
 
 import json
 
-from n6.base.queue import QueuedBase
+from n6datapipeline.base import LegacyQueuedBase
 from n6lib.auth_api import AuthAPI
 from n6lib.const import TYPE_ENUMS
 from n6lib.context_helpers import force_exit_on_any_remaining_entered_contexts
@@ -23,7 +20,7 @@ from n6sdk.pyramid_commons.renderers import data_dict_to_json
 LOGGER = get_logger(__name__)
 
 
-class Anonymizer(QueuedBase):
+class Anonymizer(LegacyQueuedBase):
 
     # note: here `resource` denotes a *Stream API resource*:
     # "inside" (corresponding to the "inside" access zone) or
@@ -92,11 +89,11 @@ class Anonymizer(QueuedBase):
     def _check_event_type(self, event_type, event_data):
         if event_type != event_data.get('type', 'event'):
             raise ValueError(
-                "event type from rk ({!r}) does "
-                "not match the 'type' item ({!r})"
+                "event type from rk ({!a}) does "
+                "not match the 'type' item ({!a})"
                 .format(event_type, event_data.get('type')))
         if event_type not in self._VALID_EVENT_TYPES:
-            raise ValueError('illegal event type tag: {!r}'.format(event_type))
+            raise ValueError('illegal event type tag: {!a}'.format(event_type))
 
     def _get_resource_to_org_ids(self,
                                  event_type,
@@ -110,11 +107,11 @@ class Anonymizer(QueuedBase):
                 self.auth_api.get_source_ids_to_subs_to_stream_api_access_infos().get(source))
             if subsource_to_saa_info:
                 predicate_ready_dict = RecordFacadeForPredicates(event_data, self.data_spec)
-                client_org_ids = set(
-                    org_id.decode('ascii', 'strict')
-                    for org_id in event_data.get('client', ()))
+                client_org_ids = set(event_data.get('client', ()))
+                assert all(isinstance(s, str) for s in client_org_ids)
                 for subsource_refint, (
                         predicate, res_to_org_ids) in subsource_to_saa_info.items():
+                    assert all(isinstance(s, str) for s in res_to_org_ids['inside'])
                     subs_inside_org_ids = res_to_org_ids['inside'] & client_org_ids
                     subs_threats_org_ids = res_to_org_ids['threats']
                     if not subs_inside_org_ids and not subs_threats_org_ids:
@@ -123,22 +120,20 @@ class Anonymizer(QueuedBase):
                         continue
                     inside_org_ids.update(subs_inside_org_ids)
                     threats_org_ids.update(subs_threats_org_ids)
+                assert all(isinstance(s, str) for s in inside_org_ids)
+                assert all(isinstance(s, str) for s in threats_org_ids)
             return {
-                'inside': sorted(
-                    org_id.decode('ascii', 'strict')
-                    for org_id in inside_org_ids),
-                'threats': sorted(
-                    org_id.decode('ascii', 'strict')
-                    for org_id in threats_org_ids),
+                'inside': sorted(inside_org_ids),
+                'threats': sorted(threats_org_ids),
             }
         except:
             LOGGER.error(
                 'Could not determine org ids per resources'
-                '(event type: %r;  event data: %r%s)',
+                '(event type: %a;  event data: %a%s)',
                 event_type,
                 event_data,
                 ('' if subsource_refint is None else (
-                    ";  lately processed subsource's refint: {!r}".format(subsource_refint))))
+                    ";  lately processed subsource's refint: {!a}".format(subsource_refint))))
             raise
 
     def _get_result_dicts_and_output_body(self,
@@ -172,8 +167,8 @@ class Anonymizer(QueuedBase):
         except:
             LOGGER.error(
                 'Could not prepare an anonymized data record '
-                '(event type: %r;  raw result dict: %r;  '
-                'cleaned result dict: %r;  %s)',
+                '(event type: %a;  raw result dict: %a;  '
+                'cleaned result dict: %a;  %s)',
                 event_type,
                 raw_result_dict,
                 cleaned_result_dict,
@@ -209,9 +204,9 @@ class Anonymizer(QueuedBase):
                 except:
                     LOGGER.error(
                         'Could not send an anonymized data record, for '
-                        'the resource %r, to the client %r (event type: '
-                        '%r;  raw result dict: %r;  routing key %r;  '
-                        'body: %r;  %s)',
+                        'the resource %a, to the client %a (event type: '
+                        '%a;  raw result dict: %a;  routing key %a;  '
+                        'body: %a;  %s)',
                         resource,
                         org_id,
                         event_type,
@@ -219,7 +214,7 @@ class Anonymizer(QueuedBase):
                         output_rk,
                         output_body,
                         ';  '.join(
-                            'for the resource {0!r} -- '
+                            'for the resource {0!a} -- '
                             '* skipped for the org ids: {1}; '
                             '* done for the org ids: {2}'.format(
                                 r,

@@ -21,16 +21,16 @@ def get_n6_version(filename_base):
         path = matching_paths[0]
     except IndexError:
         sys.exit('[{}] Cannot determine the n6 version '
-                 '(no files match the pattern {!r}).'
+                 '(no files match the pattern {!a}).'
                  .format(setup_human_readable_ref,
                          path_glob_pattern))
     try:
-        with open(path) as f:                                             #3: add: `, encoding='ascii'`
+        with open(path, encoding='ascii') as f:
             return f.read().strip()
     except (OSError, UnicodeError) as exc:
         sys.exit('[{}] Cannot determine the n6 version '
                  '(an error occurred when trying to '
-                 'read it from the file {!r} - {}).'
+                 'read it from the file {!a} - {}).'
                  .format(setup_human_readable_ref,
                          path,
                          exc))
@@ -41,7 +41,6 @@ n6_version = get_n6_version('.n6-version')
 requires = [
     'n6lib==' + n6_version,
     'pyramid==1.10.8',
-    'typing',
 ]
 
 setup(
@@ -51,12 +50,13 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     zip_safe=False,
+    python_requres='==3.9.*',
     install_requires=requires,
     entry_points="""\
         [paste.app_factory]
         main = n6brokerauthapi:main
     """,
-    tests_require=['mock==3.0.5', 'unittest_expander==0.3.1'],
+    tests_require=['unittest_expander==0.3.1'],
     test_suite='n6brokerauthapi.tests',
     description='Authentication and authorization API for RabbitMQ',
     url='https://github.com/CERT-Polska/n6',
@@ -66,7 +66,7 @@ setup(
         'License :: OSI Approved :: GNU Affero General Public License v3',
         'Operating System :: POSIX :: Linux',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 2.7',
+        'Programming Language :: Python :: 3.9',
         "Framework :: Pyramid",
         'Topic :: Security',
     ],

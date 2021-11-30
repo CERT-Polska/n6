@@ -35,6 +35,8 @@ from n6lib.common_helpers import (
     make_exc_ascii_str,
 )
 from n6corelib.email_message import ReceivedEmailMessage
+
+from n6lib.const import RAW_TYPE_ENUMS
 from n6lib.http_helpers import RequestPerformer
 from n6lib.log_helpers import (
     get_logger,
@@ -264,7 +266,6 @@ class BaseCollector(CollectorConfigMixin, QueuedBase, AbstractBaseCollector):
     # (note that this is something completely *different* than
     # <parser class>.event_type and <RecordDict instance>['type'])
     type = None
-    limits_type_of = ('stream', 'file', 'blacklist')
 
     # the attribute has to be overridden, if a component should
     # accept the "--n6recovery" argument option and inherits from
@@ -326,9 +327,9 @@ class BaseCollector(CollectorConfigMixin, QueuedBase, AbstractBaseCollector):
 
     def _validate_type(self):
         """Validate type of message, should be one of: 'stream', 'file', 'blacklist."""
-        if self.type not in self.limits_type_of:
+        if self.type not in RAW_TYPE_ENUMS:
             raise Exception('Wrong type of archived data in mongo: {0},'
-                            '  should be one of: {1}'.format(self.type, self.limits_type_of))
+                            '  should be one of: {1}'.format(self.type, RAW_TYPE_ENUMS))
 
     def update_connection_params_dict_before_run(self, params_dict):
         """

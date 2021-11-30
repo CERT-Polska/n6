@@ -281,11 +281,12 @@ class Aggregator(ConfigMixin, QueuedBase):
         [aggregator]
         dbpath
         time_tolerance :: int
-        time_tolerance_per_source = {} :: json
+        time_tolerance_per_source = {} :: py_namespaces_dict
     '''
 
     def __init__(self, **kwargs):
         self.aggregator_config = self.get_config_section()
+        self.aggregator_config['dbpath'] = os.path.expanduser(self.aggregator_config['dbpath'])
         dbpath_dirname = os.path.dirname(self.aggregator_config['dbpath'])
         try:
             os.makedirs(dbpath_dirname, 0o700)

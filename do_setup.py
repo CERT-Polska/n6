@@ -76,6 +76,7 @@ def get_excluded_from_all():
         # For Python 2: let's exclude any Python-3-only stuff.
         excluded_from_all.update({
             'N6AdminPanel',
+            'N6BrokerAuthApi',
             'N6DataPipeline',
             'N6DataPush',
             'N6DataSources',
@@ -88,7 +89,6 @@ def get_excluded_from_all():
             # TODO gradually: remove what becomes Py3-compatible
             N6_CORE,
             N6_CORE_LIB,
-            'N6BrokerAuthApi',
             'N6KscApi',
             'N6Push',
         })

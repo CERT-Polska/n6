@@ -6,7 +6,6 @@ import n6lib  # noqa
 
 import os
 import sys
-from typing import Dict
 
 from pyramid.authorization import ACLAuthorizationPolicy
 from pyramid.interfaces import IRouter
@@ -243,7 +242,7 @@ RESOURCES += [
 ]
 
 
-def main(global_config,  # type: Dict[str, str]
+def main(global_config,  # type: dict[str, str]
          **settings):
     # type: (...) -> IRouter
     return N6ConfigHelper(

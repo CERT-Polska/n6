@@ -399,7 +399,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         _address = parsed.get('address')
         if _address and len(_address) > MAX_IPS_IN_ADDRESS:
             del parsed['address']
-            LOGGER.warning('Too many IPs in `address`: %s (event id: %r), '
+            LOGGER.warning('Too many IPs in `address`: %s (event id: %a), '
                            'so the `address` attribute has been deleted',
                            len(_address), parsed['id'])
 
@@ -739,10 +739,11 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
                   _symbol_number_to_proto={'1': 'icmp',
                                            '6': 'tcp',
                                            '17': 'udp'}):
+        proto_symbol_number = str(proto_symbol_number)
         try:
             parsed['proto'] = _symbol_number_to_proto[proto_symbol_number]
         except KeyError:
-            LOGGER.warning('Unrecognized proto symbol number: %r',
+            LOGGER.warning('Unrecognized proto symbol number: %a',
                            proto_symbol_number)
 
 

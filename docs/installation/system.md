@@ -1,7 +1,10 @@
 # System Preparation
 
-**TBD: the following description needs an update regarding the
-components that now work under Python 3.9.**
+**TBD: the following description needs an update regarding the stuff
+that now works under Python 3.9, and the software it now depends on
+(including the OS); notably, the current implementation of the *n6*
+basic data pipeline now resides in `N6DataPipeline`, *not* in `N6Core`
+(where the legacy Python-2.7 stuff resides).**
 
 ## RabbitMQ
 

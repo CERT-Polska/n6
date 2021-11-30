@@ -65,6 +65,8 @@ WSGI_SSL_ORG_ID_FIELD = 'SSL_CLIENT_S_DN_O'
 # SSL_CLIENT_S_DN_CN - assumed to be user id (Apache-specific)
 WSGI_SSL_USER_ID_FIELD = 'SSL_CLIENT_S_DN_CN'
 
+# possible values of Collector class's 'type' attribute
+RAW_TYPE_ENUMS = ('stream', 'file', 'blacklist')
 
 # possible values of RecordDict's 'type' item
 TYPE_ENUMS = (

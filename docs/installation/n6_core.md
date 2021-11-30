@@ -1,7 +1,11 @@
 # Installation of _n6_ components
 
 **TBD: the following description needs an update regarding the
-components that now work under Python 3.9.**
+stuff that now works under Python 3.9; in particular, the current
+implementation of the *n6* basic data pipeline now resides in
+`N6DataPipeline`, *not* in `N6Core` (where the legacy Python-2.7
+stuff resides).**
+
 
 First, install `git` and change the shell user to `dataman`:
 

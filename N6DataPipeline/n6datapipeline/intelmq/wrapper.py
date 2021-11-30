@@ -1,3 +1,5 @@
+# Copyright (c) 2021 NASK. All rights reserved.
+
 import importlib
 import logging
 
@@ -31,7 +33,7 @@ class IntelMQWrapper:
                    "'/etc/intelmq/runtime.yaml' etc. The bot ID section must provide the "
                    "'module' option - its value must be the path of the bot's module. "
                    "You can, or for some types of bots, like parser bots, you must add the "
-                   f"{RUNTIME_CONF_N6_SECTION_NAME!r} option in bot's section. The option "
+                   f"{RUNTIME_CONF_N6_SECTION_NAME!a} option in bot's section. The option "
                    f"is not recognized by IntelMQ, but allows to configure bot's instance "
                    f"running within n6 pipeline.")
 

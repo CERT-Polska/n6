@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 # Copyright (c) 2013-2021 NASK. All rights reserved.
 
 """
@@ -9,7 +6,6 @@ The *recorder* component -- adds n6 events to the Event DB.
 
 ### TODO: this module is to be replaced with a new implementation...
 
-from builtins import range  #3: --
 import datetime
 import logging
 import os
@@ -27,7 +23,7 @@ from sqlalchemy.exc import (
     SQLAlchemyError,
 )
 
-from n6.base.queue import QueuedBase
+from n6datapipeline.base import LegacyQueuedBase
 from n6lib.common_helpers import str_to_bool
 from n6lib.config import Config
 from n6lib.data_backend_api import (
@@ -106,14 +102,14 @@ class N6RecorderCursor(MySQLdb.cursors.Cursor):
                                                       caption)
             if query_or_proc or args:
                 log_msg_format = (log_msg.replace('%', '%%')
-                                  + ': %r, '
-                                  + 'ARGS: %r')
+                                  + ': %a, '
+                                  + 'ARGS: %a')
                 DB_WARN_LOGGER.warning(log_msg_format, query_or_proc, args)
             else:
                 DB_WARN_LOGGER.warning(log_msg)
 
 
-class Recorder(QueuedBase):
+class Recorder(LegacyQueuedBase):
     """Save record in zbd queue."""
 
     _MIN_WAIT_TIMEOUT = 3600
@@ -232,7 +228,7 @@ class Recorder(QueuedBase):
             self.session_db.execute(sqla_text("SELECT 1"))
         except OperationalError as exc:
             # OperationalError: (2006, 'MySQL server has gone away')
-            LOGGER.warning("Database server went away: %r", exc)
+            LOGGER.warning("Database server went away: %a", exc)
             LOGGER.info("Reconnect to server")
             self.session_db.remove()
             try:
@@ -274,7 +270,7 @@ class Recorder(QueuedBase):
             for i in range(parts):
                 parts_rk.append(rk[i])
         except IndexError:
-            LOGGER.warning("routing key %r contains less than %r segments", rk, parts)
+            LOGGER.warning("routing key %a contains less than %a segments", rk, parts)
         return '.'.join(parts_rk)
 
     def input_callback(self, routing_key, body, properties):
@@ -300,9 +296,9 @@ class Recorder(QueuedBase):
             handle_event()
 
         assert 'source' in self.record_dict
-        LOGGER.debug("source: %r", self.record_dict['source'])
-        LOGGER.debug("properties: %r", properties)
-        #LOGGER.debug("body: %r", body)
+        LOGGER.debug("source: %a", self.record_dict['source'])
+        LOGGER.debug("properties: %a", properties)
+        #LOGGER.debug("body: %a", body)
 
     def json_to_record(self, rows):
         """
@@ -336,7 +332,7 @@ class Recorder(QueuedBase):
                 rk = replace_segment(self.routing_key, 1, 'recorded')
                 LOGGER.debug(
                     'Publish for email notifications '
-                    '-- rk: %r, record_dict: %r',
+                    '-- rk: %a, record_dict: %a',
                     rk, self.record_dict)
                 self.publish_event(self.record_dict, rk)
 
@@ -355,7 +351,7 @@ class Recorder(QueuedBase):
         """
         Add new event to n6 database.
         """
-        LOGGER.debug('* new_event() %r', self.record_dict)
+        LOGGER.debug('* new_event() %a', self.record_dict)
 
         # add event records from RecordDict
         for event_record in self.record_dict.iter_db_items():
@@ -373,7 +369,7 @@ class Recorder(QueuedBase):
             client = n6ClientToEvent(**record)
             items.append(client)
 
-        LOGGER.debug("insert new events, count.: %r", len(items))
+        LOGGER.debug("insert new events, count.: %a", len(items))
         self.insert_new_event(items, recorded=True)
 
     def blacklist_new(self):
@@ -391,7 +387,7 @@ class Recorder(QueuedBase):
         self.json_to_record(self.records['event'])
         id_db = self.records['event'][0]["id"]
         id_replaces = self.records['event'][0]["replaces"]
-        LOGGER.debug("ID: %r REPLACES: %r", id_db, id_replaces)
+        LOGGER.debug("ID: %a REPLACES: %a", id_db, id_replaces)
 
         try:
             with transact:
@@ -413,14 +409,14 @@ class Recorder(QueuedBase):
                     items.append(client)
 
                 if rec_count:
-                    LOGGER.debug("insert new events, count.: %r", len(items))
+                    LOGGER.debug("insert new events, count.: %a", len(items))
                 else:
-                    LOGGER.debug("bl-change, records with id %r DO NOT EXIST!", id_replaces)
-                    LOGGER.debug("inserting new events anyway, count.: %r", len(items))
+                    LOGGER.debug("bl-change, records with id %a DO NOT EXIST!", id_replaces)
+                    LOGGER.debug("inserting new events anyway, count.: %a", len(items))
                 self.insert_new_event(items, with_transact=False, recorded=True)
 
         except IntegrityError as exc:
-            LOGGER.warning("IntegrityError: %r", exc)
+            LOGGER.warning("IntegrityError: %a", exc)
 
     def blacklist_delist(self):
         """
@@ -432,7 +428,7 @@ class Recorder(QueuedBase):
 
         self.json_to_record(self.records['event'])
         id_db = self.records['event'][0]["id"]
-        LOGGER.debug("ID: %r STATUS: %r", id_db, 'delisted')
+        LOGGER.debug("ID: %a STATUS: %a", id_db, 'delisted')
 
         with transact:
             (self.session_db.query(n6NormalizedData).
@@ -454,7 +450,7 @@ class Recorder(QueuedBase):
         self.json_to_record(self.records['event'])
 
         id_db = self.records['event'][0]["id"]
-        LOGGER.debug("ID: %r STATUS: %r", id_db, 'expired')
+        LOGGER.debug("ID: %a STATUS: %a", id_db, 'expired')
 
         with transact:
             (self.session_db.query(n6NormalizedData).
@@ -476,7 +472,7 @@ class Recorder(QueuedBase):
         self.json_to_record(self.records['event'])
         id_event = self.records['event'][0]["id"]
         expires = self.records['event'][0]["expires"]
-        LOGGER.debug("ID: %r NEW_EXPIRES: %r", id_event, expires)
+        LOGGER.debug("ID: %a NEW_EXPIRES: %a", id_event, expires)
 
         with transact:
             rec_count = (self.session_db.query(n6NormalizedData).
@@ -485,7 +481,7 @@ class Recorder(QueuedBase):
                                  'modified': datetime.datetime.utcnow().replace(microsecond=0),
                                  }))
             if rec_count:
-                LOGGER.debug("records with the same id %r exist: %r",
+                LOGGER.debug("records with the same id %a exist: %a",
                              id_event, rec_count)
             else:
                 items = []
@@ -497,15 +493,15 @@ class Recorder(QueuedBase):
                 for record in self.records['client']:
                     client = n6ClientToEvent(**record)
                     items.append(client)
-                LOGGER.debug("bl-update, records with id %r DO NOT EXIST!", id_event)
-                LOGGER.debug("insert new events,::count:: %r", len(items))
+                LOGGER.debug("bl-update, records with id %a DO NOT EXIST!", id_event)
+                LOGGER.debug("insert new events,::count:: %a", len(items))
                 self.insert_new_event(items, with_transact=False)
 
     def suppressed_update(self):
         """
         Agregated event update(change fields: until and count, to the value of  suppressed event).
         """
-        LOGGER.debug('* suppressed_update() %r', self.record_dict)
+        LOGGER.debug('* suppressed_update() %a', self.record_dict)
 
         # add event records from RecordDict
         for event_record in self.record_dict.iter_db_items():
@@ -532,7 +528,7 @@ class Recorder(QueuedBase):
                              n6NormalizedData.id == id_event)
                          .update({'until': until, 'count': count}))
             if rec_count:
-                LOGGER.debug("records with the same id %r exist: %r",
+                LOGGER.debug("records with the same id %a exist: %a",
                              id_event, rec_count)
             else:
                 items = []
@@ -543,8 +539,8 @@ class Recorder(QueuedBase):
                 for record in self.records['client']:
                     client = n6ClientToEvent(**record)
                     items.append(client)
-                LOGGER.warning("suppressed_update, records with id %r DO NOT EXIST!", id_event)
-                LOGGER.debug("insert new events,,::count:: %r", len(items))
+                LOGGER.warning("suppressed_update, records with id %a DO NOT EXIST!", id_event)
+                LOGGER.debug("insert new events,,::count:: %a", len(items))
                 self.insert_new_event(items, with_transact=False)
 
 

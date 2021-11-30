@@ -1,5 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+# Copyright (c) 2021 NASK. All rights reserved.
 
 import inspect
 import logging
@@ -50,7 +49,7 @@ class DummyParameter:
     def __init__(self, name):
         if name in self.exceptional_attrs:
             raise AttributeError
-        LOGGER.warning('The parameter {!r} should not be used!'.format(name))
+        LOGGER.warning('The parameter %a should not be used!', name)
 
 
 class BotParameterProvider:
@@ -63,7 +62,7 @@ class BotParameterProvider:
         try:
             return config_dict[item]
         except KeyError:
-            LOGGER.warning('Nonexistent attribute `%s` was tried to be accessed.', item)
+            LOGGER.warning('Nonexistent attribute %a was tried to be accessed.', item)
             raise AttributeError
 
 

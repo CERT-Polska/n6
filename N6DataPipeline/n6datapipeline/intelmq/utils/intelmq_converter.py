@@ -1,7 +1,6 @@
-"""
-Copyright (c) 2017-2021 NASK
-Software Development Department
+# Copyright (c) 2017-2021 NASK. All rights reserved.
 
+"""
 The IntelMQ Adapter component, responsible for converting data
 between N6 and IntelMQ Systems.
 

@@ -5,6 +5,7 @@
 # some of the docstrings are taken from or contain fragments of the
 # docs of the `pika` library.
 
+import argparse
 import collections
 import contextlib
 import copy
@@ -99,24 +100,21 @@ class LegacyQueuedBase(object):
     AMQP_SETUP_TIMEOUT = 60
 
     # the name of the config section the RabbitMQ settings shall be taken from
-    rabbitmq_config_section = 'rabbitmq'
+    rabbitmq_config_section: str = 'rabbitmq'
 
-    # (see: the __new__() class method below)
-    input_queue = None
-    output_queue = None
+    # (see: the __new__() special method below)
+    input_queue: Optional[dict] = None
+    output_queue: Optional[Union[dict, list[dict]]] = None
 
-    # if a script should run only in one instance - used to set basic_consume(exclusive=) flag
-    single_instance = True
+    # used to set the value of the `exclusive` flag argument
+    # passed to `pika` input channel's `basic_consume(...)`
+    single_instance: bool = True
 
-    # in a subclass, it should be set to False if the component should not
-    # accept --n6recovery argument option (see: the get_arg_parser() method)
-    supports_n6recovery = True
+    # in concrete subclasses, it should be set to False *if* the
+    # component should not accept the `--n6recovery argument` option
+    # (see: the `get_arg_parser()` method)
+    supports_n6recovery: bool = True
 
-    # it is set on a new instance by __new__() (which is called
-    # automatically before __init__()) to an argparse.Namespace instance
-    cmdline_args = None
-
-    #  parameter prefetch_count
     #  Specifies a prefetch window in terms of whole messages.
     #  This field may be used in combination with the prefetch-size field
     #  (although the prefetch-size limit is not implemented
@@ -124,10 +122,14 @@ class LegacyQueuedBase(object):
     #  if both prefetch windows (and those at the channel
     #  and connection level) allow it. The prefetch-count is ignored
     #  if the no-ack option is set.
-    prefetch_count = 20
+    prefetch_count: int = 20
 
-    # basic kwargs for pika.BasicProperties (message-publishing-related)
-    basic_prop_kwargs = {'delivery_mode': 2}
+    # basic kwargs for `pika.BasicProperties` (message-publishing-related)
+    basic_prop_kwargs: KwargsDict = {'delivery_mode': 2}
+
+    # it is set automatically on a new instance by __new__() (which is
+    # always called on instantiation, before __init__())
+    cmdline_args: argparse.Namespace = None
 
 
     #

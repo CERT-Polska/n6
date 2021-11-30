@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import sys
 import threading
@@ -17,7 +17,7 @@ from n6lib.log_helpers import get_logger
 LOGGER = get_logger(__name__)
 
 
-class BaseBrokerAuthManagerMaker(object):
+class BaseBrokerAuthManagerMaker:
 
     def __init__(self, settings):
         self._db_connector = SQLAuthDBConnector(settings=settings)
@@ -47,7 +47,7 @@ class BaseBrokerAuthManagerMaker(object):
                     params=validated_view_params)
 
 
-class BaseBrokerAuthManager(object):
+class BaseBrokerAuthManager:
 
     def __init__(self,
                  db_connector,
@@ -114,9 +114,9 @@ class BaseBrokerAuthManager(object):
         assert self.client_obj is not None
         if isinstance(self.client_obj, models.User):
             return 'user'
-        elif isinstance(self.client_obj, models.Component):
+        if isinstance(self.client_obj, models.Component):
             return 'component'
-        raise TypeError('the client object {!r} is an instance of '
+        raise TypeError('the client object {!a} is an instance of '
                         'a wrong class'.format(self.client_obj))
 
     @property
@@ -134,7 +134,7 @@ class BaseBrokerAuthManager(object):
             return self.db_session.query(models.SystemGroup).filter(
                 models.SystemGroup.name == ADMINS_SYSTEM_GROUP_NAME).one()
         except NoResultFound:
-            LOGGER.error('System group %r not found in auth db!', ADMINS_SYSTEM_GROUP_NAME)
+            LOGGER.error('System group %a not found in auth db!', ADMINS_SYSTEM_GROUP_NAME)
             return None
 
     #

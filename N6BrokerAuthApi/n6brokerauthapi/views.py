@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import logging
 
@@ -21,7 +21,7 @@ LOGGER = get_logger(__name__)
 class _DenyAccess(Exception):
 
     def __init__(self, error_log_message=None):
-        super(_DenyAccess, self).__init__(error_log_message)
+        super().__init__(error_log_message)
         self.error_log_message = error_log_message
 
 
@@ -38,7 +38,7 @@ class _N6BrokerAuthViewBase(SingleParamValuesViewMixin, AbstractViewBase):
         try:
             # involves use of `iter_deduplicated_params()` and `make_response()`...
             try:
-                return super(_N6BrokerAuthViewBase, self).__call__()
+                return super().__call__()
             except ParamCleaningError as exc:
                 raise _DenyAccess(error_log_message=exc.public_message)
         except _DenyAccess as deny_exc:
@@ -81,7 +81,7 @@ class _N6BrokerAuthViewBase(SingleParamValuesViewMixin, AbstractViewBase):
     @attr_required('param_name_to_required_flag')
     def get_required_param_names(cls):
         return {name
-                for name, required in cls.param_name_to_required_flag.iteritems()
+                for name, required in cls.param_name_to_required_flag.items()
                 if required}
 
     def allow_response(self):
@@ -100,18 +100,18 @@ class _N6BrokerAuthViewBase(SingleParamValuesViewMixin, AbstractViewBase):
     # Private stuff
 
     def _log(self, level, log_message):
-        LOGGER.log(level, '[%r: %s] %s',
+        LOGGER.log(level, '[%a: %a] %a',
                    self,
                    ascii_str(self.request.url),
                    ascii_str(log_message))
 
     def _ensure_all_param_names_and_values_are_strings(self):
-        if not all(isinstance(key, basestring) and
-                   isinstance(val, basestring)
-                   for key, val in self.params.iteritems()):
+        if not all(isinstance(key, str) and
+                   isinstance(val, str)
+                   for key, val in self.params.items()):
             raise AssertionError(
                 'this should never happen: not all request param names and '
-                'values are strings! (params: {!r})'.format(self.params))
+                'values are strings! (params: {!a})'.format(self.params))
 
     def _warn_if_unknown_params(self):
         known_param_names = set(self.param_name_to_required_flag)
@@ -147,8 +147,8 @@ class _N6BrokerAuthResourceViewBase(_N6BrokerAuthViewBase):
 
     @attr_required('valid_permissions', 'valid_resources')
     def validate_params(self):
-        super(_N6BrokerAuthResourceViewBase, self).validate_params()
-        assert self.params.viewkeys() >= {'resource', 'permission'}
+        super().validate_params()
+        assert self.params.keys() >= {'resource', 'permission'}
         resource = self.params['resource']
         permission = self.params['permission']
         if resource not in self.valid_resources:

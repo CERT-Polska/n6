@@ -11,8 +11,12 @@ import hashlib
 import os
 import sys
 import time
+from collections.abc import Sequence
 from math import trunc
-from typing import Optional
+from typing import (
+    Optional,
+    Union,
+)
 
 import requests
 
@@ -28,6 +32,7 @@ from n6lib.common_helpers import (
     as_bytes,
     make_exc_ascii_str,
 )
+from n6lib.const import RAW_TYPE_ENUMS
 from n6lib.http_helpers import RequestPerformer
 from n6lib.log_helpers import (
     get_logger,
@@ -44,10 +49,12 @@ LOGGER = get_logger(__name__)
 
 class CollectorConfigMixin(ConfigMixin):
 
-    def get_config_spec_format_kwargs(self):
-        return {}
+    # Instance attribute to be set automatically
+    # when `set_configuration()` is called
+    config: ConfigSection
 
-    def set_configuration(self):
+    # Supposed to be called by a subclass code...
+    def set_configuration(self) -> None:
         if self.is_config_spec_or_group_declared():
             self.config = self.get_config_section(**self.get_config_spec_format_kwargs())
         else:
@@ -56,8 +63,12 @@ class CollectorConfigMixin(ConfigMixin):
             # time -- no `config_spec`/`config_spec_pattern`
             self.config = ConfigSection('<no section declared>')
 
+    # A hook method (can be extended in subclasses...)
+    def get_config_spec_format_kwargs(self) -> KwargsDict:
+        return {}
 
-class CollectorWithStateMixin(object):
+
+class CollectorWithStateMixin:
 
     """
     Mixin for tracking state of an inheriting collector.
@@ -86,11 +97,11 @@ class CollectorWithStateMixin(object):
         except (OSError, ValueError, EOFError) as exc:
             state = self.make_default_state()
             LOGGER.warning(
-                "Could not load state (%s), returning: %r",
+                "Could not load state (%s), returning: %a",
                 make_exc_ascii_str(exc),
                 state)
         else:
-            LOGGER.info("Loaded state: %r", state)
+            LOGGER.info("Loaded state: %a", state)
         return state
 
     def save_state(self, state):
@@ -108,7 +119,7 @@ class CollectorWithStateMixin(object):
 
         with AtomicallySavedFile(self._cache_file_path, 'wb') as f:
              pickle.dump(state, f, self.pickle_protocol)
-        LOGGER.info("Saved state: %r", state)
+        LOGGER.info("Saved state: %a", state)
 
     def get_cache_file_name(self):
         source_channel = self.get_source_channel()
@@ -122,7 +133,7 @@ class CollectorWithStateMixin(object):
 #
 # Base classes
 
-class AbstractBaseCollector(object):
+class AbstractBaseCollector:
 
     """
     Abstract base class for a collector script implementations.
@@ -172,56 +183,89 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
     The standard "root" base class for collectors.
     """
 
-    output_queue = {
+    output_queue: Optional[Union[dict, list[dict]]] = {
         'exchange': 'raw',
         'exchange_type': 'topic',
     }
 
     # None or a string being the tag of the raw data format version
     # (can be set in a subclass)
-    raw_format_version_tag = None
+    raw_format_version_tag: Optional[str] = None
 
-    # the name of the config group
-    # (it does not have to be implemented if one of the `config_spec`
-    # or the `config_spec_pattern` attribute is set in a subclass,
-    # containing a declaration of exactly *one* config section)
-    config_group = None
+    # at most *one* of the following two attributes can
+    # be set in a subclass to a non-None value (see:
+    # `n6lib.config.ConfigMixin`...)
+    config_spec: Optional[str]
+    config_spec_pattern: Optional[str]
 
-    # a sequence of required config fields (can be extended in
+    # the config section name, to be set in concrete subclasses
+    # (it does not have to be provided if `config_spec`
+    # or `config_spec_pattern` is provided in a subclass and
+    # contains a declaration of exactly *one* config section;
+    # see: `n6lib.config.ConfigMixin`...)
+    config_group: Optional[str] = None
+
+    # a sequence of required config options (can be extended in
     # subclasses; typically, 'source' should be included there!)
-    config_required = ('source',)
+    # [TODO: let's get rid of this legacy attribute; note that
+    # `config_spec`/`config_spec_pattern` should be sufficient;
+    # see: `n6lib.config.ConfigMixin`...]
+    config_required: Sequence[str] = ('source',)
     # (NOTE: the `source` setting value in the config is only
     # the first part -- the `label` part -- of the actual
     # source specification string '<label>.<channel>')
 
-    # must be set in a subclass (or its instance)
-    # should be one of: 'stream', 'file', 'blacklist'
+    # must be set in concrete subclasses to one of the values
+    # the `n6lib.const.RAW_TYPE_ENUMS` constant contains:
+    # 'stream', 'file' or 'blacklist'
     # (note that this is something completely *different* than
     # <parser class>.event_type and <RecordDict instance>['type'])
-    type = None
-    limits_type_of = ('stream', 'file', 'blacklist')
+    type: str = None
+
+    # must be set in concrete subclasses *if*
+    # `type` is 'file' or 'blacklist'
+    content_type: str
 
     # the attribute has to be overridden, if a component should
     # accept the "--n6recovery" argument option and inherits from
     # the `BaseCollector` class or its subclass
-    supports_n6recovery = False
+    supports_n6recovery: bool = False
+
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        ## TODO later?...
+        #for unsupported in ['config_spec', 'config_group', 'config_required']:
+        #    if getattr(cls, unsupported, None) is not None:
+        #        raise TypeError(
+        #            f"collectors's attribute `{unsupported}` is no longer
+        #            f"supported (`config_spec_pattern` should be set instead)")
+        if cls._is_abstract_base():
+            return
+        if cls.type is None:
+            raise NotImplementedError(
+                "`type` (collector's raw event type) is not set")
+        if cls.type not in RAW_TYPE_ENUMS:
+            raise ValueError(
+                f"`type` (collector's raw event type) should be "
+                f"one of: {', '.join(map(ascii, RAW_TYPE_ENUMS))} "
+                f"(found: {cls.type!a})")
+        if (cls.type in ('file', 'blacklist')
+              and getattr(cls, 'content_type', None) is None):
+            raise NotImplementedError(
+                f"`type` is set to {cls.type} so `content_type` "
+                f"should be set to a non-None value but it is not")
+
+    @classmethod
+    def _is_abstract_base(cls):
+        return (cls.__module__.endswith('.base')
+                or cls.__qualname__.startswith('_'))
+
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        ### CR: use decorator n6lib.class_helpers.attr_required instead of:
-        if self.type is None:
-            raise NotImplementedError("attribute 'type' is not set")
         self.set_configuration()
         self._validate_type()
-
-    @classmethod
-    def get_script_init_kwargs(cls):
-        """
-        A class method: get a dict of kwargs for instantiation in a script.
-
-        The default implementation returns an empty dict.
-        """
-        return {}
 
     def get_component_group_and_id(self):
         return 'collectors', self.__class__.__name__
@@ -259,11 +303,13 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         if 'queue_name' not in self.input_queue or not self.input_queue['queue_name']:
             self.input_queue['queue_name'] = self.__class__.__name__.lower()
 
+    # FIXME: this method seems redundant [but, before removing it,
+    # check the similar (related?) `n6datapipeline.intelmq...` stuff]
     def _validate_type(self):
         """Validate type of message, should be one of: 'stream', 'file', 'blacklist."""
-        if self.type not in self.limits_type_of:
+        if self.type not in RAW_TYPE_ENUMS:
             raise Exception('Wrong type of archived data in mongo: {0},'
-                            '  should be one of: {1}'.format(self.type, self.limits_type_of))
+                            ' should be one of: {1}'.format(self.type, RAW_TYPE_ENUMS))
 
     def update_connection_params_dict_before_run(self, params_dict):
         """
@@ -512,11 +558,9 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         }
 
         if self.type in ('file', 'blacklist'):
-            try:
-                properties.update({'content_type': self.content_type})
-            except AttributeError as exc:
-                LOGGER.critical("Type file or blacklist must set content_type attribute : %r", exc)
-                raise
+            # (see the actual check in `__init_subclass__()`...)
+            assert getattr(self, 'content_type', None) is not None
+            properties['content_type'] = self.content_type
 
         return properties
 
@@ -606,7 +650,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
           -- see its docs (and the docs of `extract_row_time()`),
         * `clean_row_time()`
           -- see its docs (and the docs of `extract_row_time()`);
-        
+
     * optional: see the attributes and methods defined within the body
       of this class below the "Stuff that can be overridden..." comment.
 
@@ -862,7 +906,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
             # non-increasing and monotonic (but can be repeating)
             if preceding_row_time is not None and row_time > preceding_row_time:
                 raise ValueError(
-                    'encountered row time {!r} > preceding row time {!r}'.format(
+                    'encountered row time {!a} > preceding row time {!a}'.format(
                         row_time,
                         preceding_row_time))
             preceding_row_time = row_time
@@ -1002,8 +1046,8 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
                     return extract_field_from_csv_row(row, column_index=1)
                 except Exception as exc:
                     LOGGER.warning(
-                        'Cannot extract the time field from the %r row '
-                        '(%r) -- so the row will be skipped.', row, exc)
+                        'Cannot extract the time field from the %a row '
+                        '(%a) -- so the row will be skipped.', row, exc)
                     return None
         """
         raise NotImplementedError
@@ -1034,7 +1078,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
                     return str(parse_iso_datetime_to_utc(raw_row_time))
                 except ValueError:
                     LOGGER.warning(
-                        'Cannot parse %r as an ISO date+time so the row '
+                        'Cannot parse %a as an ISO date+time so the row '
                         'containing it will be skipped.', raw_row_time)
                     return None
 
@@ -1102,7 +1146,7 @@ class BaseDownloadingCollector(BaseCollector):
         base_request_headers = self.config.get('base_request_headers', {})
         if not isinstance(base_request_headers, dict):
             raise ConfigError('config option `base_request_headers` '
-                              'is not a dict: {!r}'.format(base_request_headers))
+                              'is not a dict: {!a}'.format(base_request_headers))
         headers = base_request_headers.copy()
         if custom_request_headers:
             headers.update(custom_request_headers)

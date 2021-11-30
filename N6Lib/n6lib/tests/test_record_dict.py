@@ -744,7 +744,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         for cls in (self.rd_class, Subclass):
             for log_nonstandard_names in (False, True):
                 for callback in (None, _callback):
-                    for pickle_proto in (0, 1, 2):
+                    for pickle_proto in range(0, pickle.HIGHEST_PROTOCOL + 1):
                         rd = cls(
                             self.with_address2,
                             log_nonstandard_names=log_nonstandard_names,

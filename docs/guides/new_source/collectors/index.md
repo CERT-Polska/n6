@@ -44,7 +44,7 @@ who implements a collector, to deal with that stuff directly.  There are
 several base classes your collector class can derive from which take
 care of various repeatable tasks, especially of the stuff related to
 initialization of, communication by, and shutting down the RabbitMQ
-connection -- so that you can focus solely on your collector's logic. 
+connection -- so that you can focus solely on your collector's logic.
 
 Those base classes can be found in the `N6Core` subdirectory of the *n6*
 source code repository, in the

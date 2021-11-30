@@ -1,26 +1,23 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 # Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import datetime
 import json
 import unittest
-
-from mock import (
+from unittest.mock import (
     ANY,
     MagicMock,
     call,
     patch,
     sentinel as sen,
 )
+
 from unittest_expander import (
     expand,
     foreach,
     param,
 )
 
-from n6.utils.anonymizer import Anonymizer
+from n6datapipeline.aux.anonymizer import Anonymizer
 from n6lib.const import TYPE_ENUMS
 from n6lib.data_spec import N6DataSpec
 from n6lib.db_filtering_abstractions import RecordFacadeForPredicates
@@ -52,7 +49,7 @@ class TestAnonymizer__input_callback(TestCaseMixin, unittest.TestCase):
             sen.output_body,
         )
         self.force_exit_on_any_remaining_entered_contexts_mock = self.patch(
-            'n6.utils.anonymizer.force_exit_on_any_remaining_entered_contexts')
+            'n6datapipeline.aux.anonymizer.force_exit_on_any_remaining_entered_contexts')
 
 
     @foreach(
@@ -436,7 +433,7 @@ class TestAnonymizer___get_resource_to_org_ids(TestCaseMixin, unittest.TestCase)
             call.auth_api.get_source_ids_to_subs_to_stream_api_access_infos(),
         ]
 
-        with patch('n6.utils.anonymizer.LOGGER') as LOGGER_mock:
+        with patch('n6datapipeline.aux.anonymizer.LOGGER') as LOGGER_mock:
             result = self.meth._get_resource_to_org_ids(self.event_type, event_data)
 
         self.assertEqual(result, expected_result)
@@ -459,7 +456,7 @@ class TestAnonymizer___get_resource_to_org_ids(TestCaseMixin, unittest.TestCase)
             raise exc_type('blablabla')
         self.s_to_s_to_saai['src.some-2'][sen.something_7] = raise_exc, res_to_org_ids
 
-        with patch('n6.utils.anonymizer.LOGGER') as LOGGER_mock, \
+        with patch('n6datapipeline.aux.anonymizer.LOGGER') as LOGGER_mock, \
              self.assertRaises(exc_type):
             self.meth._get_resource_to_org_ids(self.event_type, event_data)
 
@@ -637,7 +634,7 @@ class TestAnonymizer___get_result_dicts_and_output_body(TestCaseMixin, unittest.
         self.mock.auth_api.get_dip_anonymization_disabled_source_ids.return_value = (
             dip_anonymization_disabled_source_ids)
 
-        with patch('n6.utils.anonymizer.LOGGER') as LOGGER_mock:
+        with patch('n6datapipeline.aux.anonymizer.LOGGER') as LOGGER_mock:
             (raw_result_dict,
              cleaned_result_dict,
              output_body) = self.meth._get_result_dicts_and_output_body(
@@ -650,7 +647,7 @@ class TestAnonymizer___get_result_dicts_and_output_body(TestCaseMixin, unittest.
         self.assertEqual(
             json.loads(output_body),
             self._get_expected_body_content(expected_cleaned))
-        self.assertItemsEqual(self.mock.auth_api.mock_calls, expected_auth_api_calls)
+        self.assertCountEqual(self.mock.auth_api.mock_calls, expected_auth_api_calls)
         self.assertFalse(LOGGER_mock.error.mock_calls)
 
     @staticmethod
@@ -726,7 +723,7 @@ class TestAnonymizer___get_result_dicts_and_output_body(TestCaseMixin, unittest.
         for key in without_keys:
             del event_data[key]
         resource_to_org_ids = {'foo': {'bar'}, 'baz': {'spam', 'ham'}}
-        with patch('n6.utils.anonymizer.LOGGER') as LOGGER_mock, \
+        with patch('n6datapipeline.aux.anonymizer.LOGGER') as LOGGER_mock, \
              self.assertRaises(exc_type):
             self.meth._get_result_dicts_and_output_body(
                 event_type,
@@ -832,7 +829,7 @@ class TestAnonymizer___publish_output_data(TestCaseMixin, unittest.TestCase):
         ).label('for no resources'),
     )
     def test_normal(self, resource_to_org_ids, expected_publish_output_calls):
-        with patch('n6.utils.anonymizer.LOGGER') as LOGGER_mock:
+        with patch('n6datapipeline.aux.anonymizer.LOGGER') as LOGGER_mock:
             self.meth._publish_output_data(
                 sen.event_type,
                 resource_to_org_ids,
@@ -875,7 +872,7 @@ class TestAnonymizer___publish_output_data(TestCaseMixin, unittest.TestCase):
             exc_type,
         ]
 
-        with patch('n6.utils.anonymizer.LOGGER') as LOGGER_mock, \
+        with patch('n6datapipeline.aux.anonymizer.LOGGER') as LOGGER_mock, \
              self.assertRaises(exc_type):
             self.meth._publish_output_data(
                 sen.event_type,

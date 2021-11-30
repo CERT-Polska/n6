@@ -3854,8 +3854,11 @@ Make sure that config files for n6 are present in '/etc/n6' or '~/.n6'
 and that they are valid (especially, that they contain all needed
 entries).
 
-Note: you may want to execute the `n6config` script to install default
-configuration files.
+Note: you may want to copy config file prototypes (templates)
+from '<N6 CODE REPO DIR>/N6DataPipeline/n6datapipeline/data/conf/'
+and '<N6 CODE REPO DIR>/N6DataSources/n6datasources/data/conf/'
+(and/or from '<N6 CODE REPO DIR>/etc/') to '~/.n6', and then
+adjust them (in '~/.n6') to your needs.
 
 """
 

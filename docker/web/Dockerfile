@@ -11,14 +11,14 @@ RUN . ~/env/bin/activate; \
         && yarn build; \
     # install n6
     cd ~/n6 && \
-    ./do_setup.py -a $action N6Lib-py2 N6SDK-py2 N6RestApi N6Portal N6BrokerAuthApi; \
+    ./do_setup.py -a $action N6Lib-py2 N6SDK-py2 N6RestApi N6Portal; \
     # configs
     cp -f ~/n6/etc/n6/*.conf ~/.n6;
 
 # Install web components in Python 3 environment.
 RUN . ~/env_py3k/bin/activate; \
     cd ~/n6 && \
-    ./do_setup.py -a $action N6Lib N6SDK N6RestApi N6Portal N6AdminPanel;
+    ./do_setup.py -a $action N6Lib N6SDK N6RestApi N6Portal N6AdminPanel N6BrokerAuthApi;
 
 USER root
 

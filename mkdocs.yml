@@ -17,7 +17,7 @@ nav:
       - Certificates: installation/certs.md
       - HTTP Services: installation/n6_web.md
       - Supervisor: installation/supervisord.md
-      - Data Flow: installation/pipeline.md
+      - Data Flow: installation/examining_data_flow.md
     - Running IntelMQ Bots in the n6 Pipeline:
       - Introduction: guides/intelmq/index.md
       - Installation and Configuration: guides/intelmq/config.md

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import datetime
 import json
@@ -10,8 +10,8 @@ from n6lib.common_helpers import open_file
 from n6lib.config import Config
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.log_helpers import get_logger, logging_configured
-from n6.base.queue import (
-    QueuedBase,
+from n6datapipeline.base import (
+    LegacyQueuedBase,
     n6QueueProcessingException,
 )
 
@@ -183,13 +183,13 @@ class ComparatorDataWrapper(object):
 
     def store_state(self):
         try:
-            with open_file(self.dbpath, "w") as f:
+            with open_file(self.dbpath, "wb") as f:
                 pickle.dump(self.comp_data, f, 2)
         except IOError:
             LOGGER.error("Error saving state to: %r", self.dbpath)
 
     def restore_state(self):
-        with open_file(self.dbpath, "r") as f:
+        with open_file(self.dbpath, "rb") as f:
             self.comp_data = pickle.load(f)
 
     def process_new_message(self, data):
@@ -299,7 +299,7 @@ class ComparatorState(object):
         return self.open_series[series_id]["timeout-id"]
 
 
-class Comparator(QueuedBase):
+class Comparator(LegacyQueuedBase):
 
     input_queue = {
         "exchange": "event",

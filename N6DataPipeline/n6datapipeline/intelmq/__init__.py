@@ -1,3 +1,5 @@
+# Copyright (c) 2021 NASK. All rights reserved.
+
 import logging
 from inspect import isroutine
 

@@ -1,3 +1,5 @@
+# Copyright (c) 2021 NASK. All rights reserved.
+
 import hashlib
 import json
 import re
@@ -13,6 +15,7 @@ from intelmq.lib.message import MessageFactory
 from n6datapipeline.base import LegacyQueuedBase
 from n6datapipeline.intelmq import bots_config
 from n6datapipeline.intelmq.utils.intelmq_converter import IntelToN6Converter
+from n6lib.const import RAW_TYPE_ENUMS
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 
 
@@ -36,7 +39,7 @@ def get_getattribute(cls, original_class_objects, allowed_objects):
         and is not adapted to work inside n6 pipeline.
         """
         if item in original_class_objects and item not in allowed_objects:
-            raise NotImplementedError(repr(item))
+            raise NotImplementedError(ascii(item))
         else:
             return super(cls, self).__getattribute__(item)
 
@@ -288,7 +291,6 @@ class BaseCollectorExtended(QueuedBaseExtended):
     DEFAULT_SOURCE_CHANNEL = 'intelmq-collector'
 
     type = 'stream'
-    limits_type_of = ('stream', 'file', 'blacklist')
     input_queue = None
 
     bot_group_name = 'intelmq-collectors'
@@ -322,9 +324,9 @@ class BaseCollectorExtended(QueuedBaseExtended):
         Validate type of message to be archived in MongoDB.
         It should be one of: 'stream', 'file', 'blacklist.
         """
-        if self.type not in self.limits_type_of:
+        if self.type not in RAW_TYPE_ENUMS:
             raise Exception(f'Wrong type of data being archived in MongoDB: {self.type}, '
-                            f'should be one of: {self.limits_type_of}')
+                            f'should be one of: {RAW_TYPE_ENUMS}')
 
     def _get_output_message_id(self, timestamp, output_data_body):
         return hashlib.md5(('\0'.join((self.source_label,
@@ -418,9 +420,9 @@ class BaseParserExtended(QueuedBaseExtended):
                 value = self.config[opt_name]
             except KeyError:
                 value = default_value
-                LOGGER.warning("The %r option has not been found in the 'n6config' section of "
-                               "the runtime config for the parser bot with ID: %r. Using "
-                               "default value: %r", opt_name, self.bot_id, value)
+                LOGGER.warning("The %a option has not been found in the 'n6config' section of "
+                               "the runtime config for the parser bot with ID: %a. Using "
+                               "default value: %a", opt_name, self.bot_id, value)
             setattr(self, opt_name, value)
 
     def _get_bot_rk(self):

@@ -244,7 +244,7 @@ class Enricher(ConfigMixin, QueuedBase):
                 for name in enriched_keys)
             assert all(
                 set(addr_keys).issubset(ip_to_addr[ip])
-                for ip, addr_keys in list(ip_to_enriched_address_keys.items()))
+                for ip, addr_keys in ip_to_enriched_address_keys.items())
 
     #
     # Resolution helpers

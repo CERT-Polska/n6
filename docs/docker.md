@@ -1,5 +1,10 @@
 # Docker-Based Installation Guide
 
+**TBD: this document needs an update regarding the stuff that now works
+under Python 3.9; in particular, the current implementation of the *n6*
+basic data pipeline now resides in `N6DataPipeline`, *not* in `N6Core`
+(where the legacy Python-2.7 stuff resides).**
+
 This short guide describes how to run, for testing and exploration, the
 latest version of *n6* -- using the *Docker* and *Docker Compose* tools.
 
@@ -11,11 +16,6 @@ it.
 > **Note:** If you wish to explore the *n6*'s ecosystem a bit more profoundly
 > you may want to familiarize yourself with the [Step-by-Step Installation
 > Guide](installation/index.md) as well.
-
-**TBD: this guide and/or configuration-related stuff in the code repo
-needs an update regarding the stuff that now works under Python 3.9 and
-resides in `N6DataPipeline` and `N6DataSources` (and, in particular,
-*not* in `N6Core` where only the legacy Python-2.7 stuff resides).**
 
 
 ## Important: what these materials *are* and what they are *not*

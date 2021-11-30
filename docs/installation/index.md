@@ -1,5 +1,11 @@
 # Step-by-Step Installation Guide: Introduction
 
+**TBD: this guide needs an update regarding the stuff that now works
+under Python 3.9, and the software it now depends on (including the OS);
+notably, the current implementation of the *n6* basic data pipeline now
+resides in `N6DataPipeline`, *not* in `N6Core` (where the legacy
+Python-2.7 stuff resides).**
+
 The goal of this guide is to give you an example of how you can glue the
 relevant elements together in a (relatively) easy way, so that you can
 learn -- by setting up your own *n6* instance, running it, then
@@ -8,11 +14,6 @@ how you can interact with it.
 
 > **Note:** if you are in a hurry you may want to try the
 > [Docker-Based Installation Guide](../docker) instead.
-
-**TBD: this guide and/or configuration-related stuff in the code repo
-needs an update regarding the stuff that now works under Python 3.9 and
-resides in `N6DataPipeline` and `N6DataSources` (and, in particular,
-*not* in `N6Core` where only the legacy Python-2.7 stuff resides).**
 
 
 ## Important: what these materials *are* and what they are *not*

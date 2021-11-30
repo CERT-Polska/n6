@@ -18,6 +18,8 @@ RUN \
     cp supervisord_py2k.conf ~/supervisord/; \
     # n6 configs
     yes | n6config; \
+    cp -f ~/n6/N6DataPipeline/n6datapipeline/data/conf/*.conf ~/.n6; \
+    cp -f ~/n6/N6DataSources/n6datasources/data/conf/*.conf ~/.n6; \
     cp -f ~/n6/etc/n6/*.conf ~/.n6;
 
 # n6 installation in Python 3 environment

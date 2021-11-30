@@ -1,9 +1,9 @@
-# Copyright (c) 2013-2019 NASK. All rights reserved.
+# Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import itertools
 import unittest
 
-from mock import (
+from unittest.mock import (
     MagicMock,
     call,
     patch,
@@ -167,22 +167,22 @@ class _MockerMixin(RequestHelperMixin, DBConnectionPatchMixin):
 
 
 # noinspection PyUnresolvedReferences
-class _AssertResponseMixin(object):
+class _AssertResponseMixin:
 
     def assertAllow(self, resp):
-        self.assertIn(resp.body, ['allow', 'allow administrator'])
+        self.assertIn(resp.body, [b'allow', b'allow administrator'])
         self.assertEqual(resp.status_code, 200)
 
     def assertDeny(self, resp):
-        self.assertEqual(resp.body, 'deny')
+        self.assertEqual(resp.body, b'deny')
         self.assertEqual(resp.status_code, 200)
 
     def assertAdministratorTagPresent(self, resp):
-        self.assertIn('administrator', resp.body.split())
+        self.assertIn(b'administrator', resp.body.split())
         self.assertEqual(resp.status_code, 200)
 
     def assertNoAdministratorTag(self, resp):
-        self.assertNotIn('administrator', resp.body.split())
+        self.assertNotIn(b'administrator', resp.body.split())
         self.assertEqual(resp.status_code, 200)
 
 
@@ -210,7 +210,7 @@ class _N6BrokerViewTestingMixin(
     @paramseq
     def __param_name_combinations(cls):
         required_param_names = sorted(cls.basic_allow_params())
-        for i in xrange(len(required_param_names)):
+        for i in range(len(required_param_names)):
             for some_param_names in itertools.combinations(required_param_names, i+1):
                 assert set(some_param_names).issubset(required_param_names)
                 yield list(some_param_names)
@@ -218,7 +218,7 @@ class _N6BrokerViewTestingMixin(
     @staticmethod
     def __adjust_params(params, kwargs):
         params.update(kwargs)
-        for name, value in list(params.iteritems()):
+        for name, value in list(params.items()):
             if value is None:
                 del params[name]
 
