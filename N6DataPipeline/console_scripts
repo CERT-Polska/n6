@@ -1,4 +1,4 @@
-#n6archiveraw = n6datapipeline.archive_raw:main
+n6archiveraw = n6datapipeline.archive_raw:main
 n6aggregator = n6datapipeline.aggregator:main
 n6enrich = n6datapipeline.enrich:main
 n6comparator = n6datapipeline.comparator:main

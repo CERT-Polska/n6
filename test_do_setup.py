@@ -29,12 +29,12 @@ from do_setup import (
 
 class Case(namedtuple('Case', 'input, expected, py')):
     def __new__(cls, input, expected, py=None):
-        return super(Case, cls).__new__(cls, input, expected, py)
+        return super(Case, cls).__new__(cls, input, expected, py)    # noqa
 
 
 class Call(namedtuple('Call', 'name, args, kwargs')):
-    def __new__(cls, name, *args, **kwargs):
-        return super(Call, cls).__new__(cls, name, args, kwargs)
+    def __new__(cls, __name, *args, **kwargs):
+        return super(Call, cls).__new__(cls, __name, args, kwargs)   # noqa
 
 
 class PrototypeDict(dict):
@@ -134,7 +134,7 @@ class Test__iter_nonfalse_unique(unittest.TestCase):
 
     def test__iterator(self):
         iterator = iter(self.INPUT_SEQ)
-        self._test(iter(iterator))
+        self._test(iterator)
 
 
 @using_template_and_cases

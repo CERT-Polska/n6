@@ -1,5 +1,5 @@
 # Copyright (c) 2013-2021 NASK. All rights reserved.
-#TODO: Module modernized to Python 3, but no changes detected, comment to be deleted after MR
+
 """
 This package provides a REST API implementation intended to cooperate
 with `rabbitmq-auth-backend-http` -- the RabbitMQ AMQP message broker's

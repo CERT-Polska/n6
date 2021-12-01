@@ -1,9 +1,9 @@
 # Docker-Based Installation Guide
 
-**TBD: this document needs an update regarding the stuff that now works
-under Python 3.9; in particular, the current implementation of the *n6*
-basic data pipeline now resides in `N6DataPipeline`, *not* in `N6Core`
-(where the legacy Python-2.7 stuff resides).**
+**TBD: this guide needs an update regarding the migration from Python
+2.7 to 3.9; in particular, the current implementation of the *n6* basic
+data pipeline now resides in `N6DataPipeline` (Python-3-only), *not* in
+`N6Core` (where the legacy Python-2 stuff is kept).**
 
 This short guide describes how to run, for testing and exploration, the
 latest version of *n6* -- using the *Docker* and *Docker Compose* tools.

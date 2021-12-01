@@ -1,11 +1,7 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 """
 Component archive_raw -- adds raw data to the archive database (MongoDB).
 A new source is added as a new collection.
 """
-from __future__ import print_function  #3--
 
 import datetime
 import hashlib
@@ -25,7 +21,7 @@ from bson.json_util import dumps
 
 from n6lib.common_helpers import open_file
 from n6lib.config import Config
-from n6.base.queue import QueuedBase, n6QueueProcessingException
+from n6datapipeline.base import LegacyQueuedBase, n6QueueProcessingException
 from n6lib.log_helpers import get_logger, logging_configured
 
 
@@ -39,16 +35,16 @@ first_letter_collection_name = re.compile("^(?!system)[a-z_].*", re.UNICODE)
 
 
 def backup_msg(fname, collection, msg, header):
-    with open_file(fname, 'w') as f:  #3: add 'b'-mode flag
-        if isinstance(msg, (bytes, unicode)):  #3: unicode->str
-            payload = (msg.encode('utf-8') if isinstance(msg, unicode)  #3: unicode->str
+    with open_file(fname, 'wb') as f:
+        if isinstance(msg, (bytes, str)):
+            payload = (msg.encode('utf-8') if isinstance(msg, str)
                        else msg)
         else:
-            payload = (repr(msg).encode('utf-8') if isinstance(repr(msg), unicode)  #3: unicode->str
-                       else repr(msg))
+            payload = (ascii(msg).encode('utf-8') if isinstance(ascii(msg), str)
+                       else ascii(msg))
 
-        hdr = (repr(header).encode('utf-8') if isinstance(repr(header), unicode)  #3: unicode->str
-               else repr(header))
+        hdr = (ascii(header).encode('utf-8') if isinstance(ascii(header), str)
+               else ascii(header))
         f.write('\n'.join(( collection, hdr, payload )))
 
 
@@ -58,8 +54,8 @@ def timeit(method):
         result = method(*args, **kw)
         stop = datetime.datetime.now()
         delta = stop - start
-        print('%r %r (%r, %r) %r ' % \
-              (str(datetime.datetime.now()), method.__name__, args, kw, str(delta)))  #3: __name__ -> __qualname__
+        print('%a %a (%a, %a) %a ' % \
+              (str(datetime.datetime.now()), method.__qualname__, args, kw, str(delta)))
         return result
     return timed
 
@@ -82,14 +78,14 @@ def safe_mongocall(call):
                     try:
                         backup_msg(ob.dbm.backup_msg, ob.dbm.currcoll, ob.data, ob.headers)
                     except Exception as exc:
-                        LOGGER.debug('backup_msg_error: %r', exc)
+                        LOGGER.debug('backup_msg_error: %a', exc)
                     ob.dbm.get_connection()
                 elif isinstance(ob, DbManager):
                     LOGGER.debug("backup_msg")
                     try:
                        backup_msg(ob.backup_msg, ob.currcoll, ob.backup_msg_data, ob.backup_msg_headers)
                     except Exception as exc:
-                        LOGGER.error('backup_msg_error: %r', exc)
+                        LOGGER.error('backup_msg_error: %a', exc)
                     ob.get_connection()
                 if count_try_connection < 1:
                     LOGGER.error("Could not connect to mongodb.  Exiting...")
@@ -97,7 +93,7 @@ def safe_mongocall(call):
     return _safe_mongocall
 
 
-class IndexesStore(object):
+class IndexesStore:
     _collections_tmp_store = {}
 
     def __init__(self, connection, db_name, collection_name):
@@ -130,7 +126,7 @@ class IndexesStore(object):
         IndexesStore._collections_tmp_store = {}
 
 
-class Collection(object):
+class Collection:
     __slots__ = ['name', 'indexes']
 
     def __init__(self, name):
@@ -138,7 +134,7 @@ class Collection(object):
         self.indexes = []
 
 
-class DbManager(object):
+class DbManager:
     """"""
 
     def __init__(self, config=None):
@@ -246,12 +242,12 @@ class DbManager(object):
     def currdb(self, value):
         value_str = str(value)
         if len(value_str) >= 64 or len(value_str) < 1:
-            LOGGER.error('to long db name in mongo, max 63 chars, min 1 char : %r', value_str)
+            LOGGER.error('to long db name in mongo, max 63 chars, min 1 char : %a', value_str)
             raise n6QueueProcessingException("to long db name in mongo, max 63 chars, min 1 char"
                                              ": {0}".format(value_str))
         for forbidden_char in FORBIDDEN_DB_NAME_CHAR:
             if forbidden_char in value_str:
-                LOGGER.error('name of db: %r, contains forbidden_char: %r', value_str,
+                LOGGER.error('name of db: %a, contains forbidden_char: %a', value_str,
                              forbidden_char)
                 raise n6QueueProcessingException("name of db: {}, "
                                                  "contains forbidden_char: {}".format(value_str, forbidden_char))
@@ -275,7 +271,7 @@ class DbManager(object):
                                              '(Reserved for internal use.)')
         for forbidden_char in FORBIDDEN_COLLECTION_NAME_CHAR:
             if forbidden_char in value_str:
-                LOGGER.error('name of collection: %r, contains forbidden_char: %r', value_str,
+                LOGGER.error('name of collection: %a, contains forbidden_char: %a', value_str,
                              forbidden_char)
                 raise n6QueueProcessingException("name of collection: {0}, "
                                                  "contains forbidden_char: {1}".
@@ -303,7 +299,7 @@ class DbManager(object):
             LOGGER.error('No connection to initialize index store')
 
 
-class MongoConnection(object):
+class MongoConnection:
     """
     MongoConnection - a set of common attributes of classes
     (JsonStream, FileGridfs, BlackListCompacter).
@@ -330,19 +326,19 @@ class MongoConnection(object):
                     # empty meta, add key meta, adds key meta
                     # another data  such. rid, received, contentType....
                     self.headers["meta"] = {}
-                    LOGGER.debug('No "meta" in headers: %r', properties.headers)
+                    LOGGER.debug('No "meta" in headers: %a', properties.headers)
             else:
                 # empty headers, add key meta, adds key
                 # meta another data  such. rid, received, contentType....
                 self.headers["meta"] = {}
-                LOGGER.debug('Empty headers: %r', properties.headers)
+                LOGGER.debug('Empty headers: %a', properties.headers)
 
             if properties.type in ('file', 'blacklist'):
                 # content_type required fo type file and blacklist
                 try:
                     self.headers['meta'].update({'contentType': properties.content_type})
                 except AttributeError as exc:
-                    LOGGER.error('No "content_type" in properties: %r', properties.headers)
+                    LOGGER.error('No "content_type" in properties: %a', properties.headers)
                     raise
             # always add
             self.headers['meta'].update({'rid': properties.message_id,
@@ -356,14 +352,14 @@ class MongoConnection(object):
         try:
             return datetime.datetime.utcfromtimestamp(ts)
         except TypeError as exc:
-            LOGGER.error("Bad type timestamp: %r, exc: %r, collection: %r", ts, exc,
+            LOGGER.error("Bad type timestamp: %a, exc: %a, collection: %a", ts, exc,
                          self.dbm.currcoll)
             raise
 
     def create_indexes(self, coll):
         """Create indexes on new collection."""
         for idx in MongoConnection.indexes_common:
-            LOGGER.info("Create indexes: %r on collection: %r", idx, coll.name)
+            LOGGER.info("Create indexes: %a on collection: %a", idx, coll.name)
             coll.create_index(idx)
         # refresh indexes store
         self.dbm.initialize_index_store()
@@ -390,10 +386,10 @@ class JsonStream(MongoConnection):
             self.raw = loads(data)
             # calculate md5, inplace its fastest
             self.headers['meta'].update({
-                'md5': hashlib.md5(dumps(self.raw, sort_keys=True)).hexdigest()})
+                'md5': hashlib.md5(dumps(self.raw, sort_keys=True).encode('utf-8')).hexdigest()})
 
         except Exception as exc:
-            LOGGER.error('exception when processing: %r %r %r (%r)',
+            LOGGER.error('exception when processing: %a %a %a (%a)',
                          self.dbm.currdb, self.dbm.currcoll, data, exc)
             raise
 
@@ -411,7 +407,7 @@ class JsonStream(MongoConnection):
             `n6QueueProcessingException` if catch other exception.
         """
         LOGGER.debug('Stream inserting...')
-        LOGGER.debug('HEADER: %r', self.headers)
+        LOGGER.debug('HEADER: %a', self.headers)
         self.data['data'] = self.raw
         self.data['uploadDate'] = datetime.datetime.utcfromtimestamp(time.time())
         self.data.update(self.headers['meta'])
@@ -428,17 +424,17 @@ class JsonStream(MongoConnection):
                 self.dbm.get_conn_collection().insert(self.data)
             except pymongo.errors.OperationFailure as exc:
                 if exc.code == INSUFFICIENT_DISK_SPACE_CODE:
-                    sys.exit(repr(exc))
+                    sys.exit(ascii(exc))
                 raise
         except pymongo.errors.AutoReconnect as exc:
-            LOGGER.error('%r', exc)
+            LOGGER.error('%a', exc)
             raise
         except UnicodeDecodeError as exc:
-            LOGGER.error("collection name or the database name is not allowed: %r, %r, %r",
+            LOGGER.error("collection name or the database name is not allowed: %a, %a, %a",
                          self.dbm.currdb, self.dbm.currcoll, exc)
             raise
         except Exception as exc:
-            LOGGER.error('save data in mongodb FAILED, header: %r , exception: %r',
+            LOGGER.error('save data in mongodb FAILED, header: %a , exception: %a',
                          self.headers, exc)
             raise n6QueueProcessingException('save data in mongob FAILED')
         else:
@@ -469,7 +465,7 @@ class FileGridfs(MongoConnection):
         try:
             self.data = data
         except Exception as exc:
-            LOGGER.error('exception when processing: %r %r %r (%r)',
+            LOGGER.error('exception when processing: %a %a %a (%a)',
                          self.dbm.currdb, self.dbm.currcoll, data, exc)
             raise
         else:
@@ -486,7 +482,7 @@ class FileGridfs(MongoConnection):
             `n6QueueProcessingException` if catch other exception.
         """
         LOGGER.debug('Binary inserting...')
-        LOGGER.debug('HEADER: %r', self.headers)
+        LOGGER.debug('HEADER: %a', self.headers)
 
         # for backup msg
         self.dbm.backup_msg_data = self.data
@@ -501,17 +497,17 @@ class FileGridfs(MongoConnection):
                 self.dbm.put_file_to_db(self.data, **self.headers['meta'])
             except pymongo.errors.OperationFailure as exc:
                 if exc.code == INSUFFICIENT_DISK_SPACE_CODE:
-                    sys.exit(repr(exc))
+                    sys.exit(ascii(exc))
                 raise
         except pymongo.errors.AutoReconnect as exc:
-            LOGGER.error('%r', exc)
+            LOGGER.error('%a', exc)
             raise
         except UnicodeDecodeError as exc:
-            LOGGER.error("collection name or the database name is not allowed: %r, %r, %r",
+            LOGGER.error("collection name or the database name is not allowed: %a, %a, %a",
                          self.dbm.currdb, self.dbm.currcoll, exc)
             raise
         except Exception as exc:
-            LOGGER.error('save data in mongodb FAILED, header: %r , exception: %r',
+            LOGGER.error('save data in mongodb FAILED, header: %a , exception: %a',
                          self.headers, exc)
             raise n6QueueProcessingException('save data in mongob FAILED')
         else:
@@ -522,7 +518,7 @@ class FileGridfs(MongoConnection):
         pass
 
 
-class DBarchiver(QueuedBase):
+class DBarchiver(LegacyQueuedBase):
     """ Archive data """
     input_queue = {"exchange": "raw",
                    "exchange_type": "topic",
@@ -535,7 +531,7 @@ class DBarchiver(QueuedBase):
         self.connectdb = self.manager.get_connection()
         self.manager.initialize_index_store()  # after call get_connection
         self.connectdb.secondary_acceptable_latency_ms = 5000  # max latency for ping
-        super(DBarchiver, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     __count = itertools.count(1)
     __tf = []
@@ -565,15 +561,15 @@ class DBarchiver(QueuedBase):
         except KeyError:
             writing = True
 
-        LOGGER.debug("Received properties :%r", properties)
-        LOGGER.debug("Received headers :%r", properties.headers)
+        LOGGER.debug("Received properties :%a", properties)
+        LOGGER.debug("Received headers :%a", properties.headers)
         # set collection name
         self.manager.currcoll = routing_key
 
         # Add to archive
         if writing:
             type_ = properties.type
-            payload = (body.encode('utf-8') if isinstance(body, unicode)  #3: unicode -> str
+            payload = (body.encode('utf-8') if isinstance(body, str)
                        else body)
 
             if type_ == 'stream':
@@ -610,11 +606,9 @@ class BlackListCompacter(MongoConnection):
     period = 14
 
     def __init__(self, dbmanager=None, properties=None):
-        LOGGER.debug('run blacklist : collection: %r',
+        LOGGER.debug('run blacklist : collection: %a',
                      dbmanager.currcoll)
-        super(BlackListCompacter, self).__init__(dbmanager=dbmanager,
-                                                 properties=properties,
-                                                 )
+        super().__init__(dbmanager=dbmanager, properties=properties)
         self.list_tmp_files = []
         self.prefix = '.csv_'
         self.suffix = 'bl-'
@@ -632,7 +626,7 @@ class BlackListCompacter(MongoConnection):
             # name collection in gridfs is src.subsrc.files|chunks
             self.collection = self.dbm.get_conn_collection().files
         except UnicodeDecodeError as exc:
-            LOGGER.error("collection name or the database name is not allowed: %r, %r",
+            LOGGER.error("collection name or the database name is not allowed: %a, %a",
                          self.dbm.currcoll, exc)
             raise
         # create indexes
@@ -654,7 +648,7 @@ class BlackListCompacter(MongoConnection):
             self.payload = data
             self.init_files()
         except Exception as exc:
-            LOGGER.error('exception when processing: %r %r %r (%r)',
+            LOGGER.error('exception when processing: %a %a %a (%a)',
                          self.dbm.currdb, self.dbm.currcoll, data, exc)
             raise
 
@@ -686,8 +680,8 @@ class BlackListCompacter(MongoConnection):
         self.list_tmp_files.append((self.tempfilefd_ver, self.tempfile_ver))
 
         # save orig init file
-        with open_file(self.tempfile_file_init, 'w') as fid:
-            LOGGER.debug('WTF: %r', type(self.payload))
+        with open_file(self.tempfile_file_init, 'wb') as fid:
+            LOGGER.debug('WTF: %a', type(self.payload))
             fid.write(self.payload)
         self.file_init = self.tempfile_file_init
 
@@ -724,17 +718,17 @@ class BlackListCompacter(MongoConnection):
                 self.dbm.put_file_to_db(data, **self.headers["meta"])
             except pymongo.errors.OperationFailure as exc:
                 if exc.code == INSUFFICIENT_DISK_SPACE_CODE:
-                    sys.exit(repr(exc))
+                    sys.exit(ascii(exc))
                 raise
         except pymongo.errors.AutoReconnect as exc:
-            LOGGER.error('%r', exc)
+            LOGGER.error('%a', exc)
             raise
         except Exception as exc:
-            LOGGER.error('save file in mongodb FAILED, header: %r , exception: %r',
+            LOGGER.error('save file in mongodb FAILED, header: %a , exception: %a',
                          self.headers, exc)
             raise n6QueueProcessingException('save file in mongob FAILED')
         else:
-            LOGGER.debug('save file in db marker: %r', marker)
+            LOGGER.debug('save file in db marker: %a', marker)
 
     @safe_mongocall
     def get_patches(self):
@@ -781,7 +775,7 @@ class BlackListCompacter(MongoConnection):
             f_sout.close()
 
             self.save_file_in_db(self.marker_db_init,
-                                 open_file(self.tempfile_patch_u, 'r').read())
+                                 open_file(self.tempfile_patch_u, 'rb').read())
             LOGGER.debug(' marker init in db:%s ', self.marker_db_init)
         else:
             subprocess.call("diff -u " + file1 + " " +
@@ -789,7 +783,7 @@ class BlackListCompacter(MongoConnection):
             f_sout.close()
 
             self.save_file_in_db(self.marker_db_diff,
-                                 open_file(self.tempfile_patch_u, 'r').read())
+                                 open_file(self.tempfile_patch_u, 'rb').read())
             LOGGER.debug('marker in period in db :%s ', self.marker_db_diff)
 
     def generate_orig_file(self, cursor, file_id):
@@ -802,7 +796,7 @@ class BlackListCompacter(MongoConnection):
 
         Return: None
         """
-        LOGGER.debug('BlackListCompacter.GENERATE_ALL_FILE: %r',
+        LOGGER.debug('BlackListCompacter.GENERATE_ALL_FILE: %a',
                      BlackListCompacter.generate_all_file)
         # generate first file
         files_count = 1
@@ -814,7 +808,7 @@ class BlackListCompacter(MongoConnection):
                                   self.tempfile_patch_tmp + " -o " +
                                   self.tempfile_ver + str(files_count - 1),
                                   stdout=f_sout, stderr=subprocess.STDOUT, shell=True)
-            LOGGER.debug('patch_next_file(return code): %r', out)
+            LOGGER.debug('patch_next_file(return code): %a', out)
             self.list_tmp_files.append((self.tempfile_ver,
                                         self.tempfile_ver +
                                         str(files_count - 1)))
@@ -826,25 +820,25 @@ class BlackListCompacter(MongoConnection):
                                   self.tempfile_patch_tmp + " -o " +
                                   self.tempfile_file_recovery_0,
                                   stdout=f_sout, stderr=subprocess.STDOUT, shell=True)
-            LOGGER.debug('patch_next_file(return code): %r', out)
+            LOGGER.debug('patch_next_file(return code): %a', out)
 
         else:
             file_db = self.dbm.get_file_from_db_raw(file_id)
-            patch_file = open_file(self.tempfile_patch_tmp, 'w')
+            patch_file = open_file(self.tempfile_patch_tmp, 'wb')
             patch_file.write(file_db)
             patch_file.close()
 
             out = subprocess.call("patch  " +
                                   self.tempfile_file_recovery_0 + " -i  " +
                                   self.tempfile_patch_tmp, stdout=f_sout, stderr=subprocess.STDOUT, shell=True)
-            LOGGER.debug('patch_first_file(return code): %r', out)
+            LOGGER.debug('patch_first_file(return code): %a', out)
 
         for i in cursor:
             id_dba = i["_id"]
             # set prev id in current doc.
             self.prev_id = id_dba
             file_db = self.dbm.get_file_from_db_raw(id_dba)
-            patch_file = open_file(self.tempfile_patch_tmp, 'w')
+            patch_file = open_file(self.tempfile_patch_tmp, 'wb')
             patch_file.write(file_db)
             patch_file.close()
 
@@ -861,14 +855,14 @@ class BlackListCompacter(MongoConnection):
                                       self.tempfile_ver + str(files_count),
                                       stdout=f_sout, stderr=subprocess.STDOUT, shell=True)
                 os.chmod(self.tempfile_ver + str(files_count), 0o644)
-                LOGGER.debug('patch_all_files(return code): %r', out)
+                LOGGER.debug('patch_all_files(return code): %a', out)
 
             else:
                 out = subprocess.call(
                     "patch  " + self.tempfile_file_recovery_0 + " -i  " + self.tempfile_patch_tmp,
                     stdout=f_sout, stderr=subprocess.STDOUT, shell=True
                 )
-                LOGGER.debug('patch(return code): %r', out)
+                LOGGER.debug('patch(return code): %a', out)
 
             files_count += 1
         f_sout.close()
@@ -876,23 +870,23 @@ class BlackListCompacter(MongoConnection):
 
     def start(self):
         """Start BlackListCompacter."""
-        LOGGER.debug('BlackListCompacter.GENERATE_ALL_FILE: %r',
+        LOGGER.debug('BlackListCompacter.GENERATE_ALL_FILE: %a',
                      BlackListCompacter.generate_all_file)
-        LOGGER.debug('BlackListCompacter.PERIOD: %r', BlackListCompacter.period)
-        LOGGER.debug('BlackListCompacter.INIT: %r', BlackListCompacter.init)
+        LOGGER.debug('BlackListCompacter.PERIOD: %a', BlackListCompacter.period)
+        LOGGER.debug('BlackListCompacter.INIT: %a', BlackListCompacter.init)
         file_id = None
         try:
             file_id, cursor = self.get_patches()
-            LOGGER.debug('file_id:%r, cursor:%r:', file_id, cursor)
+            LOGGER.debug('file_id:%a, cursor:%a:', file_id, cursor)
             # count files orig + diffs
             # cursor.count it is ok, if we count from zero(marker=0)
             files_count = cursor.count()
 
             self.marker_db_diff = files_count
-            LOGGER.debug('files_count: %r', files_count)
+            LOGGER.debug('files_count: %a', files_count)
         except StopIteration as exc:
             # first file
-            LOGGER.warning('First file, initialize: %r', exc)
+            LOGGER.warning('First file, initialize: %a', exc)
             BlackListCompacter.init = 1
             # init files, set marker = 0
             self.marker_db_diff = self.marker_db_init
@@ -935,12 +929,12 @@ def main():
             t.stop()
         except socket.timeout as exc:
             # at the moment need to capture sys.exit tool for monitoring
-            LOGGER.critical('socket.timeout: %r', exc)
+            LOGGER.critical('socket.timeout: %a', exc)
             print(exc, file=sys.stderr)
             sys.exit(1)
         except socket.error as exc:
             # at the moment need to capture sys.exit tool for monitoring
-            LOGGER.critical('socket.error: %r', exc)
+            LOGGER.critical('socket.error: %a', exc)
             print(exc, file=sys.stderr)
             sys.exit(1)
 

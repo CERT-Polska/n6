@@ -1,10 +1,10 @@
 # Step-by-Step Installation Guide: Introduction
 
-**TBD: this guide needs an update regarding the stuff that now works
-under Python 3.9, and the software it now depends on (including the OS);
-notably, the current implementation of the *n6* basic data pipeline now
-resides in `N6DataPipeline`, *not* in `N6Core` (where the legacy
-Python-2.7 stuff resides).**
+**TBD: this guide needs an update regarding the migration from Python
+2.7 to 3.9 (as well as the related upgrades applied to other software in
+use, including the OS). Notably, the current implementation of the *n6*
+basic data pipeline resides in `N6DataPipeline` (Python-3-only), *not* in
+`N6Core` (where the legacy Python-2 stuff is kept).**
 
 The goal of this guide is to give you an example of how you can glue the
 relevant elements together in a (relatively) easy way, so that you can

@@ -1,12 +1,5 @@
 # Configuration of _n6_ components
 
-**TBD: the following description needs an update regarding the
-stuff that now works under Python 3.9; in particular, the current
-implementation of the *n6* basic data pipeline now resides in
-`N6DataPipeline`, *not* in `N6Core` (where the legacy Python-2.7
-stuff resides).**
-
-
 ## Generating pipeline components' configuration files
 
 To create configuration files required for the _n6_ pipeline (`N6Core`)

@@ -7,6 +7,7 @@ repo_url: "https://github.com/CERT-Polska/n6"
 
 nav:
     - Home: index.md
+    - Changelog: changelog.md
     - n6 Architecture and Data Flow Overview: data_flow_overview.md
     - Docker-Based Installation Guide: docker.md
     - Step-by-Step Installation Guide:
@@ -17,7 +18,7 @@ nav:
       - Certificates: installation/certs.md
       - HTTP Services: installation/n6_web.md
       - Supervisor: installation/supervisord.md
-      - Data Flow: installation/examining_data_flow.md
+      - Examining the Data Flow: installation/examining_data_flow.md
     - Running IntelMQ Bots in the n6 Pipeline:
       - Introduction: guides/intelmq/index.md
       - Installation and Configuration: guides/intelmq/config.md
@@ -36,6 +37,8 @@ nav:
         - Parser Base Classes: guides/new_source/parsers/baseclasses.md
         - High-Frequency Data Sources: guides/new_source/parsers/hifreq.md
         - Parser Tests: guides/new_source/parsers/testing.md
+    - API:
+      - Stream API: guides/api/streamapi.md
 
 theme: readthedocs
 markdown_extensions:

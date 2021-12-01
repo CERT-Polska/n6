@@ -188,11 +188,10 @@ def parse_arguments():
     #   **except** N6SDK (see below).
     if PY2:
         # (Python 2: always coerce `N6Lib` to `N6Lib-py2`)
-        if N6_LIB in arguments.components or N6_LIB_py2 in arguments.components:
+        if (not arguments.no_n6lib) or (N6_LIB in arguments.components
+                                        or N6_LIB_py2 in arguments.components):
             if N6_LIB in arguments.components: arguments.components.remove(N6_LIB)
             if N6_LIB_py2 in arguments.components: arguments.components.remove(N6_LIB_py2)
-            arguments.components.insert(0, N6_LIB_py2)
-        elif not arguments.no_n6lib:
             arguments.components.insert(0, N6_LIB_py2)
     else:
         if N6_LIB in arguments.components:
@@ -204,11 +203,10 @@ def parse_arguments():
     # * N6SDK, if needed, must the set up **before** any other components.
     if PY2:
         # (Python 2: always coerce `N6SDK` to `N6SDK-py2`)
-        if N6_SDK in arguments.components or N6_SDK_py2 in arguments.components:
+        if (not arguments.no_n6lib) or (N6_SDK in arguments.components
+                                        or N6_SDK_py2 in arguments.components):
             if N6_SDK in arguments.components: arguments.components.remove(N6_SDK)
             if N6_SDK_py2 in arguments.components: arguments.components.remove(N6_SDK_py2)
-            arguments.components.insert(0, N6_SDK_py2)
-        elif not arguments.no_n6lib:
             arguments.components.insert(0, N6_SDK_py2)
     else:
         if N6_SDK in arguments.components:

@@ -1,8 +1,5 @@
 # HTTP Services
 
-**TBD: the following description needs an update regarding the
-components that now work under Python 3.9.**
-
 > **Note**: to complete any of the steps described below you need to have:
 >
 > * installed the relevant *n6* component(s); see: section [Installation of n6 components](n6_core.md)

@@ -2,7 +2,7 @@
 
 **TBD: this guide needs an update regarding the stuff that now works
 under Python 3.9 and resides in `N6DataPipeline` and `N6DataSources`
-(*not* in `N6Core` where the legacy Python-2.7 stuff resides).**
+(*not* in `N6Core` where the legacy Python-2.7 stuff is kept).**
 
 The aim of this guide is to describe how to implement new *n6*
 components necessary for collecting and parsing data from some
