@@ -40,6 +40,21 @@ nav:
     - API:
       - Stream API: guides/api/streamapi.md
 
-theme: readthedocs
+theme:
+    name: material
+    palette:
+      scheme: default
+      primary: white
+      accent: deep purple
+    logo: n6_logo.png
+    features:
+      - navigation.indexes
+      - navigation.sections
+      - navigation.top
 markdown_extensions:
+    - admonition
     - smarty
+    - toc:
+        title: "This document's sections"
+        permalink: true
+        toc_depth: 2
