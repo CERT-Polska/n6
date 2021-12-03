@@ -66,8 +66,12 @@ destination:/exchange/nask.pl/*.*.*.*
 
 ^@
 ```
-Note: `ˆ@` is a terminal escape sequence for NULL (ASCII 0x00), which signals the
-end of a STOMP frame. Common keyboard shortcut `Ctrl` + `Shift` + `2`.
+
+!!! tip
+
+    `^@` is a terminal escape sequence for NULL (ASCII 0x00), which signals the
+    end of a STOMP frame. Common keyboard shortcut `Ctrl` + `Shift` + `2`.
+
 Message from the server (lines wrapped for readability):
 
 ```
@@ -110,5 +114,7 @@ read) | openssl s_client -cert [CLIENT CERTIFICATE] -key [PRIVATE KEY] \
 -CAfile [n6 CA BUNDLE] -host n6stream.cert.pl -port 61614
 ```
 
-Note: the example above must be adapted to suit your client id and file paths.
+!!! note
+
+    The example above must be adapted to suit your client id and file paths.
 

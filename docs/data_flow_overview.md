@@ -1,4 +1,9 @@
-# *n6* Architecture and Data Flow Overview
+---
+hide:
+  - toc
+---
+
+# Architecture and Data Flow Overview
 
 The *n6*'s overall architecture and data flow can be described schematically as follows:
 

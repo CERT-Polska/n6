@@ -692,8 +692,6 @@ class Test__main(unittest.TestCase):
                     Call('do_setup.LOGGER.info', "%r installed", 'astroid==1.6.6'),
                     Call('do_setup.command', "pip install 'pylint==1.9.5'"),
                     Call('do_setup.LOGGER.info', "%r installed", 'pylint==1.9.5'),
-                    Call('do_setup.command', "pip install 'mkdocs==1.0.4'"),
-                    Call('do_setup.LOGGER.info', "%r installed", 'mkdocs==1.0.4'),
                     Call('do_setup.command', "pip install 'waitress<2.0'"),
                     Call('do_setup.LOGGER.info', "%r installed", 'waitress<2.0'),
                 ] if do_setup.PY2 else [
@@ -705,8 +703,11 @@ class Test__main(unittest.TestCase):
                     Call('do_setup.LOGGER.info', "%r installed", 'coverage'),
                     Call('do_setup.command', "pip install 'pylint'"),
                     Call('do_setup.LOGGER.info', "%r installed", 'pylint'),
-                    Call('do_setup.command', "pip install 'mkdocs'"),
-                    Call('do_setup.LOGGER.info', "%r installed", 'mkdocs'),
+                    Call('do_setup.command', "pip install 'mkdocs==1.2.3'"),
+                    Call('do_setup.LOGGER.info', "%r installed", 'mkdocs==1.2.3'),
+                    Call('do_setup.command', "pip install 'mkdocs-material==8.0.3'"),
+                    Call('do_setup.LOGGER.info', "%r installed", 'mkdocs-material==8.0.3'),
+
                     Call('do_setup.command', "pip install 'waitress'"),
                     Call('do_setup.LOGGER.info', "%r installed", 'waitress'),
                 ]) + [
@@ -722,14 +723,14 @@ class Test__main(unittest.TestCase):
                         "\n* <mocked memo: \"pip install 'coverage<6.0'\">"
                         "\n* <mocked memo: \"pip install 'astroid==1.6.6'\">"
                         "\n* <mocked memo: \"pip install 'pylint==1.9.5'\">"
-                        "\n* <mocked memo: \"pip install 'mkdocs==1.0.4'\">"
                         "\n* <mocked memo: \"pip install 'waitress<2.0'\">"
                         if do_setup.PY2 else
                         "\n* <mocked memo: \"pip install 'pytest==4.6.11'\">"
                         "\n* <mocked memo: \"pip install 'pytest-cov==2.12.1'\">"
                         "\n* <mocked memo: \"pip install 'coverage'\">"
                         "\n* <mocked memo: \"pip install 'pylint'\">"
-                        "\n* <mocked memo: \"pip install 'mkdocs'\">"
+                        "\n* <mocked memo: \"pip install 'mkdocs==1.2.3'\">"
+                        "\n* <mocked memo: \"pip install 'mkdocs-material==8.0.3'\">"
                         "\n* <mocked memo: \"pip install 'waitress'\">")),
                 ]
             )

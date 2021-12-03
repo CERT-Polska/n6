@@ -24,7 +24,6 @@ if PY2:
         'coverage<6.0',
         'astroid==1.6.6',
         'pylint==1.9.5',
-        'mkdocs==1.0.4',
         'waitress<2.0',
     ]
 else:
@@ -33,7 +32,8 @@ else:
         'pytest-cov==2.12.1',
         'coverage',
         'pylint',
-        'mkdocs',
+        'mkdocs==1.2.3',
+        'mkdocs-material==8.0.3',
         'waitress',
     ]
 DEFAULT_LOG_CONFIG = {

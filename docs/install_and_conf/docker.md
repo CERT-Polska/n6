@@ -1,9 +1,12 @@
-# Docker-Based Installation Guide
+# Docker-Based Installation
 
-**TBD: this guide needs an update regarding the migration from Python
-2.7 to 3.9; in particular, the current implementation of the *n6* basic
-data pipeline now resides in `N6DataPipeline` (Python-3-only), *not* in
-`N6Core` (where the legacy Python-2 stuff is kept).**
+!!! warning "TODO note"
+
+    **This guide may need an update regarding the recent migration of
+    *n6* from Python 2.7 to 3.9.**
+
+
+## Opening remarks
 
 This short guide describes how to run, for testing and exploration, the
 latest version of *n6* -- using the *Docker* and *Docker Compose* tools.
@@ -13,48 +16,52 @@ in the easiest possible way, so that you can learn -- by monitoring and
 experimenting -- how the *n6* system works and how you can interact with
 it.
 
-> **Note:** If you wish to explore the *n6*'s ecosystem a bit more profoundly
-> you may want to familiarize yourself with the [Step-by-Step Installation
-> Guide](installation/index.md) as well.
+!!! note
 
+    If you wish to explore the *n6*'s ecosystem a bit more profoundly
+    you may want to familiarize yourself with the [Step-by-Step
+    Installation](../install_and_conf/step_by_step/index.md) guide
+    as well.
 
-## Important: what these materials *are* and what they are *not*
+!!! warning "Disclaimer: what these materials *are* and what they are *not*"
 
-This installation guide, as well as the stuff you can find in the
-[`etc/`](https://github.com/CERT-Polska/n6/tree/master/etc) and
-[`docker/`](https://github.com/CERT-Polska/n6/tree/master/docker)
-directories of the *n6* source code repository, concern setting up an
-*n6* instance just for testing, exploration and experimentation, i.e.,
-**not for production** (at least, *not* without careful security-focused
-adjustments).
+    This installation guide, as well as the stuff you can find in the
+    [`etc/`](https://github.com/CERT-Polska/n6/tree/master/etc) and
+    [`docker/`](https://github.com/CERT-Polska/n6/tree/master/docker)
+    directories of the *n6* source code repository, concern setting up an
+    *n6* instance just for testing, exploration and experimentation, i.e.,
+    **not for production** (at least, *not* without careful security-focused
+    adjustments).
 
-In other words, these materials are *not* intended to be used as a
-recipe for a secure production setup -- in particular, when it comes to
-(but not limited to) such issues as X.509 certificates (note that those
-in the [`etc/ssl/*`](https://github.com/CERT-Polska/n6/tree/master/etc/ssl)
-directories of the source code repository are purely example ones --
-they should *never* be used for anything related to production
-systems!), authentication and authorization settings (which in these
-materials are, generally, either skipped or reduced to what is necessary
-just to run the stuff), or file access permissions.
+    In other words, these materials are *not* intended to be used as a
+    recipe for a secure production setup -- in particular, when it comes to
+    (but not limited to) such issues as X.509 certificates (note that those
+    in the [`etc/ssl/*`](https://github.com/CERT-Polska/n6/tree/master/etc/ssl)
+    directories of the source code repository are purely example ones --
+    they should *never* be used for anything related to production
+    systems!), authentication and authorization settings (which in these
+    materials are, generally, either skipped or reduced to what is necessary
+    just to run the stuff), or file access permissions.
 
-It should be obvious that an experienced system administrator and/or
-security specialist should prepare and/or carefully review and adjust
-any configuration/installation/deployment of services that are to be
-made production ones, in particular if those services are to be made
-public.
+    It should be obvious that an experienced system administrator and/or
+    security specialist should prepare and/or carefully review and adjust
+    any configuration/installation/deployment of services that are to be
+    made production ones, in particular if those services are to be made
+    public.
 
 
 ## Requirements
 
-- *Docker* installed (the newest version)
-- *Docker Compose* installed (the newest version)
-- The *n6* source code repository cloned
+- *Docker* installed (a reasonably new version)
+- *Docker Compose* installed (a reasonably new version)
+- The *n6* [source code repository](https://github.com/CERT-Polska/n6) cloned
 
 
 ## Building the environment
 
-> **Note:** Make sure you are in the top-level directory of the cloned source code repository.
+!!! note
+
+    Make sure you are in the top-level directory of the cloned source code repository.
 
 To build our demonstrational _n6_ environment we use [Docker Compose](https://docs.docker.com/compose/) which binds all the services needed to run the *n6* infrastructure.
 
@@ -64,9 +71,11 @@ $ docker-compose build
 
 The result of the process are ready-to-use docker images.
 
-> **Note:** The Docker stack requires all images to be built correctly.
-> In case of errors, please do not hesitate to create an
-> [issue on our GitHub site](https://github.com/CERT-Polska/n6/issues).
+!!! note
+
+    The Docker stack requires all images to be built correctly.
+    In case of errors, please do not hesitate to create an
+    [issue on our GitHub site](https://github.com/CERT-Polska/n6/issues).
 
 If the build process has been correctly performed you should be able to
 run the following command to obtain a result similar to what is listed
@@ -103,9 +112,11 @@ By default, the stack exposes the following ports:
 * 4444 -- *n6* Admin Panel
 * 15671 -- RabbitMQ Management
 
-> **Note:** Make sure that all ports are not used by your localhost.
-> If a port is used by another service, please change it in the
-> `docker-compose.yml` file.
+!!! note
+
+    Make sure that all ports are not used by your localhost.
+    If a port is used by another service, please change it in the
+    `docker-compose.yml` file.
 
 
 ## Launching the system
@@ -118,8 +129,9 @@ $ docker-compose up
 
 Now, give Docker a few minutes to initialize.
 
-> **Note:** You can add the `-d` flag to run the stuff in the background
-> (*detached mode*).
+!!! tip
+
+    You can add the `-d` flag to run the stuff in the background (*detached mode*).
 
 
 ### First startup
@@ -275,7 +287,9 @@ Some files and directories are worth mentioning -- namely:
 
 ## Supervisor
 
-> **Note:** This setup requires running `docker-compose up`.
+!!! note
+
+    This setup requires running `docker-compose up`.
 
 Run `supervisorctl` to examine the status of all n6 components:
 

@@ -11,7 +11,7 @@ and incidents in their networks.
 ## Basic References
 
 * **Home page:** [github.com/CERT-Polska/n6](https://github.com/CERT-Polska/n6)
-* **Documentation:** [n6.readthedocs.io](https://n6.readthedocs.io/en/latest/)
+* **Documentation:** [n6.readthedocs.io](https://n6.readthedocs.io)
 
 The project is developed for [CERT Polska](https://www.cert.pl/en/).
 Contact us via e-mail: [n6@cert.pl](mailto:n6@cert.pl).

@@ -1,10 +1,28 @@
 # System Preparation
 
+## Basic requirements
+
+The required operating system is a contemporary **GNU/Linux**
+distribution.  This installation guide assumes that you use **Debian 10
+(Buster)**, with a non-root `dataman` user account created (there is a
+section on how to create that user).
+
+Moreover, the *n6* infrastructure depends on:
+
+* **RabbitMQ** (an AMQP message broker),
+* **MariaDB** (a SQL database server) with the TokuDB engine.
+
+To run some of the *n6* components it is also required to have installed:
+
+* **MongoDB** (a NoSQL database server),
+* **Apache2** (a web server).
+
+
 ## RabbitMQ
 
 RabbitMQ is an open source message broker software (sometimes called message-oriented middleware)
 that implements the Advanced Message Queuing Protocol (AMQP). RabbitMQ is responsible for
-communication between most of the _n6_ components.
+communication between most of the *n6* components.
 
 ### Setup
 
@@ -84,8 +102,8 @@ default user: guest
 default password: guest
 ```
 
-Or you can create a new user, allow him to use the _Management GUI_ and give him read/write
-permissions to resources within `/` vhost:
+Or you can create a new user, allow them to use the *Management GUI* and
+give them read/write permissions to resources within `/` vhost:
 
 ```bash
 $ sudo rabbitmqctl add_user <username> <password>
@@ -101,11 +119,11 @@ $ sudo rabbitmqctl set_user_tags <username> administrator
 
 ## MariaDB
 
-_n6_ uses two SQL databases - event database and _Auth DB_.
+*n6* uses two SQL databases - event database and *Auth DB*.
 The event database primarily stores processed information about network events and possible
 security incidents, also their relation to organizations linked to clients.
-The _Auth DB_ database is used for client authorization. It stores clients' permissions
-and information about allowed resources (allowed API endpoints, allowed _subsources_).
+The *Auth DB* database is used for client authorization. It stores clients' permissions
+and information about allowed resources (allowed API endpoints, allowed *subsources*).
 
 ```bash
 $ apt-key adv --recv-keys --keyserver keyserver.ubuntu.com 0xF1656F24C74CD1D8
@@ -193,7 +211,7 @@ Edit its location in `/etc/mysql/mariadb.conf.d/tokudb.cnf` as follows:
 malloc-lib= /usr/lib/x86_64-linux-gnu/libjemalloc.so.2
 ```
 
-Check for _Transparent HugePage Support_. It should be disabled - option [never]
+Check for *Transparent HugePage Support*. It should be disabled - option [never]
 
 ```bash
 $ cat /sys/kernel/mm/transparent_hugepage/enabled
@@ -240,8 +258,8 @@ TokuDB_fractal_tree_block_map
 
 ## MongoDB
 
-_n6_ uses MongoDB as archival database. Events gathered by collectors will be stored in MongoDB
-and can be restored in case of errors.
+*n6* uses MongoDB as archival database. Events gathered by collectors will
+be stored in MongoDB and can be restored in case of errors.
 
 Installation steps below are based on
 [Install MongoDB Community Edition on Debian](https://docs.mongodb.com/manual/tutorial/install-mongodb-on-debian/)
@@ -256,7 +274,7 @@ $ apt-get update
 $ apt-get install -y mongodb-org
 ```
 
-Check MongoDB version. _n6_ supports versions `4.2.*`:
+Check MongoDB version. *n6* supports versions `4.2.*`:
 
 ```bash
 $ mongod --version
@@ -338,10 +356,10 @@ MongoDB server version: 4.2.3
 >
 ```
 
-## Apache HTTP Server
+## Apache HTTP server
 
-_n6_ uses Apache as an HTTP server for services like _n6 REST API_, _n6 Portal API_
-or _n6 Admin Panel_ `N6RestAPI` or `N6AdminPanel`.
+*n6* uses Apache as an HTTP server for services like *n6 REST API*,
+*n6 Portal API* or *n6 Admin Panel* `N6RestAPI` or `N6AdminPanel`.
 
 ```bash
 $ sudo apt-get install apache2 libapache2-mod-wsgi
@@ -391,11 +409,13 @@ To run modules you need to reload/restart `apache2`:
 $ systemctl restart apache2
 ```
 
-## Debian dependencies
+## Debian dependencies and tools
 
 You should install the essential Debian packages:
 
-> Note: Add the "contrib" repository in `/etc/apt/sources.list` if needed.
+!!! important
+
+    Add the "contrib" repository in `/etc/apt/sources.list` if needed.
 
 ```bash
 $ sudo apt-get update
@@ -403,8 +423,8 @@ $ sudo apt-get install \
     build-essential \
     curl \
     default-libmysqlclient-dev \
+    git \
     iputils-ping \
-    libapache2-mod-wsgi \
     libattr1-dev \
     libcurl4-openssl-dev \
     libffi-dev \
@@ -435,9 +455,9 @@ $ sudo apt-get install \
 $ sudo apt-get clean
 ```
 
-## Creating the _dataman_ user
+## Creating the *dataman* user
 
-Let _n6_ be run by the `dataman` OS user. First, let us create its
+Let *n6* be run by the `dataman` OS user. First, let us create its
 initial login group:
 
 ```bash
@@ -445,7 +465,7 @@ $ /usr/sbin/groupadd dataman
 ```
 
 Now, when creating the `dataman` user, let us ensure that the user is
-also added to the `www-data` group (so that access to _Apache_'s files
+also added to the `www-data` group (so that access to *Apache*'s files
 is granted).
 
 ```bash
@@ -459,3 +479,17 @@ $ /usr/sbin/useradd -rm \
 ```
 
 We will keep the `n6` repository in the `dataman`'s home directory.
+
+
+## Arrangements related to Apache
+
+Add `dataman` to the `www-data` group, make the necessary directories,
+and set appropriate permissions:
+
+```bash
+$ /usr/sbin/usermod -a -G dataman www-data
+$ mkdir /home/dataman/env/.python-eggs
+$ chown dataman:www-data /home/dataman/env/.python-eggs
+$ chmod 775 /home/dataman/env/.python-eggs
+$ chown -R www-data:www-data /etc/apache2/sites-available/
+```

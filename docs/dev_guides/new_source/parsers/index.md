@@ -16,9 +16,11 @@ format), and sends them further down the data processing pipeline (by
 pushing those data -- already in their *normalized* form -- into the
 appropriate RabbitMQ exchange).
 
-**Note:** Whereas collectors may be *stateful*, **parsers shall always
-be *stateless*** (i.e., they should *neither* store any persistent state
-*nor* make use of any external mutable context, such as current time).
+!!! important
+
+    Whereas collectors may be *stateful*, **parsers shall always be
+    *stateless*** (i.e., they should *neither* store any persistent state
+    *nor* make use of any external mutable context, such as current time).
 
 
 ## Types of parsers/events
@@ -67,7 +69,7 @@ attributes [in the definition of the `RecordDict`
 class](https://github.com/CERT-Polska/n6/blob/master/N6Lib/n6lib/record_dict.py#L645).
 
 
-# The *Parsers* part's chapters
+## This part's contents
 
 * [Parser Executable Commands](command.md)
 * [Parser Base Classes](baseclasses.md)

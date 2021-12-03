@@ -6,8 +6,10 @@ So the pipeline at this stage looks like this:
 
 ![`(External Data) → [Collector] → [Parser] → ...`](c_p_pipe.png)
 
-> **Note:** For a broader overview, you may want to take a look at
-> the [*n6* architecture and data flow](../../../data_flow_overview.md) diagram.
+!!! note
+
+    For a broader overview, you may want to take a look at the
+    [*n6* architecture and data flow](../../../data_flow_overview.md) diagram.
 
 To describe collectors' job more technically: a collector obtains data
 from its respective external source (e.g., by downloading files from a
@@ -65,7 +67,7 @@ that will not be shared with other collectors.  The
 class helps to take care of that.
 
 
-# The *Collectors* part's chapters
+## This part's contents
 
 * [Collector Executable Commands](command.md)
 * [Collector Base Classes](classes.md)

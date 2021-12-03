@@ -1,55 +1,13 @@
-# HTTP Services
+# Configuration of *n6* Web Components
 
-> **Note**: to complete any of the steps described below you need to have:
->
-> * installed the relevant *n6* component(s); see: section [Installation of n6 components](n6_core.md)
-> * the *Auth DB* created; see: section [n6 Configuration for SQL databases](configuration.md#n6-configuration-for-mysqldb)
-> * generated certificates; see: section [Certificates](certs.md)
+!!! Note
 
+    To complete any of the steps described below you need to have:
 
-## *n6 Admin Panel*
-
-Copy the example *n6 Admin Panel* configuration files to the directory with *n6* config files:
-
-```bash
-(env)$ cp /home/dataman/n6/N6AdminPanel/n6adminpanel/admin_panel.conf /home/dataman/.n6
-```
-
-Run the following command to generate a random string, that will be used as a secret key
-for the *n6 Admin Panel* application:
-
-```bash
-(env)$ python -c 'import os, base64; print(base64.b64encode(os.urandom(16), b"-_").decode())'
-```
-
-Set the resultant random string as the value of the `app_secret_key` option in the `[admin_panel]`
-section of the `/home/dataman/.n6/admin_panel.conf` configuration file:
-
-```ini
-[admin_panel]
-app_secret_key = <generated_string>
-```
-
-Copy (as root) the Apache2 configuration file for *n6 Admin Panel* from
-`/home/dataman/n6/etc/apache2/n6-adminpanel.conf`
-to `/etc/apache2/sites-available/n6-adminpanel.conf`:
-
-```bash
-$ cp /home/dataman/n6/etc/apache2/sites-available/n6-adminpanel.conf /etc/apache2/sites-available/
-```
-
-Then enable the site and reload Apache2 configuration (as root):
-
-```bash
-$ a2ensite n6-adminpanel
-$ systemctl reload apache2
-```
-
-The *n6* Admin Panel should be accessible via `https://server_IP_or_FQDN:4444/` (where
-`server_IP_or_FQDN` is the address of your Apache server).
-
-**WARNING:** the example *n6 Admin Panel* website configuration has no authentication!
-(So, in particular, do not make this website public!).
+    * the system prepared (see: [System Preparation](system.md), except that here you need *neither* RabbitMQ *nor* MongoDB)
+    * the relevant *n6* component(s) installed (see: [Installation of *n6* Components](installation.md))
+    * the relevant SQL databases prepared (see: [SQL databases...](pipeline_config.md#sql-databases-mariadb))
+    * necessary certificates generated (see: [Certificates](certificates.md))
 
 
 ## *n6 REST API*
@@ -246,3 +204,50 @@ There are a few possible causes:
 > Check the *n6* Apache logs (`/var/log/apache2/*-n6*.log`) to look into the cause of an issue.
 > Consider creating an issue at *n6* GitHub project:
 >[https://github.com/CERT-Polska/n6](https://github.com/CERT-Polska/n6)
+
+
+## *n6 Admin Panel*
+
+Copy the example *n6 Admin Panel* configuration files to the directory with *n6* config files:
+
+```bash
+(env)$ cp /home/dataman/n6/N6AdminPanel/n6adminpanel/admin_panel.conf /home/dataman/.n6
+```
+
+Run the following command to generate a random string, that will be used as a secret key
+for the *n6 Admin Panel* application:
+
+```bash
+(env)$ python -c 'import os, base64; print(base64.b64encode(os.urandom(16), b"-_").decode())'
+```
+
+Set the resultant random string as the value of the `app_secret_key` option in the `[admin_panel]`
+section of the `/home/dataman/.n6/admin_panel.conf` configuration file:
+
+```ini
+[admin_panel]
+app_secret_key = <generated_string>
+```
+
+Copy (as root) the Apache2 configuration file for *n6 Admin Panel* from
+`/home/dataman/n6/etc/apache2/n6-adminpanel.conf`
+to `/etc/apache2/sites-available/n6-adminpanel.conf`:
+
+```bash
+$ cp /home/dataman/n6/etc/apache2/sites-available/n6-adminpanel.conf /etc/apache2/sites-available/
+```
+
+Then enable the site and reload Apache2 configuration (as root):
+
+```bash
+$ a2ensite n6-adminpanel
+$ systemctl reload apache2
+```
+
+The *n6* Admin Panel should be accessible via `https://server_IP_or_FQDN:4444/` (where
+`server_IP_or_FQDN` is the address of your Apache server).
+
+!!! warning
+
+    The example *n6 Admin Panel* website configuration has no authentication!
+    (So, in particular, do not make that website public!)

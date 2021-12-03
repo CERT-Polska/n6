@@ -1,60 +1,66 @@
 site_name: "n6 Documentation"
-site_url: "https://n6.readthedocs.io/"
+site_url: "https://n6.readthedocs.io"
 site_description: "The documentation of n6 - a system to collect, manage and distribute security information on a large scale."
 
-copyright: "Copyright (c) 2013-2021 Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network).  All rights reserved.  License: GNU Affero General Public License, Version 3."
+copyright: "Copyright (c) 2013-2021 Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network)."
 repo_url: "https://github.com/CERT-Polska/n6"
 
+edit_uri: ""
+
 nav:
-    - Home: index.md
-    - Changelog: changelog.md
-    - n6 Architecture and Data Flow Overview: data_flow_overview.md
-    - Docker-Based Installation Guide: docker.md
-    - Step-by-Step Installation Guide:
-      - Introduction: installation/index.md
-      - System Preparation: installation/system.md
-      - Installation of n6 Components: installation/n6_core.md
-      - Configuration of n6 Components: installation/configuration.md
-      - Certificates: installation/certs.md
-      - HTTP Services: installation/n6_web.md
-      - Supervisor: installation/supervisord.md
-      - Examining the Data Flow: installation/examining_data_flow.md
-    - Running IntelMQ Bots in the n6 Pipeline:
-      - Introduction: guides/intelmq/index.md
-      - Installation and Configuration: guides/intelmq/config.md
-      - Running IntelMQ Bots and Message Format Adapters: guides/intelmq/running.md
-    - Implementing a New Data Source (Developer Guide):
-      - Introduction: guides/new_source/index.md
+  - Home: index.md
+  - data_flow_overview.md
+  - changelog.md
+  - Installation and Configuration:
+    - Docker-Based Installation: install_and_conf/docker.md
+    - Step-by-Step Installation:
+      - Step-by-Step Installation: install_and_conf/step_by_step/index.md
+      - System Preparation: install_and_conf/step_by_step/system.md
+      - Installation of n6 Components: install_and_conf/step_by_step/installation.md
+      - Configuration of n6 Pipeline: install_and_conf/step_by_step/pipeline_config.md
+      - Certificates: install_and_conf/step_by_step/certificates.md
+      - Configuration of n6 Web Components: install_and_conf/step_by_step/web_components_config.md
+      - Supervisor: install_and_conf/step_by_step/supervisor.md
+      - Examining Data Flow: install_and_conf/step_by_step/examining_data_flow.md
+    - Running IntelMQ Bots in n6 Pipeline:
+      - Running IntelMQ Bots in n6 Pipeline: install_and_conf/intelmq/index.md
+      - Installation and Configuration: install_and_conf/intelmq/config.md
+      - Running IntelMQ Bots and Message Format Adapters: install_and_conf/intelmq/running.md
+  - Developer Guides:
+    - Implementing a New Data Source:
+      - Implementing a New Data Source: dev_guides/new_source/index.md
       - Collectors:
-        - Collectors Overview: guides/new_source/collectors/index.md
-        - Collector Executable Commands: guides/new_source/collectors/command.md
-        - Collector Base Classes: guides/new_source/collectors/classes.md
-        - Stateful Collectors: guides/new_source/collectors/state.md
-        - Collector Tests: guides/new_source/collectors/testing.md
+        - Collectors: dev_guides/new_source/collectors/index.md
+        - dev_guides/new_source/collectors/command.md
+        - dev_guides/new_source/collectors/classes.md
+        - dev_guides/new_source/collectors/state.md
+        - dev_guides/new_source/collectors/testing.md
       - Parsers:
-        - Parsers Overview: guides/new_source/parsers/index.md
-        - Parser Executable Commands: guides/new_source/parsers/command.md
-        - Parser Base Classes: guides/new_source/parsers/baseclasses.md
-        - High-Frequency Data Sources: guides/new_source/parsers/hifreq.md
-        - Parser Tests: guides/new_source/parsers/testing.md
-    - API:
-      - Stream API: guides/api/streamapi.md
+        - Parsers: dev_guides/new_source/parsers/index.md
+        - dev_guides/new_source/parsers/command.md
+        - dev_guides/new_source/parsers/baseclasses.md
+        - dev_guides/new_source/parsers/hifreq.md
+        - dev_guides/new_source/parsers/testing.md
+  - APIs (selected topics):
+    - Stream API: usage/streamapi.md
 
 theme:
-    name: material
-    palette:
-      scheme: default
-      primary: white
-      accent: deep purple
-    logo: n6_logo.png
-    features:
-      - navigation.indexes
-      - navigation.sections
-      - navigation.top
+  name: material
+  palette:
+    scheme: default
+    primary: white
+    accent: deep purple
+  logo: n6_logo.png
+  features:
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+
 markdown_extensions:
-    - admonition
-    - smarty
-    - toc:
-        title: "This document's sections"
-        permalink: true
-        toc_depth: 2
+  - admonition
+  - meta
+  - smarty
+  - toc:
+      title: "This document's sections"
+      permalink: true
+      toc_depth: 6

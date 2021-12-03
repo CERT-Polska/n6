@@ -1,17 +1,20 @@
-# Implementing a New Data Source (Developer Guide)
+# Implementing a New Data Source
 
-**TBD: this guide needs an update regarding the stuff that now works
-under Python 3.9 and resides in `N6DataPipeline` and `N6DataSources`
-(*not* in `N6Core` where the legacy Python-2.7 stuff is kept).**
+!!! warning "TODO note"
+
+    **This guide needs an update regarding the recent migration of *n6* from
+    Python 2.7 to 3.9**, especially that the *n6*'s data sources and data
+    pipeline stuff now works under Python 3.9 and resides in `N6DataSources`
+    and `N6DataPipeline` (where some names and other interface details
+    differ from the corresponding, Python-2.7-only, legacy stuff kept in
+    `N6Core`).
+
 
 The aim of this guide is to describe how to implement new *n6*
 components necessary for collecting and parsing data from some
 external security data source.
 
-
-## The guide's contents
-
-This guide consists of two parts:
+**This guide consists of two parts:**
 
 * [Collectors](collectors/index.md).
   The first part focuses on ***collectors*** which are *n6*'s data entry

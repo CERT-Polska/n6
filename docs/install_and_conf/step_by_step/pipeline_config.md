@@ -1,4 +1,4 @@
-# Configuration of _n6_ components
+# Configuration of *n6* Pipeline
 
 ## Generating pipeline components' configuration files
 
@@ -177,7 +177,9 @@ file, section `auth_db`:
 url = mysql://root:yourMysqlPassword@localhost/auth_db
 ```
 
-(**Note**: here it is `url`, not `uri` as above.)
+!!! note
+
+    Here it is `url`, not `uri` as earlier.
 
 Tables for authentication should be created using _n6_ script `n6create_and_initialize_auth_db`:
 
@@ -404,17 +406,4 @@ $ rm -rf /tmp/mongodb-27017.sock
 
 ```bash
 $ service mongod start
-```
-
-## Apache2
-
-Add `dataman` to the `www-data` group, make the necessary directories,
-and set appropriate permissions:
-
-```bash
-$ /usr/sbin/usermod -a -G dataman www-data
-$ mkdir /home/dataman/env/.python-eggs
-$ chown dataman:www-data /home/dataman/env/.python-eggs
-$ chmod 775 /home/dataman/env/.python-eggs
-$ chown -R www-data:www-data /etc/apache2/sites-available/
 ```

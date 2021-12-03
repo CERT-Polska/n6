@@ -1,11 +1,25 @@
 # Changelog
 
-Starting with the 3.0.0 release, all notable changes applied to the
+Starting with the 3.0.0 release, all notable changes to the
 [code of _n6_](https://github.com/CERT-Polska/n6) are continuously
 documented here.
 
-The format of this file is based, to much extent, on
+The format of this document is based, to much extent, on
 [Keep a Changelog](https://keepachangelog.com/).
+
+
+## [3.0.1] - 2021-12-03
+
+### Changes and Fixes
+
+- [docs] A bunch of fixes and improvements regarding the documentation,
+  including major changes to its structure, layout and styling.
+
+- [setup] In `do_setup.py`, regarding the default value of the option
+  `--additional-packages` under Python 3: the version of the `mkdocs` tool
+  has been pinned (`1.2.3`), and the `mkdocs-material` library (providing
+  the `material` docs theme) has been added (and its version is also
+  pinned: `8.0.3`).
 
 
 ## [3.0.0] - 2021-12-01
@@ -42,4 +56,5 @@ be able to rid of `N6Core` and `N6CoreLib`).  There are also
 `N6SDK-py2` (needed only as dependencies of `N6Core`/`N6CoreLib`).
 
 
+[3.0.1]: https://github.com/CERT-Polska/n6/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/CERT-Polska/n6/compare/v2.0.6a2-dev1...v3.0.0
