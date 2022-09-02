@@ -7,7 +7,7 @@ documented here.
 The format of this document is based, to much extent, on
 [Keep a Changelog](https://keepachangelog.com/).
 
-## [3.12.0-beta1] - 2022-08-30
+## [3.12.0-beta2] - 2022-08-30
 
 [TBD...]
 
@@ -58,6 +58,6 @@ be able to rid of `N6Core` and `N6CoreLib`). There are also
 _Python-2-only_ variants of `N6Lib` and `N6SDK`: `N6Lib-py2` and
 `N6SDK-py2` (needed only as dependencies of `N6Core`/`N6CoreLib`).
 
-[3.12.0-beta1]: https://github.com/CERT-Polska/n6/compare/v3.0.1...v3.12.0b1
+[3.12.0-beta2]: https://github.com/CERT-Polska/n6/compare/v3.0.1...v3.12.0b2
 [3.0.1]: https://github.com/CERT-Polska/n6/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/CERT-Polska/n6/compare/v2.0.6a2-dev1...v3.0.0

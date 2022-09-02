@@ -639,12 +639,12 @@ class TestComparator(TestCaseMixin, unittest.TestCase):
                 {
                     'cc': 'XX',
                     'ip': '2.2.2.2',
-                    'asn': 1234,,
+                    'asn': 1234,
                 },
                 {
                     'cc': 'XX',
                     'ip': '22.22.22.22',
-                    'asn': 1234,,
+                    'asn': 1234,
                 }
             ],
             'id': '929c840e0dec26e26410aeeac418067d',
