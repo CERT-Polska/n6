@@ -1,10 +1,15 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import threading
 import functools
 from collections.abc import (
+    Callable,
     Sequence,
     Set,
+)
+from typing import (
+    Any,
+    TypeVar,
 )
 
 
@@ -173,7 +178,10 @@ def singleton(cls):
     return cls
 
 
-def attr_required(*attr_names, dummy_placeholder=None):
+_Func = TypeVar('_Func', bound=Callable)
+
+def attr_required(*attr_names: str,
+                  dummy_placeholder: Any = None) -> Callable[[_Func], _Func]:
     """
     A method decorator: provides a check for presence of specified attributes.
 
@@ -280,11 +288,11 @@ def attr_required(*attr_names, dummy_placeholder=None):
     return decorator
 
 
-def is_seq(obj):
+def is_seq(obj: Any) -> bool:
     """Is a sequence but *not* a :class:`str`, :class:`bytes` or :class:`bytearray`?"""
     return isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray))
 
 
-def is_seq_or_set(obj):
+def is_seq_or_set(obj: Any) -> bool:
     """Is a set or sequence but *not* a :class:`str`, :class:`bytes` or :class:`bytearray`?"""
     return isinstance(obj, (Sequence, Set)) and not isinstance(obj, (str, bytes, bytearray))

@@ -1,9 +1,9 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as NoResourcesIcon } from 'images/no-resources.svg';
 
 const IncidentsNoResources: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   return (
     <div className="d-flex flex-column flex-grow-1 content-wrapper align-items-center justify-content-center">
       <NoResourcesIcon className="incidents-no-resources-image" />

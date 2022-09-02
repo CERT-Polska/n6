@@ -43,7 +43,6 @@ from n6lib.auth_db.config import SQLAuthDBConfigMixin
 
 __all__ = [
     'LdapAPIConnectionError',
-    'LdapAPIReplacementWrongOrgUserAPIKeyIdError',
     'LdapAPI',
     'get_node',
     'get_value_list',
@@ -81,10 +80,6 @@ _N6ORG_ID_OFFICIAL_ATTR_REGEX = re.compile(
 
 class LdapAPIConnectionError(RuntimeError):
     """Raised on auth db connection failure."""
-
-
-class LdapAPIReplacementWrongOrgUserAPIKeyIdError(RuntimeError):
-    """Raised when the given credentials are not valid."""
 
 
 class LdapAPI(SQLAuthDBConfigMixin):
@@ -126,18 +121,9 @@ class LdapAPI(SQLAuthDBConfigMixin):
         finally:
             self._rlock.release()
 
-    def authenticate_with_api_key_id(self, org_id, user_id, api_key_id):
-        with self:
-            try:
-                user = self._db_session.query(User).filter(
-                        User.is_blocked.is_(sqla_text('FALSE')),
-                        User.login == user_id,
-                        User.org_id == org_id,
-                        User.api_key_id == api_key_id).one()
-            except NoResultFound:
-                user = None
-            if user is None:
-                raise LdapAPIReplacementWrongOrgUserAPIKeyIdError(org_id, user_id, api_key_id)
+    # [...]
+    # Note: this is a legacy Py2 version of Ldap API replacement;
+    # the API-key-auth-related stuff has been removed from here.
 
     def search_structured(self):
         """

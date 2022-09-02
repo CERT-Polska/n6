@@ -1,8 +1,8 @@
 import { FC } from 'react';
 import { OverlayTrigger, Popover } from 'react-bootstrap';
-import { useIntl } from 'react-intl';
 import { Placement } from 'react-bootstrap/esm/Overlay';
 import classNames from 'classnames';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as QuestionMark } from 'images/question_mark.svg';
 
 interface IProps {
@@ -13,7 +13,7 @@ interface IProps {
 }
 
 const Tooltip: FC<IProps> = ({ content, placement = 'auto', id, className }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   if (!content) return null;
 

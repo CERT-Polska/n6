@@ -33,8 +33,6 @@ RUN \
         libxml2-dev \
         libxslt1-dev \
         libyajl2 \
-        nodejs \
-        npm \
         python2.7 \
         python2.7-dev \
         python3 \
@@ -55,6 +53,8 @@ RUN \
         libreadline-dev \
         libsqlite3-dev \
         libbz2-dev && \
+    curl -fsSL https://deb.nodesource.com/setup_14.x | bash -; \
+    apt-get install -y nodejs; \
     npm install -g npm@latest && \
     npm install node-sass && \
     bash -c "echo 'ServerName localhost' >> /etc/apache2/apache2.conf"; \
@@ -133,21 +133,14 @@ RUN set -ex; \
         timeout_decorator \
         puka \
         pycurl \
-        pylint==1.9.2 \
-        pylint-exit \
         pyrabbit \
         unittest_expander==0.3.1 \
         unittest-xml-reporting==2.5.2; \
-    # install portal js dependencies
-    cd /home/dataman/n6/N6Portal/gui \
-        && npm set progress=false \
-        && npm config set depth 0 \
-        && npm install \
-        && tar -zcf ~/node_modules.tar.gz node_modules \
-        && rm -rf node_modules; \
     # entrypoint
     cp ~/n6/docker/base/entrypoint.sh ~/; \
-    chmod a+x /home/dataman/entrypoint.sh;
+    cp ~/n6/docker/base/entrypoint_py2.sh ~/; \
+    chmod a+x /home/dataman/entrypoint.sh; \
+    chmod a+x /home/dataman/entrypoint_py2.sh;
 
 RUN \
     # create virtualenv (n6)
@@ -159,8 +152,8 @@ RUN \
     # install tools for n6 tests
     pip install --no-cache-dir \
         unittest_expander==0.3.1 \
-        pytest==4.6.11 \
-        pytest-cov==2.12.1 \
+        pytest==7.1.2 \
+        pytest-cov==3.0.0 \
         coverage
 
 RUN rm -rf /home/dataman/n6

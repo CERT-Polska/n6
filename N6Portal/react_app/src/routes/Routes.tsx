@@ -15,6 +15,7 @@ const NoAccess = AsyncLoader(() => import('components/pages/noAccess/NoAccess'))
 const NotFound = AsyncLoader(() => import('components/pages/notFound/NotFound'));
 const Organization = AsyncLoader(() => import('components/pages/organization/Organization'));
 const SignUp = AsyncLoader(() => import('components/pages/signUp/SignUp'));
+const KnowledgeBase = AsyncLoader(() => import('components/pages/knowledgeBase/KnowledgeBase'));
 
 export const publicRoutes: IRouteElem[] = [
   { path: routeList.login, component: <Login /> },
@@ -54,5 +55,11 @@ export const privateRoutes: IPrivateRouteElem[] = [
     path: routeList.organization,
     component: <Organization />,
     redirectPath: routeList.noAccess
+  },
+  {
+    path: routeList.knowledgeBase,
+    component: <KnowledgeBase />,
+    redirectPath: routeList.noAccess,
+    exact: false
   }
 ];

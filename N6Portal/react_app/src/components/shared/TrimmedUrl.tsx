@@ -1,6 +1,6 @@
 import { FC, useState } from 'react';
 import { OverlayTrigger, Tooltip } from 'react-bootstrap';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { copyTextToClipboard } from 'utils/copyTextToClipboard';
 import { trimUrl } from 'utils/trimUrl';
 
@@ -12,7 +12,7 @@ interface IProps {
 
 const TrimmedUrl: FC<IProps> = ({ value, trimmedLength, id }) => {
   const [showTooltip, setShowTooltip] = useState(false);
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   const displayClipboardNotification = () => {
     setShowTooltip(true);

@@ -1,7 +1,7 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2014-2022 NASK. All rights reserved.
 
 """
-Collectors: abuse-ch.feodotracker (TODO: other `abuse-ch` collectors...).
+Collectors: `abuse-ch.feodotracker` (TODO: other `abuse-ch` collectors...).
 """
 
 from n6datasources.collectors.base import (
@@ -18,14 +18,8 @@ LOGGER = get_logger(__name__)
 
 class _BaseAbuseChDownloadingTimeOrderedRowsCollector(BaseDownloadingTimeOrderedRowsCollector):
 
-    pickle_protocol = 2  # (for interoperability with the Py2 version)
-
     row_time_legacy_state_key = None
     time_field_index = None
-
-    @property
-    def source_config_section(self):
-        return 'abusech_{}'.format(self.get_source_channel().replace('-', '_'))
 
     def load_state(self):
         state = super().load_state()
@@ -37,6 +31,7 @@ class _BaseAbuseChDownloadingTimeOrderedRowsCollector(BaseDownloadingTimeOrdered
                 # time value) will be duplicated, but we can live with that
                 self._NEWEST_ROW_TIME_STATE_KEY: row_time,
                 self._NEWEST_ROWS_STATE_KEY: set(),
+                self._ROWS_COUNT_KEY: None,
             }
         return state
 
@@ -56,17 +51,15 @@ class AbuseChFeodoTrackerCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollect
 
     time_field_index = 0
 
-    def get_source_channel(self, **processed_data):
-        return 'feodotracker'
-
-    def all_rows_from_orig_data(self, orig_data):
-        all_rows = super().all_rows_from_orig_data(orig_data)
-        return reversed(all_rows)
+    def get_source(self, **processed_data):
+        return 'abuse-ch.feodotracker'
 
     def should_row_be_used(self, row):
-        if not row.strip() or row.startswith('#'):
+        if not super().should_row_be_used(row):
             return False
         try:
+            # FIXME: remove code duplication (almost the same operations
+            #        are in `pick_raw_row_time()` and `clean_row_time()`)
             raw_row_time = extract_field_from_csv_row(row, column_index=self.time_field_index)
             self.normalize_row_time(raw_row_time)
             return True

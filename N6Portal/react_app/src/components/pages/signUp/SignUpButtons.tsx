@@ -1,6 +1,6 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
 import { useHistory } from 'react-router-dom';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import CustomButton from 'components/shared/CustomButton';
 import routelist from 'routes/routeList';
 
@@ -9,7 +9,7 @@ interface IProps {
   isSubmitting?: boolean;
 }
 const SignUpButtons: FC<IProps> = ({ submitText, isSubmitting }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const history = useHistory();
 
   const onCancelClick = () => {

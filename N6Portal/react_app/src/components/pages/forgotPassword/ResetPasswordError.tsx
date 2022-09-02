@@ -1,12 +1,12 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
 import { useHistory } from 'react-router-dom';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import CustomButton from 'components/shared/CustomButton';
 import useForgotPasswordContext from 'context/ForgotPasswordContext';
 import { ReactComponent as ErrorIcon } from 'images/error.svg';
 
 const ResetPasswordError: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { resetForgotPasswordState } = useForgotPasswordContext();
   const history = useHistory();
 

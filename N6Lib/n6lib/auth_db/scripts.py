@@ -13,7 +13,7 @@ import sqlalchemy
 import sqlalchemy.exc
 import sqlalchemy.orm
 from alembic import command
-from alembic.config import Config
+from alembic.config import Config as AlembicConfig
 from pkg_resources import (
     Requirement,
     resource_filename,
@@ -390,7 +390,7 @@ class CreateAndInitializeAuthDB(DropDatabaseIfExistsMixin, BaseAuthDBScript):
                 self._prepare_alembic_db_configurator_settings_dict_raw()), \
              self.changed_working_dir(osp.dirname(alembic_ini_path)), \
              self.suppressed_stderr(suppress_only_if_quiet=True):
-            alembic_cfg = Config(alembic_ini_path)
+            alembic_cfg = AlembicConfig(alembic_ini_path)
             command.stamp(alembic_cfg, revision)
 
     def _prepare_alembic_db_configurator_settings_dict_raw(self):

@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import hashlib
 import json
 import unittest
 
-from mock import (
+from mock import (                                                               #3: ->unittest.mock...
     ANY,
     Mock,
     MagicMock,
@@ -36,10 +36,10 @@ from n6lib.record_dict import (
 )
 from n6lib.unit_test_helpers import (
     MethodProxy,
-    patch_always,
+    patch_always,                                                                #3--
 )
-from n6.base.queue import QueuedBase
-from n6.parsers.generic import (
+from n6.base.queue import QueuedBase                                             #3: n6.base.queue->n6datapipeline.base, QueuedBase->LegacyQueuedBase
+from n6.parsers.generic import (                                                 #3: **everywhere** n6.parsers.generic -> n6datasources.parsers.base
     MAX_IPS_IN_ADDRESS,
     BaseParser,
     AggregatedEventParser,
@@ -48,14 +48,14 @@ from n6.parsers.generic import (
 
 
 @expand
-class TestBaseParser(unittest.TestCase):
-
+class TestBaseParser(unittest.TestCase):                                         #3: adjust ad types, especially of string-like stuff, and ad interface/internals differences...
+                                                                                 #                            (including the set and features of tested attributes/methods/etc.)
     def setUp(self):
         self.mock = Mock(__class__=BaseParser, allow_empty_results=False)
         self.meth = MethodProxy(BaseParser, self.mock)
 
     def _asserts_of_proper__new__instance_adjustment(self, instance):
-        # BaseQueued.__new__() ensures that
+        # QueuedBase.__new__() ensures that
         self.assertIsNot(instance.input_queue, BaseParser.input_queue)
 
     def _asserts_of_proper_preinit_hook_instance_adjustment(self, instance,
@@ -92,7 +92,7 @@ class TestBaseParser(unittest.TestCase):
         self.assertIsInstance(instance.config_full, Config)
 
     def test_basics(self):
-        self.assertTrue(issubclass(BaseParser, QueuedBase))
+        self.assertTrue(issubclass(BaseParser, QueuedBase))                      #3: QueuedBase->LegacyQueuedBase
         self.assertTrue(hasattr(BaseParser, 'default_binding_key'))
         self.assertTrue(hasattr(BaseParser, 'config_spec_pattern'))
         self.assertTrue(hasattr(BaseParser, 'constant_items'))
@@ -196,7 +196,7 @@ class TestBaseParser(unittest.TestCase):
         self._asserts_of_proper_preinit_hook_instance_adjustment(unready_instance, binding_key)
 
         super_cls_mock = PlainNamespace(__init__=Mock())
-        with patch_always('n6.parsers.generic.super',
+        with patch_always('n6.parsers.generic.super',                            #3: `patch_always`->`patch`...
                           return_value=super_cls_mock) as super_mock, \
              patch('n6.parsers.generic.Config._load_n6_config_files',
                    return_value=mocked_conf_from_files):
@@ -213,7 +213,7 @@ class TestBaseParser(unittest.TestCase):
                 expected_config_full)
 
     # TODO: full process of the pipeline configuration should
-    # be tested
+    #       be tested
     def test__make_binding_keys(self):
         self.mock.default_binding_key = 'fooo.barr'
         self.mock.input_queue = {}
@@ -426,9 +426,9 @@ class TestBaseParser(unittest.TestCase):
 
     def test__delete_too_long_address__address_is_ok(self):
         parsed = RecordDict()
-        parsed['address'] = [{'ip': i+1} for i in xrange(MAX_IPS_IN_ADDRESS)]
+        parsed['address'] = [{'ip': i+1} for i in range(MAX_IPS_IN_ADDRESS)]
         expected = RecordDict()
-        expected['address'] = [{'ip': i+1} for i in xrange(MAX_IPS_IN_ADDRESS)]
+        expected['address'] = [{'ip': i+1} for i in range(MAX_IPS_IN_ADDRESS)]
         self.meth.delete_too_long_address(parsed)
         self.assertEqual(parsed, expected)
 
@@ -436,7 +436,7 @@ class TestBaseParser(unittest.TestCase):
         ips = MAX_IPS_IN_ADDRESS + 1
         parsed = RecordDict()
         parsed['id'] = '0123456789abcdef0123456789abcdef'
-        parsed['address'] = [{'ip': i+1} for i in xrange(ips)]
+        parsed['address'] = [{'ip': i+1} for i in range(ips)]
         expected = RecordDict()
         expected['id'] = '0123456789abcdef0123456789abcdef'
         self.meth.delete_too_long_address(parsed)
@@ -451,7 +451,7 @@ class TestBaseParser(unittest.TestCase):
         self.assertEqual(parsed, expected)
 
     def test__get_output_message_id(self):
-        inputs_and_resultant_hash_bases = [
+        inputs_and_resultant_hash_bases = [                                                          #3: adjust these examples (carefully)...
             # basics
             (
                 {'source': 'foo.bar'},
@@ -468,22 +468,22 @@ class TestBaseParser(unittest.TestCase):
             ),
             # ...and of keys + proper encoding of unicode keys/values
             (
-                {u'key2': [u'value3', u'value1', u'value2'], u'key1': 2L},
+                {u'key2': [u'value3', u'value1', u'value2'], u'key1': 2L},                           #3: `2L` -> `2`
                 'key1,2\nkey2,value1,value2,value3'
             ),
-            # ...as well as proper int/long normalization/representation
+            # ...as well as proper int/long normalization/representation                             #3: adjust comment (and/or more deeply this case?)
             (
-                {u'key2': [30, 10, 20L], u'key1': 9000111222333444555666777888999000L},
+                {u'key2': [30, 10, 20L], u'key1': 9000111222333444555666777888999000L},              #3: `20L`->`20`, `<digits>000L`->`<digits>000`
                 'key1,9000111222333444555666777888999000\nkey2,10,20,30'
             ),
-            # non-ascii values
+            # non-ascii values (and even lone surrogates)
             (
-                {'target': 'zażółć', u'client': [u'jaźń', u'gęślą']},
-                'client,gęślą,jaźń\ntarget,zażółć'
+                {'target': 'zażółć', u'client': [u'jaźń', u'gęślą'], 'key1': '\xed\xb3\x9d'},
+                'client,gęślą,jaźń\nkey1,\xed\xb3\x9d\ntarget,zażółć'
             ),
             (
-                {u'target': u'zażółć', 'client': ['jaźń', 'gęślą']},
-                'client,gęślą,jaźń\ntarget,zażółć'
+                {u'target': u'zażółć', 'client': ['jaźń', 'gęślą'], 'key1': u'\udcdd'},
+                'client,gęślą,jaźń\nkey1,\xed\xb3\x9d\ntarget,zażółć'
             ),
             # subdicts
             (
@@ -498,29 +498,93 @@ class TestBaseParser(unittest.TestCase):
             ),
             # proper encoding of unicode keys/values + proper sorting of whole subdicts
             (
-                {'key1': {u'ką': u'vą'}, 'key2': [{u'ką2': 'vą2'}, {'ką1': u'vą1'}]},
+                {
+                    'key1': {u'ką': u'vą'},
+                    'key2': [{u'ką2': u'vą2'}, {u'ką1': u'vą1'}],
+                },
                 "key1,{'k\\xc4\\x85': 'v\\xc4\\x85'}\n" +
                 "key2,{'k\\xc4\\x851': 'v\\xc4\\x851'},{'k\\xc4\\x852': 'v\\xc4\\x852'}"
             ),
-            # ...as well as proper int/long normalization/representation
             (
-                {'key1': {u'k': 2L}, 'key2': [{'k2': 2L}, {u'k1': 1}]},
-                "key1,{'k': 2}\nkey2,{'k1': 1},{'k2': 2}"
+                {
+                    'key1': {u'ką': u'vą'},
+                    'key2': [{u'ką2': b'v\xc4\x852'}, {b'k\xc4\x851': u'vą1'}],
+                },
+                "key1,{'k\\xc4\\x85': 'v\\xc4\\x85'}\n" +
+                "key2,{'k\\xc4\\x851': 'v\\xc4\\x851'},{'k\\xc4\\x852': 'v\\xc4\\x852'}"
             ),
             (
-                {u'key2': [{'k2': 2}, {'k1': 1}], 'key1': {'k': 3}},
-                "key1,{'k': 3}\nkey2,{'k1': 1},{'k2': 2}"
+                {
+                    'key1': {'ką': 'vą'},
+                    'key2': [{'ką2': b'v\xc4\x852'}, {'ką1': 'vą1'}],
+                },
+                "key1,{'k\\xc4\\x85': 'v\\xc4\\x85'}\n" +
+                "key2,{'k\\xc4\\x851': 'v\\xc4\\x851'},{'k\\xc4\\x852': 'v\\xc4\\x852'}"
             ),
             (
-                {u'key2': [{'k2': 2L}, {'k1': 1L}], 'key1': {'k': 9000111222333444555666777888999000L}},
-                "key1,{'k': 9000111222333444555666777888999000}\nkey2,{'k1': 1},{'k2': 2}"
+                {
+                    'key1': {'ką': b'v\xc4\x85'},
+                    'key2': [{'ką2': b'v\xc4\x852'}, {b'k\xc4\x851': 'vą1'}],
+                },
+                "key1,{'k\\xc4\\x85': 'v\\xc4\\x85'}\n" +
+                "key2,{'k\\xc4\\x851': 'v\\xc4\\x851'},{'k\\xc4\\x852': 'v\\xc4\\x852'}"
+            ),
+            (
+                {
+                    'key1': {b'k\xc4\x85': 'vą'},
+                    'key2': [{b'k\xc4\x852': b'v\xc4\x852'}, {'ką1': 'vą1'}],
+                },
+                "key1,{'k\\xc4\\x85': 'v\\xc4\\x85'}\n" +
+                "key2,{'k\\xc4\\x851': 'v\\xc4\\x851'},{'k\\xc4\\x852': 'v\\xc4\\x852'}"
+            ),
+            (
+                {
+                    'key1': {b'k\xc4\x85': b'v\xc4\x85'},
+                    'key2': [{b'k\xc4\x852': b'v\xc4\x852'}, {b'k\xc4\x851': 'vą1'}],
+                },
+                "key1,{'k\\xc4\\x85': 'v\\xc4\\x85'}\n" +
+                "key2,{'k\\xc4\\x851': 'v\\xc4\\x851'},{'k\\xc4\\x852': 'v\\xc4\\x852'}"
+            ),
+            # ...as well as proper int/long normalization/representation                             #3: adjust comment (and/or more deeply this case?)
+            (
+                {'key1': {u'k': 2L}, 'key2': [{'k2': 2L}, {u'k1': -1}]},                             #3: `2L`->`2` x 2
+                "key1,{'k': 2}\nkey2,{'k1': -1},{'k2': 2}"
+            ),
+            (
+                {u'key2': [{'k2': 2}, {'k1': 1}], 'key1': {'k': -3}},
+                "key1,{'k': -3}\nkey2,{'k1': 1},{'k2': 2}"
+            ),
+            (
+                {u'key2': [{'k2': 0L}, {'k1': 1L}], 'key1': {'k': 9000111222333444555666777888999000L}},   #3: `<digits>L` -> `<digits>` x 3
+                "key1,{'k': 9000111222333444555666777888999000}\nkey2,{'k1': 1},{'k2': 0}"
             ),
             # proper sorting of multiple items in subdicts
             (
-                {'key1': {'c': 2, u'a': 3L, u'b': 1L},
-                 'key2': [{'c': 2, u'a': 3L, u'b': 1L}, {'d': 3, u'a': 2L, u'b': 1L}]},
+                {'key1': {'c': 2, u'a': 3L, u'b': 1L},                                               #3: `<digits>L` -> `<digits>` x 2
+                 'key2': [{'c': 2, u'a': 3L, u'b': 1L}, {'d': 3, u'a': 2L, u'b': 1L}]},              #3: `<digits>L` -> `<digits>` x 4
                 "key1,{'a': 3, 'b': 1, 'c': 2}\n" +
                 "key2,{'a': 2, 'b': 1, 'd': 3},{'a': 3, 'b': 1, 'c': 2}"
+            ),
+            # ...and proper escaping (and sorting)
+            (
+                {
+                    'key2': [
+                        {b'\'"': u'\'"', b'\\': u'\\', b'"\'': u'"\'', b'\x00': u'\n', b'"': u'"', b'\'': u'\''},      # noqa
+                        {u'\\': b'\\', u'"': b'"', u'\'': b'\'', u'\x00': b'\n', u'\'"': b'\'"', u'"\'': b'"\''},      # noqa
+                        {b'\r': u'\x01', b'"\'': u'"\'', u'"': b'"', b'\'': u'\'', u'\'"': b'\'"', u'\\': b'\\'},      # noqa
+                        {b'"': u'"', u'\r': b'\x01', u'\'': b'\'', b'\\': u'\\', b'\'"': u'\'"', u'"\'': b'"\''},      # noqa
+                        {u'\'': b'\'', b'\'"': u'\'"', u'"\'': b'"\'', u'"': b'"', b'\r': u'\x01', u'\\': b'\\'},      # noqa
+                    ],
+                    'key1': {b'"': u'"', b'\'': u'\'', b'\'"': u'\'"', b'"\'': u'"\'', b'\\': u'\\', b'\x00': u'\n'},  # noqa
+                },
+                b"key1,"
+                b"{\"'\": \"'\", '\"': '\"', '\"\\'': '\"\\'', '\\'\"': '\\'\"', '\\\\': '\\\\', '\\x00': '\\n'}\n"    # noqa
+                b"key2,"
+                b"{\"'\": \"'\", '\"': '\"', '\"\\'': '\"\\'', '\\'\"': '\\'\"', '\\\\': '\\\\', '\\r': '\\x01'},"     # noqa
+                b"{\"'\": \"'\", '\"': '\"', '\"\\'': '\"\\'', '\\'\"': '\\'\"', '\\\\': '\\\\', '\\r': '\\x01'},"     # noqa
+                b"{\"'\": \"'\", '\"': '\"', '\"\\'': '\"\\'', '\\'\"': '\\'\"', '\\\\': '\\\\', '\\r': '\\x01'},"     # noqa
+                b"{\"'\": \"'\", '\"': '\"', '\"\\'': '\"\\'', '\\'\"': '\\'\"', '\\\\': '\\\\', '\\x00': '\\n'},"     # noqa
+                b"{\"'\": \"'\", '\"': '\"', '\"\\'': '\"\\'', '\\'\"': '\\'\"', '\\\\': '\\\\', '\\x00': '\\n'}"      # noqa
             ),
         ]
         class _RecordDict(RecordDict):
@@ -529,7 +593,7 @@ class TestBaseParser(unittest.TestCase):
         parser = BaseParser.__new__(BaseParser)
         for input_dict, expected_base in inputs_and_resultant_hash_bases:
             record_dict = _RecordDict(input_dict)
-            expected_result = hashlib.md5(expected_base).hexdigest()
+            expected_result = hashlib.md5(expected_base).hexdigest()              #3: usedforsecurity=False..., adjust ad string types...
             result = parser.get_output_message_id(record_dict)
             self.assertIsInstance(result, str)
             self.assertEqual(result, expected_result)
@@ -611,8 +675,8 @@ class TestBaseParser(unittest.TestCase):
     # ...
 
 
-class Test__get_output_bodies__results_for_concrete_parsers(unittest.TestCase):
-
+class Test__get_output_bodies__results_for_concrete_parsers(unittest.TestCase):  #3: adjust ad types, especially of string-like stuff, and ad interface/internals differences...
+                                                                                 #                            (including the set and features of tested attributes/methods/etc.)
     def setUp(self):
         class MyError(Exception):
             pass
@@ -669,7 +733,7 @@ class Test__get_output_bodies__results_for_concrete_parsers(unittest.TestCase):
                        for body in seq_mock._list]
         for d in output_data:
             # check that d['id'] looks like an md5 hash...
-            self.assertIsInstance(d.get('id'), basestring)
+            self.assertIsInstance(d.get('id'), basestring)                       #3: basestring -> str
             self.assertEqual(len(d['id']), 32)
             self.assertTrue(set('0123456789abcdef').issuperset(d['id']))
             # ...then omit d['id'] for simplicity of the test
@@ -692,8 +756,8 @@ class Test__get_output_bodies__results_for_concrete_parsers(unittest.TestCase):
         with self.assertRaises(error_cls) as cm:
             parser.get_output_bodies(data, FilePagedSequence._instance_mock())
         if required_error_attrs is not None:
-            self.assertTrue(vars(cm.exception).viewitems() >=
-                            required_error_attrs.viewitems())
+            self.assertTrue(vars(cm.exception).viewitems() >=                    #3: `viewitems`->`items`
+                            required_error_attrs.viewitems())                    #3: `viewitems`->`items`
 
     # BaseParser subclasses
 
@@ -913,4 +977,4 @@ class Test__get_output_bodies__results_for_concrete_parsers(unittest.TestCase):
 
 ## TODO:
 # * more BaseParser tests
-# * TabDataParser and BlackListTabDataParser tests
+# * TabDataParser and BlackListTabDataParser tests                                                   #3--

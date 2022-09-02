@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2022 NASK. All rights reserved.
 
 import datetime
 import string
@@ -565,7 +565,7 @@ class _PassEncryptMixin(object):
 
     @staticmethod
     def get_password_hash_or_none(password):
-        return bcrypt.encrypt(password) if password else None
+        return bcrypt.hash(password) if password else None
 
     # noinspection PyUnresolvedReferences
     def verify_password(self, password):

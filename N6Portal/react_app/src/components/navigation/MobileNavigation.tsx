@@ -1,20 +1,23 @@
 import { FC, useState } from 'react';
-import { useIntl } from 'react-intl';
 import { Link, useLocation } from 'react-router-dom';
 import Dropdown from 'react-bootstrap/esm/Dropdown';
 import classNames from 'classnames';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import routeList from 'routes/routeList';
 import { ReactComponent as Chevron } from 'images/chevron.svg';
+import useAuthContext from 'context/AuthContext';
 
 const MobileNavigation: FC = () => {
-  const { messages } = useIntl();
+  const { knowledgeBaseEnabled } = useAuthContext();
+  const { messages } = useTypedIntl();
   const { pathname } = useLocation();
   const [isOpen, setIsOpen] = useState(false);
 
   const dropdownHeaders = {
     [routeList.organization]: messages.header_nav_organization,
     [routeList.incidents]: messages.header_nav_incidents,
-    [routeList.account]: messages.header_nav_organization
+    [routeList.account]: messages.header_nav_organization,
+    [routeList.knowledgeBase]: messages.header_nav_knowledge_base
   };
 
   return (
@@ -38,6 +41,14 @@ const MobileNavigation: FC = () => {
         <Dropdown.Item as={Link} to={routeList.incidents} className="p-3">
           {messages.header_nav_incidents}
         </Dropdown.Item>
+        {knowledgeBaseEnabled && (
+          <>
+            <Dropdown.Divider className="m-0" />
+            <Dropdown.Item as={Link} to={routeList.knowledgeBase} className="p-3">
+              {messages.header_nav_knowledge_base}
+            </Dropdown.Item>
+          </>
+        )}
       </Dropdown.Menu>
     </Dropdown>
   );

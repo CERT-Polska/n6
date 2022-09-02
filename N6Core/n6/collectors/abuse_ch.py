@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2014-2022 NASK. All rights reserved.
 
 """
 Collectors: abuse-ch.spyeye-doms, abuse-ch.spyeye-ips,
@@ -408,6 +408,7 @@ class _BaseAbuseChDownloadingTimeOrderedRowsCollector(BaseDownloadingTimeOrdered
                 # time value) will be duplicated, but we can live with that
                 self._NEWEST_ROW_TIME_STATE_KEY: row_time,
                 self._NEWEST_ROWS_STATE_KEY: set(),
+                self._ROWS_COUNT_KEY: None,
             }
         return state
 
@@ -439,14 +440,16 @@ class AbuseChFeodoTrackerCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollect
     def get_source_channel(self, **processed_data):
         return 'feodotracker'
 
-    def split_orig_data_into_rows(self, orig_data):
-        return reversed(orig_data.split('\n'))
-
     def should_row_be_used(self, row):
-        if not row.strip() or row.startswith('#'):
+        if not super(AbuseChFeodoTrackerCollector, self).should_row_be_used(row):
             return False
         try:
-            self.normalize_row_time(extract_field_from_csv_row(row, column_index=self.time_field_index))
+            #FIXME: remove code duplication (almost the same operations
+            # are in `pick_raw_row_time()` and `clean_row_time()`)
+            time_field = extract_field_from_csv_row(
+                row,
+                column_index=self.time_field_index)
+            self.normalize_row_time(time_field)
             return True
         except ValueError:
             return False
@@ -483,8 +486,6 @@ class AbuseChUrlhausUrlsCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollecto
     def get_source_channel(self, **processed_data):
         return 'urlhaus-urls'
 
-    # note that since Apr 2020 AbuseCh changed input format for this
-    # source - now it is .zip file with .txt inside
     def obtain_orig_data(self):
         data = self.download(self.config['url'])
         [(_, all_rows)] = iter_unzip_from_bytes(data, filenames=[self.CSV_FILENAME])
@@ -542,7 +543,7 @@ class AbuseChUrlhausPayloadsUrlsCollector(_BaseAbuseChDownloadingTimeOrderedRows
 
     def clean_row_time(self, raw_row_time):
         try:
-            return self.normalize_row_time(raw_row_time)
+            return super(AbuseChUrlhausPayloadsUrlsCollector, self).clean_row_time(raw_row_time)
         except ValueError:
             return None
 

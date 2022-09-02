@@ -18,6 +18,7 @@ export type FormContextProps = Pick<
   disabled?: boolean;
   error?: FieldError;
   label?: string;
+  placeholder?: string;
   showResetButton?: boolean;
 };
 
@@ -34,6 +35,7 @@ export const compareFieldState = <P>(
   prevProps.error?.message === nextProps.error?.message &&
   prevProps.disabled === nextProps.disabled &&
   prevProps.options === nextProps.options &&
+  prevProps.placeholder === nextProps.placeholder &&
   prevProps.label === nextProps.label;
 
 export const compareWatchedValue = <P>(

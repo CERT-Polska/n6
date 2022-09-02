@@ -1,7 +1,7 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2014-2021 NASK. All rights reserved.
 
 """
-Parsers: abuse-ch.feodotracker.202110 (TODO: other `abuse-ch` parsers...).
+Parsers: `abuse-ch.feodotracker.202110` (TODO: other `abuse-ch` parsers...).
 """
 
 import csv

@@ -1,6 +1,6 @@
 import { FC } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import routeList from 'routes/routeList';
 import useMatchMediaContext from 'context/MatchMediaContext';
 import Logo from 'images/logo_n6.svg';
@@ -10,8 +10,8 @@ import useAuthContext from 'context/AuthContext';
 
 const Header: FC = () => {
   const { isLg, isXl } = useMatchMediaContext();
-  const { availableResources, isAuthenticated } = useAuthContext();
-  const { messages } = useIntl();
+  const { availableResources, isAuthenticated, knowledgeBaseEnabled } = useAuthContext();
+  const { messages } = useTypedIntl();
   const { pathname } = useLocation();
   const pathsWithHeader = [
     routeList.organization,
@@ -23,7 +23,8 @@ const Header: FC = () => {
   ];
   const hasInsideAccess = availableResources.includes('/report/inside');
 
-  if (!pathsWithHeader.includes(pathname) || !isAuthenticated) return null;
+  const isKnowledgeBasePage = pathname.includes(routeList.knowledgeBase);
+  if ((!pathsWithHeader.includes(pathname) && !isKnowledgeBasePage) || !isAuthenticated) return null;
 
   return (
     <header className="page-header">
@@ -38,6 +39,13 @@ const Header: FC = () => {
                 {messages.header_nav_incidents}
               </NavLink>
             </li>
+            {knowledgeBaseEnabled && (
+              <li className="font-bigger font-weight-medium">
+                <NavLink to={routeList.knowledgeBase} className="header-link" activeClassName="active">
+                  {messages.header_nav_knowledge_base}
+                </NavLink>
+              </li>
+            )}
           </ul>
         )}
         {hasInsideAccess &&
@@ -53,6 +61,13 @@ const Header: FC = () => {
                   {messages.header_nav_incidents}
                 </NavLink>
               </li>
+              {knowledgeBaseEnabled && (
+                <li className="font-bigger font-weight-medium">
+                  <NavLink to={routeList.knowledgeBase} className="header-link" activeClassName="active">
+                    {messages.header_nav_knowledge_base}
+                  </NavLink>
+                </li>
+              )}
             </ul>
           ) : (
             <MobileNavigation />

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import collections
 import pickle
@@ -257,9 +257,9 @@ class AggregatorDataWrapper:
             LOGGER.debug('Checking source: %a', source)
             if source.last_event + datetime.timedelta(hours=SOURCE_INACTIVITY_TIMEOUT) < time_now:
                 LOGGER.debug('Source inactive. Generating suppressed events')
-                for type_, event in source.generate_suppressed_events_after_inactive():
-                    LOGGER.debug('%a: %a', type_, event)
-                    yield type_, event
+                for event_type, event in source.generate_suppressed_events_after_inactive():
+                    LOGGER.debug('%a: %a', event_type, event)
+                    yield event_type, event
 
 
 class Aggregator(ConfigMixin, LegacyQueuedBase):
@@ -293,15 +293,16 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
         except OSError:
             pass
         super(Aggregator, self).__init__(**kwargs)
-        # store dir doesn't exist, stop aggregator
+        # state dir doesn't exist
         if not os.path.isdir(dbpath_dirname):
-            raise Exception('store dir does not exist, stop aggregator, path:',
-                            self.aggregator_config['dbpath'])
-        # store directory exists, but it has no rights to write
+            raise Exception(f'stopping the aggregator - the state '
+                            f'directory does not exist; its path: '
+                            f'{self.aggregator_config["dbpath"]!a}')
+        # state directory exists, but we have no write access to it
         if not os.access(dbpath_dirname, os.W_OK):
-            raise Exception('stop aggregator, remember to set the rights'
-                            ' for user, which runs aggregator,  path:',
-                            self.aggregator_config['dbpath'])
+            raise Exception(f'stopping the aggregator - write access '
+                            f'to the state directory needed; its path: '
+                            f'{self.aggregator_config["dbpath"]!a}')
         self.db = AggregatorDataWrapper(self.aggregator_config['dbpath'],
                                         self.aggregator_config['time_tolerance'],
                                         self.aggregator_config['time_tolerance_per_source'])
@@ -320,9 +321,9 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
         Callback called periodically after given timeout.
         """
         LOGGER.debug('Tick passed')
-        for type_, event in self.db.generate_suppresed_events_after_timeout():
+        for event_type, event in self.db.generate_suppresed_events_after_timeout():
             if event is not None:
-                self.publish_event((type_, event))
+                self.publish_event((event_type, event))
         self.set_timeout()
 
     def process_event(self, data):
@@ -334,9 +335,9 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
         do_publish_new_message = self.db.process_new_message(data)
         if do_publish_new_message:
             self.publish_event(('event', data))
-        for type_, event in self.db.generate_suppresed_events_for_source(data):
+        for event_type, event in self.db.generate_suppresed_events_for_source(data):
             if event is not None:
-                self.publish_event((type_, event))
+                self.publish_event((event_type, event))
 
     # XXX: can be removed after resolving ticket #6324
     @staticmethod
@@ -347,21 +348,21 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
             cleaned_payload['count_actual'] = count
             cleaned_payload['count'] = count_max
 
-    def _get_cleaned_payload(self, type_, payload):
+    def _get_cleaned_payload(self, event_type, payload):
         cleaned_payload = payload.copy()
-        cleaned_payload['type'] = type_
+        cleaned_payload['type'] = event_type
         cleaned_payload.pop('_group', None)
         self._clean_count_related_stuff(cleaned_payload)
         return cleaned_payload
 
     def publish_event(self, data):
         """Publishes event to the output queue"""
-        type_, payload = data
-        if type_ is None:
+        event_type, payload = data
+        if event_type is None:
             return
-        cleaned_payload = self._get_cleaned_payload(type_, payload)
-        source, channel = cleaned_payload['source'].split('.')
-        rk = "{}.{}.{}.{}".format(type_, "aggregated", source, channel)
+        cleaned_payload = self._get_cleaned_payload(event_type, payload)
+        source_provider, source_channel = cleaned_payload['source'].split('.')
+        rk = f'{event_type}.aggregated.{source_provider}.{source_channel}'
         body = json.dumps(cleaned_payload)
         self.publish_output(routing_key=rk, body=body)
 
@@ -395,6 +396,7 @@ def main():
             a.run()
         except KeyboardInterrupt:
             a.stop()
+            raise
 
 
 if __name__ == '__main__':

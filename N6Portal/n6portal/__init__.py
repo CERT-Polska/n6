@@ -1,11 +1,8 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 # Ensure all monkey-patching provided by `n6lib`
 # and `n6sdk` is applied as early as possible.
 import n6lib  # noqa
-
-import os
-import sys
 
 from pyramid.authorization import ACLAuthorizationPolicy
 from pyramid.interfaces import IRouter
@@ -21,11 +18,13 @@ from n6lib.mail_notices_api import MailNoticesAPI
 from n6lib.pyramid_commons import (
     AuthTktUserAuthenticationPolicy,
     N6APIKeyView,
-    N6CertificateLoginView,
     N6ConfigHelper,
+    N6DailyEventsCountsView,
     N6DashboardView,
     N6InfoView,
-    N6LegacyLoginView,
+    N6KnowledgeBaseArticlesView,
+    N6KnowledgeBaseContentsView,
+    N6KnowledgeBaseSearchView,
     N6LimitedStreamView,
     N6LoginMFAView,
     N6LoginMFAConfigConfirmView,
@@ -33,6 +32,7 @@ from n6lib.pyramid_commons import (
     N6LogoutView,
     N6MFAConfigConfirmView,
     N6MFAConfigView,
+    N6NamesRankingView,
     N6OrgConfigView,
     N6PasswordForgottenView,
     N6PasswordResetView,
@@ -105,6 +105,20 @@ RESOURCES = [
         http_methods='GET',
         permission='auth',
     ),
+    HttpResource(
+        resource_id='/daily_events_counts',
+        url_pattern='/daily_events_counts',
+        view_base=N6DailyEventsCountsView,
+        http_methods='GET',
+        permission='auth',
+    ),
+    HttpResource(
+        resource_id='/names_ranking',
+        url_pattern='/names_ranking',
+        view_base=N6NamesRankingView,
+        http_methods='GET',
+        permission='auth',
+    ),
 
     #
     # Informational resources
@@ -123,15 +137,12 @@ RESOURCES = [
         http_methods='GET',
         permission='auth',
     ),
-]
 
     #
     # Authentication/configuration/management resources
 
     # * Related to authentication of Portal users:
 
-if os.environ.get('N6_PORTAL_AUTH_2021'):
-  RESOURCES += [
     HttpResource(
         resource_id='/login',
         url_pattern='/login',
@@ -183,28 +194,7 @@ if os.environ.get('N6_PORTAL_AUTH_2021'):
         http_methods='POST',
         permission='all',
     ),
-  ]
-else:
-  # TODO later: remove the `N6_PORTAL_AUTH_2021` env variable +
-  #             the following 2 deprecated resource declarations...
-  RESOURCES += [
-    HttpResource(
-        resource_id='/login',
-        url_pattern='/login',
-        view_base=N6LegacyLoginView,
-        http_methods='POST',
-        permission='all',
-    ),
-    HttpResource(
-        resource_id='/cert_login',
-        url_pattern='/cert_login',
-        view_base=N6CertificateLoginView,
-        http_methods='GET',
-        permission='all',
-    ),
-  ]
 
-RESOURCES += [
     HttpResource(
         resource_id='/logout',
         url_pattern='/logout',
@@ -230,7 +220,7 @@ RESOURCES += [
         permission='auth',
     ),
 
-    # * Related to authentication of REST API users:
+    # * API key management (configuring REST API authentication):
 
     HttpResource(
         resource_id='/api_key',
@@ -239,12 +229,35 @@ RESOURCES += [
         http_methods=('GET', 'POST', 'DELETE'),
         permission='auth',
     ),
+
+    #
+    # Knowledge-base-related resources
+
+    HttpResource(
+        resource_id='/knowledge_base/contents',
+        url_pattern='/knowledge_base/contents',
+        view_base=N6KnowledgeBaseContentsView,
+        http_methods='GET',
+        permission='auth',
+    ),
+    HttpResource(
+        resource_id='/knowledge_base/articles',
+        url_pattern='/knowledge_base/articles/{article_id}',
+        view_base=N6KnowledgeBaseArticlesView,
+        http_methods='GET',
+        permission='auth',
+    ),
+    HttpResource(
+        resource_id='/knowledge_base/search',
+        url_pattern='/knowledge_base/search',
+        view_base=N6KnowledgeBaseSearchView,
+        http_methods='GET',
+        permission='auth',
+    ),
 ]
 
 
-def main(global_config,  # type: dict[str, str]
-         **settings):
-    # type: (...) -> IRouter
+def main(global_config: dict[str, str], **settings) -> IRouter:
     return N6ConfigHelper(
         settings=settings,
         data_backend_api_class=N6DataBackendAPI,

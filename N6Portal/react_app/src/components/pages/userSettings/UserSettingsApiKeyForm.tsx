@@ -1,8 +1,8 @@
 import { FC, useState } from 'react';
 import { AxiosError } from 'axios';
 import { Tooltip as BSTooltip, OverlayTrigger } from 'react-bootstrap';
-import { useIntl } from 'react-intl';
 import { useMutation, useQueryClient } from 'react-query';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { deleteApiKey, postApiKey } from 'api/auth';
 import { IApiKey } from 'api/auth/types';
 import UserSettingsConfirmationModal from 'components/pages/userSettings/UserSettingsConfirmationModal';
@@ -23,7 +23,7 @@ const UserSettingsApiKeyForm: FC<IProps> = ({ apiKey }) => {
   const [isRemoveSubmitting, toggleRemoveSubmit] = useState(false);
   const [clipoardTooltip, toggleClipoardTooltip] = useState(false);
   const [showConfirmation, toggleShowConfirmation] = useState(false);
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const queryClient = useQueryClient();
 
   const { mutateAsync: generateKey } = useMutation<IApiKey, AxiosError, void>(() => postApiKey());
@@ -96,6 +96,8 @@ const UserSettingsApiKeyForm: FC<IProps> = ({ apiKey }) => {
         >
           <FormInputReadonly
             name="api_key"
+            as="textarea"
+            textareaRows={4}
             label={`${messages.user_settings_api_key_input_label}`}
             value={apiKey ?? ''}
             onClick={copyApiKey}

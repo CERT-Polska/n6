@@ -1,11 +1,11 @@
 import { FC } from 'react';
 import { useFormContext, useFieldArray, Validate, useWatch } from 'react-hook-form';
-import { useIntl } from 'react-intl';
 import classnames from 'classnames';
 import useMatchMediaContext from 'context/MatchMediaContext';
 import FormInput from 'components/forms/FormInput';
 import FormTimeInput from 'components/forms/datePicker/TimeInput';
 import CustomButton from 'components/shared/CustomButton';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { TEditSettingsFieldArray, TEditSettingsForm } from 'components/pages/editSettings/EditSettingsForm';
 import { ReactComponent as RestoreIcon } from 'images/restore.svg';
 import { getMissingFields, getUpdatedFields } from 'components/pages/editSettings/utils';
@@ -34,7 +34,7 @@ const EditSettingsFieldArray: FC<IProps> = ({
   const { isXs } = useMatchMediaContext();
   const { formState, control, setValue } = useFormContext<TEditSettingsForm>();
   const { fields, append, insert, remove } = useFieldArray({ name, control });
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   // watch fieldArray values
   const currentFieldArrayValues: Record<'value', string>[] = useWatch({ name, control });

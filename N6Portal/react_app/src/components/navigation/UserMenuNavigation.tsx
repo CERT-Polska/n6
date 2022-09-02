@@ -1,11 +1,11 @@
 import { FC, useState } from 'react';
 import Dropdown from 'react-bootstrap/esm/Dropdown';
 import { DropdownItemProps } from 'react-bootstrap/esm/DropdownItem';
-import { useIntl } from 'react-intl';
 import { useMutation } from 'react-query';
 import { Link, useHistory } from 'react-router-dom';
 import routeList from 'routes/routeList';
 import { getLogout } from 'api/auth';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import useAuthContext from 'context/AuthContext';
 import LanguagePicker from 'components/shared/LanguagePicker';
 
@@ -13,7 +13,7 @@ import { ReactComponent as User } from 'images/user.svg';
 
 const UserMenuNavigation: FC = () => {
   const { resetAuthState } = useAuthContext();
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const history = useHistory();
   const logoutFn = useMutation(getLogout);
   const [hasError, setHasError] = useState(false);

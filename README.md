@@ -10,8 +10,8 @@ and incidents in their networks.
 
 ## Basic References
 
-* **Home page:** [github.com/CERT-Polska/n6](https://github.com/CERT-Polska/n6)
-* **Documentation:** [n6.readthedocs.io](https://n6.readthedocs.io)
+- **Home page:** [github.com/CERT-Polska/n6](https://github.com/CERT-Polska/n6)
+- **Documentation:** [n6.readthedocs.io](https://n6.readthedocs.io)
 
 The project is developed for [CERT Polska](https://www.cert.pl/en/).
 Contact us via e-mail: [n6@cert.pl](mailto:n6@cert.pl).
@@ -19,7 +19,7 @@ Contact us via e-mail: [n6@cert.pl](mailto:n6@cert.pl).
 
 ## Copyright and License
 
-Copyright (c) 2013-2021
+Copyright (c) 2013-2022
 [Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network)](https://en.nask.pl/).
 All rights reserved.
 
@@ -29,13 +29,13 @@ published by the Free Software Foundation.
 
 This software is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
 
 You should have received a copy of the GNU Affero General Public License
 along with this program (see: the
 [`LICENSE.txt`](https://github.com/CERT-Polska/n6/blob/master/LICENSE.txt)
-file in the root directory of the source code repository).  If not, see
+file in the root directory of the source code repository). If not, see
 [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
 
 

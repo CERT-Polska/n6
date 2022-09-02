@@ -2749,8 +2749,9 @@ def replace_segment(s, segment_index, new_content, sep='.'):
     Args:
         `s` (str or bytes/bytearray):
             The input string or bytes sequence.
-        `segment_index` (int)
-            The number (0-indexed) of the segment to be replaced.
+        `segment_index` (int or slice)
+            The number (0-indexed) of the segment to be replaced,
+            or a slice object specifying that segment.
         `new_content` (str or bytes/bytearray, auto-coerced to type of `s`):
             The string (or bytes sequence) to be placed as the segment.
 
@@ -2762,10 +2763,26 @@ def replace_segment(s, segment_index, new_content, sep='.'):
         A copy of the input string (or bytes sequence) with the specified
         segment replaced.
 
+    >>> replace_segment(u'a.b.c.d', 1, u'ZZZ')
+    u'a.ZZZ.c.d'
+    >>> replace_segment(u'a.b.c.d', 1, 'ZZZ')
+    u'a.ZZZ.c.d'
     >>> replace_segment('a.b.c.d', 1, 'ZZZ')
     'a.ZZZ.c.d'
-    >>> replace_segment('a.b.c.d', 1, b'ZZZ')
+    >>> replace_segment('a.b.c.d', 1, u'ZZZ')
     'a.ZZZ.c.d'
+    >>> replace_segment('a.b.c.d', slice(1, 3), 'AAA.ZZZ')
+    'a.AAA.ZZZ.d'
+    >>> replace_segment('a.b.c.d', slice(1, 3), 'AAA')
+    'a.AAA.d'
+    >>> replace_segment('a.b.c.d', slice(1, 3), 'q.w.e.r.t.y')
+    'a.q.w.e.r.t.y.d'
+    >>> replace_segment(u'a.b.c.d', slice(1, 3), 'AAA.ZZZ', sep='.')
+    u'a.AAA.ZZZ.d'
+    >>> replace_segment('a.b.c.d', slice(1, 3), u'AAA.ZZZ', sep=u'.')
+    'a.AAA.ZZZ.d'
+    >>> replace_segment('a;b;c;d', slice(1, 3), u'AAA;ZZZ', sep=';')
+    'a;AAA;ZZZ;d'
     >>> replace_segment(bytearray(b'a::b::c::d'), 2, u'ZZZ', sep=b'::')
     bytearray(b'a::b::ZZZ::d')
     >>> replace_segment(u'a::b::c::d', 2, b'ZZZ', sep=bytearray(b'::'))
@@ -2786,7 +2803,10 @@ def replace_segment(s, segment_index, new_content, sep='.'):
     new_content = tp(new_content)
     sep = tp(sep)
     segments = s.split(sep)
-    segments[segment_index] = new_content
+    if isinstance(segment_index, slice):
+        segments[segment_index] = new_content.split(sep)
+    else:
+        segments[segment_index] = new_content
     return sep.join(segments)
 
 

@@ -1,6 +1,6 @@
 import { FC } from 'react';
 import { Row, Col } from 'react-bootstrap';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { useInfoConfig } from 'api/services/info';
 import ApiLoader from 'components/loading/ApiLoader';
 import UserSettingsIcon from 'images/avatar.svg';
@@ -8,7 +8,7 @@ import EmailNotificationsIcon from 'images/email.svg';
 import ResourceEventsIcon from 'images/hierarchy.svg';
 
 const Account: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { data, status, error } = useInfoConfig();
 
   return (

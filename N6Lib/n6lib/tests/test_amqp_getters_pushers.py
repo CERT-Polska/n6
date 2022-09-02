@@ -1,41 +1,65 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import collections
 import contextlib
 import re
 import queue
+import threading
 import time
 import unittest
+from collections.abc import Iterable
 from unittest.mock import (
     ANY,
     Mock,
     call,
+    patch as nonlocked_patch,
+    seal,
     sentinel as sen,
 )
 
 import pika.credentials
+import pytest
+from unittest_expander import (
+    expand,
+    foreach,
+)
 
 from n6lib.unit_test_helpers import (
+    AnyInstanceOf,
     AnyMatchingRegex,
     MethodProxy,
     RLockedMagicMock,
     rlocked_patch,
 )
-from n6lib.amqp_getters_pushers import AMQPThreadedPusher, DoNotPublish
+from n6lib.amqp_getters_pushers import (
+    AMQPThreadedPusher,
+    BaseAMQPTool,
+    DoNotPublish,
+)
 
 
-CONN_PARAM_CLIENT_PROP_INFORMATION = AnyMatchingRegex(re.compile(
-    r'\A'
-    r'Host: [^,]+, '
-    r'PID: [0-9]+, '
-    r'script: [^,]+, '
-    r'args: \[.*\], '
-    r'modified: [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}Z'
-    r'\Z',
-    re.ASCII))
+CONNECTION_ATTEMPTS = 10
+CONNECTION_RETRY_DELAY = 0.5
+
+assert CONNECTION_ATTEMPTS \
+       == BaseAMQPTool.CONNECTION_ATTEMPTS \
+       == AMQPThreadedPusher.CONNECTION_ATTEMPTS
+
+assert CONNECTION_RETRY_DELAY \
+       == BaseAMQPTool.CONNECTION_RETRY_DELAY \
+       == AMQPThreadedPusher.CONNECTION_RETRY_DELAY
 
 
-class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
+OUTPUT_FIFO_MAX_SIZE = 20000
+PUBLISHING_THREAD_START_TIMEOUT = 5
+PUBLISHING_THREAD_JOIN_TIMEOUT = 15
+
+assert OUTPUT_FIFO_MAX_SIZE == AMQPThreadedPusher._OUTPUT_FIFO_MAX_SIZE
+assert PUBLISHING_THREAD_START_TIMEOUT == AMQPThreadedPusher._PUBLISHING_THREAD_START_TIMEOUT
+assert PUBLISHING_THREAD_JOIN_TIMEOUT == AMQPThreadedPusher._PUBLISHING_THREAD_JOIN_TIMEOUT
+
+
+class TestAMQPThreadedPusher_init(unittest.TestCase):
 
     def setUp(self):
         self.mock = Mock(__class__=AMQPThreadedPusher)
@@ -56,8 +80,9 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         self.assertEqual(self.mock._prop_kwargs, AMQPThreadedPusher.DEFAULT_PROP_KWARGS)
         self.assertEqual(self.mock._mandatory, False)
         self.assertIs(self.mock._output_fifo.__class__, queue.Queue)
-        self.assertEqual(self.mock._output_fifo.maxsize, 20000)
+        self.assertEqual(self.mock._output_fifo.maxsize, OUTPUT_FIFO_MAX_SIZE)
         self.assertIsNone(self.mock._error_callback)
+        self.assertEqual(self.mock._publishing_thread_join_timeout, PUBLISHING_THREAD_JOIN_TIMEOUT)
         # calls
         self.assertEqual(self.mock.mock_calls, [
             call._setup_communication(),
@@ -84,7 +109,8 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
                            prop_kwargs=sen.prop_kwargs,
                            mandatory=sen.mandatory,
                            output_fifo_max_size=12345,
-                           error_callback=sen.error_callback)
+                           error_callback=sen.error_callback,
+                           publishing_thread_join_timeout=42)
         # attrs
         self.assertIs(self.mock._connection_params_dict, connection_params_dict_mock)
         self.assertEqual(self.mock._exchange, {'exchange': sen.exchange, 'foo': sen.foo})
@@ -98,6 +124,7 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         self.assertIs(self.mock._output_fifo.__class__, queue.Queue)
         self.assertEqual(self.mock._output_fifo.maxsize, 12345)
         self.assertEqual(self.mock._error_callback, sen.error_callback)
+        self.assertEqual(self.mock._publishing_thread_join_timeout, 42)
         # calls
         self.assertEqual(self.mock.mock_calls, [
             call._setup_communication(),
@@ -105,7 +132,7 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         ])
         self.assertEqual(connection_params_dict_mock.mock_calls, [
             call.get('ssl'),
-            call.setdefault('credentials', ANY),
+            call.setdefault('credentials', AnyInstanceOf(pika.credentials.ExternalCredentials)),
             ('__contains__', ('client_properties',), {}),  # because cannot use `call.__contains__`
         ])
         self.assertIsInstance(
@@ -117,9 +144,9 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         connection_params_dict_mock = RLockedMagicMock(name='connection_params_dict')
         connection_params_dict_mock.get.return_value = True
         connection_params_dict_mock.__contains__.return_value = True
-        with rlocked_patch('n6lib.amqp_getters_pushers.get_amqp_connection_params_dict', **{
-                'return_value': connection_params_dict_mock}
-        ) as get_amqp_conn_params_mock:
+        with rlocked_patch(
+                'n6lib.amqp_getters_pushers.get_amqp_connection_params_dict',
+                return_value=connection_params_dict_mock) as get_amqp_conn_params_mock:
             self.meth.__init__(connection_params_dict=None,
                                exchange={'exchange': sen.exchange, 'bar': sen.bar},
                                queues_to_declare=[
@@ -131,7 +158,8 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
                                prop_kwargs=sen.prop_kwargs,
                                mandatory=sen.mandatory,
                                output_fifo_max_size=54321,
-                               error_callback=sen.error_callback)
+                               error_callback=sen.error_callback,
+                               publishing_thread_join_timeout=23)
         # attrs
         self.assertIs(self.mock._connection_params_dict, connection_params_dict_mock)
         self.assertEqual(self.mock._exchange, {'exchange': sen.exchange, 'bar': sen.bar})
@@ -147,6 +175,7 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         self.assertIs(self.mock._output_fifo.__class__, queue.Queue)
         self.assertEqual(self.mock._output_fifo.maxsize, 54321)
         self.assertEqual(self.mock._error_callback, sen.error_callback)
+        self.assertEqual(self.mock._publishing_thread_join_timeout, 23)
         # calls
         self.assertEqual(self.mock.mock_calls, [
             call._setup_communication(),
@@ -157,18 +186,52 @@ class TestAMQPThreadedPusher__init__repr(unittest.TestCase):
         ])
         self.assertEqual(connection_params_dict_mock.mock_calls, [
             call.get('ssl'),
-            call.setdefault('credentials', ANY),
+            call.setdefault('credentials', AnyInstanceOf(pika.credentials.ExternalCredentials)),
             ('__contains__', ('client_properties',), {}),  # because cannot use `call.__contains__`
         ])
         self.assertIsInstance(
             connection_params_dict_mock.setdefault.mock_calls[0][-2][1],  # 2nd arg for setdefault
             pika.credentials.ExternalCredentials)
 
-    def test__repr(self):
-        string_repr = self.meth.__repr__()
+
+@expand
+class TestAMQPThreadedPusher_str_repr_format(unittest.TestCase):
+
+    class _InsecureCredentials:
+        _BADLY_PROTECTED_SECRET = 'Super Secret Data'
+        __repr__ = __str__ = lambda self: self._BADLY_PROTECTED_SECRET
+
+    @foreach(
+        str,
+        repr,
+        format,
+    )
+    def test(self, string_repr_func):
+        obj = AMQPThreadedPusher.__new__(AMQPThreadedPusher)
+        obj._connection_params_dict = {
+            'param1': 42,
+            'credentials': self._InsecureCredentials(),
+            b'not-a-str': 42,
+            'param2': b'123',
+        }
+
+        string_repr = string_repr_func(obj)
+
         self.assertIs(type(string_repr), str)
-        self.assertRegex(string_repr,
-                                 r'<AMQPThreadedPusher object at 0x[0-9a-f]+ with .*>')
+        self.assertNotIn(self._InsecureCredentials._BADLY_PROTECTED_SECRET, string_repr)
+        self.assertRegex(string_repr, (
+            r"<"
+            r"AMQPThreadedPusher object at 0x[0-9a-f]+ "
+            r"with "
+            # for an ordinary param, use its real repr:
+            r"param1=42, "
+            # for the 'credentials' param, reveal only `__qualname__` of its type:
+            r"credentials=<TestAMQPThreadedPusher_[a-z_]+\._InsecureCredentials object\.\.\.>, "
+            # for a non-str-key param (unexpected), replace the whole item with `<...>`:
+            r"<...>, "
+            # for an ordinary param, use its real repr:
+            r"param2=b'123'"
+            r">"))
 
 
 class TestAMQPThreadedPusher_as_context_manager(unittest.TestCase):
@@ -181,74 +244,146 @@ class TestAMQPThreadedPusher_as_context_manager(unittest.TestCase):
             self.assertEqual(shutdown_mock.mock_calls, [call()])
 
 
+@expand
 class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
 
+    _CONN_PARAM_CLIENT_PROP_INFORMATION = AnyMatchingRegex(re.compile(
+        r'\A'
+        r'Host: [^,]+, '
+        r'PID: [0-9]+, '
+        r'script: [^,]+, '
+        r'args: \[.*\], '
+        r'modified: (?:'
+            r'[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}Z'
+            r'|'
+            r'UNKNOWN'
+        r')'
+        r'\Z',
+        re.ASCII))
+
+    # to be used for testing-specific wait operations that normally are
+    # supposed to end (almost) immediately; the goal is to prevent
+    # endless waiting if something goes wrong
+    _SAFE_WAIT_TIMEOUT = 12
+
+    # a sentinel used with the _patched_publish() test helper method
+    _INVOKE_ORIGINAL_PUBLISH = object()
+
+    # sentinel exceptions
+    class AMQPConnectionError_sentinel_exc(Exception): pass
+    class ConnectionClosed_sentinel_exc(Exception): pass
+    class generic_sentinel_exc(Exception): pass
+    class another_generic_sentinel_exc(Exception): pass
+
+
     def setUp(self):
-        # patching some global objects and preparing mockups of them
-        self._stderr_patcher = rlocked_patch('sys.stderr')
-        self.stderr_mock = self._stderr_patcher.start()
-        self.addCleanup(self._stderr_patcher.stop)
+        # patching imported modules/objects with mocks (being instances of RLockedMagicMock)
+        self.pika_mock = self._rlocked_patch('n6lib.amqp_getters_pushers.pika')
+        self.time_mock = self._rlocked_patch('n6lib.amqp_getters_pushers.time')
+        self.traceback_mock = self._rlocked_patch('n6lib.amqp_getters_pushers.traceback')
+        self.dump_condensed_debug_msg_mock = self._rlocked_patch(
+            'n6lib.amqp_getters_pushers.dump_condensed_debug_msg')
 
-        # patching some imported modules and preparing mockups of them
-        self._time_patcher = rlocked_patch('n6lib.amqp_getters_pushers.time')
-        self.time_mock = self._time_patcher.start()
-        self.addCleanup(self._time_patcher.stop)
+        # patching pusher methods with transparent wrappers (being instances of RLockedMagicMock)
+        self.setup_communication_meth_wrapping_mock = \
+                self._rlocked_patch_wrapping_pusher_method('_setup_communication')
+        self.start_publishing_meth_wrapping_mock = \
+                self._rlocked_patch_wrapping_pusher_method('_start_publishing')
 
-        self._traceback_patcher = rlocked_patch('n6lib.amqp_getters_pushers.traceback')
-        self.traceback_mock = self._traceback_patcher.start()
-        self.addCleanup(self._traceback_patcher.stop)
-
-        self._pika_patcher = rlocked_patch('n6lib.amqp_getters_pushers.pika')
-        self.pika_mock = self._pika_patcher.start()
-        self.addCleanup(self._pika_patcher.stop)
-
-        # preparing sentinel exceptions
-        class AMQPConnectionError_sentinel_exc(Exception): pass
-        class ConnectionClosed_sentinel_exc(Exception): pass
-        class generic_sentinel_exc(Exception): pass
-
-        self.AMQPConnectionError_sentinel_exc = AMQPConnectionError_sentinel_exc
-        self.ConnectionClosed_sentinel_exc = ConnectionClosed_sentinel_exc
-        self.generic_sentinel_exc = generic_sentinel_exc
-
-        # preparing mockups of different objects
-        self.conn_mock = RLockedMagicMock()
-        self.channel_mock = RLockedMagicMock()
-        self.optional_setup_communication_mock = RLockedMagicMock()
+        # preparing other mocks
+        self.pika_BasicProperties_mock = RLockedMagicMock(name='pika.BasicProperties')
+        self.connection_mock = RLockedMagicMock(name='obj._connection')
+        self.channel_mock = RLockedMagicMock(name='obj._channel')
         self.serialize = RLockedMagicMock()
         self.error_callback = RLockedMagicMock()
 
-        # configuring the mockups
-        self.pika_mock.exceptions.AMQPConnectionError = AMQPConnectionError_sentinel_exc
-        self.pika_mock.exceptions.ConnectionClosed = ConnectionClosed_sentinel_exc
+        # configuring the mocks
+        self.pika_mock.exceptions.AMQPConnectionError = self.AMQPConnectionError_sentinel_exc
+        self.pika_mock.exceptions.ConnectionClosed = self.ConnectionClosed_sentinel_exc
         self.pika_mock.ConnectionParameters.return_value = sen.conn_parameters
-        self.pika_mock.BlockingConnection.side_effect = [
-            AMQPConnectionError_sentinel_exc,
-            self.conn_mock,
-        ]
-        self.pika_mock.BasicProperties.return_value = sen.props
-        self.conn_mock.channel.return_value = self.channel_mock
+        self.pika_mock.BlockingConnection.return_value = self.connection_mock  # (mock is detached)
+        self.pika_mock.BasicProperties = self.pika_BasicProperties_mock        # (mock is detached)
+        self.pika_BasicProperties_mock.return_value = sen.props
+        self.connection_mock.channel.return_value = self.channel_mock          # (mock is detached)
         self.serialize.side_effect = (lambda data: data)
+        assert self._are_return_values_of_connection_related_mocks_in_their_initial_state()
+
+    def _rlocked_patch(self, target):
+        patcher = rlocked_patch(target)
+        mock = patcher.start()
+        self.addCleanup(patcher.stop)
+        return mock
+
+    def _rlocked_patch_wrapping_pusher_method(self, pusher_method_name):
+        orig_method = getattr(AMQPThreadedPusher, pusher_method_name)
+        wrapping_mock = RLockedMagicMock(wraps=orig_method)
+        patcher = nonlocked_patch.object(
+            AMQPThreadedPusher, pusher_method_name,
+            # here we use lambda just to make use of the attribute
+            # descriptor behavior of functions (providing a bound
+            # method when being accessed via instance):
+            new=(lambda obj: wrapping_mock(obj)))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return wrapping_mock
+
+    def _are_return_values_of_connection_related_mocks_in_their_initial_state(self):
+        return (self.pika_mock.ConnectionParameters.return_value is sen.conn_parameters
+                and self.pika_mock.ConnectionParameters.side_effect is None
+
+                and self.pika_mock.BlockingConnection.return_value is self.connection_mock
+                and self.pika_mock.BlockingConnection.side_effect is None
+
+                and self.pika_mock.BasicProperties.return_value is sen.props
+                and self.pika_mock.BasicProperties.side_effect is None
+
+                and self.connection_mock.channel.return_value is self.channel_mock
+                and self.connection_mock.channel.side_effect is None)
+
+
+    def tearDown(self):
+        obj = getattr(self, 'obj', None)
+        if obj is not None:
+            assert isinstance(obj, AMQPThreadedPusher)
+            obj._publishing_thread.join(self._SAFE_WAIT_TIMEOUT + 1)
+            if obj._publishing_thread.is_alive():
+                raise AssertionError(
+                    'test course problem: the publishing '
+                    'thread did not terminate :-/')
+
 
     #
-    # Fixture helpers and reusable assertions
+    # Test/fixture helpers and reusable assertions
 
-    def _reset_mocks(self):
-        self.pika_mock.reset_mock()
-        self.time_mock.reset_mock()
-        self.traceback_mock.reset_mock()
-        self.stderr_mock.reset_mock()
-        self.conn_mock.reset_mock()
-        self.channel_mock.reset_mock()
-        self.optional_setup_communication_mock.reset_mock()
-        if self.serialize is not None:
-            self.serialize.reset_mock()
-        if self.error_callback is not None:
-            self.error_callback.reset_mock()
+    @contextlib.contextmanager
+    def _testing_pusher_obj_normal_lifetime(self, failed_connection_attempts_on_init=0):
+        self._make_pusher_obj(failed_connection_attempts_on_init)
+        try:
+            self.assertIs(self.obj._connection, self.connection_mock)
+            self.assertIs(self.obj._channel, self.channel_mock)
+            self._assert_setup_communication_succeeded(failed_connection_attempts_on_init)
+            self._assert_publishing_started_normally()
+            self._reset_mocks()
+
+            yield self.obj
+
+        finally:
+            self.obj.shutdown()
+
+        self._assert_shut_down_normally()
+        self._assert_no_remaining_data()
+
+        # additional marginal assertions
+        self.assertIs(self.obj._connection, self.connection_mock)
+        self.assertIs(self.obj._channel, self.channel_mock)
+        self.assertFalse(self.start_publishing_meth_wrapping_mock.mock_calls)
 
 
-    def _make_obj(self, **kw):
-        # create and initialize a usable AMQPThreadedPusher instance
+    def _make_pusher_obj(self, failed_connection_attempts_on_init=0, **kw):
+        self.pika_mock.BlockingConnection.side_effect = (
+            failed_connection_attempts_on_init * [self.AMQPConnectionError_sentinel_exc] +
+            [self.connection_mock])  # noqa (silencing overzealous type checker)
+
         self.obj = AMQPThreadedPusher(connection_params_dict={'conn_param': sen.param_value},
                                       exchange={'exchange': sen.exchange},
                                       queues_to_declare=[
@@ -264,485 +399,986 @@ class TestAMQPThreadedPusher_internal_cooperation(unittest.TestCase):
                                       **kw)
 
 
-    def _side_effect_for_publish(self, exception_seq):
-        orig_publish = AMQPThreadedPusher._publish
-        exceptions = iter(exception_seq)
+    def _reset_mocks(self):
+        self.pika_mock.ConnectionParameters.side_effect = None
+        self.pika_mock.BlockingConnection.side_effect = None
 
-        def _side_effect(data, routing_key, custom_prop_kwargs):
-            exc = next(exceptions)
-            if exc is None:
-                return orig_publish(self.obj, data, routing_key, custom_prop_kwargs)
-            else:
-                raise exc
+        self.pika_mock.reset_mock()
+        self.time_mock.reset_mock()
+        self.traceback_mock.reset_mock()
+        self.dump_condensed_debug_msg_mock.reset_mock()
+        self.setup_communication_meth_wrapping_mock.reset_mock()
+        self.start_publishing_meth_wrapping_mock.reset_mock()
+        self.pika_BasicProperties_mock.reset_mock()
+        self.connection_mock.reset_mock()
+        self.channel_mock.reset_mock()
+        if self.serialize is not None:
+            self.serialize.reset_mock()
+        if self.error_callback is not None:
+            self.error_callback.reset_mock()
 
-        return _side_effect
+        assert self.pika_mock.BasicProperties is self.pika_BasicProperties_mock
+        assert self._are_return_values_of_connection_related_mocks_in_their_initial_state()
 
 
-    def _mock_setup_communication(self):
-        self.obj._setup_communication = self.optional_setup_communication_mock
+    def _wait_until(self, condition_func):
+        time_limit = self._SAFE_WAIT_TIMEOUT
+        deadline = time.monotonic() + time_limit
+        while time.monotonic() <= deadline:
+            if condition_func():
+                return
+            time.sleep(0.01)
+        self.fail(f'the time limit ({time_limit}s) exceeded '
+                  f'without satisfying the specified condition')
 
 
-    def _assert_setup_done(self):
-        self.assertEqual(self.pika_mock.mock_calls, [
-            call.ConnectionParameters(
-                    conn_param=sen.param_value,
-                    client_properties={'information': CONN_PARAM_CLIENT_PROP_INFORMATION}),
-            call.BlockingConnection(sen.conn_parameters),
-            # repeated after pika.exceptions.AMQPConnectionError:
-            call.ConnectionParameters(
-                    conn_param=sen.param_value,
-                    client_properties={'information': CONN_PARAM_CLIENT_PROP_INFORMATION}),
-            call.BlockingConnection(sen.conn_parameters),
+    @contextlib.contextmanager
+    def _patched_publish(self, side_effect=None):
+        if isinstance(side_effect, Iterable):
+            orig_publish_marker = self._INVOKE_ORIGINAL_PUBLISH
+            orig_publish = AMQPThreadedPusher._publish
+            item_iterator = iter(side_effect)
+
+            def side_effect(data, routing_key, custom_prop_kwargs):
+                item = next(item_iterator)
+                if item is orig_publish_marker:
+                    return orig_publish(self.obj, data, routing_key, custom_prop_kwargs)
+                if isinstance(item, BaseException) or (isinstance(item, type)
+                                                       and issubclass(item, BaseException)):
+                    raise item
+                return item
+
+        with rlocked_patch(
+                'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
+                side_effect=side_effect) as _publish_mock:
+            yield _publish_mock
+
+
+    def _assert_setup_communication_succeeded(self,
+                                              expected_failed_connection_attempts=0,
+                                              reconnecting=False):
+        self.assertEqual(self.setup_communication_meth_wrapping_mock.mock_calls, [
+            call(AnyInstanceOf(AMQPThreadedPusher)),  # (here `self._obj` may not be set)
         ])
-        self.assertEqual(self.time_mock.sleep.mock_calls, [
-            # after pika.exceptions.AMQPConnectionError
-            call(0.5),  # 0.5 == CONNECTION_RETRY_DELAY
-        ])
-        self.assertIs(self.obj._connection, self.conn_mock)
-        self.assertIs(self.obj._channel, self.channel_mock)
-        self.assertEqual(self.channel_mock.mock_calls, [
+        self.assertEqual(
+            self.pika_mock.mock_calls,
+            # failed attempts (causing AMQPConnectionError), if any:
+            expected_failed_connection_attempts * [
+                call.ConnectionParameters(
+                    conn_param=sen.param_value,
+                    client_properties={'information': self._CONN_PARAM_CLIENT_PROP_INFORMATION}),
+                call.BlockingConnection(sen.conn_parameters),
+            ] +
+            # final successful attempt:
+            [
+                call.ConnectionParameters(
+                    conn_param=sen.param_value,
+                    client_properties={'information': self._CONN_PARAM_CLIENT_PROP_INFORMATION}),
+                call.BlockingConnection(sen.conn_parameters),
+            ])
+        self.assertEqual(
+            self.dump_condensed_debug_msg_mock.mock_calls,
+            # before reconnection -- only if `reconnecting` is True:
+            reconnecting * [
+                call(AnyMatchingRegex(r'will try to reconnect')),
+            ] +
+            # before each retry (after AMQPConnectionError), if any:
+            expected_failed_connection_attempts * [
+                call(AnyMatchingRegex(
+                    r'^Connection problem in .*\._make_connection.*'
+                    r'will retry after a short sleep'),
+                ),
+            ])
+        self.assertEqual(
+            self.time_mock.sleep.mock_calls,
+            # before each retry (after AMQPConnectionError), if any:
+            expected_failed_connection_attempts * [
+                call(CONNECTION_RETRY_DELAY),
+            ])
+        self.assertEqual(self.channel_mock.mock_calls[:4], [
+            # see the AMQPThreadedPusher(...) call in _make_pusher_obj()
             call.exchange_declare(exchange=sen.exchange),
             call.queue_declare(queue=sen.queue1, callback=ANY),
             call.queue_declare(blabla=sen.blabla, callback=ANY),
             call.queue_declare(blabla=sen.blabla, callback=sen.callback),
         ])
-        # some additional marginal asserts:
-        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
-        self.assertFalse(self.stderr_mock.mock_calls)
-        self.assertFalse(self.obj._connection_closed)
 
 
-    def _assert_publishing_started(self):
+    def _assert_setup_communication_failed(self,
+                                           expected_failed_connection_attempts,
+                                           reconnecting=False):
+        assert expected_failed_connection_attempts > 0
+        self.assertEqual(self.setup_communication_meth_wrapping_mock.mock_calls, [
+            call(AnyInstanceOf(AMQPThreadedPusher)),  # (here `self._obj` may not be set)
+        ])
+        self.assertEqual(
+            self.pika_mock.mock_calls,
+            # failed attempts (causing AMQPConnectionError):
+            expected_failed_connection_attempts * [
+                call.ConnectionParameters(
+                    conn_param=sen.param_value,
+                    client_properties={'information': self._CONN_PARAM_CLIENT_PROP_INFORMATION}),
+                call.BlockingConnection(sen.conn_parameters),
+            ])
+        self.assertEqual(
+            self.dump_condensed_debug_msg_mock.mock_calls,
+            # before reconnection -- only if `reconnecting` is True:
+            reconnecting * [
+                call(AnyMatchingRegex(r'will try to reconnect')),
+            ] +
+            # before each retry (after AMQPConnectionError), if any
+            # (note: minus 1 because of no debug info dump after the last
+            # attempt; that attempt caused propagation of AMQPConnectionError):
+            (expected_failed_connection_attempts - 1) * [
+                call(AnyMatchingRegex(
+                    r'^Connection problem in .*\._make_connection.*'
+                    r'will retry after a short sleep'),
+                ),
+            ])
+        self.assertEqual(
+            self.time_mock.sleep.mock_calls,
+            # before each retry (after AMQPConnectionError), if any
+            # (note: minus 1 because of no delay after the last attempt):
+            (expected_failed_connection_attempts - 1) * [
+                call(CONNECTION_RETRY_DELAY),
+            ])
+        self.assertFalse(self.channel_mock.mock_calls)
+
+
+    def _assert_publishing_started_normally(self):
+        self.assertEqual(self.start_publishing_meth_wrapping_mock.mock_calls, [
+            call(self.obj),
+        ])
         self.assertTrue(self.obj._publishing)
         self.assertTrue(self.obj._publishing_thread.is_alive())
 
+        # additional marginal assertions
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+        self.assertFalse(self.obj._shutdown_initiated)
+        self.assertFalse(self.obj._connection_closed)
 
-    def _assert_shut_down(self):
-        self.assertEqual(self.conn_mock.close.mock_calls, [call()])
+
+    def _assert_published_with_pika(self, *pub_items):
+        self.assertEqual(len(self.pika_mock.BasicProperties.mock_calls), len(pub_items))
+        self.assertEqual(len(self.channel_mock.basic_publish.mock_calls), len(pub_items))
+
+        for i, item in enumerate(pub_items):
+            try:
+                data, routing_key, custom_prop_kwargs = item
+            except ValueError:
+                data, routing_key = item
+                custom_prop_kwargs = {}
+
+            self.assertEqual(self.pika_mock.BasicProperties.mock_calls[i], call(
+                prop_kwarg=sen.prop_value,
+                **custom_prop_kwargs,
+            ))
+            self.assertEqual(self.channel_mock.basic_publish.mock_calls[i], call(
+                body=data,
+                routing_key=routing_key,
+                exchange=sen.exchange,
+                properties=sen.props,
+                mandatory=sen.mandatory,
+            ))
+
+
+    def _assert_nothing_published_with_pika(self):
+        self._assert_published_with_pika()  # (just with 0 items)
+
+
+    def _assert_shut_down_normally(self):
+        self.assertEqual(self.connection_mock.close.mock_calls[-1:], [
+            call(),
+        ])
         self.assertFalse(self.obj._publishing_thread.is_alive())
         self.assertFalse(self.obj._publishing)
+        self.assertTrue(self.obj._shutdown_initiated)
         self.assertTrue(self.obj._connection_closed)
 
 
     def _assert_no_remaining_data(self):
         self.assertIn(self.obj._output_fifo.queue, [
-            collections.deque(),
-            collections.deque([None]),
+            collections.deque(),        # either no items
+            collections.deque([None]),  # or one None (as a "wake up!" sentinel)
         ])
 
 
-    @contextlib.contextmanager
-    def _testing_normal_push(self, error_callback_call_count=0):
-        self._make_obj()
-        try:
-            self._assert_setup_done()
-            self._assert_publishing_started()
-
-            yield self.obj
-
-            while self.channel_mock.basic_publish.call_count < 2:
-                time.sleep(0.01)
-        finally:
-            self.obj.shutdown()
-
-        # properties of both published messages have been created properly
-        # (using also custom prop kwargs if given)
-        self.assertEqual(self.pika_mock.BasicProperties.mock_calls, [
-            call(prop_kwarg=sen.prop_value),
-            call(prop_kwarg=sen.prop_value, custom=sen.custom_value),
-        ])
-
-        # both messages have been published properly
-        self.assertEqual(self.channel_mock.basic_publish.mock_calls, [
-            call(
-                exchange=sen.exchange,
-                routing_key=sen.rk1,
-                body=sen.data1,
-                properties=sen.props,
-                mandatory=sen.mandatory,
-            ),
-            call(
-                exchange=sen.exchange,
-                routing_key=sen.rk2,
-                body=sen.data2,
-                properties=sen.props,
-                mandatory=sen.mandatory,
-            ),
-        ])
-
-        self.assertEqual(self.error_callback.call_count,
-                         error_callback_call_count)
-        self._assert_shut_down()
-        self._assert_no_remaining_data()
-
-        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
-        self.assertFalse(self.stderr_mock.mock_calls)
-
-        # cannot push (as the pusher has been shut down)
-        with self.assertRaises(ValueError):
+    def _check_push_causes_error_as_pusher_is_inactive(self):
+        with self.assertRaisesRegex(
+                ValueError,
+                r'cannot publish .* currently inactive'):
             self.obj.push(sen.data3, sen.rk3)
 
-
-    def _error_case_commons(self, subcall_mock, expected_subcall_count):
-        self._make_obj()
-        try:
-            self._assert_setup_done()
-            self._assert_publishing_started()
-
-            self._reset_mocks()
-            self._mock_setup_communication()
-
-            self.obj.push(sen.data, sen.rk)
-
-            # we must delay shutdown() to let the pub. thread operate
-            while subcall_mock.call_count < expected_subcall_count:
-                time.sleep(0.01)
-        finally:
-            self.obj.shutdown()
-
-        self.assertEqual(self.serialize.mock_calls, [call(sen.data)])
-
-        self._assert_shut_down()
-        self._assert_no_remaining_data()
 
     #
     # Actual tests
 
-    def test_normal_operation_without_serialize(self):
+    @foreach(range(CONNECTION_ATTEMPTS))
+    def test_normal_operation_without_serialize(self, failed_connection_attempts_on_init):
+        assert failed_connection_attempts_on_init < CONNECTION_ATTEMPTS
+
         self.serialize = None
-        with self._testing_normal_push() as obj:
+
+        with self._testing_pusher_obj_normal_lifetime(failed_connection_attempts_on_init) as obj:
             obj.push(sen.data1, sen.rk1)
             obj.push(sen.data2, sen.rk2, {'custom': sen.custom_value})
 
+            # (let the publishing thread operate)
+            self._wait_until(lambda: self.channel_mock.basic_publish.call_count >= 2)
 
-    def test_normal_operation_with_serialize(self):
-        self.serialize.side_effect = [
-            sen.data1,
-            DoNotPublish,
-            sen.data2,
-        ]
-        with self._testing_normal_push() as obj:
-            # published normally
+        self._assert_published_with_pika(
+            (sen.data1, sen.rk1),
+            (sen.data2, sen.rk2, {'custom': sen.custom_value}),
+        )
+        self.assertFalse(self.error_callback.mock_calls)
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.dump_condensed_debug_msg_mock.mock_calls)
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- during shutdown
+        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
+
+
+    @foreach(range(CONNECTION_ATTEMPTS))
+    def test_normal_operation_with_serialize(self, failed_connection_attempts_on_init):
+        assert failed_connection_attempts_on_init < CONNECTION_ATTEMPTS
+
+        self.serialize.side_effect = {
+            sen.raw1: sen.serialized1,
+            sen.no_pub_data: DoNotPublish,
+            sen.raw2: sen.serialized2,
+        }.get
+
+        with self._testing_pusher_obj_normal_lifetime(failed_connection_attempts_on_init) as obj:
+
+            # to be published normally
             obj.push(sen.raw1, sen.rk1)
 
             # serialize() returns DoNotPublish for this one (see above)
             # so the data will not be published
-            obj.push(sen.no_pub_data, sen.no_pub_rk)
+            obj.push(sen.no_pub_data, sen.irrelevant)
 
-            # published normally
+            # to be published normally
             obj.push(sen.raw2, sen.rk2, {'custom': sen.custom_value})
+
+            # (let the publishing thread operate)
+            self._wait_until(lambda: self.channel_mock.basic_publish.call_count >= 2)
 
         self.assertEqual(self.serialize.mock_calls, [
             call(sen.raw1),
             call(sen.no_pub_data),
             call(sen.raw2),
         ])
+        self._assert_published_with_pika(
+            (sen.serialized1, sen.rk1),
+            (sen.serialized2, sen.rk2, {'custom': sen.custom_value}),
+        )
+        self.assertFalse(self.error_callback.mock_calls)
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.dump_condensed_debug_msg_mock.mock_calls)
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- during shutdown
+        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
 
 
-    def test_publishing_flag_is_False(self):
-        # do not try to reconnect on pika.exceptions.ConnectionClosed
-        # but continue publishing until the output fifo is empty
-        def basic_publish_side_effect(*args, **kwargs):
-            time.sleep(0.02)
+    def test_too_many_failed_connection_attempts_on_init(self):
+        failed_connection_attempts_on_init = CONNECTION_ATTEMPTS
 
-        self.channel_mock.basic_publish.side_effect = basic_publish_side_effect
-        with rlocked_patch(
-            'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
-            side_effect=self._side_effect_for_publish(exception_seq=[
-                None,
-                self.ConnectionClosed_sentinel_exc,
-                None,
-            ]),
-        ) as _publish_mock:
-            with self._testing_normal_push(error_callback_call_count=1) as obj:
-                obj._publishing = False
-                obj._output_fifo.put_nowait((sen.data1, sen.rk1, None))
-                obj._output_fifo.put_nowait((sen.data_err, sen.rk_err, None))
-                obj._output_fifo.put_nowait((sen.data2, sen.rk2, {'custom': sen.custom_value}))
+        with self.assertRaises(self.AMQPConnectionError_sentinel_exc):
+            self._make_pusher_obj(failed_connection_attempts_on_init)
 
+        self._assert_setup_communication_failed(failed_connection_attempts_on_init)
+        self.assertFalse(self.start_publishing_meth_wrapping_mock.mock_calls)
+
+        self._assert_nothing_published_with_pika()
+        self.assertFalse(self.error_callback.mock_calls)
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+        self.assertFalse(self.connection_mock.close.mock_calls)
+
+
+    @foreach(range(CONNECTION_ATTEMPTS))
+    def test_publishing_with_disconnect_and_some_reconnection_attempts_finally_successful(
+            self,
+            failed_reconnection_attempts):
+
+        assert failed_reconnection_attempts < CONNECTION_ATTEMPTS
+
+        side_effect_of_publish = [
+            self.ConnectionClosed_sentinel_exc,
+            self._INVOKE_ORIGINAL_PUBLISH,
+        ]
+        with self._patched_publish(side_effect_of_publish) as _publish_mock, \
+             self._testing_pusher_obj_normal_lifetime() as obj:
+
+            self.pika_mock.BlockingConnection.side_effect = (
+                failed_reconnection_attempts * [self.AMQPConnectionError_sentinel_exc] +
+                [self.connection_mock])  # noqa (silencing overzealous type checker)
+
+            obj.push(sen.data, sen.rk)
+
+            # (let the publishing thread operate)
+            self._wait_until(lambda: _publish_mock.call_count >= 2)
+
+        self._assert_setup_communication_succeeded(failed_reconnection_attempts, reconnecting=True)
+
+        self.assertEqual(self.serialize.mock_calls, [
+            call(sen.data),
+        ])
+        self.assertEqual(_publish_mock.mock_calls, [
+            call(sen.data, sen.rk, None),
+            call(sen.data, sen.rk, None),
+        ])
+        self._assert_published_with_pika(
+            (sen.data, sen.rk),
+        )
+        self.assertFalse(self.error_callback.mock_calls)
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- before trying to reconnect
+            call(),  # <- during shutdown
+        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
+
+
+    def test_publishing_with_disconnect_and_too_many_failed_reconnection_attempts(self):
+        failed_reconnection_attempts = CONNECTION_ATTEMPTS
+
+        side_effect_of_publish = [
+            self.ConnectionClosed_sentinel_exc,
+        ]
+        with self._patched_publish(side_effect_of_publish) as _publish_mock, \
+             self._testing_pusher_obj_normal_lifetime() as obj:
+
+            self.pika_mock.BlockingConnection.side_effect = (
+                failed_reconnection_attempts * [self.AMQPConnectionError_sentinel_exc])
+
+            obj.push(sen.data, sen.rk)
+
+            # (let the publishing thread operate)
+            self._wait_until(lambda: _publish_mock.call_count >= 1)
+
+        self._assert_setup_communication_failed(failed_reconnection_attempts, reconnecting=True)
+
+        self.assertEqual(self.serialize.mock_calls, [
+            call(sen.data),
+        ])
+        self.assertEqual(_publish_mock.mock_calls, [
+            call(sen.data, sen.rk, None),
+        ])
+        self._assert_nothing_published_with_pika()
+        self.assertEqual(self.error_callback.mock_calls, [
+            call(AnyInstanceOf(self.AMQPConnectionError_sentinel_exc)),
+        ])
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- before trying to reconnect
+            call(),  # <- during shutdown
+        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
+
+
+    def test_publishing_with_disconnect_and_then_shutdown_initiated_flag_set_to_true(self):
+        # (when trying to reconnect after disconnection,
+        # do *not* retry after the first reconnect failure)
+
+        def pika_ConnectionParameters_side_effect(**_):
+            # to be done just before the reconnection attempt
+            obj._shutdown_initiated = True
+            return sen.conn_parameters
+
+        side_effect_of_publish = [
+            self.ConnectionClosed_sentinel_exc,
+        ]
+        with self._patched_publish(side_effect_of_publish) as _publish_mock, \
+             self._testing_pusher_obj_normal_lifetime() as obj:
+
+            self.pika_mock.ConnectionParameters.side_effect = pika_ConnectionParameters_side_effect
+            self.pika_mock.BlockingConnection.side_effect = self.AMQPConnectionError_sentinel_exc
+
+            obj.push(sen.data, sen.rk)
+
+            # (let the publishing thread operate)
+            self._wait_until(lambda: _publish_mock.call_count >= 1)
+
+        self._assert_setup_communication_failed(1, reconnecting=True)  # 1 attempt, *no* retries
+
+        self.assertEqual(self.serialize.mock_calls, [
+            call(sen.data),
+        ])
+        self.assertEqual(_publish_mock.mock_calls, [
+            call(sen.data, sen.rk, None),
+        ])
+        self._assert_nothing_published_with_pika()
+        self.assertEqual(self.error_callback.mock_calls, [
+            call(AnyInstanceOf(self.AMQPConnectionError_sentinel_exc)),
+        ])
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- before trying to reconnect
+            call(),  # <- during shutdown
+        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
+
+
+    def test_publishing_with_disconnect_while_shutdown_initiated_flag_is_true(self):
+        # (do not try to reconnect after disconnection at all...)
+
+        side_effect_of_publish = [
+            self._INVOKE_ORIGINAL_PUBLISH,
+            self.ConnectionClosed_sentinel_exc,
+            self._INVOKE_ORIGINAL_PUBLISH,
+        ]
+        with self._patched_publish(side_effect_of_publish) as _publish_mock, \
+             self._testing_pusher_obj_normal_lifetime() as obj:
+
+            obj._shutdown_initiated = True
+
+            obj.push(sen.data1, sen.rk1)
+            obj.push(sen.data_err, sen.rk_err)
+            obj.push(sen.data2, sen.rk2, {'custom': sen.custom_value})
+
+            # (let the publishing thread operate)
+            self._wait_until(lambda: self.channel_mock.basic_publish.call_count >= 2)
+
+        self.assertEqual(self.serialize.mock_calls, [
+            call(sen.data1),
+            call(sen.data_err),
+            call(sen.data2),
+        ])
         self.assertEqual(_publish_mock.mock_calls, [
             call(sen.data1, sen.rk1, None),
             call(sen.data_err, sen.rk_err, None),
             call(sen.data2, sen.rk2, {'custom': sen.custom_value}),
         ])
-
-        # no reconnections
-        self.assertFalse(self.optional_setup_communication_mock.mock_calls)
-
-        # one error callback call
-        self.assertEqual(self.error_callback.mock_calls, [call(ANY)])
-
-
-    def test_permanent_AMQPConnectionError(self):
-        self.pika_mock.BlockingConnection.side_effect = self.AMQPConnectionError_sentinel_exc
-
-        with self.assertRaises(self.AMQPConnectionError_sentinel_exc):
-            self._make_obj()
-
-        self.assertEqual(
-            self.pika_mock.mock_calls,
-            # 10 calls because CONNECTION_ATTEMPTS == 10)
-            10 * [
-                call.ConnectionParameters(
-                    conn_param=sen.param_value,
-                    client_properties={'information': CONN_PARAM_CLIENT_PROP_INFORMATION}),
-                call.BlockingConnection(sen.conn_parameters),
-            ]
+        self._assert_published_with_pika(
+            (sen.data1, sen.rk1),
+            (sen.data2, sen.rk2, {'custom': sen.custom_value}),
         )
-        self.assertEqual(
-            self.time_mock.sleep.mock_calls,
-            # (call(0.5) because CONNECTION_RETRY_DELAY == 0.5;
-            # 9 calls because CONNECTION_ATTEMPTS == 10
-            # and there is no delay after the last attempt)
-            9 * [call(0.5)],
-        )
-        self.assertEqual(self.channel_mock.basic_publish.call_count, 0)
-        self.assertEqual(self.error_callback.call_count, 0)
+        self.assertEqual(self.error_callback.mock_calls, [
+            call(AnyInstanceOf(self.ConnectionClosed_sentinel_exc)),
+        ])
+        # *no* reconnections attempted
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.dump_condensed_debug_msg_mock.mock_calls)
         self.assertFalse(self.traceback_mock.print_exc.mock_calls)
-        self.assertFalse(self.stderr_mock.mock_calls)
+
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- during shutdown
+        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
 
 
-    def test_publishing_with_one_ConnectionClosed(self):
-        exceptions_from_publish = [
+    def test_publishing_with_disconnect_while_publishing_flag_is_false(self):
+        # (do not try to reconnect after disconnection at all; report
+        # the problem and continue trying to handle incoming data items
+        # -- even if that must fail -- until the output fifo is empty;
+        # then the publishing thread should terminate)
+
+        data_has_been_pushed = threading.Event()
+        safe_wait_timeout = self._SAFE_WAIT_TIMEOUT
+
+        def basic_publish_side_effect(*_, **__):
+            if not data_has_been_pushed.wait(safe_wait_timeout):
+                raise AssertionError(
+                    'test course problem: the main thread did '
+                    'not set the `data_has_been_pushed` event')
+
+        self.channel_mock.basic_publish.side_effect = basic_publish_side_effect
+
+        side_effect_of_publish = [
+            self._INVOKE_ORIGINAL_PUBLISH,
             self.ConnectionClosed_sentinel_exc,
-            None,
+            self._INVOKE_ORIGINAL_PUBLISH,
         ]
-        expected_publish_call_count = 2
+        with self._patched_publish(side_effect_of_publish) as _publish_mock, \
+             self._testing_pusher_obj_normal_lifetime() as obj:
 
-        with rlocked_patch(
-            'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
-            side_effect=self._side_effect_for_publish(exceptions_from_publish)
-        ) as _publish_mock:
-            self._error_case_commons(_publish_mock, expected_publish_call_count)
+            obj._publishing = False
 
-        self.assertEqual(self.optional_setup_communication_mock.mock_calls, [call()])
+            # (here, in this test, we put items into the output fifo
+            # manually, as calling obj.push() when obj._publishing
+            # is false would cause ValueError)
+            obj._output_fifo.put_nowait((sen.data1, sen.rk1, None))
+            obj._output_fifo.put_nowait((sen.data_err, sen.rk_err, None))
+            obj._output_fifo.put_nowait((sen.data2, sen.rk2, {'custom': sen.custom_value}))
+
+            data_has_been_pushed.set()
+
+            # (let the publishing thread operate)
+            self._wait_until(lambda: self.channel_mock.basic_publish.call_count >= 2)
+
+            # now the publishing thread should terminate shortly (or be
+            # already terminated)
+            obj._publishing_thread.join(self._SAFE_WAIT_TIMEOUT)
+
+            # even though the publishing thread terminated after it had
+            # pushed all items from the output fifo...
+            self.assertFalse(obj._publishing_thread.is_alive())
+
+            # ...the pusher has *not* been shut down yet
+            self.assertFalse(obj._shutdown_initiated)
+            self.assertFalse(obj._connection_closed)
+
+        self.assertEqual(self.serialize.mock_calls, [
+            call(sen.data1),
+            call(sen.data_err),
+            call(sen.data2),
+        ])
+        self.assertEqual(_publish_mock.mock_calls, [
+            call(sen.data1, sen.rk1, None),
+            call(sen.data_err, sen.rk_err, None),
+            call(sen.data2, sen.rk2, {'custom': sen.custom_value}),
+        ])
+        self._assert_published_with_pika(
+            (sen.data1, sen.rk1),
+            (sen.data2, sen.rk2, {'custom': sen.custom_value}),
+        )
+        self.assertEqual(self.error_callback.mock_calls, [
+            call(AnyInstanceOf(self.ConnectionClosed_sentinel_exc)),
+        ])
+        # *no* reconnections attempted
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.dump_condensed_debug_msg_mock.mock_calls)
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- during shutdown
+        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
+
+
+    def test_publishing_with_exception_and_error_callback(self):
+        side_effect_of_publish = [
+            self.generic_sentinel_exc,
+        ]
+        with self._patched_publish(side_effect_of_publish) as _publish_mock, \
+             self._testing_pusher_obj_normal_lifetime() as obj:
+
+            obj.push(sen.data, sen.rk)
+
+            # (let the publishing thread operate)
+            self._wait_until(lambda: _publish_mock.call_count >= 1)
+
+        self.assertEqual(self.serialize.mock_calls, [
+            call(sen.data),
+        ])
         self.assertEqual(_publish_mock.mock_calls, [
             call(sen.data, sen.rk, None),
-            call(sen.data, sen.rk, None),
         ])
-        self.assertFalse(self.error_callback.mock_calls)
+        self._assert_nothing_published_with_pika()
+        self.assertEqual(self.error_callback.mock_calls, [
+            call(AnyInstanceOf(self.generic_sentinel_exc)),
+        ])
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.dump_condensed_debug_msg_mock.mock_calls)
         self.assertFalse(self.traceback_mock.print_exc.mock_calls)
-        self.assertFalse(self.stderr_mock.mock_calls)
 
-        # properties of the published message have been created properly...
-        self.assertEqual(self.pika_mock.BasicProperties.mock_calls, [
-            call(prop_kwarg=sen.prop_value),
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- during shutdown
         ])
-        # ...and the message has been published properly
-        self.assertEqual(self.channel_mock.basic_publish.mock_calls, [
-            call(
-                exchange=sen.exchange,
-                routing_key=sen.rk,
-                body=sen.data,
-                properties=sen.props,
-                mandatory=sen.mandatory,
-            ),
-        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
 
 
-    def test_publishing_with_exceptions_and_error_callback(self):
-        exceptions_from_publish = [
-            self.ConnectionClosed_sentinel_exc,
-            TypeError,
+    def test_publishing_with_exception_and_no_error_callback(self):
+        side_effect_of_publish = [
+            self.generic_sentinel_exc,
         ]
-        expected_publish_call_count = 2
-
-        with rlocked_patch(
-            'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
-            side_effect=self._side_effect_for_publish(exceptions_from_publish)
-        ) as _publish_mock:
-            self._error_case_commons(_publish_mock, expected_publish_call_count)
-
-        self.assertEqual(_publish_mock.mock_calls, [
-            call(sen.data, sen.rk, None),
-            call(sen.data, sen.rk, None),
-        ])
-        self.assertEqual(self.optional_setup_communication_mock.mock_calls, [call()])
-        self.assertEqual(self.error_callback.mock_calls, [call(ANY)])
-        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
-        self.assertFalse(self.stderr_mock.mock_calls)
-
-        # the message has not been published
-        self.assertFalse(self.pika_mock.BasicProperties.mock_calls)
-        self.assertFalse(self.channel_mock.basic_publish.mock_calls)
-
-
-    def test_publishing_with_exceptions_and_no_error_callback(self):
         self.error_callback = None
+        with self._patched_publish(side_effect_of_publish) as _publish_mock, \
+             self._testing_pusher_obj_normal_lifetime() as obj:
 
-        exceptions_from_publish = [
-            self.ConnectionClosed_sentinel_exc,
-            TypeError,
-        ]
-        expected_publish_call_count = 2
+            obj.push(sen.data, sen.rk)
 
-        with rlocked_patch(
-            'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
-            side_effect=self._side_effect_for_publish(exceptions_from_publish)
-        ) as _publish_mock:
-            self._error_case_commons(_publish_mock, expected_publish_call_count)
+            # (let the publishing thread operate)
+            self._wait_until(lambda: _publish_mock.call_count >= 1)
 
         assert self.error_callback is None, "bug in test case"
+        self.assertIsNone(obj._error_callback)
 
-        self.assertIsNone(self.obj._error_callback)
+        self.assertEqual(self.serialize.mock_calls, [
+            call(sen.data),
+        ])
         self.assertEqual(_publish_mock.mock_calls, [
             call(sen.data, sen.rk, None),
-            call(sen.data, sen.rk, None),
         ])
-        self.assertEqual(self.optional_setup_communication_mock.mock_calls, [call()])
-        self.assertEqual(self.traceback_mock.print_exc.mock_calls, [call()])
+        self._assert_nothing_published_with_pika()
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.dump_condensed_debug_msg_mock.mock_calls)
+        self.assertEqual(self.traceback_mock.print_exc.mock_calls, [
+            call(),  # (called because there is no error callback)
+        ])
 
-        # the message has not been published
-        self.assertFalse(self.pika_mock.BasicProperties.mock_calls)
-        self.assertFalse(self.channel_mock.basic_publish.mock_calls)
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- during shutdown
+        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
 
 
     def test_publishing_with_error_callback_raising_exception(self):
-        self.error_callback.side_effect = TypeError
-
-        exceptions_from_publish = [
-            self.ConnectionClosed_sentinel_exc,
-            TypeError,
+        side_effect_of_publish = [
+            self.generic_sentinel_exc,
         ]
-        expected_publish_call_count = 2
+        self.error_callback.side_effect = self.another_generic_sentinel_exc
+        with self._patched_publish(side_effect_of_publish) as _publish_mock, \
+             self._testing_pusher_obj_normal_lifetime() as obj:
 
-        with rlocked_patch(
-            'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
-            side_effect=self._side_effect_for_publish(exceptions_from_publish)
-        ) as _publish_mock:
-            self._error_case_commons(_publish_mock, expected_publish_call_count)
+            obj.push(sen.data, sen.rk)
 
+            # (let the publishing thread operate)
+            self._wait_until(lambda: _publish_mock.call_count >= 1)
+
+        self.assertEqual(self.serialize.mock_calls, [
+            call(sen.data),
+        ])
         self.assertEqual(_publish_mock.mock_calls, [
             call(sen.data, sen.rk, None),
-            call(sen.data, sen.rk, None),
         ])
-        self.assertEqual(self.optional_setup_communication_mock.mock_calls, [call()])
-        self.assertEqual(self.error_callback.mock_calls, [call(ANY)])
-        self.assertEqual(self.traceback_mock.print_exc.mock_calls, [call()])
-        self.assertTrue(self.stderr_mock.mock_calls)  # `print(..., file=sys.stderr)` used...
+        self._assert_nothing_published_with_pika()
+        self.assertEqual(self.error_callback.mock_calls, [
+            call(AnyInstanceOf(self.generic_sentinel_exc)),
+        ])
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertEqual(self.dump_condensed_debug_msg_mock.mock_calls, [
+            call(AnyMatchingRegex(r'^Exception caught when calling .*\._error_callback')),
+        ])
+        self.assertEqual(self.traceback_mock.print_exc.mock_calls, [
+            call(),  # (called to print traceback of exception from error callback)
+        ])
 
-        # the message has not been published
-        self.assertFalse(self.pika_mock.BasicProperties.mock_calls)
-        self.assertFalse(self.channel_mock.basic_publish.mock_calls)
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- during shutdown
+        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
 
 
-    def test_serialization_error(self):
-        self.serialize.side_effect = TypeError
-        expected_serialize_call_count = 1
-        with rlocked_patch(
-            'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish'
-        ) as _publish_mock:
-            self._error_case_commons(self.serialize, expected_serialize_call_count)
+    def test_publishing_with_serialization_error(self):
+        self.serialize.side_effect = self.generic_sentinel_exc
 
-        self.assertEqual(self.serialize.mock_calls, [call(sen.data)])
-        self.assertEqual(self.error_callback.mock_calls, [call(ANY)])
-        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
-        self.assertFalse(self.stderr_mock.mock_calls)
-        self.assertFalse(self.optional_setup_communication_mock.mock_calls)
+        with self._patched_publish() as _publish_mock, \
+             self._testing_pusher_obj_normal_lifetime() as obj:
+
+            obj.push(sen.data, sen.rk)
+
+            # (let the publishing thread operate)
+            self._wait_until(lambda: self.serialize.call_count >= 1)
+
+        self.assertEqual(self.serialize.mock_calls, [
+            call(sen.data),
+        ])
+        self.assertEqual(self.error_callback.mock_calls, [
+            call(AnyInstanceOf(self.generic_sentinel_exc)),
+        ])
 
         # the message has not been published
         self.assertFalse(_publish_mock.mock_calls)
-        self.assertFalse(self.pika_mock.BasicProperties.mock_calls)
-        self.assertFalse(self.channel_mock.basic_publish.mock_calls)
+        self._assert_nothing_published_with_pika()
+
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.dump_condensed_debug_msg_mock.mock_calls)
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- during shutdown
+        ])
+        self._check_push_causes_error_as_pusher_is_inactive()
 
 
-    def test_publishing_with_fatal_error(self):
-        with rlocked_patch(
-                'n6lib.amqp_getters_pushers.AMQPThreadedPusher._publish',
-                # not an Exception subclass:
-                side_effect=BaseException,
-        ) as _publish_mock:
-            self._make_obj()
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+    def test_publishing_with_fatal_error(self, remaining_data_in_output_fifo=False):
+        side_effect_of_publish = [
+            BaseException,  # (does not inherit from Exception)
+        ]
+        with self._patched_publish(side_effect_of_publish) as _publish_mock:
+
+            self._make_pusher_obj()
             try:
+                self._assert_publishing_started_normally()
+                self._reset_mocks()
+
                 self.obj.push(sen.data, sen.rk)
 
-                # we must wait to let the pub. thread operate and crash
-                while _publish_mock.call_count < 1:
-                    time.sleep(0.01)
-                self.obj._publishing_thread.join(15.0)
+                # we wait to let the publishing thread operate and crash
+                self._wait_until(lambda: _publish_mock.call_count >= 1)
+                self.obj._publishing_thread.join(self._SAFE_WAIT_TIMEOUT)
+
+                self.assertEqual(self.dump_condensed_debug_msg_mock.mock_calls, [
+                    call('PUBLISHING CO-THREAD STOPS WITH EXCEPTION!'),
+                ])
 
                 self.assertFalse(self.obj._publishing_thread.is_alive())
                 self.assertFalse(self.obj._publishing)
 
-                self.assertTrue(self.stderr_mock.mock_calls)
-            finally:
-                self.obj._publishing_thread.join(15.0)
-                if self.obj._publishing_thread.is_alive():
-                    raise RuntimeError('unexpected problem: the publishing '
-                                       'thread did not terminate :-/')
+                self.assertEqual(self.serialize.mock_calls, [
+                    call(sen.data),
+                ])
+                self.assertEqual(_publish_mock.mock_calls, [
+                    call(sen.data, sen.rk, None),
+                ])
+                self._assert_nothing_published_with_pika()
+            except:
+                # (to try to make the publishing thread terminate on an error)
+                self.obj.shutdown()
+                raise
 
         self.assertFalse(self.error_callback.mock_calls)
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.start_publishing_meth_wrapping_mock.mock_calls)
         self.assertFalse(self.traceback_mock.print_exc.mock_calls)
 
+        self.assertFalse(self.connection_mock.close.mock_calls)
+        self.assertFalse(self.obj._shutdown_initiated)
+        self.assertFalse(self.obj._connection_closed)
 
-    def test_publishing_with_fatal_error_and_remaining_data_in_fifo(self):
+        if not remaining_data_in_output_fifo:
+            self._assert_no_remaining_data()
+
+        self._check_push_causes_error_as_pusher_is_inactive()
+
+
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+    def test_publishing_with_fatal_error_and_remaining_data_in_output_fifo(self):
         def serialize_side_effect(data):
             self.obj._output_fifo.put(sen.item)
             return data
         self.serialize.side_effect = serialize_side_effect
 
-        self.test_publishing_with_fatal_error()
+        self.test_publishing_with_fatal_error(remaining_data_in_output_fifo=True)
 
-        assert (hasattr(self.obj._output_fifo, 'queue') and
-                isinstance(self.obj._output_fifo.queue,
-                           collections.deque)), "test case's assumption is invalid"
-        underlying_deque = self.obj._output_fifo.queue
+        underlying_deque = getattr(self.obj._output_fifo, 'queue', None)
+        assert isinstance(underlying_deque, collections.deque), "test case's assumption is invalid"
+
         self.assertEqual(underlying_deque, collections.deque([sen.item]))
+        self.assertEqual(self.dump_condensed_debug_msg_mock.mock_calls, [
+            call('PUBLISHING CO-THREAD STOPS WITH EXCEPTION!'),
+        ])
+
         with self.assertRaisesRegex(
                 ValueError,
-                'pending messages'):
+                r'is being shut down but .* pending messages'):
             self.obj.shutdown()
+
         self.assertEqual(underlying_deque, collections.deque([sen.item]))
+        self.assertEqual(self.dump_condensed_debug_msg_mock.mock_calls, [
+            call('PUBLISHING CO-THREAD STOPS WITH EXCEPTION!'),
+
+            # info about ValueError (referred to by assertRaisesRegex()
+            # above, propagated from _check_state_after_stop()) was dumped
+            call(AnyMatchingRegex(r'^EXCEPTION FROM .*\._before_close')),
+        ])
 
 
-    def test_shutting_down_with_timeouted_join_to_publishing_thread(self):
-        self._make_obj(publishing_thread_join_timeout=0.2)
+    def test_shutting_down_with_timed_out_join_to_publishing_thread(self):
+        self._make_pusher_obj(publishing_thread_join_timeout=0.2)
         try:
-            self._assert_setup_done()
-            self._assert_publishing_started()
+            self._assert_publishing_started_normally()
+            self._reset_mocks()
 
             output_fifo_put_nowait_orig = self.obj._output_fifo.put_nowait
             output_fifo_put_nowait_mock = Mock()
 
-            # we must wait to let the pub. thread set the heartbeat flag
-            # to True (and then that thread will hang on the fifo)
-            while not self.obj._publishing_thread_heartbeat_flag:
-                time.sleep(0.01)
+            # we wait to let the publishing thread set the liveliness
+            # indicator to True (and then hang on the output fifo)
+            self._wait_until(lambda: self.obj._publishing_thread_liveliness_indicator)
         except:
-            # (to make the pub. thread terminate on any error)
+            # (to try to make the publishing thread terminate on an error)
             self.obj.shutdown()
             raise
 
         try:
             # monkey-patching output_fifo.put_nowait() so that
-            # shutdown() will *not* wake-up the pub. thread
+            # shutdown() will *not* wake-up the publishing thread
             self.obj._output_fifo.put_nowait = output_fifo_put_nowait_mock
 
             with self.assertRaisesRegex(
                     RuntimeError,
-                    'pushing thread seems to be still alive'):
+                    r'is being shut down but .* pushing thread seems to be still alive'):
                 self.obj.shutdown()
 
             # shutdown() returned because the join timeout expired and
-            # heartbeat flag was not re-set to True by the pub. thread
-            self.assertFalse(self.obj._publishing_thread_heartbeat_flag)
+            # the liveliness indicator was not re-set to True by the
+            # publishing thread
+            self.assertFalse(self.obj._publishing_thread_liveliness_indicator)
 
             # the pusher is shut down...
-            self.assertEqual(self.conn_mock.close.mock_calls, [call()])
+            self.assertEqual(self.connection_mock.close.mock_calls, [
+                call(),
+            ])
             self.assertFalse(self.obj._publishing)
+            self.assertTrue(self.obj._shutdown_initiated)
             self.assertTrue(self.obj._connection_closed)
 
-            # ...but the pub. thread is still alive
+            # ...but the publishing thread is still alive
             self.assertTrue(self.obj._publishing_thread.is_alive())
+
+            # info about RuntimeError (referred to by assertRaisesRegex()
+            # above, propagated from _check_state_after_stop()) was dumped
+            self.assertEqual(self.dump_condensed_debug_msg_mock.mock_calls, [
+                call(AnyMatchingRegex(r'^EXCEPTION FROM .*\._before_close')),
+            ])
+
+            self._check_push_causes_error_as_pusher_is_inactive()
         finally:
-            # (to always make the pub. thread terminate finally)
+            # (to ensure the publishing thread will terminate)
             self.obj._publishing = False
             output_fifo_put_nowait_orig(None)
 
-            # now the pub. thread should terminate shortly or be already terminated
-            self.obj._publishing_thread.join(15.0)
-            if self.obj._publishing_thread.is_alive():
-                raise RuntimeError('unexpected problem: the publishing '
-                                   'thread did not terminate :-/')
+            # now the publishing thread should terminate shortly (or be
+            # already terminated)
+            self.obj._publishing_thread.join(self._SAFE_WAIT_TIMEOUT)
 
-        self.assertEqual(output_fifo_put_nowait_mock.mock_calls, [call(None)])
+        self.assertEqual(output_fifo_put_nowait_mock.mock_calls, [
+            call(None),
+        ])
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.start_publishing_meth_wrapping_mock.mock_calls)
+
+        self._check_push_causes_error_as_pusher_is_inactive()
+
+
+    def test_shutting_down_with_timed_out_acquisition_of_connection_lock(self):
+        self._make_pusher_obj()
+        try:
+            self._assert_publishing_started_normally()
+            self._reset_mocks()
+
+            self.obj.SHUTDOWN_CONNECTION_LOCK_TIMEOUT = 0.01
+
+            with self.obj._connection_lock, \
+                 self.assertRaisesRegex(
+                     RuntimeError,
+                     r'connection cannot be closed gracefully.*'
+                     r'timeout .* has been reached'):
+                self.obj.shutdown()
+        except:
+            # (to try to make the publishing thread terminate on an error)
+            self.obj.shutdown()
+            raise
+
+        # shutdown has been initiated...
+        self.assertTrue(self.obj._shutdown_initiated)
+
+        # ...and the publishing thread has terminated (and
+        # the related flag has been set to false)...
+        self.assertFalse(self.obj._publishing_thread.is_alive())
+        self.assertFalse(self.obj._publishing)
+
+        # ...but the AMQP connection has *not* been closed
+        # (and the related flag has *not* been set to true)
+        self.assertFalse(self.connection_mock.close.mock_calls)
+        self.assertFalse(self.obj._connection_closed)
+        self.assertEqual(self.dump_condensed_debug_msg_mock.mock_calls, [
+            call(AnyMatchingRegex(
+                r'^CANNOT CLOSE AMQP CONNECTION PROPERLY BECAUSE OF '
+                r'EXCEPTION FROM .*\._close_connection_with_lock'),
+            ),
+        ])
+
+        # non-essential assertions/checks
+        self.assertFalse(self.error_callback.mock_calls)
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.start_publishing_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+        self._check_push_causes_error_as_pusher_is_inactive()
+
+
+    def test_shutting_down_while_already_disconnected(self):
+        # (not an error, just causes additional debug info dump)
+
+        with self._testing_pusher_obj_normal_lifetime():
+            self.connection_mock.close.side_effect = self.ConnectionClosed_sentinel_exc
+
+        self.assertEqual(self.dump_condensed_debug_msg_mock.mock_calls, [
+            call(AnyMatchingRegex(r'^AMQP connection seems to be already closed')),
+        ])
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- during shutdown
+        ])
+
+        # non-essential assertions/checks
+        self.assertFalse(self.error_callback.mock_calls)
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+        self._check_push_causes_error_as_pusher_is_inactive()
+
+
+    @foreach(1, 2, 33)
+    def test_shutting_down_more_than_once(self, redundant_shutdowns):
+        # (not an error, just no-op)
+
+        with self._testing_pusher_obj_normal_lifetime() as obj:
+            pass
+
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # <- during shutdown
+        ])
+
+        self.assertFalse(self.error_callback.mock_calls)
+        self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+        self.assertFalse(self.dump_condensed_debug_msg_mock.mock_calls)
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+
+        for _ in range(redundant_shutdowns):
+            obj.shutdown()
+
+            self._assert_shut_down_normally()
+            self.assertFalse(self.error_callback.mock_calls)
+            self.assertFalse(self.setup_communication_meth_wrapping_mock.mock_calls)
+            self.assertFalse(self.dump_condensed_debug_msg_mock.mock_calls)
+            self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+
+        self.assertEqual(self.connection_mock.close.mock_calls, [
+            call(),  # (still only this one)
+        ])
+
+        self._check_push_causes_error_as_pusher_is_inactive()
+
+
+    def test_timed_out_start_of_publishing_thread(self):
+        # (hardly probable but let's cover it for completeness...)
+
+        # to be used as obj._publishing_thread (normally, a threading.Thread)
+        publishing_thread_mock = RLockedMagicMock(name='obj._publishing_thread')
+
+        # to be used as obj._publishing_thread_started (normally, a threading.Event)
+        publishing_thread_started_mock = RLockedMagicMock(name='obj._publishing_thread_started')
+        publishing_thread_started_mock.wait.return_value = False
+
+        with rlocked_patch('n6lib.amqp_getters_pushers.threading') as threading_mock, \
+             self.assertRaisesRegex(
+                 RuntimeError,
+                 r'reached the publishing thread start timeout'):
+
+            threading_mock.Lock = threading.Lock  # (<- a real class)
+            threading_mock.Thread.return_value = publishing_thread_mock
+            threading_mock.Event.return_value = publishing_thread_started_mock
+            seal(threading_mock)
+
+            self._make_pusher_obj()
+
+        assert threading_mock.Thread.call_count <= 1, 'unexpected extra use of threading.Thread'
+        assert threading_mock.Event.call_count <= 1, 'unexpected extra use of threading.Event'
+
+        self._assert_setup_communication_succeeded()
+        self.assertEqual(self.start_publishing_meth_wrapping_mock.mock_calls, [
+            call(AnyInstanceOf(AMQPThreadedPusher)),  # (as here `self._obj` is not set)
+        ])
+
+        self.assertEqual(publishing_thread_mock.start.mock_calls, [
+            call(),
+        ])
+        self.assertEqual(publishing_thread_started_mock.wait.mock_calls, [
+            call(PUBLISHING_THREAD_START_TIMEOUT),
+        ])
+
+        self._assert_nothing_published_with_pika()
+        self.assertFalse(self.error_callback.mock_calls)
+        self.assertFalse(self.traceback_mock.print_exc.mock_calls)
+        self.assertFalse(self.connection_mock.close.mock_calls)

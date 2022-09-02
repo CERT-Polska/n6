@@ -1,12 +1,12 @@
 import { FC } from 'react';
 import { useHistory } from 'react-router-dom';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import routeList from 'routes/routeList';
 import CustomButton from 'components/shared/CustomButton';
 import { ReactComponent as SuccessIcon } from 'images/check-ico.svg';
 
 const SignupSuccess: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const history = useHistory();
   return (
     <div className="d-flex flex-column align-items-center pt-lg-5">

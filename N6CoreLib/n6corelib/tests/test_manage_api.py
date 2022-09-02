@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2014-2022 NASK. All rights reserved.
 
 import copy
 import datetime
@@ -121,7 +121,7 @@ class _WithMocksMixin(DBConnectionPatchMixin):
             'n6corelib.manage_api._manage_api.ManageAPI._verify_and_get_managing_entity')
         if new_managing_entity is None:
             self.managing_entity_mock.return_value = mock.MagicMock(hostname=CREATOR_HOSTNAME,
-                                                                    cert_cn=CREATOR_CN,
+                                                                    login=CREATOR_CN,
                                                                     database_login=CREATOR_DB_LOGIN,
                                                                     entity_type='user')
         else:
@@ -207,10 +207,12 @@ class _DBInterfaceMixin(_AuthDBInterfaceMixin):
         self.ca_db_model.create_new(context, ca_label=ca_label, certificate=self.ca_pem,
                                     profile=profile, ssl_config=self.ca_config)
 
-    def add_user(self, context, login, org=None, admins_group=False):
+    def add_user(self, context, login, org=None, admins_group=False, blocked=False):
         new_user = self._add_owner(self.user_db_model, context, login, admins_group)
         if org:
             new_user.org = org
+        if blocked:
+            new_user.is_blocked = True
         return new_user
 
     def add_component(self, context, login):
@@ -584,7 +586,7 @@ class TestManagingEntity(_WithMocksMixin, _DBInterfaceMixin, unittest.TestCase):
         user_db_obj, component_db_obj = self._fill_db_with_entities(in_admins_group=True)
         self._fill_db_with_certs(user_db_obj, component_db_obj)
         instance = ManagingEntity(self.context_mock, self.default_internal_regex)
-        self.assertEqual(instance.cert_cn, cert_cn)
+        self.assertEqual(instance.login, cert_cn)
         self.assertEqual(instance.database_login, self.database_login)
         self.assertEqual(instance._entity_type, entity_type)
         if entity_type == 'user':
@@ -610,6 +612,14 @@ class TestManagingEntity(_WithMocksMixin, _DBInterfaceMixin, unittest.TestCase):
                                                            r'belong to .*{}. '
                                                            r'system group'.format(cert_cn,
                                                                                   'admins')):
+            ManagingEntity(self.context_mock, self.default_internal_regex)
+
+    def test_user_blocked(self):
+        serial_hex, cert_cn = self.user_cert_serial_cn
+        self._set_opened_cert(serial_hex)
+        self._fill_db_with_certs(*self._fill_db_with_entities(blocked=True))
+        with self.assertRaisesRegexp(AccessForbiddenError, r'managing user .*{}. is '
+                                                           r'blocked'.format(cert_cn)):
             ManagingEntity(self.context_mock, self.default_internal_regex)
 
     @foreach([
@@ -716,12 +726,13 @@ class TestManagingEntity(_WithMocksMixin, _DBInterfaceMixin, unittest.TestCase):
             self.assertEqual(cert_ref.created_by_component_login, cert_cn)
             self.assertIsNone(cert_ref.created_by_login)
 
-    def _fill_db_with_entities(self, in_admins_group=True):
+    def _fill_db_with_entities(self, in_admins_group=True, blocked=False):
         internal_org = self.add_org(self.context_mock, self.org_id)
         new_user = self.add_user(self.context_mock,
                                  self.user_cert_serial_cn[1],
                                  org=internal_org,
-                                 admins_group=in_admins_group)
+                                 admins_group=in_admins_group,
+                                 blocked=blocked)
         new_component = self.add_component(self.context_mock,
                                            self.component_cert_serial_cn[1])
         return new_user, new_component

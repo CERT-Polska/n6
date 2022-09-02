@@ -1,4 +1,4 @@
-# Copyright (c) 2021 NASK. All rights reserved.
+# Copyright (c) 2021-2022 NASK. All rights reserved.
 
 import importlib
 import logging
@@ -86,7 +86,7 @@ class IntelMQWrapper:
         return None
 
     @staticmethod
-    def _create_default_source(bot_classname):
+    def _create_default_source_provider(bot_classname):
         lower_classname = bot_classname.lower()
         if lower_classname.endswith('bot'):
             lower_classname = lower_classname[:-3]
@@ -138,21 +138,20 @@ class IntelMQWrapper:
             config_class = getattr(bots_config, bot_classname + 'Config', None)
             if config_class is None:
                 if bot_type == 'collector':
-                    default_source = cls._create_default_source(bot_classname)
+                    source_provider = cls._create_default_source_provider(bot_classname)
                     return bots_config.GenericCollectorConfig(bot_classname=bot_classname,
                                                               routing_state=bot_classname.lower(),
                                                               msg_type='report',
                                                               feed=bot_classname.lower(),
                                                               accuracy=cls.DEFAULT_ACCURACY,
-                                                              source_label=default_source,
-                                                              channel_label=cls.DEFAULT_CHANNEL)
+                                                              source_provider=source_provider,
+                                                              source_channel=cls.DEFAULT_CHANNEL)
                 elif bot_type == 'parser':
-                    default_source = cls._create_default_source(bot_classname)
+                    source_provider = cls._create_default_source_provider(bot_classname)
+                    default_bk = f'{source_provider}.{cls.DEFAULT_CHANNEL}'
                     return bots_config.GenericParserConfig(bot_classname=bot_classname,
                                                            msg_type=cls.DEFAULT_MESSAGE_TYPE,
-                                                           default_bk='{}.{}'.format(
-                                                                default_source,
-                                                                cls.DEFAULT_CHANNEL))
+                                                           default_bk=default_bk)
                 return bots_config.GenericBotConfig(bot_classname=bot_classname,
                                                     routing_state=bot_classname.lower(),
                                                     msg_type=cls.DEFAULT_MESSAGE_TYPE)

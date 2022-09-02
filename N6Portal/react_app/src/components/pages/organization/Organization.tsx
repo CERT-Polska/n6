@@ -1,16 +1,18 @@
 import { FC } from 'react';
 import { Row, Col } from 'react-bootstrap';
-import { useIntl } from 'react-intl';
 import classNames from 'classnames';
 import OrganizationCard from 'components/pages/organization/OrganizationCard';
 import OrganizationHeader from 'components/pages/organization/OrganizationHeader';
+import OrganizationChart from 'components/pages/organization/OrganizationChart';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import useAuthContext from 'context/AuthContext';
 import { useDashboard } from 'api/services/dashboard';
 import ApiLoader from 'components/loading/ApiLoader';
+import OrganizationTableEvents from 'components/pages/organization/OrganizationTableEvents';
 
 const Organization: FC = () => {
   const { orgId, orgActualName } = useAuthContext();
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { data, status, error } = useDashboard();
 
   const getColLayout = (idx: number) => {
@@ -28,6 +30,7 @@ const Organization: FC = () => {
           <div className="content-wrapper">
             <OrganizationHeader name={orgActualName || orgId} range={data.time_range_in_days} at={data.at} />
           </div>
+          <OrganizationChart />
           <div className="content-wrapper">
             <Row>
               {Object.keys(data.counts).map((key, idx) => {
@@ -42,6 +45,7 @@ const Organization: FC = () => {
               })}
             </Row>
           </div>
+          <OrganizationTableEvents />
         </section>
       )}
     </ApiLoader>

@@ -1,13 +1,10 @@
-# Copyright (c) 2020-2021 NASK. All rights reserved.
+# Copyright (c) 2020-2022 NASK. All rights reserved.
 
 import datetime
 from typing import (
     Any,
     Callable,
-    Dict,
-    List,
     Literal,
-    Tuple,
     TypedDict,
     TypeVar,
     Union,
@@ -23,45 +20,43 @@ T_contra = TypeVar('T_contra', contravariant=True)
 DateTime = datetime.datetime
 String = str  # <- TODO: replace with `str` everywhere...
 StrOrBinary = Union[str, bytes, bytearray]
-KwargsDict = Dict[String, Any]
+KwargsDict = dict[str, Any]
 
 Jsonable = Union['JsonableScalar', 'JsonableCollection']
-JsonableScalar = Union[String, int, float, bool, None]
-JsonableDict = Dict[String, Jsonable]
-JsonableSeq = Union[List[Jsonable], Tuple[Jsonable, ...]]
+JsonableScalar = Union[str, int, float, bool, None]
+JsonableDict = dict[str, Jsonable]
+JsonableSeq = Union[list[Jsonable], tuple[Jsonable, ...]]
 JsonableCollection = Union[JsonableDict, JsonableSeq]
 
-TypeSpec = Union[type, Tuple['TypeSpec', ...]]  # type of `isinstance()/issubclass()`'s second arg
+TypeSpec = Union[type, tuple['TypeSpec', ...]]  # type of `isinstance()/issubclass()`'s second arg
 
-ExcFactory = Callable[..., BaseException]
+ExcFactory = Callable[..., Exception]
+BaseExcFactory = Callable[..., BaseException]
+
 ColumnElementTransformer = Callable[[ColumnElement], ColumnElement]
 
 EventDataResourceId = Literal['/report/inside', '/report/threats', '/search/events']
 AccessZone = Literal['inside', 'threats', 'search']
-AccessZoneConditions = Dict[AccessZone, List[ColumnElement]]
+AccessZoneConditionsDict = dict[AccessZone, list[ColumnElement]]
 
-AuthData = TypedDict('AuthData', {
-    'org_id': String,               # `Org.org_id`
-    'user_id': String,              # `User.login` (here named `user_id` for historical reasons)
-})
 
-AccessInfo = TypedDict('AccessInfo', {
-    'access_zone_conditions': AccessZoneConditions,
-    'rest_api_resource_limits': Dict[EventDataResourceId, dict],
-    'rest_api_full_access': bool,   # `Org.full_access`
-})
+class AuthData(TypedDict):
+    org_id: str                   # `Org.org_id`
+    user_id: str                  # `User.login` (here named `user_id` for historical reasons)
 
-WebTokenData = TypedDict('WebTokenData', {
-    'token_id': String,             # `WebToken.token_id` (or random UUID4 for pseudo-tokens)
-    'created_on': DateTime,         # `WebToken.created_on` (or just date+time for pseudo-tokens)
-})
+class AccessInfo(TypedDict):      # (see: `n6lib.auth_api.AuthAPI.get_access_info()`)
+    access_zone_conditions: AccessZoneConditionsDict
+    rest_api_resource_limits: dict[EventDataResourceId, dict]
+    rest_api_full_access: bool    # `Org.full_access`
 
-MFAConfigData = TypedDict('MFAConfigData', {
-    'login': String,                # `User.login`
-    'mfa_key_base': String,         # `User.mfa_key_base`|`UserProvisionalMFAConfig.mfa_key_base`
-})
+class WebTokenData(TypedDict):
+    token_id: str                 # `WebToken.token_id` (or random UUID4 for pseudo-tokens)
+    created_on: DateTime          # `WebToken.created_on` (or just date+time for pseudo-tokens)
 
-MFASecretConfig = TypedDict('MFASecretConfig', {
-    'secret_key': String,               # BASE-32-compliant, exactly-32-character-long
-    'secret_key_qr_code_url': String,   # An 'otpauth://...' URL
-})
+class MFAConfigData(TypedDict):
+    login: str                    # `User.login`
+    mfa_key_base: str             # `User.mfa_key_base`|`UserProvisionalMFAConfig.mfa_key_base`
+
+class MFASecretConfig(TypedDict):
+    secret_key: str               # BASE-32-compliant, exactly-32-character-long
+    secret_key_qr_code_url: str   # An 'otpauth://...' URL

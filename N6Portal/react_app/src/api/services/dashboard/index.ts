@@ -13,7 +13,7 @@ const getDashboard = async (): Promise<IDashboardResponse> => {
 };
 
 export const useDashboard = (
-  options?: UseQueryOptions<IDashboardResponse, AxiosError>
+  options?: Omit<UseQueryOptions<IDashboardResponse, AxiosError>, 'queryKey' | 'queryFn'>
 ): UseQueryResult<IDashboardResponse, AxiosError> => {
   return useQuery('dashboard', (): Promise<IDashboardResponse> => getDashboard(), options);
 };

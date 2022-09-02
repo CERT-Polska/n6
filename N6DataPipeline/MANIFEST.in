@@ -1,2 +1,3 @@
 include *.txt *.md *.rst requirements
 recursive-include n6datapipeline/data *
+graft n6datapipeline/intelmq/utils/patches

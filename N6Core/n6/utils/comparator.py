@@ -151,7 +151,7 @@ class SourceData(object):
                 self.blacklist[key] = event
 
     def __repr__(self):
-        return repr(self.groups)
+        return repr(self.blacklist)
 
 
 class ComparatorData(object):

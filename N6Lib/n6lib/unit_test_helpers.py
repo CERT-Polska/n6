@@ -1,10 +1,11 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
+import argparse
 import contextlib
 import copy
+import errno
 import functools
 import json
-import importlib
 import inspect
 import io
 import re
@@ -30,7 +31,6 @@ from n6lib.class_helpers import (
 )
 from n6lib.common_helpers import ascii_str
 from n6sdk.tests._generic_helpers import TestCaseMixin as SDKTestCaseMixin
-
 
 
 ## TODO: doc, tests
@@ -97,7 +97,6 @@ def __rlocked_patching_func(func):
 rlocked_patch = __rlocked_patching_func(mock.patch)
 rlocked_patch.object = __rlocked_patching_func(mock.patch.object)
 rlocked_patch.multiple = __rlocked_patching_func(mock.patch.multiple)
-
 
 
 #
@@ -352,7 +351,7 @@ class TestCaseMixin(SDKTestCaseMixin):
             first = json.loads(first)
         if isinstance(second, (str, bytes, bytearray)):
             second = json.loads(second)
-        self.assertEqual(first, second, *args, **kwargs)
+        self.assertEqual(first, second, *args, **kwargs)   # noqa
 
     @contextlib.contextmanager
     def assertStateUnchanged(self, *args):
@@ -361,10 +360,10 @@ class TestCaseMixin(SDKTestCaseMixin):
             yield state_before
         finally:
             state_after = copy.deepcopy(list(args))
-            self.assertEqual(state_after, state_before)
+            self.assertEqual(state_after, state_before)    # noqa
 
     #
-    # patching convenience stuff
+    # Patching convenience stuff
 
     # The following patching methods do not need any `with` statements
     # -- just call them at the beginning of your test method or in
@@ -410,6 +409,74 @@ class TestCaseMixin(SDKTestCaseMixin):
     # * Note #2: *no* target auto-completion will be done if the value
     #   is None.
     default_patch_prefix = None
+
+    # The following helper patches certain stuff in the `argparse`
+    # module, so that the tools provided by that module will:
+    #
+    # * avoid using real `sys.argv[1:]` -- using, instead of it, a list
+    #   made from the given `cmdline_args` sequence (empty by default);
+    #
+    # * raise `OSError` on any `open(...)` calls.
+    def patch_argparse_stuff(self, cmdline_args=()):
+        orig__ArgumentParser_parse_known_args = self.__orig_ArgumentParser_parse_known_args
+
+        def fake_of__ArgumentParser_parse_known_args(self, args=None, namespace=None):
+            if args is None:
+                args = list(cmdline_args)
+            return orig__ArgumentParser_parse_known_args(self, args, namespace)
+
+        self.patch(
+            'argparse.ArgumentParser.parse_known_args',
+            fake_of__ArgumentParser_parse_known_args)
+
+        self.patch_with_plug(
+            'argparse.open',
+            exc_factory=functools.partial(OSError, errno.EPERM),  # noqa
+            create=True)
+
+    __orig_ArgumentParser_parse_known_args = staticmethod(argparse.ArgumentParser.parse_known_args)
+
+    #
+    # Other helper methods
+
+    # The following helper extracts from the given bound method the
+    # actual plain function object -- checking with `assert*` methods
+    # that all involved stuff (especially, types) is as expected; in
+    # particular, that the original method object is defined as a
+    # function wrapped in a `classmethod`.
+    def check_and_extract_func_from_class_method(self, method_got_from_class):
+        self.assertIsInstance(method_got_from_class, types.MethodType)         # noqa
+
+        func = method_got_from_class.__func__
+        self.assertIsInstance(func, types.FunctionType)                        # noqa
+
+        func_name = func.__name__
+        try:
+            def_owner_class_name, func_name_from_qualname = func.__qualname__.split('.')
+        except ValueError:
+            raise NotImplementedError(
+                f"for simplicity, only methods defined in top-level "
+                f"classes are supported by this helper (whereas "
+                f"{func.__qualname__=!a} does not contain exactly "
+                f"one '.')")
+        if func_name_from_qualname != func_name:
+            raise NotImplementedError(
+                f'{func_name_from_qualname=!a} is not equal to '
+                f'{func_name=!a} (for simplicity, such cases are '
+                f'not supported by this helper)')
+        def_module = sys.modules[func.__module__]
+        def_owner_class = getattr(def_module, def_owner_class_name)
+        self.assertIsInstance(def_owner_class, type)                           # noqa
+
+        lookup_owner_class = method_got_from_class.__self__
+        self.assertIsInstance(def_owner_class, type)                           # noqa
+        self.assertTrue(issubclass(lookup_owner_class, def_owner_class))       # noqa
+
+        classmethod_obj = vars(def_owner_class)[func_name]
+        self.assertIsInstance(classmethod_obj, classmethod)                    # noqa
+        self.assertIs(classmethod_obj.__func__, func)                          # noqa
+
+        return func
 
 
 class ExceptionRaisingPlug(object):
@@ -1039,7 +1106,6 @@ class MethodProxy(object):
                 obj is inspect.getattr_static(cls, name, None))  # *not* a staticmethod or what...
 
 
-
 #
 # Test helpers related to SQLAlchemy and/or `n6lib.auth_db`
 #
@@ -1157,7 +1223,6 @@ class DBConnectionPatchMixin(TestCaseMixin):
         ```
         """
         raise NotImplementedError
-
 
 
 #
@@ -1323,33 +1388,6 @@ class RequestHelperMixin(object):
         `mock.sentinel.context`.
         """
         return sentinel.context
-
-
-#
-# Deprecated test helpers (to be removed)
-#
-
-### XXX: this function seems to be needless --
-###      just use mock.patch(..., create=True) instead
-@contextlib.contextmanager
-def patch_always(dotted_name, *patch_args, **patch_kwargs):
-    # patch also when the target object does not exist
-    module_name, attr_name = dotted_name.rsplit('.', 1)
-    module_obj = importlib.import_module(module_name)
-    _placeholder = object()
-    try:
-        getattr(module_obj, attr_name)
-    except AttributeError:
-        setattr(module_obj, attr_name, _placeholder)
-    try:
-        with mock.patch.object(
-                module_obj, attr_name,
-                *patch_args, **patch_kwargs) as resultant_mock:
-            yield resultant_mock
-    finally:
-        if getattr(module_obj, attr_name) is _placeholder:
-            delattr(module_obj, attr_name)
-
 
 
 #

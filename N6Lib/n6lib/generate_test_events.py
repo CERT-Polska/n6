@@ -145,7 +145,7 @@ class RandomEvent(ConfigMixin):
         self._attributes_init()
 
     def _config_init(self, settings):
-        self.config = self.get_config_section(settings=settings)
+        self.config = self.get_config_section(settings)
         self._possible_attrs = self.config.get('possible_event_attributes')
         self._required_attrs = self.config.get('required_attributes')
         self._event_name = self.config.get('event_name')

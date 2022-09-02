@@ -13,11 +13,13 @@ interface IProps {
 
 const ApiLoader: FC<IProps> = ({ status, children, error, noError }) => {
   const { resetAuthState } = useAuthContext();
+
   useEffect(() => {
     if (error?.response?.status === 403) {
       resetAuthState();
     }
   }, [error?.response?.status, resetAuthState]);
+
   switch (status) {
     case 'error':
       if (error?.response?.status === 403) {

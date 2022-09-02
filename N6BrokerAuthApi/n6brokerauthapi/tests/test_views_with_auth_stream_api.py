@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2019-2022 NASK. All rights reserved.
 
 import itertools
 import unittest
@@ -52,24 +52,40 @@ assert GUEST_USERNAME in EXPLICITLY_ILLEGAL_USERNAMES
 
 TEST_USER = 'test@example.org'          # its org is ORG1
 ADMIN_USER = 'admin@example.net'        # its org is ORG2 + its system group is ADMINS_GROUP
+ADMIN_USER_WITH_LEGACY_UPPER = 'ADMIN@example.net'        # (<- with legacy uppercase, *not* in db)
 REGULAR_USER = 'regular@example.info'   # its org is ORG2
-UNKNOWN_USER = 'unknown@example.biz'    #  ^-- see below: `_MockerMixin._get_mocked_db_state()`
+REGULAR_USER_WITH_LEGACY_UPPER = 'reGULar@example.info'   # (<- with legacy uppercase, *not* in db)
+BLOCKED_USER = 'blocked@example.io'     # its org is ORG2
+# (see below: `_MockerMixin._get_mocked_db_state()` ad ^)
 
 REGULAR_COMPONENT = 'regular-comp'
 PRIVILEGED_COMPONENT = 'privileged-comp'
-UNKNOWN_COMPONENT = 'unknown-comp'
 
-KNOWN_USERS = [TEST_USER, ADMIN_USER, REGULAR_USER]
-KNOWN_COMPONENTS = [REGULAR_COMPONENT, PRIVILEGED_COMPONENT]
-KNOWN_USERS_AND_COMPONENTS = KNOWN_USERS + KNOWN_COMPONENTS
+ELIGIBLE_USERS = [
+    TEST_USER,
+    ADMIN_USER,
+    ADMIN_USER_WITH_LEGACY_UPPER,
+    REGULAR_USER,
+    REGULAR_USER_WITH_LEGACY_UPPER,
+]
+ELIGIBLE_COMPONENTS = [REGULAR_COMPONENT, PRIVILEGED_COMPONENT]
+ELIGIBLE_USERS_AND_COMPONENTS = ELIGIBLE_USERS + ELIGIBLE_COMPONENTS
 
-UNKNOWN_USERS = [UNKNOWN_USER, '']
-UNKNOWN_COMPONENTS = [UNKNOWN_COMPONENT, '']
-UNKNOWN_USERS_AND_COMPONENTS = UNKNOWN_USERS + UNKNOWN_COMPONENTS
+INELIGIBLE_USERS = [
+    'unknown@example.biz',
+    'unKNOWN@example.biz',
+    BLOCKED_USER,
+    '',
+]
+INELIGIBLE_COMPONENTS = [
+    'unknown-comp',
+    '',
+]
+INELIGIBLE_USERS_AND_COMPONENTS = INELIGIBLE_USERS + INELIGIBLE_COMPONENTS
 
-ADMIN_USERS = [ADMIN_USER]
+ADMIN_USERS = [ADMIN_USER, ADMIN_USER_WITH_LEGACY_UPPER]
 
-REGULAR_USERS = [TEST_USER, REGULAR_USER]
+REGULAR_USERS = [TEST_USER, REGULAR_USER, REGULAR_USER_WITH_LEGACY_UPPER]
 REGULAR_COMPONENTS = [REGULAR_COMPONENT]
 
 EXCHANGE = 'exchange'
@@ -116,6 +132,7 @@ class _MockerMixin(RequestHelperMixin, DBConnectionPatchMixin):
         test_user = models.User(login=TEST_USER)
         admin_user = models.User(login=ADMIN_USER)
         regular_user = models.User(login=REGULAR_USER)
+        blocked_user = models.User(login=BLOCKED_USER, is_blocked=True)
         # * components:
         regular_comp = models.Component(login=REGULAR_COMPONENT)
         privileged_comp = models.Component(login=PRIVILEGED_COMPONENT)
@@ -135,10 +152,10 @@ class _MockerMixin(RequestHelperMixin, DBConnectionPatchMixin):
         # noinspection PyUnresolvedReferences
         org1.users.append(test_user)
         # noinspection PyUnresolvedReferences
-        org2.users.extend([admin_user, regular_user])
+        org2.users.extend([admin_user, regular_user, blocked_user])
         # * whole DB state:
         db = {
-            'user': [test_user, admin_user, regular_user],
+            'user': [test_user, admin_user, regular_user, blocked_user],
             'component': [regular_comp, privileged_comp, comp_whose_login_is_illegal_username],
             'system_group': [admins_group],
             'org': [org1, org2],
@@ -281,17 +298,17 @@ class TestUserView(_N6BrokerViewTestingMixin, unittest.TestCase):
         resp = self.perform_request(username=username)
         self.assertDeny(resp)
 
-    @foreach_username(KNOWN_USERS_AND_COMPONENTS)
-    def test_allow_for_any_known_user_or_component(self, username):
+    @foreach_username(ELIGIBLE_USERS_AND_COMPONENTS)
+    def test_allow_for_any_eligible_user_or_component(self, username):
         resp = self.perform_request(username=username)
         self.assertAllow(resp)
 
-    @foreach_username(UNKNOWN_USERS_AND_COMPONENTS)
-    def test_deny_for_unknown_user_or_component(self, username):
+    @foreach_username(INELIGIBLE_USERS_AND_COMPONENTS)
+    def test_deny_for_ineligible_user_or_component(self, username):
         resp = self.perform_request(username=username)
         self.assertDeny(resp)
 
-    @foreach_username(KNOWN_USERS_AND_COMPONENTS + UNKNOWN_USERS_AND_COMPONENTS)
+    @foreach_username(ELIGIBLE_USERS_AND_COMPONENTS + INELIGIBLE_USERS_AND_COMPONENTS)
     def test_deny_if_password_given(self, username):
         resp = self.perform_request(username=username,
                                     password='123')
@@ -304,13 +321,13 @@ class TestUserView(_N6BrokerViewTestingMixin, unittest.TestCase):
         self.assertAllow(resp)
 
     @foreach_username(REGULAR_USERS)
-    def test_allow_without_administrator_for_known_non_admin_user(self, username):
+    def test_allow_without_administrator_for_eligible_non_admin_user(self, username):
         resp = self.perform_request(username=username)
         self.assertNoAdministratorTag(resp)
         self.assertAllow(resp)
 
-    @foreach_username(KNOWN_COMPONENTS)
-    def test_allow_without_administrator_for_any_known_component(self, username):
+    @foreach_username(ELIGIBLE_COMPONENTS)
+    def test_allow_without_administrator_for_any_eligible_component(self, username):
         resp = self.perform_request(username=username)
         self.assertNoAdministratorTag(resp)
         self.assertAllow(resp)
@@ -334,14 +351,14 @@ class TestVHostView(_N6BrokerViewTestingMixin, unittest.TestCase):
         resp = self.perform_request(username=username)
         self.assertDeny(resp)
 
-    @foreach_username(KNOWN_USERS_AND_COMPONENTS)
-    def test_allow_for_any_known_user_or_component(self, username):
+    @foreach_username(ELIGIBLE_USERS_AND_COMPONENTS)
+    def test_allow_for_any_eligible_user_or_component(self, username):
         resp = self.perform_request(username=username)
         self.assertAllow(resp)
         self.assertNoAdministratorTag(resp)
 
-    @foreach_username(UNKNOWN_USERS_AND_COMPONENTS)
-    def test_deny_for_unknown_user_or_component(self, username):
+    @foreach_username(INELIGIBLE_USERS_AND_COMPONENTS)
+    def test_deny_for_ineligible_user_or_component(self, username):
         resp = self.perform_request(username=username)
         self.assertDeny(resp)
 
@@ -416,16 +433,19 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
                                 [param(name='foo.bar.spam')])
 
     @paramseq
-    def __matching_knownuser_exchange_pairs(cls):
+    def __matching_eligibleuser_exchange_pairs(cls):
         # username=<login of User>, exchange=<org_id of User's Org>
         yield param(username=TEST_USER, name=ORG1)
         yield param(username=ADMIN_USER, name=ORG2)
+        yield param(username=ADMIN_USER_WITH_LEGACY_UPPER, name=ORG2)
         yield param(username=REGULAR_USER, name=ORG2)
+        yield param(username=REGULAR_USER_WITH_LEGACY_UPPER, name=ORG2)
 
     @paramseq
     def __not_matching_regularuser_exchange_pairs(cls):
         yield param(username=TEST_USER, name=ORG2)
         yield param(username=REGULAR_USER, name=ORG1)
+        yield param(username=REGULAR_USER_WITH_LEGACY_UPPER, name=ORG1)
         for username in REGULAR_USERS:
             for exchange in [PUSH_EXCHANGE, 'whatever', '']:
                 yield param(username=username, name=exchange)
@@ -477,7 +497,7 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
 
     # * 'exchange'-resource-related cases:
 
-    @foreach_username(REGULAR_USERS + UNKNOWN_USERS)
+    @foreach_username(REGULAR_USERS + INELIGIBLE_USERS)
     @foreach(__various_exchange_names)
     def test_deny_for_exchange_configure_by_any_non_admin_user(self, username, name):
         resp = self.perform_request(
@@ -487,7 +507,7 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(REGULAR_COMPONENTS + UNKNOWN_COMPONENTS)
+    @foreach_username(REGULAR_COMPONENTS + INELIGIBLE_COMPONENTS)
     @foreach(__various_exchange_names)
     def test_deny_for_exchange_configure_by_any_unprivileged_component(self, username, name):
         resp = self.perform_request(
@@ -497,7 +517,7 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(REGULAR_USERS + UNKNOWN_USERS)
+    @foreach_username(REGULAR_USERS + INELIGIBLE_USERS)
     @foreach(__various_nonpush_exchange_names)
     def test_deny_for_nonpush_exchange_write_by_any_non_admin_user(self, username, name):
         resp = self.perform_request(
@@ -507,7 +527,7 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(REGULAR_COMPONENTS + UNKNOWN_COMPONENTS)
+    @foreach_username(REGULAR_COMPONENTS + INELIGIBLE_COMPONENTS)
     @foreach(__various_nonpush_exchange_names)
     def test_deny_for_nonpush_exchange_write_by_any_unprivileged_component(self, username, name):
         resp = self.perform_request(
@@ -517,8 +537,8 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(KNOWN_USERS_AND_COMPONENTS)
-    def test_allow_for_push_exchange_write_by_any_known_user_or_component(self, username):
+    @foreach_username(ELIGIBLE_USERS_AND_COMPONENTS)
+    def test_allow_for_push_exchange_write_by_any_eligible_user_or_component(self, username):
         resp = self.perform_request(
             username=username,
             resource=EXCHANGE,
@@ -527,8 +547,8 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
         self.assertAllow(resp)
         self.assertNoAdministratorTag(resp)
 
-    @foreach_username(UNKNOWN_USERS_AND_COMPONENTS)
-    def test_deny_for_push_exchange_write_by_unknown_user_or_component(self, username):
+    @foreach_username(INELIGIBLE_USERS_AND_COMPONENTS)
+    def test_deny_for_push_exchange_write_by_ineligible_user_or_component(self, username):
         resp = self.perform_request(
             username=username,
             resource=EXCHANGE,
@@ -536,8 +556,8 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=PUSH_EXCHANGE)
         self.assertDeny(resp)
 
-    @foreach(__matching_knownuser_exchange_pairs)
-    def test_allow_for_exchange_read_by_known_user_whose_org_matches_exchange(
+    @foreach(__matching_eligibleuser_exchange_pairs)
+    def test_allow_for_exchange_read_by_eligible_user_whose_org_matches_exchange(
                                                         self, username, name):
         resp = self.perform_request(
             username=username,
@@ -557,9 +577,9 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(UNKNOWN_USERS)
+    @foreach_username(INELIGIBLE_USERS)
     @foreach(__various_exchange_names)
-    def test_deny_for_exchange_read_by_unknown_user(self, username, name):
+    def test_deny_for_exchange_read_by_ineligible_user(self, username, name):
         resp = self.perform_request(
             username=username,
             resource=EXCHANGE,
@@ -569,7 +589,7 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
 
     # * 'queue'-resource-related cases:
 
-    @foreach_username(REGULAR_COMPONENTS + UNKNOWN_COMPONENTS)
+    @foreach_username(REGULAR_COMPONENTS + INELIGIBLE_COMPONENTS)
     @foreach(__various_exchange_names)
     def test_deny_for_exchange_read_by_any_unprivileged_component(self, username, name):
         resp = self.perform_request(
@@ -579,10 +599,10 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(KNOWN_USERS_AND_COMPONENTS)
+    @foreach_username(ELIGIBLE_USERS_AND_COMPONENTS)
     @foreach(__permission_levels)
     @foreach(__some_autogenerated_queue_names)
-    def test_allow_for_any_permission_for_autogenerated_queue_for_any_known_user_or_component(
+    def test_allow_for_any_permission_for_autogenerated_queue_for_any_eligible_user_or_component(
                                             self, username, permission, name):
         resp = self.perform_request(
             username=username,
@@ -592,10 +612,10 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
         self.assertAllow(resp)
         self.assertNoAdministratorTag(resp)
 
-    @foreach_username(UNKNOWN_USERS_AND_COMPONENTS)
+    @foreach_username(INELIGIBLE_USERS_AND_COMPONENTS)
     @foreach(__permission_levels)
     @foreach(__some_autogenerated_queue_names)
-    def test_deny_for_any_permission_for_autogenerated_queue_for_any_unknown_user_or_component(
+    def test_deny_for_any_permission_for_autogenerated_queue_for_any_ineligible_user_or_component(
                                             self, username, permission, name):
         resp = self.perform_request(
             username=username,
@@ -604,7 +624,7 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(REGULAR_USERS + UNKNOWN_USERS)
+    @foreach_username(REGULAR_USERS + INELIGIBLE_USERS)
     @foreach(__permission_levels)
     @foreach(__some_not_autogenerated_queue_names)
     def test_deny_for_any_permission_for_not_autogenerated_queue_for_any_non_admin_user(
@@ -616,7 +636,7 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(REGULAR_COMPONENTS + UNKNOWN_COMPONENTS)
+    @foreach_username(REGULAR_COMPONENTS + INELIGIBLE_COMPONENTS)
     @foreach(__permission_levels)
     @foreach(__some_not_autogenerated_queue_names)
     def test_deny_for_any_permission_for_not_autogenerated_queue_for_any_unprivileged_component(
@@ -630,7 +650,7 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
 
     # * illegal resource/permission cases:
 
-    @foreach_username(KNOWN_USERS_AND_COMPONENTS + UNKNOWN_USERS_AND_COMPONENTS)
+    @foreach_username(ELIGIBLE_USERS_AND_COMPONENTS + INELIGIBLE_USERS_AND_COMPONENTS)
     @foreach(__illegal_resource_types)
     @foreach(__permission_levels)
     @foreach(__various_resource_names)
@@ -642,7 +662,7 @@ class TestResourceView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(KNOWN_USERS_AND_COMPONENTS + UNKNOWN_USERS_AND_COMPONENTS)
+    @foreach_username(ELIGIBLE_USERS_AND_COMPONENTS + INELIGIBLE_USERS_AND_COMPONENTS)
     @foreach(__resource_types)
     @foreach(__illegal_permission_levels)
     @foreach(__various_resource_names)
@@ -708,10 +728,10 @@ class TestTopicView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(KNOWN_USERS_AND_COMPONENTS)
+    @foreach_username(ELIGIBLE_USERS_AND_COMPONENTS)
     @foreach(__permission_levels)
     @foreach(__various_exchange_names)
-    def test_allow_for_any_known_user_or_component(self, username, permission, name):
+    def test_allow_for_any_eligible_user_or_component(self, username, permission, name):
         resp = self.perform_request(
             username=username,
             permission=permission,
@@ -719,17 +739,17 @@ class TestTopicView(_N6BrokerViewTestingMixin, unittest.TestCase):
         self.assertAllow(resp)
         self.assertNoAdministratorTag(resp)
 
-    @foreach_username(UNKNOWN_USERS_AND_COMPONENTS)
+    @foreach_username(INELIGIBLE_USERS_AND_COMPONENTS)
     @foreach(__permission_levels)
     @foreach(__various_exchange_names)
-    def test_deny_for_unknown_user_or_component(self, username, permission, name):
+    def test_deny_for_ineligible_user_or_component(self, username, permission, name):
         resp = self.perform_request(
             username=username,
             permission=permission,
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(KNOWN_USERS_AND_COMPONENTS + UNKNOWN_USERS_AND_COMPONENTS)
+    @foreach_username(ELIGIBLE_USERS_AND_COMPONENTS + INELIGIBLE_USERS_AND_COMPONENTS)
     @foreach(__illegal_resource_types)
     @foreach(__permission_levels)
     @foreach(__various_exchange_names)
@@ -741,7 +761,7 @@ class TestTopicView(_N6BrokerViewTestingMixin, unittest.TestCase):
             name=name)
         self.assertDeny(resp)
 
-    @foreach_username(KNOWN_USERS_AND_COMPONENTS + UNKNOWN_USERS_AND_COMPONENTS)
+    @foreach_username(ELIGIBLE_USERS_AND_COMPONENTS + INELIGIBLE_USERS_AND_COMPONENTS)
     @foreach(__illegal_permission_levels)
     @foreach(__various_exchange_names)
     def test_deny_for_illegal_permission_level(self, username, permission, name):

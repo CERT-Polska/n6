@@ -65,14 +65,29 @@ WSGI_SSL_ORG_ID_FIELD = 'SSL_CLIENT_S_DN_O'
 # SSL_CLIENT_S_DN_CN - assumed to be user id (Apache-specific)
 WSGI_SSL_USER_ID_FIELD = 'SSL_CLIENT_S_DN_CN'
 
-# possible values of Collector class's 'type' attribute
-RAW_TYPE_ENUMS = ('stream', 'file', 'blacklist')
 
-# possible values of RecordDict's 'type' item
-TYPE_ENUMS = (
-    'suppressed', 'event', 'bl', 'bl-new', 'bl-update',
-    'bl-delist', 'bl-change', 'bl-expire', 'hifreq',
+# possible values of the `raw_type` attribute of collector classes,
+# and of the `type` property of messages in the `raw` AMQP exchange
+RAW_TYPE_ENUMS = (
+    'stream',
+    'file',
+    'blacklist',
 )
+
+# possible values of the `type` item of RecordDicts, and of the
+# first segment of routing keys in the `event` AMQP exchange
+EVENT_TYPE_ENUMS = (
+    'event',
+    'hifreq',
+    'suppressed',
+    'bl',
+    'bl-new',
+    'bl-update',
+    'bl-delist',
+    'bl-change',
+    'bl-expire',
+)
+
 
 SURICATA_SNORT_CATEGORIES = {
     'bots': {'include': False},

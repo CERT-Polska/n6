@@ -1,8 +1,8 @@
 import { FC, useEffect } from 'react';
 import { AxiosError } from 'axios';
-import { useIntl } from 'react-intl';
 import { FormProvider, SubmitHandler, useForm } from 'react-hook-form';
 import { useMutation } from 'react-query';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { postMfaConfigConfirm } from 'api/auth';
 import useAuthContext from 'context/AuthContext';
 import useLoginContext from 'context/LoginContext';
@@ -18,7 +18,7 @@ type TMfaForm = {
 };
 
 const LoginConfigMfaForm: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { getAuthInfo } = useAuthContext();
   const { mfaData, resetLoginState, updateLoginState } = useLoginContext();
 

@@ -1,11 +1,11 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as ErrorIcon } from 'images/error.svg';
 import CustomButton from 'components/shared/CustomButton';
 import routeList from 'routes/routeList';
 
 const UserSettingsMfaConfigError: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   return (
     <div className="user-settings-config-content">

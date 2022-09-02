@@ -1,17 +1,18 @@
 import { FC } from 'react';
 import format from 'date-fns/format';
-import { useIntl } from 'react-intl';
 import { CSVLink } from 'react-csv';
-import { IResponseTableData } from 'api/services/globalTypes';
+import { IResponse } from 'api/services/globalTypes';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { TAvailableResources } from 'api/services/info/types';
+import { parseResponseDataForCsv } from 'utils/parseResponseData';
 
 interface IProps {
-  data: IResponseTableData[];
+  data: IResponse[];
   resource?: TAvailableResources;
 }
 
 const ExportCSV: FC<IProps> = ({ data, resource = 'empty' }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const headers = [
     {
       label: 'Time',
@@ -90,6 +91,8 @@ const ExportCSV: FC<IProps> = ({ data, resource = 'empty' }) => {
   const time = format(new Date(), 'yyyyMMddHHmmss');
   const filename = `n6${resource.replaceAll('/', '-')}${time}.csv`;
 
+  const parsedData = parseResponseDataForCsv(data);
+
   return (
     <>
       {resource !== 'empty' ? (
@@ -97,7 +100,7 @@ const ExportCSV: FC<IProps> = ({ data, resource = 'empty' }) => {
           className="incidents-export-link font-smaller font-weight-medium"
           filename={filename}
           headers={headers}
-          data={data}
+          data={parsedData}
         >
           {messages.incidents_export_link_csv}
         </CSVLink>

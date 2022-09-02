@@ -39,11 +39,11 @@ from n6.parsers.generic import (
     BaseParser,
     BlackListTabDataParser,
 )
-from n6.tests.parsers._parser_test_mixin import ParserTestMixIn
+from n6.tests.parsers._parser_test_mixin import ParserTestMixin
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 
 
-MESSAGE_EXPIRES = str(parse_iso_datetime_to_utc(ParserTestMixIn.message_created) +
+MESSAGE_EXPIRES = str(parse_iso_datetime_to_utc(ParserTestMixin.message_created) +
                       datetime.timedelta(days=2))
 
 
@@ -218,7 +218,7 @@ def _cases_for_tracker(self):
 #
 # Actual test case clases
 
-class TestAbuseChSpyeyeDoms201406Parser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChSpyeyeDoms201406Parser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -235,7 +235,7 @@ class TestAbuseChSpyeyeDoms201406Parser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_doms201406
 
 
-class TestAbuseChSpyeyeDomsParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChSpyeyeDomsParser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -253,7 +253,7 @@ class TestAbuseChSpyeyeDomsParser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_doms
 
 
-class TestAbuseChSpyeyeIps201406Parser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChSpyeyeIps201406Parser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -270,7 +270,7 @@ class TestAbuseChSpyeyeIps201406Parser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_ips
 
 
-class TestAbuseChSpyeyeIpsParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChSpyeyeIpsParser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -287,7 +287,7 @@ class TestAbuseChSpyeyeIpsParser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_ips
 
 
-class TestAbuseChZeusDoms201406Parser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChZeusDoms201406Parser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -304,7 +304,7 @@ class TestAbuseChZeusDoms201406Parser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_doms201406
 
 
-class TestAbuseChZeusDomsParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChZeusDomsParser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -322,7 +322,7 @@ class TestAbuseChZeusDomsParser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_doms
 
 
-class TestAbuseChZeusIps201406Parser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChZeusIps201406Parser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -339,7 +339,7 @@ class TestAbuseChZeusIps201406Parser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_ips
 
 
-class TestAbuseChZeusIpsParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChZeusIpsParser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -356,7 +356,7 @@ class TestAbuseChZeusIpsParser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_ips
 
 
-class TestAbuseChPalevoDoms201406Parser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChPalevoDoms201406Parser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -373,7 +373,7 @@ class TestAbuseChPalevoDoms201406Parser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_doms201406
 
 
-class TestAbuseChPalevoDomsParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChPalevoDomsParser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -391,7 +391,7 @@ class TestAbuseChPalevoDomsParser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_doms
 
 
-class TestAbuseChPalevoIps201406Parser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChPalevoIps201406Parser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -408,7 +408,7 @@ class TestAbuseChPalevoIps201406Parser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_ips
 
 
-class TestAbuseChPalevoIpsParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChPalevoIpsParser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
@@ -425,7 +425,7 @@ class TestAbuseChPalevoIpsParser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_ips
 
 
-class TestAbuseChZeusTrackerParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChZeusTrackerParser(ParserTestMixin, unittest.TestCase):
     PARSER_SOURCE = 'abuse-ch.zeustracker'
     PARSER_CLASS = AbuseChZeusTrackerParser
     PARSER_BASE_CLASS = BaseParser
@@ -438,7 +438,7 @@ class TestAbuseChZeusTrackerParser(ParserTestMixIn, unittest.TestCase):
     cases = _cases_for_tracker
 
 
-class TestAbuseChFeodoTrackerParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChFeodoTrackerParser(ParserTestMixin, unittest.TestCase):
     PARSER_SOURCE = 'abuse-ch.feodotracker'
     PARSER_CLASS = AbuseChFeodoTrackerParser
     PARSER_BASE_CLASS = BaseParser
@@ -482,7 +482,7 @@ class TestAbuseChFeodoTrackerParser(ParserTestMixIn, unittest.TestCase):
         )
 
 
-class TestAbuseChFeodotracker201908Parser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChFeodotracker201908Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'abuse-ch.feodotracker'
     PARSER_CLASS = AbuseChFeodoTracker201908Parser
@@ -527,7 +527,7 @@ class TestAbuseChFeodotracker201908Parser(ParserTestMixIn, unittest.TestCase):
         )
 
 
-class TestAbuseChFeodotracker202110Parser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChFeodotracker202110Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'abuse-ch.feodotracker'
     PARSER_CLASS = AbuseChFeodoTracker202110Parser
@@ -572,7 +572,7 @@ class TestAbuseChFeodotracker202110Parser(ParserTestMixIn, unittest.TestCase):
         )
 
 
-class TestAbuseChRansomwareTrackerParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChRansomwareTrackerParser(ParserTestMixin, unittest.TestCase):
     PARSER_SOURCE = 'abuse-ch.ransomware'
     PARSER_CLASS = AbuseChRansomwareTrackerParser
     PARSER_BASE_CLASS = BaseParser
@@ -623,7 +623,7 @@ class TestAbuseChRansomwareTrackerParser(ParserTestMixIn, unittest.TestCase):
         )
 
 
-class _TestAbuseChSSLBlacklistParserBase(ParserTestMixIn, unittest.TestCase):
+class _TestAbuseChSSLBlacklistParserBase(ParserTestMixin, unittest.TestCase):
 
     PARSER_BASE_CLASS = _AbuseChSSLBlacklistBaseParser
     PARSER_CONSTANT_ITEMS = {
@@ -780,7 +780,7 @@ class TestAbuseChSSLBlacklistDyreParser(_TestAbuseChSSLBlacklistParserBase):
     PARSER_CLASS = AbuseChSSLBlacklistDyreParser
 
 
-class TestAbuseChSSLBlacklists201902Parser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChSSLBlacklists201902Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'abuse-ch.ssl-blacklist'
     PARSER_CLASS = AbuseChSSLBlacklist201902Parser
@@ -822,7 +822,7 @@ class TestAbuseChSSLBlacklists201902Parser(ParserTestMixIn, unittest.TestCase):
         )
 
 
-class TestAbuseChUrlhausUrlsParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChUrlhausUrlsParser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'abuse-ch.urlhaus-urls'
     PARSER_CLASS = AbuseChUrlhausUrlsParser
@@ -859,7 +859,7 @@ class TestAbuseChUrlhausUrlsParser(ParserTestMixIn, unittest.TestCase):
         )
 
 
-class TestAbuseChUrlhausUrls202001Parser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChUrlhausUrls202001Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'abuse-ch.urlhaus-urls'
     PARSER_CLASS = AbuseChUrlhausUrls202001Parser
@@ -1211,7 +1211,7 @@ class TestAbuseChUrlhausUrls202001Parser(ParserTestMixIn, unittest.TestCase):
         )
 
 
-class TestAbuseChUrlhausPayloadsUrlsParser(ParserTestMixIn, unittest.TestCase):
+class TestAbuseChUrlhausPayloadsUrlsParser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'abuse-ch.urlhaus-payloads-urls'
     PARSER_CLASS = AbuseChUrlhausPayloadsUrlsParser

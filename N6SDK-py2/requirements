@@ -1,3 +1,4 @@
+certifi==2021.10.8
 pyramid==1.10.8
 requests==2.25.1
 venusian==2.1.0

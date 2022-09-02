@@ -1,7 +1,7 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
 import classnames from 'classnames';
 import { FieldError } from 'react-hook-form';
+import { useTypedIntl } from 'utils/useTypedIntl';
 
 export type FormRenderErrorMsgProps = {
   isInvalid?: boolean;
@@ -11,7 +11,7 @@ export type FormRenderErrorMsgProps = {
 };
 
 const FormRenderErrorMsg: FC<FormRenderErrorMsgProps> = ({ isInvalid, className, helperText, fieldError }) => {
-  const { messages, formatMessage } = useIntl();
+  const { messages, formatMessage } = useTypedIntl();
 
   const errorType = fieldError?.type;
 

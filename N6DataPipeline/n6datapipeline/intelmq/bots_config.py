@@ -1,4 +1,4 @@
-# Copyright (c) 2021 NASK. All rights reserved.
+# Copyright (c) 2021-2022 NASK. All rights reserved.
 
 import inspect
 import logging
@@ -93,10 +93,10 @@ class BotsConfigBase(ConfigMixin):
     config_ttl_opt_name = 'cache_ttl'
     parameter_ttl_opt_name = 'redis_cache_ttl'
 
-    def __init__(self, **fmt_args):
+    def __init__(self, **format_kwargs):
         self.config = Config.section(self.general_config_spec)
-        if self.is_config_spec_or_group_declared():
-            self.config.update(self.get_config_section(**fmt_args))
+        if self.is_config_spec_declared():
+            self.config.update(self.get_config_section(**format_kwargs))
         self.parameters = self.config.copy()
         config_ttl = self.parameters.get(self.config_ttl_opt_name)
         if config_ttl:
@@ -133,7 +133,7 @@ class GenericCollectorConfig(BotsConfigBase):
     input_messages_type = {msg_type}
     feed = {feed}
     accuracy = {accuracy} :: float
-    source_label = {source_label}
+    source_provider = {source_provider}
     source_channel = {source_channel}
     ...
     '''
@@ -213,13 +213,12 @@ class RIPENCCExpertBotConfig(BotsConfigBase):
     config_spec = '''
     [RIPENCCExpertBot]
     input_messages_type = event :: str
-    query_ripe_db_asn = true
-    query_ripe_db_ip = true
-    query_ripe_stat_asn = true
-    query_ripe_stat_ip = true
-    ...
+    query_ripe_db_asn = true :: bool
+    query_ripe_db_ip = true :: bool
+    query_ripe_stat_asn = true :: bool
+    query_ripe_stat_ip = true :: bool
+    ... :: bool
     '''
-    default_converter = 'bool'
 
 
 class TorExpertBotConfig(BotsConfigBase):
@@ -306,7 +305,7 @@ class Malc0deCollectorConfig(BotsConfigBase):
 
     config_spec = '''
     [Malc0deCollector]
-    source_label = malc0de
+    source_provider = malc0de
     source_channel = intelmq
     feed = malc0de
     accuracy = 50.00 :: float

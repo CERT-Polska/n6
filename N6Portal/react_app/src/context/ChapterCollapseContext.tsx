@@ -1,0 +1,26 @@
+import { createContext, FC, useContext, useState } from 'react';
+
+interface ICollapseChapterContext {
+  activeArticleId?: string;
+  setActiveArticleId: (newId?: string) => void;
+}
+
+const initialContext: ICollapseChapterContext = {
+  setActiveArticleId: () => undefined
+};
+
+const CollapseChapterContext = createContext<ICollapseChapterContext>(initialContext);
+
+export const CollapseChapterContextProvider: FC = ({ children }) => {
+  const [activeArticleId, setActiveArticleId] = useState<string>();
+
+  return (
+    <CollapseChapterContext.Provider value={{ activeArticleId, setActiveArticleId }}>
+      {children}
+    </CollapseChapterContext.Provider>
+  );
+};
+
+const useCollapseChapterContext = (): ICollapseChapterContext => useContext(CollapseChapterContext);
+
+export default useCollapseChapterContext;

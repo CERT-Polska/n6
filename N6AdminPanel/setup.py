@@ -47,6 +47,7 @@ requires = [
     'WTForms==2.3.3',
     'werkzeug==1.0.1',
     'click==7.1.2',
+    'blinker==1.4',
 ]
 
 setup(

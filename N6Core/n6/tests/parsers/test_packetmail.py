@@ -10,10 +10,10 @@ from n6.parsers.packetmail import (
     PacketmailScanningParser,
     _PacketmailBaseParser,
 )
-from n6.tests.parsers._parser_test_mixin import ParserTestMixIn
+from n6.tests.parsers._parser_test_mixin import ParserTestMixin
 
 
-class TestPacketmailScanningParser(ParserTestMixIn, unittest.TestCase):
+class TestPacketmailScanningParser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'packetmail-net.list'
     PARSER_CLASS = PacketmailScanningParser
@@ -69,7 +69,7 @@ class TestPacketmailScanningParser(ParserTestMixIn, unittest.TestCase):
             ]
         )
 
-class TestPacketmailRatwareParser(ParserTestMixIn, unittest.TestCase):
+class TestPacketmailRatwareParser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'packetmail-net.ratware-list'
     PARSER_CLASS = PacketmailRatwareParser
@@ -121,7 +121,7 @@ class TestPacketmailRatwareParser(ParserTestMixIn, unittest.TestCase):
         )
 
 
-class TestPacketmailOthersParser(ParserTestMixIn, unittest.TestCase):
+class TestPacketmailOthersParser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'packetmail-net.others-list'
     PARSER_CLASS = PacketmailOthersParser

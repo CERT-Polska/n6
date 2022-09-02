@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2021 NASK. All rights reserved.
+# Copyright (c) 2020-2022 NASK. All rights reserved.
 
 import datetime
 from typing import (
@@ -33,12 +33,14 @@ JsonableCollection = Union[JsonableDict, JsonableSeq]
 
 TypeSpec = Union[type, Tuple['TypeSpec', ...]]  # type of `isinstance()/issubclass()`'s second arg
 
-ExcFactory = Callable[..., BaseException]
+ExcFactory = Callable[..., Exception]
+BaseExcFactory = Callable[..., BaseException]
+
 ColumnElementTransformer = Callable[[ColumnElement], ColumnElement]
 
 EventDataResourceId = Literal['/report/inside', '/report/threats', '/search/events']
 AccessZone = Literal['inside', 'threats', 'search']
-AccessZoneConditions = Dict[AccessZone, List[ColumnElement]]
+AccessZoneConditionsDict = Dict[AccessZone, List[ColumnElement]]
 
 AuthData = TypedDict('AuthData', {
     'org_id': String,               # `Org.org_id`
@@ -46,7 +48,7 @@ AuthData = TypedDict('AuthData', {
 })
 
 AccessInfo = TypedDict('AccessInfo', {
-    'access_zone_conditions': AccessZoneConditions,
+    'access_zone_conditions': AccessZoneConditionsDict,
     'rest_api_resource_limits': Dict[EventDataResourceId, dict],
     'rest_api_full_access': bool,   # `Org.full_access`
 })

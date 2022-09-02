@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import datetime
 import json
@@ -324,15 +324,16 @@ class Comparator(LegacyQueuedBase):
         except OSError:
             pass
         super(Comparator, self).__init__(**kwargs)
-        # store dir doesn't exist, stop comparator
+        # state dir doesn't exist
         if not os.path.isdir(dbpath_dirname):
-            raise Exception('store dir does not exist, stop comparator,  path:',
-                            self.comparator_config["dbpath"])
-        # store directory exists, but it has no rights to write
+            raise Exception(f'stopping the comparator - the state '
+                            f'directory does not exist; its path: ',
+                            f'{self.comparator_config["dbpath"]!a}')
+        # state directory exists, but we have no write access to it
         if not os.access(dbpath_dirname,  os.W_OK):
-            raise Exception('stop comparator, remember to set the rights'
-                            ' for user, which runs comparator,  path:',
-                            self.comparator_config["dbpath"])
+            raise Exception(f'stopping the comparator - write access '
+                            f'to the state directory needed; its path: '
+                            f'{self.comparator_config["dbpath"]!a}')
         self.state = ComparatorState(int(self.comparator_config["cleanup_time"]))
         self.db = ComparatorDataWrapper(self.comparator_config["dbpath"])
 
@@ -372,13 +373,13 @@ class Comparator(LegacyQueuedBase):
     def publish_event(self, data):
         """Publishes event to the output queue
         """
-        type_, payload = data
-        if type_ is None:
+        event_type, payload = data
+        if event_type is None:
             return
         payload = self._cleanup_data(payload)
-        payload["type"] = type_
-        source, channel = payload["source"].split(".")
-        rk = "{}.{}.{}.{}".format(type_, "compared", source, channel)
+        payload["type"] = event_type
+        source_provider, source_channel = payload["source"].split(".")
+        rk = f'{event_type}.compared.{source_provider}.{source_channel}'
         body = json.dumps(payload)
         self.publish_output(routing_key=rk, body=body)
 
@@ -436,6 +437,7 @@ def main():
             c.run()
         except KeyboardInterrupt:
             c.stop()
+            raise
 
 
 if __name__ == '__main__':

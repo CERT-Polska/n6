@@ -1,6 +1,6 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
 import classNames from 'classnames';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import Tooltip from 'components/shared/Tooltip';
 
 interface IProps {
@@ -9,7 +9,7 @@ interface IProps {
 }
 
 const OrganizationCard: FC<IProps> = ({ messageKey, value }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   return (
     <>

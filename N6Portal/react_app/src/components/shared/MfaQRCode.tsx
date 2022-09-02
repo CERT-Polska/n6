@@ -1,12 +1,12 @@
 import { FC, useEffect, useRef, useState } from 'react';
-import { useIntl } from 'react-intl';
 import QRCode from 'qrcode';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { IMfaConfig } from 'api/auth/types';
 
 const MfaQRCode: FC<IMfaConfig['mfa_config']> = ({ secret_key, secret_key_qr_code_url }) => {
   const [qrcodeError, toggleQrcodeError] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   // render QRcode
   useEffect(() => {

@@ -1,11 +1,11 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as ErrorIcon } from 'images/error.svg';
 import CustomButton from 'components/shared/CustomButton';
 import useLoginContext from 'context/LoginContext';
 
 const LoginConfigMfaError: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { resetLoginState } = useLoginContext();
 
   return (

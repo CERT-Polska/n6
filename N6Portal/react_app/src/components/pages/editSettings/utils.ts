@@ -10,8 +10,8 @@ export const prepareDefaultValues = (data: IOrgConfig): TEditSettingsForm => {
     asns,
     fqdns,
     ip_networks,
-    update_info,
-    post_accepted,
+    update_info: _update_info,
+    post_accepted: _post_accepted,
     ...rest
   } = data;
 
@@ -27,7 +27,7 @@ export const prepareDefaultValues = (data: IOrgConfig): TEditSettingsForm => {
 };
 
 export const prepareUpdatedValues = (data: IUpdateInfo): Partial<TEditSettingsForm> => {
-  const { update_request_time, requesting_user, ...rest } = data;
+  const { update_request_time: _update_request_time, requesting_user: _requesting_user, ...rest } = data;
   const updatedEntries: Partial<TEditSettingsForm> = {};
 
   Object.entries(rest).forEach(([key, value]) => {

@@ -6,7 +6,7 @@
 
 # Prepare Auth DB
 # docker-compose run --rm worker n6/docker/bin/wait-for-services.sh
-# docker-compose run --rm worker n6create_and_initialize_auth_db -D
+# docker-compose run --rm worker n6create_and_initialize_auth_db -D -y
 # docker-compose run --rm worker n6populate_auth_db -F -i -t -s -p example.com login@example.com
 
 # Prepare Auth DB for easy test n6mange
@@ -32,8 +32,6 @@ services:
       dockerfile: ./docker/worker/Dockerfile
     container_name: n6
     hostname: n6
-    environment:
-      N6_PORTAL_AUTH_2021: "yes"
     command: >
       bash -c "n6/docker/bin/wait-for-services.sh
       && supervisord -c supervisord/supervisord.conf"
@@ -45,8 +43,6 @@ services:
       context: .
       dockerfile: ./docker/web/Dockerfile
     hostname: apache
-    environment:
-      N6_PORTAL_AUTH_2021: "yes"
     restart: always
     container_name: web
     ports:
@@ -92,7 +88,7 @@ services:
       - 27017:27017
     command: --auth
     healthcheck:
-      test: ["CMD", "./docker-healthcheck"]
+      test: "if mongo --eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 2)'; then exit 0; fi; exit 1;"
       interval: 10s
       timeout: 5s
       retries: 5

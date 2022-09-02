@@ -361,42 +361,7 @@ class AMQPHandler(logging.Handler):
         return serialize_record
 
 
-    def emit(self, record, _ERROR_LEVEL_NO=logging.ERROR):
-        try:
-            # ignore internal AMQP-handler-related error messages --
-            # i.e., those logged with the handler's error logger
-            # (to avoid infinite loop of message emissions...)
-            if record.name == self._error_logger_name:
-                return
-            # (exception here ^ is hardly probable, but you never know...)
-        except RecursionError:  # see: https://bugs.python.org/issue36272 XXX: is it really needed?
-            raise
-        except Exception:
-            super().handleError(record)
-            # (better trigger the same exception again than continue
-            # if the following condition is true)
-            if record.name == self._error_logger_name:
-                return
-
-        try:
-            if record.levelno >= _ERROR_LEVEL_NO:
-                record.formatted_call_stack_items = traceback.format_stack()
-            routing_key = self._rk_template.format(
-                hostname=HOSTNAME,
-                script_basename=SCRIPT_BASENAME,
-                levelname=record.levelname,
-                loggername=record.name)
-            try:
-                self._pusher.push(record, routing_key)
-            except ValueError:
-                if not self._closing:
-                    raise
-        except RecursionError:  # see: https://bugs.python.org/issue36272 XXX: is it really needed?
-            raise
-        except Exception:
-            self.handleError(record)
-                                                                                 #3: remove the method definition below (keeping the above one)
-    def emit(self, record, _ERROR_LEVEL_NO=logging.ERROR):
+    def emit(self, record, _ERROR_LEVEL_NO=logging.ERROR):                #3: adjust this method...
         try:
             # ignore internal AMQP-handler-related error messages --
             # i.e., those logged with the handler's error logger
@@ -431,28 +396,7 @@ class AMQPHandler(logging.Handler):
         except:
             self.handleError(record)
 
-    def close(self):
-        # typically, this method is called at interpreter exit
-        # (by logging.shutdown() which is always registered with
-        # atexit.register() machinery)
-        try:
-            try:
-                try:
-                    super(AMQPHandler, self).close()
-                finally:
-                    self._closing = True
-                    self._pusher.shutdown()
-            except:
-                dump_condensed_debug_msg(
-                    'EXCEPTION DURING EXECUTION OF close() OF THE AMQP LOGGING HANDLER!')
-                raise
-        except Exception as exc:
-            self._error_fifo.put(exc)
-        finally:
-            # (to break any traceback-related reference cycle)
-            self = None  # noqa
-                                                                                 #3: remove the method definition below (keeping the above one)
-    def close(self):
+    def close(self):                                                      #3: adjust this method...
         # typically, this method is called at interpreter exit
         # (by logging.shutdown() which is always registered with
         # atexit.register() machinery)
@@ -471,21 +415,7 @@ class AMQPHandler(logging.Handler):
             exc = sys.exc_info()[1]
             self._error_fifo.put(exc)
 
-    def handleError(self, record):
-        try:
-            exc = sys.exc_info()[1]
-            self._error_fifo.put(exc)
-        except RecursionError:  # see: https://bugs.python.org/issue36272 XXX: is it really needed?
-            raise
-        except Exception:
-            super().handleError(record)
-        else:
-            super().handleError(record)
-        finally:
-            # (to break any traceback-related reference cycle)
-            exc = self = None  # noqa
-                                                                                 #3: remove the method definition below (keeping the above one)
-    def handleError(self, record):
+    def handleError(self, record):                                        #3: adjust this method...
         try:
             exc = sys.exc_info()[1]
             self._error_fifo.put(exc)
@@ -528,15 +458,7 @@ class NoTracebackFormatter(logging.Formatter):
     # because of a subtle bug in logging.Formatter.format() in the
     # mechanism of caching of record.exc_text...
 
-    def format(self, record):
-        # here we substitute logging.Formatter.format()'s functionality with
-        # its fragment (omitting the `exc_info`/`exc_text`/`stack_info` stuff):
-        record.message = record.getMessage()
-        if self.usesTime():
-            record.asctime = self.formatTime(record, self.datefmt)
-        return self.formatMessage(record)
-                                                                                 #3: remove the method definition below (keeping the above one)
-    def format(self, record):
+    def format(self, record):                                             #3: adjust this method...
         # here we substitute logging.Formatter.format()'s functionality
         # with its fragment (omitting the exc_info stuff):
         record.message = record.getMessage()

@@ -73,7 +73,15 @@
     padding: sizeToRem(20);
     min-height: sizeToRem(290);
   }
-
+  &.empty-chart {
+    min-height: 0;
+    & > h3 {
+      color: $dark-lighter;
+      @include media-breakpoint-up(sm) {
+        font-size: sizeToRem(18);
+      }
+    }
+  }
   &.wide-col {
     min-height: sizeToRem(110);
     flex-direction: row;
@@ -133,7 +141,7 @@
   }
 }
 
-.organization-tooltip-button {
+.-tooltip-button {
   width: sizeToRem(36);
   margin-left: 0;
 

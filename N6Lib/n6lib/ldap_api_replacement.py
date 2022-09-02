@@ -100,8 +100,9 @@ class LdapAPI(SQLAuthDBConfigMixin):
         self._rlock.acquire()
         try:
             if getattr(self, '_db_session', None) is not None:
-                raise RuntimeError('{0} context manager cannot be nested'.format(
-                        self.__class__.__qualname__))
+                raise RuntimeError(
+                    f'{self.__class__.__qualname__} '
+                    f'context manager cannot be nested')
             self._db_session = self._db_session_maker()
             return self
         except:
@@ -451,16 +452,16 @@ class LdapAPI(SQLAuthDBConfigMixin):
         elif isinstance(value, datetime.time):
             return value.strftime('%H:%M')
         else:
-            raise NotImplementedError('cannot coerce {!a} to a `str` '
-                                      '(unsupported class: {})'.format(value,
-                                                                       get_class_name(value)))
+            raise NotImplementedError(
+                f'cannot coerce {value!a} to `str` (unsupported class: '
+                f'{get_class_name(value)})')
 
     def _make_dn(self, rdn_type, *unescaped_rdn_values, parent=None):
         parent_dn = (LDAP_TREE_ROOT_DN if parent is None
                      else (parent if parent.endswith(LDAP_TREE_ROOT_DN)
-                           else '{},{}'.format(parent, LDAP_TREE_ROOT_DN)))
+                           else f'{parent},{LDAP_TREE_ROOT_DN}'))
         rdn = self._make_rdn(rdn_type, *unescaped_rdn_values)
-        return '{},{}'.format(rdn, parent_dn)
+        return f'{rdn},{parent_dn}'
 
     def _make_rdn(self, rdn_type, *unescaped_rdn_values):
         return self._ava_dn_to_str([
@@ -532,14 +533,13 @@ class LdapAPI(SQLAuthDBConfigMixin):
             eq_match = _not_escaped_equal_regex.search(rdn)
             if not eq_match:
                 raise ValueError(
-                    'invalid RDN: {!a} (whole DN: '
-                    '{!a})'.format(rdn, str_dn))
+                    f'invalid RDN: {rdn!a} (whole DN: {str_dn!a})')
             rdn_type = rdn[0 : eq_match.end()-1]
             esc_rdn_val = rdn[eq_match.end():]
             if _not_escaped_equal_regex.search(esc_rdn_val):
                 raise ValueError(
-                    'RDN value containing unescaped "=": {!a} '
-                    '(whole DN: {!a})'.format(rdn, str_dn))
+                    f'RDN value containing unescaped "=": '
+                    f'{rdn!a} (whole DN: {str_dn!a})')
             rdn_val = cls._unescape_dn_chars(esc_rdn_val)
             ava_dn.append([(rdn_type, rdn_val, 1)])
         return ava_dn
@@ -603,8 +603,8 @@ class LdapAPI(SQLAuthDBConfigMixin):
         for attr_name, value_list in list(attrs.items()):
             if attr_name != ascii_str(attr_name):
                 raise ValueError(
-                    'LDAP attribute name {!a} is not '
-                    'ASCII-only!'.format(attr_name))
+                    f'LDAP attribute name {attr_name!a} '
+                    f'is not ASCII-only!')
             # TODO: get rid of binary-to-str coercions from the implementation
             #       and tests of this module; NOTE that those coercions are not
             #       needed anymore, because the SQL-related part of this class
@@ -665,23 +665,18 @@ class LdapAPI(SQLAuthDBConfigMixin):
         try:
             [normalized_rdn_attr_value] = normalized_attrs[rdn_attr_name_from_dn]
         except (KeyError, ValueError):
-            repr_of_values = (
+            val_listing = (
                 ', '.join(map(ascii, normalized_attrs.get(rdn_attr_name_from_dn, ())))
                 ) or 'no values'
             raise _RDNError(
-                'problem with the LDAP entry whose DN is {!a}: '
-                'expected exactly one value of the RDN '
-                'attribute {!a} (got: {})'.format(
-                    dn,
-                    rdn_attr_name_from_dn,
-                    repr_of_values))
+                f'problem with the LDAP entry whose DN is {dn!a}: '
+                f'expected exactly one value of the RDN attribute '
+                f'{rdn_attr_name_from_dn!a} (got: {val_listing})')
         if rdn_attr_value_from_dn != normalized_rdn_attr_value:
             raise _RDNError(
-                'problem with the LDAP entry whose DN is {!a}: '
-                'its RDN part is inconsistent with the normalized '
-                'RDN attribute value {!a}'.format(
-                    dn,
-                    normalized_rdn_attr_value))
+                f'problem with the LDAP entry whose DN is {dn!a}: '
+                f'its RDN part is inconsistent with the normalized '
+                f'RDN attribute value {normalized_rdn_attr_value!a}')
 
     @classmethod
     def _generate_cleaned_search_results(cls, search_results, to_be_skipped_dn_seq,
@@ -935,15 +930,17 @@ class LdapAPI(SQLAuthDBConfigMixin):
         """
         ava_dn = cls._str_to_ava_dn(dn)
         if ava_dn[-3:] != _const_ava_dn_suffix:
-            raise ValueError('DN {0!a} does not end with the '
-                             'standard N6\'s DN suffix'.format(ava_dn))
+            raise ValueError(
+                f'DN {ava_dn!a} does not end with '
+                f'the standard *n6*\'s DN suffix')
         assert dn.endswith(LDAP_TREE_ROOT_DN)
         del ava_dn[-3:]
         result = []
         for rdn_components in reversed(ava_dn):
             if len(rdn_components) > 1:
-                raise ValueError('multi-valued RDNs are not supported '
-                                 '(DN {0!a} contains such an RDN)'.format(dn))
+                raise ValueError(
+                    f'multi-valued RDNs are not supported '
+                    f'(DN {dn!a} contains such RDN)')
             # `rdn_type` -- RDN's attribute name (e.g.: 'n6login')
             # `rdn_val`  -- RDN's attribute value (e.g.: 'user@example.com')
             [(rdn_type, rdn_val, _)] = rdn_components
@@ -1053,14 +1050,11 @@ class _LdapAttrNormalizer(object):
         if (ldap_attr_name == rdn_attr_name_from_dn and
               rdn_attr_value_from_dn != ascii_str(rdn_attr_value_from_dn)):
             raise _RDNError(
-                'problem with the LDAP entry whose DN is {!a}: '
-                'the RDN value {!a} is not ASCII-only *and* (at '
-                'the same time) this RDN attribute ({!a}) is one '
-                'of those normalized by {}'.format(
-                    dn,
-                    rdn_attr_value_from_dn,
-                    rdn_attr_name_from_dn,
-                    get_class_name(self)))
+                f'problem with the LDAP entry whose DN is {dn!a}: '
+                f'the RDN value {rdn_attr_value_from_dn!a} is not '
+                f'ASCII-only *and* (at the same time) this RDN '
+                f'attribute ({rdn_attr_name_from_dn!a}) is one '
+                f'of those normalized by {get_class_name(self)}')
 
     def _generate_normalized_values(self, dn, ldap_attr_name, value_list, normalizer_meth):
         for val in value_list:
@@ -1187,8 +1181,8 @@ class _LdapAttrNormalizer(object):
     def _normalize_n6email_notifications_address(self, val):
         val = self._ascii_only_to_unicode_stripped(val)
         if EMAIL_OVERRESTRICTED_SIMPLE_REGEX.search(val) is None:
-            raise ValueError('{!a} does not seem to be a valid '
-                             'e-mail address'.format(val))
+            raise ValueError(
+                f'{val!a} does not seem to be a valid e-mail address')
         return val
 
 
@@ -1251,7 +1245,7 @@ class _LdapAttrNormalizer(object):
         val = self._ascii_only_to_unicode_stripped(val)
         match = _N6ORG_ID_OFFICIAL_ATTR_REGEX.search(val)
         if match is None:
-            raise ValueError('{!a} is not a valid official id'.format(val))
+            raise ValueError(f'{val!a} is not a valid official id')
         val = ''.join(match.groups()).upper().replace('-', '')
         return val
 
@@ -1337,8 +1331,8 @@ def get_value_list(node, attr_name):
     if is_seq(value_list):
         return list(value_list)
     raise TypeError(
-        'expected a sequence not being a `str`, `bytes` '
-        'or `bytearray` (got: {!a})'.format(value_list))
+        f'expected a sequence not being a `str`, `bytes` '
+        f'or `bytearray` (got: {value_list!a})')
 
 
 __sentinel = object()
@@ -1356,12 +1350,12 @@ def get_value(node, attr_name, default=__sentinel):
     """
     value_list = get_value_list(node, attr_name)
     if len(value_list) > 1:
-        raise ValueError('attribute {!a} has more than 1 value'.format(attr_name))
+        raise ValueError(f'attribute {attr_name!a} has more than 1 value')
     try:
         return value_list[0]
-    except IndexError:
+    except IndexError as exc:
         if default is __sentinel:
-            raise ValueError('attribute {!a} has no value'.format(attr_name)) from None
+            raise ValueError(f'attribute {attr_name!a} has no value') from exc
         else:
             return default
 

@@ -151,6 +151,9 @@ BOT_CLASS_OBJECTS = list(bot.Bot.__dict__.keys())
 ALL_BOT_OBJECTS = BOT_INSTANCE_OBJECTS.copy() + BOT_CLASS_OBJECTS.copy()
 LIST_OF_CACHE_OBJECTS = list(cache.Cache.__dict__.copy().keys())
 
+N6_EXTRA_DATA_FIELD_NAME = 'n6_data'
+INTELMQ_EXTRA_DATA_FIELD_NAME = 'intelmq'
+
 # keep some methods of the IntelMQ `Bot` class, so they can be set
 # as methods of the n6 replacement class
 set_request_parameters_method = bot.Bot.set_request_parameters

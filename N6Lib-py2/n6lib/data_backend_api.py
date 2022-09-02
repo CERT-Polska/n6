@@ -65,7 +65,7 @@ from n6lib.generate_test_events import RandomEvent
 from n6lib.log_helpers import get_logger
 from n6lib.typing_helpers import (
     AccessZone,
-    AccessZoneConditions,
+    AccessZoneConditionsDict,
     AuthData,
     ColumnElementTransformer,
     DateTime,
@@ -381,7 +381,7 @@ class N6DataBackendAPI(object):
                       auth_data,               # type: AuthData
                       params,                  # type: ParamsDict
                       data_spec,               # type: N6DataSpec
-                      access_zone_conditions,  # type: AccessZoneConditions
+                      access_zone_conditions,  # type: AccessZoneConditionsDict
                       ):  # type: (...) -> Iterator[ResultDict]
         """
         Obtain the data of security events matching the given request
@@ -437,7 +437,7 @@ class N6DataBackendAPI(object):
                        auth_data,               # type: AuthData
                        params,                  # type: ParamsDict
                        data_spec,               # type: N6DataSpec
-                       access_zone_conditions,  # type: AccessZoneConditions
+                       access_zone_conditions,  # type: AccessZoneConditionsDict
                        ):  # type: (...) -> Iterator[ResultDict]
         """
         Obtain the data of security events matching the given request
@@ -485,7 +485,7 @@ class N6DataBackendAPI(object):
                       auth_data,               # type: AuthData
                       params,                  # type: ParamsDict
                       data_spec,               # type: N6DataSpec
-                      access_zone_conditions,  # type: AccessZoneConditions
+                      access_zone_conditions,  # type: AccessZoneConditionsDict
                       ):  # type: (...) -> Iterator[ResultDict]
         """
         Obtain the data of security events matching the given request
@@ -532,7 +532,7 @@ class N6DataBackendAPI(object):
     def _generate_result_dicts(self,
                                params,                  # type: ParamsDict
                                data_spec,               # type: N6DataSpec
-                               access_zone_conditions,  # type: AccessZoneConditions
+                               access_zone_conditions,  # type: AccessZoneConditionsDict
                                access_zone,             # type: AccessZone
                                client_org_ids,          # type: Optional[List[Str]]
                                ):  # type: (...) -> Iterator[ResultDict]
@@ -593,7 +593,7 @@ class N6DataBackendAPI(object):
         return query_processor.generate_query_results()
 
     def _get_access_filtering_conditions(self, access_zone_conditions, access_zone):
-        # type: (AccessZoneConditions, AccessZone) -> List[ColumnElement]
+        # type: (AccessZoneConditionsDict, AccessZone) -> List[ColumnElement]
         access_filtering_conditions = access_zone_conditions.get(access_zone)
         if not access_filtering_conditions:
             # We are dealing with access rights, so let's be on a safe side.
@@ -646,7 +646,7 @@ class N6TestDataBackendAPI(N6DataBackendAPI):
     def _generate_result_dicts(self,
                                params,                  # type: ParamsDict
                                data_spec,               # type: N6DataSpec
-                               access_zone_conditions,  # type: AccessZoneConditions
+                               access_zone_conditions,  # type: AccessZoneConditionsDict
                                access_zone,             # type: AccessZone
                                client_org_ids,          # type: Optional[List[Str]]
                                ):  # type: (...) -> Iterator[ResultDict]

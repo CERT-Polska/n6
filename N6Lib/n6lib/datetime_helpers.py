@@ -597,16 +597,13 @@ def datetime_with_tz_to_utc(dt,
 
 def date_to_datetime(date):
     """
-    Convert a datetime.date to a datetime.datetime, assuming time 00:00.
+    Convert a `datetime.date` to a `datetime.datetime`, assuming time 00:00.
 
     Args:
-        `date`: datetime.date instance
+        `date`: `datetime.date` instance
 
     Returns:
-        A datetime.datetime instance (naive) with time 00:00.
-
-    Raises:
-        TypeError for invalid input type.
+        A `datetime.datetime` instance (naive) with time 00:00.
 
     ***
 
@@ -648,8 +645,8 @@ def date_to_datetime(date):
 
 def parse_iso_date_to_datetime(s, prestrip=True):
     """
-    Parse *ISO-8601*-formatted date and convert it to a datetime,
-    assuming time 00:00.
+    Parse an *ISO-8601*-formatted date and convert it to a
+    `datetime.datetime` instance, assuming time 00:00.
 
     Args:
         `s`: *ISO-8601*-formatted date as a `str`.
@@ -660,14 +657,16 @@ def parse_iso_date_to_datetime(s, prestrip=True):
             input string before performing the actual processing.
 
     Returns:
-        A datetime.datetime instance (a naive one).
+        A `datetime.datetime` instance (a naive one).
 
     Raises:
-        ValueError for invalid input.
-        This function processes input by calling `date_to_datetime` and
-    'parse_iso_date' as its argument.
+        `ValueError` for invalid input.
+
+    This function processes input by applying to its argument the
+    'parse_iso_date()' and `date_to_datetime()` functions.
 
     Usage examples:
+
     >>> import datetime
 
     >>> parse_iso_date_to_datetime('2020-11-25')
@@ -725,6 +724,48 @@ def parse_iso_date_to_datetime(s, prestrip=True):
     ValueError:...
     """
     return date_to_datetime(parse_iso_date(s, prestrip=prestrip))
+
+
+def midnight_datetime(dt):
+    """
+    Trim a `datetime.datetime`, so that the result's time is 00:00.
+
+    Args:
+        `dt`:
+            A `datetime.datetime` instance (a naive or TZ-aware one).
+
+    Returns:
+        A `datetime.datetime` instance which:
+
+        * denotes midnight (time 00:00) on the date taken from `dt`,
+        * has the `fold` attribute set to 0,
+        * has the `tzinfo` attribute taken from `dt`.
+
+    ***
+
+    Usage examples:
+
+    >>> import datetime
+
+    >>> dt1 = datetime.datetime(2022, 2, 2, 2, 2)
+    >>> dt1
+    datetime.datetime(2022, 2, 2, 2, 2)
+    >>> midnight_datetime(dt1)
+    datetime.datetime(2022, 2, 2, 0, 0)
+
+    >>> dt2 = datetime.datetime(2022, 3, 28, 23, 29, fold=1, tzinfo=FixedOffsetTimezone(120))
+    >>> dt2
+    datetime.datetime(2022, 3, 28, 23, 29, fold=1, tzinfo=FixedOffsetTimezone(120))
+    >>> midnight_datetime(dt2)
+    datetime.datetime(2022, 3, 28, 0, 0, tzinfo=FixedOffsetTimezone(120))
+
+    >>> dt3 = datetime.datetime(2022, 1, 28, 22, 34, 59, 279632, tzinfo=FixedOffsetTimezone(-60))
+    >>> dt3
+    datetime.datetime(2022, 1, 28, 22, 34, 59, 279632, tzinfo=FixedOffsetTimezone(-60))
+    >>> midnight_datetime(dt3)
+    datetime.datetime(2022, 1, 28, 0, 0, tzinfo=FixedOffsetTimezone(-60))
+    """
+    return datetime.datetime.combine(dt.date(), datetime.time(0, fold=0), dt.tzinfo)
 
 
 if __name__ == '__main__':

@@ -1,10 +1,10 @@
 import { FC, useState, useEffect, useRef, FocusEvent, useMemo, memo } from 'react';
-import { useIntl } from 'react-intl';
 import { format, parse, isValid, set } from 'date-fns';
 import { Day, useLilius } from 'use-lilius';
 import { useFormContext, Controller, Validate } from 'react-hook-form';
 import MaskedInput from 'react-input-mask';
 import { Overlay, Popover, Form } from 'react-bootstrap';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as Calendar } from 'images/calendar.svg';
 import DatePickerCalendar from 'components/forms/datePicker/DatePickerCalendar';
 import FormRenderErrorMsg from 'components/forms/FormRenderErrorMsg';
@@ -24,7 +24,7 @@ const DatePicker: FC<IProps & FormContextProps> = memo(
     const [isOpen, setIsOpen] = useState<boolean>(false);
     const targetElementRef = useRef<HTMLDivElement>(null);
     const buttonElementRef = useRef<HTMLButtonElement>(null);
-    const { messages } = useIntl();
+    const { messages } = useTypedIntl();
 
     const {
       calendar,

@@ -1,3 +1,14 @@
+/* import local fonts */
+@use '@fontsource/roboto/scss/mixins' as Roboto;
+
+$robotoWeights: 300, 400, 500, 700;
+@each $weight in $robotoWeights {
+  @include Roboto.fontFace($weight: $weight, $display: swap, $unicodeMap: latin);
+  @include Roboto.fontFace($weight: $weight, $display: swap, $unicodeMap: latin-ext);
+  @include Roboto.fontFace($weight: $weight, $display: swap, $unicodeMap: latin, $style: italic);
+  @include Roboto.fontFace($weight: $weight, $display: swap, $unicodeMap: latin-ext, $style: italic);
+}
+
 /* general styles */
 @import 'functions';
 @import 'variables';
@@ -27,4 +38,5 @@
 @import 'userSettings';
 @import 'incidents';
 @import 'organization';
+@import 'knowledgeBase';
 @import 'error';

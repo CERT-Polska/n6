@@ -1,4 +1,4 @@
-# Copyright (c) 2021 NASK. All rights reserved.
+# Copyright (c) 2021-2022 NASK. All rights reserved.
 
 import hashlib
 import json
@@ -13,8 +13,8 @@ from intelmq.lib.bot import CollectorBot
 from intelmq.lib.message import MessageFactory
 
 from n6datapipeline.base import LegacyQueuedBase
+import n6datapipeline.intelmq
 from n6datapipeline.intelmq import bots_config
-from n6datapipeline.intelmq.utils.intelmq_converter import IntelToN6Converter
 from n6lib.const import RAW_TYPE_ENUMS
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 
@@ -23,7 +23,6 @@ LOGGER = getLogger(__name__)
 
 
 INTELMQ_TARGET_DIR = '/opt'
-N6_DATA_FIELD_NAME = IntelToN6Converter.extra_field_name_in
 N6_DATA_FIELD_SPEC = {
     'description': 'Field for storing n6-specific data that should be ignored '
                    'by IntelMQ bots',
@@ -56,14 +55,17 @@ def get__load_harmonization_configuration_method(original_method):
     def new_method(self):
         original_method(self)
         assert isinstance(self.harmonization, dict)
-        self.harmonization['event'][N6_DATA_FIELD_NAME] = N6_DATA_FIELD_SPEC.copy()
-        self.harmonization['report'][N6_DATA_FIELD_NAME] = N6_DATA_FIELD_SPEC.copy()
+        self.harmonization['event'][
+            n6datapipeline.intelmq.N6_EXTRA_DATA_FIELD_NAME] = N6_DATA_FIELD_SPEC.copy()
+        self.harmonization['report'][
+            n6datapipeline.intelmq.N6_EXTRA_DATA_FIELD_NAME] = N6_DATA_FIELD_SPEC.copy()
     return new_method
 
 
 def get__message__add_method(original_method):
     def new_method(self, *args, **kwargs):
-        self.harmonization_config[N6_DATA_FIELD_NAME] = N6_DATA_FIELD_SPEC.copy()
+        self.harmonization_config[
+            n6datapipeline.intelmq.N6_EXTRA_DATA_FIELD_NAME] = N6_DATA_FIELD_SPEC.copy()
         return original_method(self, *args, **kwargs)
     return new_method
 
@@ -219,7 +221,7 @@ class QueuedBaseExtended(LegacyQueuedBase):
         """
         Create the routing key similar to other n6 'utils'
         components, like:
-        <event type>.<bot ID>.<source label>.<source channel>
+        <event type>.<bot ID>.<source provider>.<source channel>
 
         Returns:
             The output message's routing key as a string.
@@ -282,6 +284,7 @@ class QueuedBaseExtended(LegacyQueuedBase):
 
 class BaseCollectorExtended(QueuedBaseExtended):
 
+    input_queue = None
     output_queue = {
         'exchange': 'raw',
         'exchange_type': 'topic',
@@ -290,8 +293,8 @@ class BaseCollectorExtended(QueuedBaseExtended):
     DEFAULT_CONTENT_TYPE = 'text/plain'
     DEFAULT_SOURCE_CHANNEL = 'intelmq-collector'
 
-    type = 'stream'
-    input_queue = None
+    raw_type = 'stream'
+    content_type = None
 
     bot_group_name = 'intelmq-collectors'
 
@@ -300,42 +303,45 @@ class BaseCollectorExtended(QueuedBaseExtended):
     def __init__(self, **kwargs):
         self.__class__.__base__.send_message = QueuedBaseExtended.send_message
         super(BaseCollectorExtended, self).__init__(**kwargs)
-        self.source_label = self.config.get('source_label') or self.bot_id
+        self.source_provider = self.config.get('source_provider') or self.bot_id
         self.source_channel = self.config.get('source_channel') or self.DEFAULT_SOURCE_CHANNEL
-        self._set_type()
+        self._set_raw_type()
+        self._set_content_type()
 
-    def _set_type(self):
-        custom_type = self.config.get('type')
-        if custom_type:
-            self._validate_type()
-            self.type = custom_type
-            if self.type == 'file':
-                try:
-                    self.content_type = self.config['content_type']
-                except KeyError:
-                    LOGGER.warning("The `content_type` attribute is not set in the 'n6config' "
-                                   "section of the runtime config, although the `type` "
-                                   "attribute is set to `file`. Setting "
-                                   "default value: 'text/plain'.")
-                    self.content_type = 'text/plain'
+    def _set_raw_type(self):
+        custom_raw_type = self.config.get('raw_type')
+        if custom_raw_type:
+            self.raw_type = custom_raw_type
+        # There are no *blacklist* IntelMQ collectors, so
+        # we exclude that type from the allowed values.
+        allowed = set(RAW_TYPE_ENUMS) - {'blacklist'}
+        if self.raw_type not in allowed:
+            raise ValueError(
+                f'[{type(self)!a}] Wrong type of data being archived in '
+                f'MongoDB (aka *raw type*): {self.raw_type!a} (should be '
+                f'one of: {", ".join(map(ascii, sorted(allowed)))})')
 
-    def _validate_type(self):
-        """
-        Validate type of message to be archived in MongoDB.
-        It should be one of: 'stream', 'file', 'blacklist.
-        """
-        if self.type not in RAW_TYPE_ENUMS:
-            raise Exception(f'Wrong type of data being archived in MongoDB: {self.type}, '
-                            f'should be one of: {RAW_TYPE_ENUMS}')
+    def _set_content_type(self):
+        if self.raw_type == 'file':
+            try:
+                self.content_type = self.config['content_type']
+            except KeyError:
+                default_content_type = self.DEFAULT_CONTENT_TYPE
+                LOGGER.warning(
+                    f"[{type(self)!a}] The `content_type` option is not "
+                    f"set in the `n6config` section of the runtime "
+                    f"config, although `raw_type` is 'file'. Setting "
+                    f"the default value: {default_content_type!a}.")
+                self.content_type = default_content_type
 
     def _get_output_message_id(self, timestamp, output_data_body):
-        return hashlib.md5(('\0'.join((self.source_label,
+        return hashlib.md5(('\0'.join((self.source_provider,
                             '{0:d}'.format(timestamp),
                              output_data_body))).encode('utf-8')
                            ).hexdigest()
 
     def _get_output_prop_kwargs(self, **kwargs):
-        # save information about source label and source channel
+        # save information about source provider and source channel
         # as meta headers, so they are ignored by IntelMQ
         # harmonization, but will be available for a parser
         created_timestamp = int(time.time())
@@ -343,25 +349,25 @@ class BaseCollectorExtended(QueuedBaseExtended):
         headers = {
             'meta': {
                 'collector_info': {
-                    'source_label': self.source_label,
+                    'source_provider': self.source_provider,
                     'source_channel': self.source_channel,
                 },
             },
         }
         properties = {
             'message_id': self._get_output_message_id(timestamp=created_timestamp, **kwargs),
-            'type': self.type,
+            'type': self.raw_type,
             'timestamp': created_timestamp,
             'headers': headers,
         }
-        # there are no blacklist IntelMQ collectors, so we
-        # are ignoring the "blacklist" type
-        if self.type == 'file':
+        assert self.raw_type != 'blacklist'
+        if self.raw_type == 'file':
+            assert self.content_type is not None
             properties.update({'content_type': self.content_type})
         return properties
 
     def _get_bot_rk(self):
-        return '{}.{}'.format(self.source_label, self.source_channel)
+        return '{}.{}'.format(self.source_provider, self.source_channel)
 
     def start_publishing(self):
         self.process()
@@ -387,7 +393,7 @@ class BaseParserExtended(QueuedBaseExtended):
 
     event_type = 'event'
     parser_routing_state = 'intelmq-parsed'
-    extra_intelmq_field = IntelToN6Converter.extra_field_name_in
+    extra_intelmq_field = 'n6_data'
 
     bot_group_name = 'intelmq-parsers'
 
@@ -429,25 +435,25 @@ class BaseParserExtended(QueuedBaseExtended):
         return '{}.{}.{}'.format(self.event_type, self.routing_state, self.default_binding_key)
 
     @staticmethod
-    def _iter_output_id_base_items(event):
+    def _iter_output_id_base_items(event, excluded_field_names_prefix):
         return ((key, value) for key, value in event.items()
-                if not key.startswith('__'))
+                if not key.startswith(excluded_field_names_prefix))
 
-    def _get_output_message_id(self, event):
+    def _get_output_message_id(self, event, excluded_field_names_prefix='__'):
         serialized_fields = []
-        for key, value in sorted(self._iter_output_id_base_items(event)):
+        for key, value in sorted(self._iter_output_id_base_items(event,
+                                                                 excluded_field_names_prefix)):
             serialized_fields.append("{},{}".format(key, value))
         return hashlib.md5(("\n".join(serialized_fields)).encode('utf-8')).hexdigest()
 
     def _set_parser_fields(self, event):
         message_id = self.current_properties.message_id
-        source = self.current_properties.headers['meta']['collector_info']['source_label']
-        channel = self.current_properties.headers['meta']['collector_info']['source_channel']
-        source_spec = '{}.{}'.format(source, channel)
+        src_provider = self.current_properties.headers['meta']['collector_info']['source_provider']
+        src_channel = self.current_properties.headers['meta']['collector_info']['source_channel']
         n6parser_fields = {
             'id': self._get_output_message_id(event),
             'rid': message_id,
-            'source': source_spec,
+            'source': f'{src_provider}.{src_channel}',
             # subsequent fields should have been set
             # in `_set_constant_items()`
             'confidence': self.confidence,

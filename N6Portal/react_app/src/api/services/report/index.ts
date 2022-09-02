@@ -27,14 +27,14 @@ const getReportInside = async (params: IRequestParams): Promise<IResponse[]> => 
 
 export const useReportThreats = (
   params: IRequestParams,
-  options?: UseQueryOptions<IResponse[], AxiosError>
+  options?: Omit<UseQueryOptions<IResponse[], AxiosError>, 'queryKey' | 'queryFn'>
 ): UseQueryResult<IResponse[], AxiosError> => {
   return useQuery(['reportThreats', params], (): Promise<IResponse[]> => getReportThreats(params), options);
 };
 
 export const useReportInside = (
   params: IRequestParams,
-  options?: UseQueryOptions<IResponse[], AxiosError>
+  options?: Omit<UseQueryOptions<IResponse[], AxiosError>, 'queryKey' | 'queryFn'>
 ): UseQueryResult<IResponse[], AxiosError> => {
   return useQuery(['reportInside', params], (): Promise<IResponse[]> => getReportInside(params), options);
 };

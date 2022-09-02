@@ -10,6 +10,7 @@ import {
   mustBePhone,
   mustBeNameSurname,
   mustBeTime,
+  mustBeSearchQuery,
   mustBeOrgDomain,
   mustBeAsnNumber,
   mustBePortNumber,
@@ -60,6 +61,7 @@ export const validateResetPassword = composeValidators({
   maxLength: maxLength(255)
 });
 export const vaildateMfaCode = composeValidators({ isRequired, mustBeNumber, equalMfaLength: equalMfaLength(6) });
+export const validateSearchQuery = composeValidators({ isRequired, mustBeSearchQuery });
 
 // INCIDENTS FORM
 export const validateDatePicker = composeValidators({ isRequired, mustBeValidDate: mustBeValidDate('dd-MM-yyyy') });

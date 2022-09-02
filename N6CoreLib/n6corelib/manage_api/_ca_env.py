@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2014-2021 NASK. All rights reserved.
 
 """
 Low-level details of certificate generation (OpenSSL-based).

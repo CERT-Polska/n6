@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 """
 The *recorder* component -- adds n6 events to the Event DB.
@@ -203,20 +203,192 @@ class Recorder(LegacyQueuedBase):
             with dbapi_connection.cursor() as cursor:
                 cursor.execute(setter_sql)
 
+
     @classmethod
     def get_arg_parser(cls):
         parser = super(Recorder, cls).get_arg_parser()
         parser.add_argument("--n6recorder-blacklist", type=SourceField().clean_result_value,
                             help="the identifier of a blacklist source (in the "
-                                 "format: 'source-label.source-channel'); if given, "
-                                 "this recorder instance will consume and store "
-                                 "*only* events from this blacklist source")
+                                 "format: 'source-provider.source-channel'); if "
+                                 "given, this recorder instance will consume and "
+                                 "store *only* events from this blacklist source")
         parser.add_argument("--n6recorder-non-blacklist", action="store_true",
                             help="if given, this recorder instance will consume "
                                  "and store *only* events from *all* non-blacklist "
                                  "sources (note: then the '--n6recorder-blacklist' "
                                  "option, if given, is just ignored)")
         return parser
+
+
+    def preinit_hook(self):
+        assert 'input_queue' in vars(self)  # `LegacyQueuedBase.__new__()` ensures this is true
+        if self.cmdline_args.n6recorder_non_blacklist:
+            self._pre_adjust_input_queue_for_wildcard_non_bl_recorder(self.input_queue)
+        elif self.cmdline_args.n6recorder_blacklist:
+            self._pre_adjust_input_queue_for_selected_bl_recorder(
+                self.input_queue,
+                selected_source=self.cmdline_args.n6recorder_blacklist)
+        super().preinit_hook()
+
+    @staticmethod
+    def _pre_adjust_input_queue_for_wildcard_non_bl_recorder(input_queue):
+        """
+        >>> input_queue = {
+        ...     "exchange": "event",
+        ...     "exchange_type": "topic",
+        ...     "queue_name": "zbd",
+        ...     "accepted_event_types": [
+        ...         "event",
+        ...         "bl-new",
+        ...         "bl-change",
+        ...         "bl-delist",
+        ...         "bl-expire",
+        ...         "bl-update",
+        ...         "suppressed",
+        ...     ],
+        ... }
+        >>> Recorder._pre_adjust_input_queue_for_wildcard_non_bl_recorder(input_queue)
+        >>> input_queue == {
+        ...     "exchange": "event",
+        ...     "exchange_type": "topic",
+        ...     "queue_name": "zbd-non-blacklist",
+        ...     "accepted_event_types": [
+        ...         "event",
+        ...         "suppressed",
+        ...     ],
+        ... }
+        True
+        """
+        input_queue['queue_name'] += '-non-blacklist'
+        input_queue['accepted_event_types'] = [
+            event_type for event_type in input_queue['accepted_event_types']
+            if not event_type.startswith('bl-')]
+        Recorder.input_queue = {
+            "binding_keys": [
+                'event.filtered.*.*',
+                'suppressed.filtered.*.*',
+            ]
+        }
+
+    @staticmethod
+    def _pre_adjust_input_queue_for_selected_bl_recorder(input_queue, selected_source):
+        """
+        >>> input_queue = {
+        ...     "exchange": "event",
+        ...     "exchange_type": "topic",
+        ...     "queue_name": "zbd",
+        ...     "accepted_event_types": [
+        ...         "event",
+        ...         "bl-new",
+        ...         "bl-change",
+        ...         "bl-delist",
+        ...         "bl-expire",
+        ...         "bl-update",
+        ...         "suppressed",
+        ...     ],
+        ... }
+        >>> Recorder._pre_adjust_input_queue_for_selected_bl_recorder(
+        ...     input_queue,
+        ...     selected_source='provider.channel')
+        >>> input_queue == {
+        ...     "exchange": "event",
+        ...     "exchange_type": "topic",
+        ...     "queue_name": "zbd-bl-provider-channel",
+        ...     "accepted_event_types": [
+        ...         "bl-new",
+        ...         "bl-change",
+        ...         "bl-delist",
+        ...         "bl-expire",
+        ...         "bl-update",
+        ...     ],
+        ... }
+        True
+        """
+        input_queue['queue_name'] += f'-bl-{selected_source.replace(".", "-")}'
+        input_queue['accepted_event_types'] = [
+            event_type for event_type in input_queue['accepted_event_types']
+            if event_type.startswith('bl-')]
+
+
+    def make_binding_keys(self, binding_states, accepted_event_types):
+        super().make_binding_keys(binding_states, accepted_event_types)
+        selected_source = self.cmdline_args.n6recorder_blacklist
+        if selected_source:
+            self._replace_binding_wildcards_with_selected_source(self.input_queue, selected_source)
+
+    @classmethod
+    def _replace_binding_wildcards_with_selected_source(cls, input_queue, selected_source):
+        """
+        >>> input_queue = {
+        ...     "exchange": "event",
+        ...     "exchange_type": "topic",
+        ...     "queue_name": "zbd-provider-channel",
+        ...     "accepted_event_types": [
+        ...         "bl-new",
+        ...         "bl-change",
+        ...         "bl-delist",
+        ...         "bl-expire",
+        ...         "bl-update",
+        ...     ],
+        ...     "binding_keys": [
+        ...         "bl-new.filtered.*.*",
+        ...         "bl-change.filtered.*.*",
+        ...         "bl-delist.filtered.*.*",
+        ...         "bl-expire.filtered.*.*",
+        ...         "bl-update.filtered.*.*",
+        ...     ],
+        ... }
+        >>> Recorder._replace_binding_wildcards_with_selected_source(
+        ...     input_queue,
+        ...     selected_source='provider.channel')
+        >>> input_queue == {
+        ...     "exchange": "event",
+        ...     "exchange_type": "topic",
+        ...     "queue_name": "zbd-provider-channel",
+        ...     "accepted_event_types": [
+        ...         "bl-new",
+        ...         "bl-change",
+        ...         "bl-delist",
+        ...         "bl-expire",
+        ...         "bl-update",
+        ...     ],
+        ...     "binding_keys": [
+        ...         "bl-new.filtered.provider.channel",
+        ...         "bl-change.filtered.provider.channel",
+        ...         "bl-delist.filtered.provider.channel",
+        ...         "bl-expire.filtered.provider.channel",
+        ...         "bl-update.filtered.provider.channel",
+        ...     ],
+        ... }
+        True
+        """
+        for i, binding_key in enumerate(input_queue['binding_keys']):
+            cls._verify_consists_of_four_segments(binding_key)
+            cls._verify_specifies_source_wildcard(binding_key)
+            input_queue['binding_keys'][i] = replace_segment(
+                binding_key,
+                slice(2, None),
+                new_content=selected_source)
+
+    @staticmethod
+    def _verify_consists_of_four_segments(binding_key):
+        expected_segment_count = 4
+        expected_sep = '.'
+        if len(binding_key.split(expected_sep)) != expected_segment_count:
+            raise ValueError(
+                f'{binding_key=!a} does not consist of exactly '
+                f'{expected_segment_count} {expected_sep!a}-'
+                f'separated segments')
+
+    @staticmethod
+    def _verify_specifies_source_wildcard(binding_key):
+        expected_suffix = '.*.*'
+        if not binding_key.endswith(expected_suffix):
+            raise NotImplementedError(
+                f'the case of {binding_key=!a} is unsupported '
+                f'(expected a *wildcard source* binding key, that '
+                f'is, one that ends with {expected_suffix!a})')
+
 
     def ping_connection(self):
         """
@@ -545,12 +717,6 @@ class Recorder(LegacyQueuedBase):
 
 
 def main():
-    parser = Recorder.get_arg_parser()
-    args = Recorder.parse_only_n6_args(parser)
-    if args.n6recorder_non_blacklist:
-        monkey_patch_non_bl_recorder()
-    elif args.n6recorder_blacklist is not None:
-        monkey_patch_bl_recorder(args.n6recorder_blacklist)
     with logging_configured():
         if os.environ.get('n6integration_test'):
             # for debugging only
@@ -561,35 +727,7 @@ def main():
             d.run()
         except KeyboardInterrupt:
             d.stop()
-
-
-def monkey_patch_non_bl_recorder():
-    Recorder.input_queue = {
-        "exchange": "event",
-        "exchange_type": "topic",
-        "queue_name": 'zbd-non-blacklist',
-        "binding_keys": [
-            'event.filtered.*.*',
-            'suppressed.filtered.*.*',
-        ]
-    }
-
-
-def monkey_patch_bl_recorder(source):
-    Recorder.input_queue = {
-        "exchange": "event",
-        "exchange_type": "topic",
-        "queue_name": 'zbd-bl-{}'.format(source.replace(".", "-")),
-        "binding_keys": [
-            x.format(source) for x in [
-                'bl-new.filtered.{}',
-                'bl-change.filtered.{}',
-                'bl-delist.filtered.{}',
-                'bl-expire.filtered.{}',
-                'bl-update.filtered.{}',
-            ]
-        ]
-    }
+            raise
 
 
 if __name__ == "__main__":

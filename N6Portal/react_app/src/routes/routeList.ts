@@ -8,6 +8,9 @@ const routeList = {
   userSettingsMfaConfig: '/user-settings/mfa-configuration',
   incidents: '/incidents',
   organization: '/organization',
+  knowledgeBase: '/knowledge_base',
+  knowledgeBaseArticle: `/knowledge_base/articles/:articleId`,
+  knowledgeBaseSearchResults: '/knowledge_base/search',
   notFound: '/page-not-found',
   noAccess: '/no-access'
 };

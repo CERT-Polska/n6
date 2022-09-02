@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2022 NASK. All rights reserved.
 
 import datetime
 import string
@@ -588,7 +588,7 @@ class _PassEncryptMixin(object):
 
     @staticmethod
     def get_password_hash_or_none(password):
-        return bcrypt.encrypt(password) if password else None
+        return bcrypt.hash(password) if password else None
 
     # noinspection PyUnresolvedReferences
     def verify_password(self, password):
@@ -800,6 +800,7 @@ class RegistrationRequest(_ExternalInterfaceMixin, Base):
         String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING),
         nullable=False)
 
+    # (legacy field, always NULL for new registration requests)
     csr = col(Text, nullable=True)
 
     email_notification_language = col(String(MAX_LEN_OF_COUNTRY_CODE), nullable=True)
@@ -821,6 +822,8 @@ class RegistrationRequest(_ExternalInterfaceMixin, Base):
         back_populates='registration_request',
         cascade='all, delete-orphan')
 
+    # (these two fields are nullable, because they
+    # can be NULL for legacy registration requests)
     terms_version = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), nullable=True)
     terms_lang = col(String(MAX_LEN_OF_COUNTRY_CODE), nullable=True)
 
@@ -1671,7 +1674,10 @@ class OrgGroup(Base):
 class User(_ExternalInterfaceMixin, _PassEncryptMixin, Base):
 
     __tablename__ = 'user'
-    __table_args__ = mysql_opts()
+    __table_args__ = (
+        CheckConstraint('login = LOWER(login)'),
+        mysql_opts(),
+    )
 
     # here we use a surrogate key because natural keys do not play well
     # with Admin Panel's "inline" forms (cannot change the key by using
@@ -1686,11 +1692,11 @@ class User(_ExternalInterfaceMixin, _PassEncryptMixin, Base):
     login = col(String(MAX_LEN_OF_EMAIL), nullable=False, unique=True)
     password = col(String(MAX_LEN_OF_PASSWORD_HASH))
 
-    api_key_id = col(String(MAX_LEN_OF_UUID4), unique=True, nullable=True)
-    api_key_id_modified_on = col(DateTime, nullable=True)
+    api_key_id = col(String(MAX_LEN_OF_UUID4), unique=True)
+    api_key_id_modified_on = col(DateTime)
 
-    mfa_key_base = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), unique=True, nullable=True)
-    mfa_key_base_modified_on = col(DateTime, nullable=True)
+    mfa_key_base = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), unique=True)
+    mfa_key_base_modified_on = col(DateTime)
 
     org_id = col(
         String(MAX_LEN_OF_ORG_ID),

@@ -1,8 +1,8 @@
 import { FC, useState } from 'react';
 import { AxiosError } from 'axios';
-import { useIntl } from 'react-intl';
 import { FormProvider, SubmitHandler, useForm } from 'react-hook-form';
 import { useMutation } from 'react-query';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { postForgottenPassword } from 'api/auth';
 import { IForgottenPasswordData } from 'api/auth/types';
 import routeList from 'routes/routeList';
@@ -19,7 +19,7 @@ type TLoginForgotPasswordForm = {
 
 const ForgotPasswordForm: FC = () => {
   const [forgotError, toggleForgotError] = useState(false);
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { updateForgotPasswordState, resetForgotPasswordState } = useForgotPasswordContext();
 
   const methods = useForm<TLoginForgotPasswordForm>({ mode: 'onBlur', defaultValues: { login: '' } });

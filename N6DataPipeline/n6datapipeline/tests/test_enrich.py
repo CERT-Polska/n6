@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import datetime
 import hashlib
@@ -6,13 +6,13 @@ import os
 import unittest
 import unittest.mock
 
-import iptools
 from geoip2.errors import GeoIP2Error
 from dns.exception import DNSException
 
 from n6datapipeline.enrich import Enricher
 from n6lib.record_dict import RecordDict
 from n6lib.unit_test_helpers import TestCaseMixin
+from n6sdk.addr_helpers import IPv4Container
 
 
 DEFAULT_GEO_IP_DB_PATH = '/usr/share/GeoIP'
@@ -629,17 +629,17 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
                         {"ip": "10.15.1.255"}]})
         data.update(self.COMMON_DATA)
         body = data.get_ready_json()
-        initial_routing_key = "event.parsed.test.test-source"
+        initial_routing_key = "event.parsed.test.test-xyz"
         properties = None
         self.enricher.input_callback(initial_routing_key, body, properties)
         args, kwargs = self.enricher.publish_output.call_args
         self.assertIn("routing_key", kwargs)
-        self.assertEqual(kwargs["routing_key"], "event.enriched.test.test-source")
+        self.assertEqual(kwargs["routing_key"], "event.enriched.test.test-xyz")
 
     def test__get_excluded_ips__with_excluded_ips_in_config(self):
         self._prepare_config_for_excluded_ips(['1.1.1.1', '2.2.2.2', '3.3.3.3'])
-        expected = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')
-        result = self.enricher._get_excluded_ips()
+        expected = IPv4Container('1.1.1.1', '2.2.2.2', '3.3.3.3').networks
+        result = self.enricher._get_excluded_ips().networks
         self.assertCountEqual(expected, result)
 
     def test__get_excluded_ips__without_excluded_ips_in_config(self):
@@ -699,7 +699,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self.assertEqual(ip_to_enr_mock.mock_calls, ip_to_enr_expected_calls)
 
     def test__filter_out_excluded_ips__with_no_ip_in_excluded_ips(self):
-        self.enricher.excluded_ips = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')
+        self.enricher.excluded_ips = IPv4Container('1.1.1.1', '2.2.2.2', '3.3.3.3')
         data = RecordDict({
             "url": "http://www.nask.pl/asd",
             "address": [{'ip': '1.1.1.5'}, {'ip': '2.1.1.1'}],
@@ -715,7 +715,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self.assertEqual(ip_to_enr_mock.mock_calls, ip_to_enr_expected_calls)
 
     def test__filter_out_excluded_ips__with_ip_in_excluded_ips__1(self):
-        self.enricher.excluded_ips = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')
+        self.enricher.excluded_ips = IPv4Container('1.1.1.1', '2.2.2.2', '3.3.3.3')
         data = RecordDict({
             "url": "http://www.nask.pl/asd",
             "address": [{'ip': '1.1.1.1'}, {'ip': '1.1.1.6'}],
@@ -733,7 +733,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self.assertEqual(ip_to_enr_mock.mock_calls, ip_to_enr_expected_calls)
 
     def test__filter_out_excluded_ips__with_ip_in_excluded_ips__2(self):
-        self.enricher.excluded_ips = iptools.IpRangeList('1.1.1.1', '2.2.2.2', '3.3.3.3')
+        self.enricher.excluded_ips = IPv4Container('1.1.1.1', '2.2.2.2', '3.3.3.3')
         data = RecordDict({
             "url": "http://www.nask.pl/asd",
             "address": [{'ip': '1.1.1.1', 'asn': 1234}],
@@ -751,7 +751,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self.assertEqual(ip_to_enr_mock.mock_calls, ip_to_enr_expected_calls)
 
     def test__filter_out_excluded_ips__with_range_of_ips(self):
-        self.enricher.excluded_ips = iptools.IpRangeList('3.0.0.0/8')
+        self.enricher.excluded_ips = IPv4Container('3.0.0.0/8')
         data = RecordDict({
             "url": "http://www.nask.pl/asd",
             "address": [

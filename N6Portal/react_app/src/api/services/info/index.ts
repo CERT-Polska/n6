@@ -21,12 +21,14 @@ const getInfoConfig = async (): Promise<IInfoConfig> => {
   }
 };
 
-export const useInfo = (options?: UseQueryOptions<IInfo, AxiosError>): UseQueryResult<IInfo, AxiosError> => {
+export const useInfo = (
+  options?: Omit<UseQueryOptions<IInfo, AxiosError>, 'queryKey' | 'queryFn'>
+): UseQueryResult<IInfo, AxiosError> => {
   return useQuery('info', (): Promise<IInfo> => getInfo(), options);
 };
 
 export const useInfoConfig = (
-  options?: UseQueryOptions<IInfoConfig, AxiosError>
+  options?: Omit<UseQueryOptions<IInfoConfig, AxiosError>, 'queryKey' | 'queryFn'>
 ): UseQueryResult<IInfoConfig, AxiosError> => {
   return useQuery('infoConfig', (): Promise<IInfoConfig> => getInfoConfig(), options);
 };

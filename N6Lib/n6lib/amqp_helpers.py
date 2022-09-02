@@ -13,7 +13,7 @@ from n6sdk.encoding_helpers import ascii_str
 
 PIPELINE_CONFIG_SPEC_PATTERN = '''
     [{pipeline_config_section}]
-    ...
+    ... :: list_of_str
 '''
 
 
@@ -74,7 +74,7 @@ def get_pipeline_binding_states(pipeline_group,
 
     config_spec = PIPELINE_CONFIG_SPEC_PATTERN.format(
         pipeline_config_section=pipeline_config_section)
-    pipeline_conf = Config.section(config_spec, default_converter='list_of_str')
+    pipeline_conf = Config.section(config_spec)
     try:
         return pipeline_conf[pipeline_name]
     except KeyError:

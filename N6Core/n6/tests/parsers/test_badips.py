@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from n6.parsers.badips import BadipsServerExploitListParser
 from n6.parsers.generic import BlackListTabDataParser
-from n6.tests.parsers._parser_test_mixin import ParserTestMixIn
+from n6.tests.parsers._parser_test_mixin import ParserTestMixin
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.record_dict import BLRecordDict
 
@@ -39,7 +39,7 @@ def _cases_for_badips_server_exploit_list_parser(self):
            ])
 
 
-class TestBadipsServerExploitListParser(ParserTestMixIn, unittest.TestCase):
+class TestBadipsServerExploitListParser(ParserTestMixin, unittest.TestCase):
 
     PARSER_BASE_CLASS = BlackListTabDataParser
     PARSER_CLASS = BadipsServerExploitListParser
@@ -53,5 +53,5 @@ class TestBadipsServerExploitListParser(ParserTestMixIn, unittest.TestCase):
 
     cases = _cases_for_badips_server_exploit_list_parser
 
-    message_expires = str(parse_iso_datetime_to_utc(ParserTestMixIn.message_created) +
+    message_expires = str(parse_iso_datetime_to_utc(ParserTestMixin.message_created) +
                           timedelta(days=2))

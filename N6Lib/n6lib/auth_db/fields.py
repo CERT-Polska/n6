@@ -1,7 +1,8 @@
-# Copyright (c) 2018-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2022 NASK. All rights reserved.
 
 import datetime
 import re
+import string
 
 from n6lib.auth_db import (
     INVALID_FIELD_TEMPLATE_MSG,
@@ -39,13 +40,13 @@ class CategoryCustomizedField(UnicodeLimitedField, UnicodeRegexField):
 
     max_length = MAX_LEN_OF_GENERIC_ONE_LINE_STRING
     regex = r'\A[\-0-9a-z]+\Z'
-    error_msg_template = u'"{}" is not a valid event category'
+    error_msg_template = '"{}" is not a valid event category'
 
     warning_msg_template = ('category value %a is not amongst the elements '
                             'of n6lib.const.CATEGORY_ENUMS!')
 
     def clean_result_value(self, value):
-        value = super(CategoryCustomizedField, self).clean_result_value(value)
+        value = super().clean_result_value(value)
         if value not in CATEGORY_ENUMS:
             # we do not raise an error here -- to make future
             # transitions/migrations more convenient...
@@ -60,31 +61,31 @@ class DomainNameCustomizedField(DomainNameField):
 
 class ComponentLoginField(DomainNameCustomizedField):
 
-    error_msg_template = u'"{}" is not a valid component login - a domain name is expected'
+    error_msg_template = '"{}" is not a valid component login - a domain name is expected'
 
 
 class OrgIdField(DomainNameCustomizedField):
 
     max_length = MAX_LEN_OF_ORG_ID
-    error_msg_template = u'"{}" is not a valid organization ID - a domain name is expected'
+    error_msg_template = '"{}" is not a valid organization ID - a domain name is expected'
 
 
 class EmailCustomizedField(EmailSimplifiedField):
 
     max_length = MAX_LEN_OF_EMAIL
     regex = EMAIL_OVERRESTRICTED_SIMPLE_REGEX
-    error_msg_template = u'"{}" is not a valid e-mail address'
+    error_msg_template = '"{}" is not a valid e-mail address'
 
     def _validate_value(self, value):
         forbidden_characters = self._get_additionally_forbidden_characters()
         illegal_characters = forbidden_characters.intersection(value)
         if illegal_characters:
-            raise FieldValueError(
-                public_message='"{value}" contains illegal character(s): {chars}.'.format(
-                    value=ascii_str(value),
-                    chars=', '.join(sorted("'{}'".format(ascii_str(ch))
-                                           for ch in illegal_characters))))
-        super(EmailCustomizedField, self)._validate_value(value)
+            illegal_characters_listing = ', '.join(
+                f"'{ch}'" for ch in sorted(illegal_characters))
+            raise FieldValueError(public_message=ascii_str(
+                f'"{value}" contains illegal character(s): '
+                f'{illegal_characters_listing}.'))
+        super()._validate_value(value)
 
     def _get_additionally_forbidden_characters(self):
         return frozenset()
@@ -92,7 +93,13 @@ class EmailCustomizedField(EmailSimplifiedField):
 
 class UserLoginField(EmailCustomizedField):
 
-    error_msg_template = u'"{}" is not a valid user login - an e-mail address is expected'
+    _CHARACTERS_ADDITIONALLY_FORBIDDEN_IN_LOGINS = frozenset(string.ascii_uppercase)
+
+    error_msg_template = '"{}" is not a valid user login - an e-mail address is expected'
+
+    def _get_additionally_forbidden_characters(self):
+        return (self._CHARACTERS_ADDITIONALLY_FORBIDDEN_IN_LOGINS |
+                super()._get_additionally_forbidden_characters())
 
 
 class IdHexField(UnicodeLimitedField, UnicodeRegexField):
@@ -101,13 +108,13 @@ class IdHexField(UnicodeLimitedField, UnicodeRegexField):
     max_length = MAX_LEN_OF_ID_HEX
     regex = r'\A[0-9a-f]+\Z'
 
-    error_msg_template = u'"{}" is not a valid hex-digits-only identifier'
+    error_msg_template = '"{}" is not a valid hex-digits-only identifier'
 
 
 class NoWhitespaceSecretField(UnicodeLimitedField, UnicodeRegexField):
 
     sensitive = True
-    default_error_msg_if_sensitive = u'not a valid secret - too short or contains whitespace?'
+    default_error_msg_if_sensitive = 'not a valid secret - too short or contains whitespace?'
 
     disallow_empty = True
     max_length = MAX_LEN_OF_GENERIC_ONE_LINE_STRING
@@ -118,18 +125,18 @@ class NoWhitespaceSecretField(UnicodeLimitedField, UnicodeRegexField):
 class UUID4SecretField(UnicodeLimitedField, UnicodeRegexField):
 
     sensitive = True
-    default_error_msg_if_sensitive = u'not a valid UUID4'
+    default_error_msg_if_sensitive = 'not a valid UUID4'
 
     disallow_empty = True
     regex = r'\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z'
     max_length = MAX_LEN_OF_UUID4
 
     def _fix_value(self, value):
-        value = super(UUID4SecretField, self)._fix_value(value)
+        value = super()._fix_value(value)
         return value.lower()
 
 
-class RegistrationRequestEmailField(EmailCustomizedField):
+class RegistrationRequestAnyEmailField(EmailCustomizedField):
 
     # Note: the characters specified by this constant are formally
     # valid e-mail characters but we prefer to forbid them in email
@@ -142,23 +149,25 @@ class RegistrationRequestEmailField(EmailCustomizedField):
 
     def _get_additionally_forbidden_characters(self):
         return (self._CHARACTERS_ADDITIONALLY_FORBIDDEN_IN_REGISTRATION_REQ_EMAILS |
-                super(RegistrationRequestEmailField,
-                      self)._get_additionally_forbidden_characters())
+                super()._get_additionally_forbidden_characters())
 
 
-# XXX: this class is to be removed when we finally get rid of the LDAP stuff remains
-class RegistrationRequestEmailLDAPSafeField(RegistrationRequestEmailField):
+class RegistrationRequestEmailBeingCandidateLoginField(UserLoginField,
+                                                       RegistrationRequestAnyEmailField):
 
     def _validate_value(self, value):
+        # XXX: this method extension is to be removed when
+        #      we finally get rid of the LDAP stuff remains.
         from n6lib.auth_db.validators import _ascii_only_ldap_safe_str_strip
-        super(RegistrationRequestEmailLDAPSafeField, self)._validate_value(value)
+        super()._validate_value(value)
         assert value.strip() == _ascii_only_ldap_safe_str_strip(value)
 
     def _get_additionally_forbidden_characters(self):
+        # XXX: this method extension is to be removed when
+        #      we finally get rid of the LDAP stuff remains.
         from n6lib.auth_db.validators import LDAP_UNSAFE_CHARACTERS
         return (LDAP_UNSAFE_CHARACTERS |
-                super(RegistrationRequestEmailLDAPSafeField,
-                      self)._get_additionally_forbidden_characters())
+                super()._get_additionally_forbidden_characters())
 
 
 class IPv4NetAlwaysAsStringField(IPv4NetField):
@@ -180,7 +189,7 @@ class DateTimeCustomizedField(DateTimeField):
     min_datetime = datetime.datetime.utcfromtimestamp(0)  # 1970-01-01T00:00:00Z
 
     def clean_result_value(self, value):
-        value = super(DateTimeCustomizedField, self).clean_result_value(value)
+        value = super().clean_result_value(value)
         # get rid of the fractional part of seconds
         value = value.replace(microsecond=0)
         # do not accept times that are *not* representable as UNIX timestamps
@@ -206,11 +215,11 @@ class TimeHourMinuteField(Field):
     time_format = '%H:%M'
 
     def clean_param_value(self, value):
-        value = super(TimeHourMinuteField, self).clean_param_value(value)
+        value = super().clean_param_value(value)
         return self._time_object_from_string(value)
 
     def clean_result_value(self, value):
-        value = super(TimeHourMinuteField, self).clean_result_value(value)
+        value = super().clean_result_value(value)
         if isinstance(value, datetime.time):
             return self._validate_time_object(value)
         elif isinstance(value, str):
@@ -295,8 +304,8 @@ class _BaseNameOrTokenField(UnicodeLimitedField, UnicodeRegexField):
             # Note that it is relevant only to *non-nullable* columns,
             # because for nullable ones our Base's metaclass ensures
             # that for `None` values validators are not used.
-            raise FieldValueError(public_message=u'The value is missing')
-        return super(_BaseNameOrTokenField, self).clean_result_value(value)
+            raise FieldValueError(public_message='The value is missing')
+        return super().clean_result_value(value)
 
 
 class OfficialOrContactTokenField(_BaseNameOrTokenField):
@@ -307,4 +316,4 @@ class OfficialOrContactTokenField(_BaseNameOrTokenField):
 class EntityNameField(_BaseNameOrTokenField):
 
     max_length = MAX_LEN_OF_GENERIC_ONE_LINE_STRING
-    error_msg_template = u'"{}" is not a valid entity name.'
+    error_msg_template = '"{}" is not a valid entity name.'

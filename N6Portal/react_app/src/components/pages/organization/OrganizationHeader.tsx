@@ -1,7 +1,7 @@
 import { FC } from 'react';
 import { Row, Col } from 'react-bootstrap';
 import { format } from 'date-fns';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import DataRange from 'images/appointment.svg';
 import Update from 'images/update.svg';
 
@@ -12,7 +12,7 @@ interface IProps {
 }
 
 const OrganizationHeader: FC<IProps> = ({ name, range, at }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const lastUpdate = format(new Date(at), 'dd.MM.yyyy, HH:mm');
   const dataRange =
     range === 1

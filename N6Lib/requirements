@@ -14,9 +14,13 @@ bcrypt==3.1.7
 passlib==1.7.4
 dnspython==1.16.0
 M2Crypto==0.37.1
+MarkupSafe<2.1.0
 Jinja2<3.0.0
 PyJWT==1.7.1
 
 # pip install section
 geoip2
 pyotp==2.3.0
+PyStemmer==2.0.1
+pystempel==1.2.0
+pytest==7.1.2

@@ -17,6 +17,7 @@ interface IProps {
   showValidationMsg?: boolean;
   tooltip?: JSX.Element;
   validate?: Record<string, Validate<string>>;
+  defaultValue?: boolean;
 }
 
 const FormCheckbox: FC<IProps & FormContextProps> = memo(
@@ -26,6 +27,7 @@ const FormCheckbox: FC<IProps & FormContextProps> = memo(
     disabled = false,
     className,
     isInvalid,
+    defaultValue = false,
     showValidationMsg = true,
     isDirty,
     tooltip,
@@ -40,6 +42,7 @@ const FormCheckbox: FC<IProps & FormContextProps> = memo(
         <div className={classnames('form-checkbox-wrapper custom-checkbox-input', className, { dirty: isDirty })}>
           <Controller
             name={name}
+            defaultValue={defaultValue}
             rules={{ validate }}
             render={({ field: { onChange, onBlur, value: fieldValue } }) => {
               return (

@@ -1,11 +1,11 @@
 import { FC, useEffect } from 'react';
 import { AxiosError } from 'axios';
-import { useIntl } from 'react-intl';
 import { FormProvider, SubmitHandler, useForm } from 'react-hook-form';
 import { Redirect } from 'react-router-dom';
 import { useMutation } from 'react-query';
 import { postEditMfaConfigConfirm } from 'api/auth';
 import useUserSettingsMfaContext from 'context/UserSettingsMfaContext';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import routeList from 'routes/routeList';
 import CustomButton from 'components/shared/CustomButton';
 import FormInput from 'components/forms/FormInput';
@@ -20,7 +20,7 @@ type TMfaConfigForm = {
 };
 
 const UserSettingsMfaConfigForm: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { state, mfaData, updateUserSettingsMfaState } = useUserSettingsMfaContext();
 
   const methods = useForm<TMfaConfigForm>({ mode: 'onBlur', defaultValues: { mfa_code: '' } });

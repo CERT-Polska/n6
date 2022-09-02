@@ -1,8 +1,8 @@
 import { FC, useState } from 'react';
 import { AxiosError } from 'axios';
-import { useIntl } from 'react-intl';
 import { useHistory } from 'react-router-dom';
 import { useMutation } from 'react-query';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { postMfaConfig } from 'api/auth';
 import { ILogin, IMfaConfig } from 'api/auth/types';
 import useAuthContext from 'context/AuthContext';
@@ -14,7 +14,7 @@ import { ReactComponent as MfaIcon } from 'images/user-settings-mfa.svg';
 
 const UserSettingsMfaEdit: FC<Required<IMfaConfig>> = ({ mfa_config }) => {
   const [showApiError, toggleShowApiError] = useState(false);
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const history = useHistory();
   const { resetAuthState } = useAuthContext();
   const { updateUserSettingsMfaState } = useUserSettingsMfaContext();

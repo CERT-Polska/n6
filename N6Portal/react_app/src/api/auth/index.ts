@@ -22,7 +22,7 @@ const getMfaConfig = async (): Promise<IMfaConfig> => {
 };
 
 export const useMfaConfig = (
-  options?: UseQueryOptions<IMfaConfig, AxiosError>
+  options?: Omit<UseQueryOptions<IMfaConfig, AxiosError>, 'queryKey' | 'queryFn'>
 ): UseQueryResult<IMfaConfig, AxiosError> => {
   return useQuery('mfaConfig', (): Promise<IMfaConfig> => getMfaConfig(), options);
 };
@@ -36,7 +36,9 @@ const getApiKey = async (): Promise<IApiKey> => {
   }
 };
 
-export const useApiKey = (options?: UseQueryOptions<IApiKey, AxiosError>): UseQueryResult<IApiKey, AxiosError> => {
+export const useApiKey = (
+  options?: Omit<UseQueryOptions<IApiKey, AxiosError>, 'queryKey' | 'queryFn'>
+): UseQueryResult<IApiKey, AxiosError> => {
   return useQuery('apiKey', (): Promise<IApiKey> => getApiKey(), options);
 };
 

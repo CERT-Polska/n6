@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2014-2022 NASK. All rights reserved.
 
 import collections
 import contextlib
@@ -26,7 +26,6 @@ from unittest_expander import (
 from n6lib.auth_api import (
     AuthAPI,
     _DataPreparer,
-    AuthAPIUnauthenticatedError,
     InsideCriteriaResolver,
     cached_basing_on_ldap_root_node,
 )

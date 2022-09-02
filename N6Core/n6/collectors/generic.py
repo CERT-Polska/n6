@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 """
 Collector base classes + auxiliary tools.
@@ -976,7 +976,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
           -- see its docs (and the docs of `extract_row_time()`),
         * `clean_row_time()`
           -- see its docs (and the docs of `extract_row_time()`);
-        
+
     * optional: see the attributes and methods defined within the body
       of this class below the "Stuff that can be overridden..." comment.
 
@@ -1010,33 +1010,25 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
     by the `get_oldest_possible_row_time()` method **must always** sort
     as **less than** any value returned by `clean_row_time()`.
 
-    It is important to highlight that the original data (rows) are
-    expected to be already sorted **descendingly** (from newest to oldest)
-    by the time/order field (as extracted with `extract_row_time()`,
-    described above). If not, that must be enforced by your
-    implementation, e.g., in the following way:
-
-        def split_orig_data_into_rows(self, orig_data):
-            all_rows = super(..., self).split_orig_data_into_rows(orig_data)
-            return sorted(all_rows, key=self._row_sort_key, reverse=True)
-
-        def _row_sort_key(self, row):
-            sort_key = self.extract_row_time(row)
-            if sort_key is None:
-                sort_key = self.get_oldest_possible_row_time()
-            return sort_key
-
     ***
 
-    Even a more important requirement, concerning the data source itself,
+    Very important requirement, concerning the data source itself,
     is that values of the *time/order* field of any **new** (fresh) rows
     encountered by the collector **must** be **greater than or equal to**
     the *time/order* field's values of all rows collected during any
     previous runs of the collector.
 
-    If the **data source does not satisfy** the requirement described
-    above then **some rows will be lost** (i.e., will **not** be
-    collected at all).
+    When it is detected that *the data source does not satisfy* the
+    requirement described above:
+
+    * if the value of the `row_count_mismatch_is_fatal` option is
+      false then a warning signalling row counts mismatch is logged
+      and the collector continues its work (*beware:* some rows may
+      be lost, i.e., *never* collected);
+
+    * if the value of the `row_count_mismatch_is_fatal` option is
+      true then a `ValueError` is raised (the collector's activity
+      is aborted; no rows are collected).
 
     For example, let's assume that a certain data source provided
     the following data:
@@ -1045,7 +1037,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         '"2", "2019-07-18 01:00:00", "sample_data", "data"\n'
         '"1", "2019-07-17 00:00:00", "other_data", "data"\n'
 
-    Assuming that our imaginary collector threats the second column
+    Assuming that our imaginary collector treats the second column
     as the *time/order* field and that we just ran our collector,
     all those rows have been collected by it and the collector's saved
     state points on the `3`-rd row as the recent one.
@@ -1060,41 +1052,40 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         '"2", "2019-07-18 01:00:00", "sample_data", "data"\n'
         '"1", "2019-07-17 00:00:00", "other_data", "data"\n'
 
-    If we run our collector now, it will collect the `6`-th row, but it
-    will **not** collect the `4`-th and `5`-th rows, because of treating
-    the `5`-th one as a row *from the past* (because its *time/order*
-    value is less (older) than the, previously-saved-as-the-recent-one,
-    `3`-rd's one).
-
-    Note that, in such a case, making our collector sort these rows
-    by the *time/order* field would **not** help much:
-
-        '"4", "2019-07-21 02:00:00", "sample_3", "data"\n'
-        '"6", "2019-07-20 02:00:00", "sample_2", "data"\n'
-        '"5", "2019-07-18 02:00:00", "sample_1", "data"\n'
-        '"3", "2019-07-19 02:00:00", "sample", "data"\n'
-        '"2", "2019-07-18 01:00:00", "sample_data", "data"\n'
-        '"1", "2019-07-17 00:00:00", "other_data", "data"\n'
-
-    Even though the `4`-th and `6`-th rows would be collected, the
-    `5`-th one **would not** -- as it would be (still) considered a row
-    *from the past*. Indeed, the main problem is with the data source
-    itself: it does not satisfy the requirement described above.
+    Even though the `4`-th and `6`-th rows could be collected, the
+    `5`-th one **could not** -- as it would be considered a row *from
+    the past* (as being older that the aforementioned `3`-rd row).
+    Indeed, the problem is with the data source itself: it does not
+    satisfy the requirement described above.
 
     ***
 
     One more thing concerning the original input data: while it is OK
     to have several rows with exact same values of the time/order field,
-    whole rows should not be the same (unless you do not care that such
-    duplicates may be detected as already seen and, consequently,
-    omitted).
-
+    whole rows should be *unique* (if duplicates are detected, a warning
+    is logged or, if the `row_count_mismatch_is_fatal` option is true,
+    a `ValueError` is raised; moreover, it is *not* guaranteed that such
+    duplicates will be collected at all).
     """
 
-    config_required = ('source', 'cache_dir')
+    source_config_section = None
+
+    config_spec_pattern = '''
+        [{source_config_section}]
+        source :: str
+        cache_dir :: str
+        row_count_mismatch_is_fatal = False :: bool
+    '''
+
+    @attr_required('source_config_section')
+    def get_config_spec_format_kwargs(self):
+        return {'source_config_section': self.source_config_section}
+
 
     _NEWEST_ROW_TIME_STATE_KEY = 'newest_row_time'
     _NEWEST_ROWS_STATE_KEY = 'newest_rows'
+    _ROWS_COUNT_KEY = 'rows_count'
+
 
     def __init__(self, **kwargs):
         super(BaseTimeOrderedRowsCollector, self).__init__(**kwargs)
@@ -1114,6 +1105,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         return {
             self._NEWEST_ROW_TIME_STATE_KEY: self.get_oldest_possible_row_time(),
             self._NEWEST_ROWS_STATE_KEY: set(),
+            self._ROWS_COUNT_KEY: 0,
         }
 
     def start_publishing(self):
@@ -1176,9 +1168,9 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
                                           url=self.config['url'],
                                           retries=self.config['download_retries'])
 
-        (Though, in practice -- when it comes to obtaining original
+        (Though, in practice -- when it comes to obtaining the original
         data with the `RequestPerformer` stuff -- you will more likely
-        want to use the `BaseDownloadingTimeOrderedRowsCollector` class
+        want to use the `BaseDownloadingTimeOrderedRowsCollector` class,
         rather than to implement `RequestPerformer`-based `obtain_orig_data()`
         by your own.)
 
@@ -1198,57 +1190,55 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
     def get_fresh_rows_only(self, all_rows):
         prev_newest_row_time = self._state[self._NEWEST_ROW_TIME_STATE_KEY]
         prev_newest_rows = self._state[self._NEWEST_ROWS_STATE_KEY]
+        # (a legacy state may not include `rows_count`)
+        prev_rows_count = self._state.get(self._ROWS_COUNT_KEY)
 
         newest_row_time = None
         newest_rows = set()
+        rows_count = 0
 
         fresh_rows = []
-
-        preceding_row_time = None
 
         for row in all_rows:
             row_time = self.extract_row_time(row)
             if row_time is None:
                 continue
 
-            # it is required that time values in consecutive rows are
-            # non-increasing and monotonic (but can be repeating)
-            if preceding_row_time is not None and row_time > preceding_row_time:
-                raise ValueError(
-                    'encountered row time {!r} > preceding row time {!r}'.format(
-                        row_time,
-                        preceding_row_time))
-            preceding_row_time = row_time
+            rows_count += 1
 
             if row_time < prev_newest_row_time:
-                # stop collecting when reached rows which are old enough
-                # that we are sure they must have already been collected
-                break
+                # this row is old enough to assume it has already been collected
+                continue
 
-            if newest_row_time is None:
-                # this is the first (newest) actual (not blank/commented)
-                # row in the downloaded file -- so here we have the *newest*
-                # row time
+            if newest_row_time is None or row_time > newest_row_time:
+                # this row time is *newer* than any of the rows already
+                # processed within this run
                 newest_row_time = row_time
+                newest_rows.clear()
 
+            assert row_time <= newest_row_time
             if row_time == newest_row_time:
                 # this row is amongst those with the *newest* row time
+                # (at least so far within this run)
                 newest_rows.add(row)
 
             if row in prev_newest_rows:
                 # this row is amongst those with the *previously newest*
-                # row time, *and* we know that it has already been
-                # collected -> so we *skip* it
+                # row time, *and* it must have already been collected
                 assert row_time == prev_newest_row_time
                 continue
 
-            # this row have *not* been collected yet -> let's collect it
-            # now (in its original form, i.e., without any modifications)
+            # this row has *not* been collected yet -> let's collect it
             fresh_rows.append(row)
 
+        self._check_counts(prev_rows_count, rows_count, fresh_rows)
+
         if fresh_rows:
-            self._state[self._NEWEST_ROW_TIME_STATE_KEY] = newest_row_time
-            self._state[self._NEWEST_ROWS_STATE_KEY] = newest_rows
+            self._state.update({
+                self._NEWEST_ROW_TIME_STATE_KEY: newest_row_time,
+                self._NEWEST_ROWS_STATE_KEY: newest_rows,
+                self._ROWS_COUNT_KEY: rows_count,
+            })
 
             # sanity assertions
             fresh_newest_rows = newest_rows - prev_newest_rows
@@ -1398,6 +1388,42 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         """
         raise NotImplementedError
 
+    def _check_counts(self, prev_rows_count, rows_count, fresh_rows):
+        problems = []
+        duplicated_fresh_rows_msg = "Found duplicates among fresh rows."
+        invalid_rows_count_msg = (
+            "The currently stated count of all rows ({}) is not equal "
+            "to the sum of the count stated by the previous run of the "
+            "collector ({}) and the count of the currently collected "
+            "fresh rows ({})."
+
+            "\nIt means that at least one of the following has happened:"
+
+            "\n* the data provided by the external source has changed in "
+            "such a way that the expected count of the rows which should "
+            "have already been collected (according to the current data "
+            "from the external source) is different than the actual count "
+            "of the already collected rows (by the previous runs of the "
+            "collector);"
+
+            "\n* some fresh rows duplicate some rows collected "
+            "earlier."
+        ).format(rows_count, prev_rows_count, len(fresh_rows))
+
+        if len(fresh_rows) != len(set(fresh_rows)):
+            problems.append(duplicated_fresh_rows_msg)
+
+        if prev_rows_count is not None:
+            expected_rows_count = prev_rows_count + len(fresh_rows)
+            if rows_count != expected_rows_count:
+                problems.append(invalid_rows_count_msg)
+
+        if problems:
+            msg = '\n\nThe following problem also occurred:\n\n'.join(problems)
+            if self.config['row_count_mismatch_is_fatal']:
+                raise ValueError(msg)
+            LOGGER.warning(msg)
+
 
 class BaseDownloadingCollector(BaseCollector):
 
@@ -1473,11 +1499,8 @@ class BaseDownloadingTimeOrderedRowsCollector(BaseDownloadingCollector,
         url :: str
         download_retries = 10 :: int
         base_request_headers = {{}} :: py
+        row_count_mismatch_is_fatal = False :: bool
     '''
-
-    @attr_required('source_config_section')
-    def get_config_spec_format_kwargs(self):
-        return {'source_config_section': self.source_config_section}
 
     def obtain_orig_data(self):
         return self.download(self.config['url'])

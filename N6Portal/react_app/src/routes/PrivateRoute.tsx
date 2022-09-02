@@ -1,5 +1,6 @@
 import { FC } from 'react';
 import { Redirect, Route } from 'react-router-dom';
+import { useQueryClient } from 'react-query';
 import useAuthContext, { PermissionsStatus } from 'context/AuthContext';
 import Loader from 'components/loading/Loader';
 
@@ -10,7 +11,12 @@ interface IPrivateRouteProps {
 }
 
 const PrivateRoute: FC<IPrivateRouteProps> = ({ children, redirectPath, ...rest }) => {
+  const queryClient = useQueryClient();
   const { isAuthenticated, contextStatus } = useAuthContext();
+
+  if (!isAuthenticated && contextStatus !== PermissionsStatus.initial) {
+    queryClient.clear();
+  }
 
   if (contextStatus === PermissionsStatus.initial) {
     return <Route {...rest} render={() => <Loader />} />;

@@ -1,0 +1,211 @@
+/* lookup results container */
+
+.api_result_popup {
+    width: calc(100% - 36px);
+    max-height: 500px;
+    overflow-y: scroll;
+    margin-top: 5px;
+}
+
+.api_result_popup h1 {
+    font-size: 1em;
+    margin-top: 2px;
+}
+
+.api_result_popup h2 {
+    font-size: 0.7em;
+    margin-top: 0;
+}
+
+.api_result_popup table {
+    table-layout: fixed;
+    width: 100%;
+    margin-bottom: 40px;
+    border-top: 1px #c6c3c3 solid;
+    border-bottom: 1px #c6c3c3 solid;
+}
+
+.api_result_popup table:last-of-type {
+    margin-bottom: 0;
+    border-bottom: none;
+}
+
+.api_result_popup table th {
+    width: 40%;
+    vertical-align: text-top;
+}
+
+.api_result_popup td {
+    padding: 0.3em;
+}
+
+.api_result_popup tr:nth-of-type(odd) {
+    background: #f5f5f5;
+}
+
+.api_result_popup tr td:first-child {
+    font-weight: bolder;
+}
+
+.api_result_popup td > tr {
+    width: 100%;
+    background: red;
+}
+
+.api_error_popup h3 {
+    color: red;
+}
+
+.asn-results-icon, .ip-net-results-icon, .fqdn-results-icon {
+    width: 44px;
+    height: 44px;
+    float: left;
+    margin-right: 10px;
+}
+
+.asn-results-icon {
+    background: url(icons/ripe_asn_results.svg);
+}
+
+.ip-net-results-icon {
+    background: url(icons/ripe_ipnet_results.svg);
+}
+
+.fqdn-results-icon {
+    background: url(icons/baddomains_fqdn_results.png);
+}
+
+/* buttons */
+
+/* defining styles for pseudo-classes to override some of
+   the `.btn` behaviour */
+.api-lookup-btn, .api-lookup-btn:hover, .api-lookup-btn:focus, .api-lookup-btn:active {
+    background: url(icons/ripe_lookup.svg) no-repeat center;
+    width: 34px;
+    height: 34px;
+}
+
+.api-lookup-btn:hover {
+    opacity: 0.8;
+}
+
+.api-lookup-btn--disabled, .api-lookup-btn--disabled:hover,
+.api-lookup-btn--disabled:focus, .api-lookup-btn--disabled:active {
+    background: none;
+}
+
+.api-lookup-btn--disabled::after {
+    content: "✖";
+}
+
+/* button or spinner positioned on the right side of an input */
+.el-over-input {
+    position: absolute;
+    top: 0;
+    right: 15px;
+}
+
+.reload-btn, .reload-btn:hover, .reload-btn:focus, .reload-btn:active {
+    float: right;
+    background: url(icons/ripe_popup_reload.svg) no-repeat center;
+    width: 34px;
+    height: 34px;
+}
+
+.reload-btn:hover {
+    opacity: 0.7;
+}
+
+
+/* spinner section */
+
+.spinner {
+    width: 30px;
+    height: 30px;
+    margin-top: 12px;
+    margin-right: 5px;
+    display: flex;
+    opacity: 0.7;
+}
+
+.spinner > div {
+    width: 10px;
+    height: 10px;
+    background-color: #003475;
+    border-radius: 100%;
+    display: inline-block;
+    -webkit-animation: sk-bouncedelay 1.4s infinite ease-in-out both;
+    animation: sk-bouncedelay 1.4s infinite ease-in-out both;
+}
+
+.spinner .bounce1 {
+    -webkit-animation-delay: -0.32s;
+    animation-delay: -0.32s;
+}
+
+.spinner .bounce2 {
+    -webkit-animation-delay: -0.16s;
+    animation-delay: -0.16s;
+}
+
+@-webkit-keyframes sk-bouncedelay {
+    0%, 80%, 100% { -webkit-transform: scale(0) }
+    40% { -webkit-transform: scale(1.0) }
+}
+
+@keyframes sk-bouncedelay {
+    0%, 80%, 100% {
+        -webkit-transform: scale(0);
+        transform: scale(0);
+    } 40% {
+          -webkit-transform: scale(1.0);
+          transform: scale(1.0);
+      }
+}
+
+
+/* helpers */
+
+.hidden {
+    display: none;
+}
+
+
+/* animations */
+
+.fade-in {
+    animation-duration: 1s;
+    animation-name: fadeIn;
+}
+
+.fade-out {
+    animation-duration: 1s;
+    animation-name: fadeOut;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0;
+    }
+}
+
+
+/* change style of the original elements */
+
+.inline-form-field .form-control {
+    width: calc(100% - 36px);
+}

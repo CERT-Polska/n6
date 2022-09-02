@@ -19,7 +19,8 @@ import {
   sourceRegex,
   countryCodeRegex,
   md5Regex,
-  sha1Regex
+  sha1Regex,
+  searchRegex
 } from 'components/forms/validation/validationRegexp';
 import isObject from 'utils/isObject';
 
@@ -103,6 +104,9 @@ export const equalMfaLength: ValidatorWithCheckSingleMsg<number, FormFieldValue>
 
 export const mustBeEmail: Validate<FormFieldValue> = (value) =>
   !value || (typeof value === 'string' && value.match(emailRegex)) ? true : 'validation_mustBeEmail';
+
+export const mustBeSearchQuery: Validate<FormFieldValue> = (value) =>
+  !value || (typeof value === 'string' && value.match(searchRegex) ? true : 'validation_mustBeSearchQuery');
 
 export const mustBeLoginEmail: Validate<FormFieldValue> = (value) =>
   !value || (typeof value === 'string' && value.match(emailRegex)) ? true : 'validation_mustBeLoginEmail';

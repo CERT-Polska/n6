@@ -187,7 +187,7 @@ def _make_abbrev_name(names):
 
 def _get_hex_hash_of_names(names):
     hash_base = as_bytes('-'.join(names))
-    return hashlib.sha256(hash_base).hexdigest()
+    return hashlib.sha256(hash_base, usedforsecurity=False).hexdigest()
 
 
 def _iter_abbrev_name_parts(names):

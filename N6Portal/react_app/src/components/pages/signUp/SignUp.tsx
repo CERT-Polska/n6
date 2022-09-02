@@ -1,9 +1,10 @@
 import { FC, useState } from 'react';
 import { Redirect } from 'react-router';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import useAuthContext from 'context/AuthContext';
 import routeList from 'routes/routeList';
 import { ReactComponent as Logo } from 'images/logo_n6.svg';
+import { TUserAgentLocale } from 'context/LanguageProvider';
 import SignUpStepOne from 'components/pages/signUp/SignUpStepOne';
 import SignUpStepTwo from 'components/pages/signUp/SignUpStepTwo';
 import LanguagePicker from 'components/shared/LanguagePicker';
@@ -11,10 +12,15 @@ import SignUpSuccess from 'components/pages/signUp/SignUpSuccess';
 import SignUpWizard from 'components/pages/signUp/SignUpWizard';
 import { signup_terms } from 'dictionary';
 
+export type TTosVersions = Record<TUserAgentLocale, string>;
+
 const SignUp: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const [formStep, setFormStep] = useState(1);
-  const [tosVersions, changeTosVersions] = useState({ en: signup_terms.en.version, pl: signup_terms.pl.version });
+  const [tosVersions, changeTosVersions] = useState<TTosVersions>({
+    en: signup_terms.en.version,
+    pl: signup_terms.pl.version
+  });
 
   const { isAuthenticated } = useAuthContext();
 

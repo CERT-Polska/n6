@@ -1,12 +1,9 @@
-# Copyright (c) 2018-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2022 NASK. All rights reserved.
 
 import json
 import string
 
-from n6lib.auth_db import (
-    INVALID_FIELD_TEMPLATE_MSG,
-    MAX_LEN_OF_CERT_SERIAL_HEX,
-)
+from n6lib.auth_db import MAX_LEN_OF_CERT_SERIAL_HEX
 from n6lib.auth_db.fields import (
     CategoryCustomizedField,
     ComponentLoginField,
@@ -17,7 +14,8 @@ from n6lib.auth_db.fields import (
     IdHexField,
     OfficialOrContactTokenField,
     OrgIdField,
-    RegistrationRequestEmailField,
+    RegistrationRequestAnyEmailField,
+    RegistrationRequestEmailBeingCandidateLoginField,
     NoWhitespaceSecretField,
     TimeHourMinuteField,
     URLSimpleField,
@@ -195,22 +193,24 @@ class _AuthDBValidatorsDataSpec(BaseDataSpec):
     id_hex = IdHexField()
     ip_network = IPv4NetField()
     phone_number = OfficialOrContactTokenField(
-        error_msg_template=u'"{}" is not a valid phone number')
+        error_msg_template='"{}" is not a valid phone number')
     source = SourceField()
     time = DateTimeCustomizedField()
     time_hour_minute = TimeHourMinuteField()
     url = URLSimpleField()
 
-    registration_request_email = RegistrationRequestEmailField()
+    registration_request_email_being_candidate_login = (
+        RegistrationRequestEmailBeingCandidateLoginField())
+    registration_request_notification_email = RegistrationRequestAnyEmailField()
 
     entity_name = EntityNameField()
 
     entity_sector_label = OfficialOrContactTokenField(
-        error_msg_template=u'"{}" is not a valid entity sector label')
+        error_msg_template='"{}" is not a valid entity sector label')
     entity_extra_id_type_label = OfficialOrContactTokenField(
-        error_msg_template=u'"{}" is not a valid extra ID type label')
+        error_msg_template='"{}" is not a valid extra ID type label')
     entity_extra_id = OfficialOrContactTokenField(
-        error_msg_template=u'"{}" is not a valid extra ID')
+        error_msg_template='"{}" is not a valid extra ID')
 
 
 #
@@ -220,7 +220,7 @@ class _AuthDBValidatorsDataSpec(BaseDataSpec):
 LDAP_UNSAFE_CHARACTERS = frozenset('\\,+"<>;=\x00')
 
 
-def is_cert_serial_number_valid(serial_number):
+def is_cert_serial_number_valid(serial_number: str) -> bool:
     return (_HEXDIGITS_LOWERCASE.issuperset(serial_number) and
             len(serial_number) == MAX_LEN_OF_CERT_SERIAL_HEX)
 
@@ -260,13 +260,13 @@ class AuthDBValidators(object):
     validator_for__registration_request__modified_on = _adjust_time
     validator_for__registration_request__email = chained(
         _adjust_ascii_only_ldap_safe_to_unicode_stripped,
-        make_adjuster_using_data_spec('registration_request_email'))
+        make_adjuster_using_data_spec('registration_request_email_being_candidate_login'))
     validator_for__registration_request__terms_lang = _adjust_country_code
 
     validator_for__registration_request_email_notification_address__email = chained(
         _adjust_ascii_only_to_unicode,
         make_adjuster_applying_callable(str.strip),
-        make_adjuster_using_data_spec('registration_request_email'))
+        make_adjuster_using_data_spec('registration_request_notification_email'))
 
     validator_for__org_config_update_request__id = _adjust_hexadecimal_id
     validator_for__org_config_update_request__submitted_on = _adjust_time

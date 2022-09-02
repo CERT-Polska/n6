@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2015-2021 NASK. All rights reserved.
 
 import datetime
 import json
@@ -18,7 +18,7 @@ from unittest_expander import (
 )
 
 from n6datapipeline.aux.anonymizer import Anonymizer
-from n6lib.const import TYPE_ENUMS
+from n6lib.const import EVENT_TYPE_ENUMS
 from n6lib.data_spec import N6DataSpec
 from n6lib.db_filtering_abstractions import RecordFacadeForPredicates
 from n6lib.unit_test_helpers import TestCaseMixin, MethodProxy
@@ -210,7 +210,7 @@ class TestAnonymizer___check_event_type(TestCaseMixin, unittest.TestCase):
     )
     def test_matching_and_valid(self, event_type, event_data):
         assert (event_type == event_data.get('type', 'event') and
-                event_type in TYPE_ENUMS)  # (test case self-test)
+                event_type in EVENT_TYPE_ENUMS)  # (test case self-test)
 
         self.meth._check_event_type(event_type, event_data)
 
@@ -238,7 +238,7 @@ class TestAnonymizer___check_event_type(TestCaseMixin, unittest.TestCase):
     )
     def test_not_matching(self, event_type, event_data):
         assert (event_type != event_data.get('type', 'event') and
-                event_type in TYPE_ENUMS)  # (test case self-test)
+                event_type in EVENT_TYPE_ENUMS)  # (test case self-test)
 
         with self.assertRaises(ValueError):
             self.meth._check_event_type(event_type, event_data)
@@ -255,7 +255,7 @@ class TestAnonymizer___check_event_type(TestCaseMixin, unittest.TestCase):
             'type': event_type,
             'some_key': sen.some_value,
         }
-        assert event_type not in TYPE_ENUMS  # (test case self-test)
+        assert event_type not in EVENT_TYPE_ENUMS  # (test case self-test)
 
         with self.assertRaises(ValueError):
             self.meth._check_event_type(event_type, event_data)

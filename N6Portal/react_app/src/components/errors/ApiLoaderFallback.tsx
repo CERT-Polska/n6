@@ -1,9 +1,9 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import ErrorPage from 'components/errors/ErrorPage';
 
 const ApiLoaderFallback: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   return (
     <ErrorPage
       header={`${messages['errApiLoader_header']}`}

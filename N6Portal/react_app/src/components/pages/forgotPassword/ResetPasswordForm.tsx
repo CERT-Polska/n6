@@ -1,8 +1,8 @@
 import { FC, useState } from 'react';
 import { AxiosError } from 'axios';
-import { useIntl } from 'react-intl';
 import { FormProvider, SubmitHandler, useForm } from 'react-hook-form';
 import { useMutation } from 'react-query';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { postResetPassword } from 'api/auth';
 import CustomButton from 'components/shared/CustomButton';
 import FormInput from 'components/forms/FormInput';
@@ -22,7 +22,7 @@ type TResetPasswordForm = {
 
 const ForgotPasswordForm: FC<IProps> = ({ token }) => {
   const [resetError, toggleResetError] = useState(false);
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { updateForgotPasswordState } = useForgotPasswordContext();
 
   const methods = useForm<TResetPasswordForm>({

@@ -107,8 +107,9 @@ class MailNoticesAPI(ConfigMixin):
         # * (1) **either** a Jinja template name preceded with a `$:`
         #   (*dollar sign* followed by *colon*) marker,
         #
-        # * (2) **or** any other `str` -- which *literally* specifies
-        #   the item's value (**without** any HTML/XML escaping!).
+        # * (2) **or** any other string -- which *literally* specifies
+        #   the item's value (**no HTML/XML escaping** will be applied
+        #   to it!).
         #
         # Ad (1): those Jinja templates will be used by an instance of
         # `JinjaTemplateBasedRenderer` (see `n6lib.jinja_helpers` and
@@ -120,9 +121,9 @@ class MailNoticesAPI(ConfigMixin):
         # (`__enter__()`'s return value) of a context manager returned
         # by `MailNoticesAPI.dispatcher()`].
         #
-        # **Beware** that HTML/XML escaping is applied **only** if the
-        # template name has a `.html`, `.htm` or `.xml` suffix (checked
-        # in a case-insensitive manner).
+        # **Beware** that HTML/XML escaping will be applied **only if**
+        # the template name has a `.html`, `.htm` or `.xml` suffix
+        # (checked in a case-insensitive manner).
         #
         # For example templates -- see the template files in the
         # `data/templates` subdirectory of the `n6lib` package source
@@ -306,7 +307,7 @@ class MailNoticesAPI(ConfigMixin):
     # Internal helpers
 
     def _get_config(self, settings):
-        config = self.get_config_section(settings=settings)
+        config = self.get_config_section(settings)
         if config['default_sender'] is None:
             nkey_to_lang_to_mc = config['notice_key_to_lang_to_mail_components']
             nkey_lang_pairs_with_no_sender = sorted(

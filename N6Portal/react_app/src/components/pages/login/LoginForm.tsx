@@ -1,10 +1,10 @@
 import { FC, useState } from 'react';
 import { AxiosError } from 'axios';
-import { useIntl } from 'react-intl';
 import { Redirect } from 'react-router';
 import { Link } from 'react-router-dom';
 import { useForm, FormProvider, SubmitHandler } from 'react-hook-form';
 import { useMutation } from 'react-query';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { postLogin } from 'api/auth';
 import { ILogin } from 'api/auth/types';
 import routeList from 'routes/routeList';
@@ -24,7 +24,7 @@ type TLoginForm = {
 
 const LoginForm: FC = () => {
   const [authError, toggleAuthError] = useState(false);
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { updateLoginState } = useLoginContext();
   const { isAuthenticated, contextStatus, useInfoFetching, availableResources } = useAuthContext();
 
@@ -38,11 +38,6 @@ const LoginForm: FC = () => {
   if (contextStatus === PermissionsStatus.initial || useInfoFetching) {
     return <Loader />;
   }
-
-  const hasOnlyInsideAccess = availableResources.includes('/report/inside') && availableResources.length === 1;
-
-  if (isAuthenticated && hasOnlyInsideAccess) return <Redirect to={routeList.organization} />;
-  if (isAuthenticated) return <Redirect to={routeList.incidents} />;
 
   const onSubmit: SubmitHandler<TLoginForm> = async (data) => {
     toggleAuthError(false);
@@ -58,6 +53,11 @@ const LoginForm: FC = () => {
       else toggleAuthError(true);
     }
   };
+
+  const hasOnlyInsideAccess =
+    availableResources.includes('/report/inside') && !availableResources.includes('/search/events');
+  if (isAuthenticated && hasOnlyInsideAccess) return <Redirect to={routeList.organization} />;
+  if (isAuthenticated) return <Redirect to={routeList.incidents} />;
 
   return (
     <section className="login-container">

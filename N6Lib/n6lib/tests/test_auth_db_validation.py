@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2022 NASK. All rights reserved.
 
 import datetime
 import unittest
@@ -121,8 +121,8 @@ class TestValidators(unittest.TestCase):
         param(model=RegistrationRequest, tested_arg='org_id'),
     )
     def test_invalid_regex_domain(self, model, tested_arg, val):
-        msg_pattern = r'\bdomain name\b'
-        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, msg_pattern)
+        expected_msg_pattern = r'\bdomain name\b'
+        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
         InsideFilterFQDN,
@@ -205,8 +205,8 @@ class TestValidators(unittest.TestCase):
         InsideFilterASN,
     )
     def test_illegal_asn(self, model, val):
-        msg_pattern = r'\bnot a valid Autonomous System Number\b'
-        self._test_illegal_values(model, {'asn': val}, FieldValueError, msg_pattern)
+        expected_msg_pattern = r'\bnot a valid Autonomous System Number\b'
+        self._test_illegal_values(model, {'asn': val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
         param(val='pl'),
@@ -241,46 +241,52 @@ class TestValidators(unittest.TestCase):
         param(model=RegistrationRequest, tested_arg='terms_lang'),
     )
     def test_illegal_cc(self, model, tested_arg, val):
-        message_regex = r'\bnot a valid 2-character country code\b'
-        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, message_regex)
+        expected_msg_pattern = r'\bnot a valid 2-character country code\b'
+        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
         param(val='info@example.com'),
         param(val='ex123@example.com'),
-        param(val='Some@email'),
+        param(val='uPPercase@example.com'),
         param(val='      valiD.V_a-l@s-p-a-m.example.com   '),
-        param(val='another-val@example.com'),
+        param(val='another-val@email'),
         param(val='123@321.org'),
+        param(val='so}me@example'),
+        param(val='so{me@example'),
+        param(val='so$&?!me@example'),
     )
     @foreach(
         EMailNotificationAddress,
         Entity,
         EntityContactPoint,
         OrgConfigUpdateRequestEMailNotificationAddress,
-        RegistrationRequest,
-        RegistrationRequestEMailNotificationAddress,
     )
     def test_email(self, model, val):
         self._test_proper_values(model, {'email': val}, expecting_stripped_string=True)
 
     @foreach(
-        param(val='invalid'),
+        param(val='no-at-sign'),
+        param(val='.some@example.com'),
+        param(val='some..some@example.com'),
+        param(val='some....some@example.com'),
+        param(val='some.@example.com'),
+        param(val='lo:gin@example.com'),
+        param(val='lo   gin@example.com'),
+        param(val='@example.com'),
         param(val='some@some@example.com'),
-        param(val='notvalidval@exAmple.com'),
-        param(val='notvalidval@s_p_a_m.example.com'),
+        param(val='some@s_p_a_m.example.com'),
         param(val='123@321.123'),
+        param(val='some@domain-with-UPPERcase.example.com'),
     )
     @foreach(
         EMailNotificationAddress,
         Entity,
         EntityContactPoint,
         OrgConfigUpdateRequestEMailNotificationAddress,
-        RegistrationRequest,
-        RegistrationRequestEMailNotificationAddress,
     )
     def test_illegal_email(self, model, val):
-        self._test_illegal_values(model, {'email': val},
-                                  FieldValueError, r'\bnot a valid e-mail address\b')
+        expected_msg_pattern = (r'\bnot a valid e-mail address\b')
+        self._test_illegal_values(model, {'email': val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
         '12:01',
@@ -311,8 +317,7 @@ class TestValidators(unittest.TestCase):
         OrgConfigUpdateRequestEMailNotificationTime,
     )
     def test_illegal_notification_time(self, model, val):
-        self._test_illegal_values(model, {'notification_time': val},
-                                  FieldValueError)
+        self._test_illegal_values(model, {'notification_time': val}, FieldValueError)
 
     @foreach(
         11,
@@ -331,8 +336,10 @@ class TestValidators(unittest.TestCase):
     def test_illegal_type_notification_time(self):
         expected_msg_pattern = r'\bwrong type\b'
         new_time = datetime.datetime(2018, 3, 14, 15, 11)
-        self._test_illegal_values(EMailNotificationTime, {'notification_time': new_time},
-                                  FieldValueError, expected_msg_pattern)
+        self._test_illegal_values(EMailNotificationTime,
+                                  {'notification_time': new_time},
+                                  FieldValueError,
+                                  expected_msg_pattern)
 
     @foreach(
         '1.2.3.4/0',
@@ -368,7 +375,9 @@ class TestValidators(unittest.TestCase):
     )
     def test_illegal_ip_network(self, model, val):
         expected_msg_pattern = r'\bnot a valid CIDR IPv4 network specification\b'
-        self._test_illegal_values(model, {'ip_network': val}, FieldValueError,
+        self._test_illegal_values(model,
+                                  {'ip_network': val},
+                                  FieldValueError,
                                   expected_msg_pattern)
 
     @foreach(
@@ -380,7 +389,9 @@ class TestValidators(unittest.TestCase):
     def test_wrong_type_ip_network(self, model):
         val = ('127.0.0.1', '28')
         expected_msg_pattern = r'\btype of value for a string-type field\b'
-        self._test_illegal_values(model, {'ip_network': val}, FieldValueError,
+        self._test_illegal_values(model,
+                                  {'ip_network': val},
+                                  FieldValueError,
                                   expected_msg_pattern)
 
     @foreach(
@@ -407,7 +418,9 @@ class TestValidators(unittest.TestCase):
     def test_wrong_type_for_string_based_field(self):
         tested_value = b'something'
         expected_msg_pattern = r'\btype of value for a string-type field\b'
-        self._test_illegal_values(InsideFilterURL, {'url': tested_value}, FieldValueError,
+        self._test_illegal_values(InsideFilterURL,
+                                  {'url': tested_value},
+                                  FieldValueError,
                                   expected_msg_pattern)
 
     def test_too_long_url(self):
@@ -418,7 +431,8 @@ class TestValidators(unittest.TestCase):
     @foreach(list(CATEGORY_ENUMS) + list(map('  {}  '.format, CATEGORY_ENUMS)))
     def test_category(self, val):
         with patch('n6lib.auth_db.fields.LOGGER') as LOGGER_mock:
-            self._test_proper_values(CriteriaCategory, {'category': val},
+            self._test_proper_values(CriteriaCategory,
+                                     {'category': val},
                                      expecting_stripped_string=True)
         self.assertEqual(LOGGER_mock.mock_calls, [])
 
@@ -432,7 +446,8 @@ class TestValidators(unittest.TestCase):
     )
     def test_unknown_but_tolerated_category(self, val):
         with patch('n6lib.auth_db.fields.LOGGER') as LOGGER_mock:
-            self._test_proper_values(CriteriaCategory, {'category': val},
+            self._test_proper_values(CriteriaCategory,
+                                     {'category': val},
                                      expecting_stripped_string=True)
         self.assertEqual(LOGGER_mock.mock_calls, [
             call.warning(CategoryCustomizedField.warning_msg_template, val.strip()),
@@ -440,39 +455,126 @@ class TestValidators(unittest.TestCase):
 
     @foreach(
         '',
-        '',
+        ' ',
         'a_b',
         'obcążki',
     )
     def test_illegal_category(self, val):
-        self._test_illegal_values(CriteriaCategory, {'category': val},
-                                  FieldValueError, r'\bnot a valid event category\b')
+        self._test_illegal_values(CriteriaCategory,
+                                  {'category': val},
+                                  FieldValueError,
+                                  r'\bnot a valid event category\b')
 
     @foreach(
         'info@example.com',
         'ex123@example.com',
-        'Some@email',
-        '    vaLid_val@example.com   ',
-        'another-val@example.com',
+        '  valid.v_a-l@s-p-a-m.example.com  ',
+        'another-val@email',
+        '123@321.org',
         'so}me@example',
         'so{me@example',
         'so$&?!me@example',
     )
     def test_user_login(self, val):
-        self._test_proper_values(User, {'login': val}, expecting_stripped_string=True)
+        self._test_proper_values(User,
+                                 {'login': val},
+                                 expecting_stripped_string=True)
 
     @foreach(
-        '.login@example.com',
-        'login..login@example.com',
-        'login....login@example.com',
-        'login.@example.com',
+        'info@example.com',
+        'ex123@example.com',
+        '  valid.v_a-l@s-p-a-m.example.com  ',
+        'another-val@email',
+        '123@321.org',
+    )
+    def test_registration_req_email(self, val):
+        self._test_proper_values(RegistrationRequest,
+                                 {'email': val},
+                                 expecting_stripped_string=True)
+
+    @foreach(
+        'uPPercase@example.com',
+        'info@example.com',
+        'ex123@example.com',
+        '      valiD.V_a-l@s-p-a-m.example.com   ',
+        'another-val@email',
+        '123@321.org',
+    )
+    def test_registration_req_notification_email(self, val):
+        self._test_proper_values(RegistrationRequestEMailNotificationAddress,
+                                 {'email': val},
+                                 expecting_stripped_string=True)
+
+    @foreach(
+        'uPPercase@example.com',
+        'no-at-sign',
+        '.some@example.com',
+        'some..some@example.com',
+        'some....some@example.com',
+        'some.@example.com',
         'lo:gin@example.com',
         'lo   gin@example.com',
         '@example.com',
+        'some@some@example.com',
+        'some@s_p_a_m.example.com',
+        '123@321.123',
+        'some@domain-with-UPPERcase.example.com',
     )
     def test_illegal_user_login(self, val):
-        expected_msg_pattern = (r'\bnot a valid user login\b')
-        self._test_illegal_values(User, {'login': val}, FieldValueError, expected_msg_pattern)
+        expected_msg_pattern = (r'\bnot a valid user login\b|\billegal character')
+        self._test_illegal_values(User,
+                                  {'login': val},
+                                  FieldValueError,
+                                  expected_msg_pattern)
+
+    @foreach(
+        'uPPercase@example.com',
+        'so}me@example',
+        'so{me@example',
+        'so$&?!me@example',
+        'no-at-sign',
+        '.some@example.com',
+        'some..some@example.com',
+        'some....some@example.com',
+        'some.@example.com',
+        'lo:gin@example.com',
+        'lo   gin@example.com',
+        '@example.com',
+        'some@some@example.com',
+        'some@s_p_a_m.example.com',
+        '123@321.123',
+        'some@domain-with-UPPERcase.example.com',
+    )
+    def test_illegal_registration_req_email(self, val):
+        expected_msg_pattern = (r'\bnot a valid user login\b|\billegal character')
+        self._test_illegal_values(RegistrationRequest,
+                                  {'email': val},
+                                  FieldValueError,
+                                  expected_msg_pattern)
+
+    @foreach(
+        'so}me@example',
+        'so{me@example',
+        'so$&?!me@example',
+        'no-at-sign',
+        '.some@example.com',
+        'some..some@example.com',
+        'some....some@example.com',
+        'some.@example.com',
+        'lo:gin@example.com',
+        'lo   gin@example.com',
+        '@example.com',
+        'some@some@example.com',
+        'some@s_p_a_m.example.com',
+        '123@321.123',
+        'some@domain-with-UPPERcase.example.com',
+    )
+    def test_illegal_registration_req_notification_email(self, val):
+        expected_msg_pattern = (r'\bnot a valid e-mail address\b|\billegal character')
+        self._test_illegal_values(RegistrationRequestEMailNotificationAddress,
+                                  {'email': val},
+                                  FieldValueError,
+                                  expected_msg_pattern)
 
     @foreach(
         'abc.def',
@@ -480,7 +582,8 @@ class TestValidators(unittest.TestCase):
         '123.321',
     )
     def test_source(self, val):
-        self._test_proper_values(Source, {'source_id': val, 'anonymized_source_id': val},
+        self._test_proper_values(Source,
+                                 {'source_id': val, 'anonymized_source_id': val},
                                  expecting_stripped_string=True)
 
     @foreach(
@@ -495,7 +598,9 @@ class TestValidators(unittest.TestCase):
     def test_illegal_source(self, val):
         expected_msg_pattern = r'\bnot a valid source specification\b'
         sample_valid_source = 'abc.def'
-        self._test_illegal_values(Source, {'source_id': val}, FieldValueError,
+        self._test_illegal_values(Source,
+                                  {'source_id': val},
+                                  FieldValueError,
                                   expected_msg_pattern)
         self._test_illegal_values(Source,
                                   {'source_id': sample_valid_source, 'anonymized_source_id': val},
@@ -656,8 +761,7 @@ class TestValidators(unittest.TestCase):
     )
     def test_datetimes_too_old(self, model, tested_arg, val):
         expected_msg_pattern = r'\bdate\+time\b.*\bolder than the required minimum\b'
-        self._test_illegal_values(model, {tested_arg: val},
-                                  FieldValueError, expected_msg_pattern)
+        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
         param(model=Cert, tested_arg='created_on'),
@@ -682,8 +786,7 @@ class TestValidators(unittest.TestCase):
     )
     def test_wrongly_formatted_datetimes(self, model, tested_arg, val):
         expected_msg_pattern = r'\bis not a valid date \+ time\b'
-        self._test_illegal_values(model, {tested_arg: val},
-                                  FieldValueError, expected_msg_pattern)
+        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
         'n6-service-ca',
@@ -748,15 +851,6 @@ class TestValidators(unittest.TestCase):
     )
     def test_setting_ldap_not_safe_chars(self, model, tested_arg):
         val = 'exa+mple'
-        expected_msg_pattern = r'\billegal character'
-        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
-
-    @foreach(
-        (RegistrationRequest, 'email'),
-        (RegistrationRequestEMailNotificationAddress, 'email'),
-    )
-    def test_setting_registration_request_email_forbidden_chars(self, model, tested_arg):
-        val = 'exa?mple'
         expected_msg_pattern = r'\billegal character'
         self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
 

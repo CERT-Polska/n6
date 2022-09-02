@@ -3,10 +3,9 @@ import axios from 'axios';
 export const customAxios = axios.create({ withCredentials: true });
 
 export const controllers = {
-  dataController: process.env.REACT_APP_API_URL,
+  dataController: process.env.REACT_APP_API_URL || '/api',
   auth: {
     apiKey: '/api_key',
-    certLogin: '/cert_login',
     logout: '/logout',
     login: '/login',
     mfaLogin: '/login/mfa',
@@ -29,7 +28,13 @@ export const controllers = {
     search: '/search/events',
     reportThreats: '/report/threats',
     reportInside: '/report/inside',
-    dashboard: '/dashboard'
+    dashboard: '/dashboard',
+    articlesList: '/knowledge_base/contents',
+    articlesSearch: '/knowledge_base/search',
+    articles: '/knowledge_base/articles',
+    articleDownloadPdf: '/knowledge_base/articles',
+    barChart: '/daily_events_counts',
+    eventsNamesTables: '/names_ranking'
   }
 };
 

@@ -1,16 +1,12 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import contextlib
 import copy
 import datetime
 import os
+import os.path as osp
 import uuid
-from typing import (
-    Dict,
-    List,
-    Optional,
-    Tuple,
-)
+from typing import Optional
 
 from pyramid.httpexceptions import (
     HTTPBadRequest,
@@ -30,7 +26,6 @@ from pyramid.security import (
 from pyramid.tweens import EXCVIEW
 
 from n6lib.auth_api import (
-    ACCESS_ZONE_TO_RESOURCE_ID,
     EVENT_DATA_RESOURCE_IDS,
     AuthAPIUnauthenticatedError,
 )
@@ -49,6 +44,7 @@ from n6lib.common_helpers import (
     make_condensed_debug_msg,
     make_exc_ascii_str,
     make_hex_id,
+    memoized,
     str_to_bool,
 )
 from n6lib.config import (
@@ -77,6 +73,8 @@ from n6lib.pyramid_commons._generic_view_mixins import (
 )
 from n6lib.pyramid_commons.data_spec_fields import (
     Field,
+    KnowledgeBaseLangField,
+    KnowledgeBaseSearchQueryField,
     MFACodeField,
     MFASecretConfigField,
     OrgIdField,
@@ -84,6 +82,10 @@ from n6lib.pyramid_commons.data_spec_fields import (
     PasswordToBeTestedField,
     UserLoginField,
     WebTokenField,
+)
+from n6lib.pyramid_commons.knowledge_base_helpers import (
+    build_knowledge_base_data,
+    search_in_knowledge_base,
 )
 from n6lib.pyramid_commons.mfa_helpers import MFA_CODE_MAX_ACCEPTABLE_AGE_IN_SECONDS
 from n6lib.pyramid_commons.renderers import (
@@ -104,8 +106,8 @@ from n6lib.pyramid_commons.web_token_helpers import WEB_TOKEN_DATA_KEY_OF_TOKEN_
 from n6lib.typing_helpers import (
     AccessInfo,
     AuthData,
+    JsonableDict,
     MFAConfigData,
-    String,
     WebTokenData,
 )
 from n6sdk.pyramid_commons import (
@@ -141,7 +143,8 @@ def log_debug_info_on_http_exc(http_exc):
 
 def get_certificate_credentials(request):
     org_id = request.environ.get(WSGI_SSL_ORG_ID_FIELD)
-    user_id = request.environ.get(WSGI_SSL_USER_ID_FIELD)
+    user_id = request.registry.auth_manage_api.adjust_if_is_legacy_user_login(
+        request.environ.get(WSGI_SSL_USER_ID_FIELD))
     if org_id is not None and user_id is not None:
         if ',' in org_id:
             LOGGER.warning('Comma in org_id %a.', org_id)
@@ -179,12 +182,12 @@ class N6DefaultStreamViewBase(EssentialAPIsViewMixin, DefaultStreamViewBase):
     break_on_result_cleaning_error = False
 
     def __init__(self, *args, **kwargs):
-        super(N6DefaultStreamViewBase, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self._set_access_attributes()
 
     def _set_access_attributes(self):
         assert self.resource_id in EVENT_DATA_RESOURCE_IDS
-        access_info = self.auth_api.get_access_info(self.auth_data)   # type: Optional[AccessInfo]
+        access_info: Optional[AccessInfo] = self.auth_api.get_access_info(self.auth_data)
         if not self.is_event_data_resource_available(access_info, self.resource_id):
             LOGGER.warning('User %a (org_id=%a) is trying to access the '
                            'resource %a - but is not authorized to do so',
@@ -222,7 +225,7 @@ class N6DefaultStreamViewBase(EssentialAPIsViewMixin, DefaultStreamViewBase):
 
     @classmethod
     def adjust_exc(cls, exc):
-        http_exc = super(N6DefaultStreamViewBase, cls).adjust_exc(exc)
+        http_exc = super().adjust_exc(exc)
         log_debug_info_on_http_exc(http_exc)
         return http_exc
 
@@ -239,19 +242,13 @@ class N6LimitedStreamView(N6DefaultStreamViewBase):
     GLOBAL_ITEM_NUMBER_LIMIT = 1000
 
     def prepare_params(self):
-        params = super(N6LimitedStreamView, self).prepare_params()
+        params = super().prepare_params()
         if 'opt.limit' not in params or params['opt.limit'][0] > self.GLOBAL_ITEM_NUMBER_LIMIT:
             params['opt.limit'] = [self.GLOBAL_ITEM_NUMBER_LIMIT]
         return params
 
 
-class N6DashboardView(EssentialAPIsViewMixin,
-                      ConfigFromPyramidSettingsViewMixin,
-                      PreparingNoParamsViewMixin,
-                      AbstractViewBase):
-
-    #
-    # Configuration-related stuff
+class _DashboardConfigViewMixin(ConfigFromPyramidSettingsViewMixin):
 
     @classmethod
     def prepare_config_custom_converters(cls):
@@ -262,7 +259,7 @@ class N6DashboardView(EssentialAPIsViewMixin,
 
     config_spec = '''
         [portal_dashboard]
-        time_range_in_days = 7 :: int
+        time_range_in_days = 30 :: int
         counted_categories =
             cnc ,
             bots ,
@@ -272,15 +269,24 @@ class N6DashboardView(EssentialAPIsViewMixin,
                 :: tuple_of_categories
     '''
 
-    #
-    # Actual view stuff
+    def get_time_range_in_days(self):
+        return self.config_full['portal_dashboard']['time_range_in_days']
+
+    def get_counted_categories(self):
+        return self.config_full['portal_dashboard']['counted_categories']
+
+
+class N6DashboardView(EssentialAPIsViewMixin,
+                      _DashboardConfigViewMixin,
+                      PreparingNoParamsViewMixin,
+                      AbstractViewBase):
 
     ALL_REMAINING_CATEGORIES_KEY = 'all_remaining'
 
     def make_response(self):
         at = datetime.datetime.utcnow().replace(microsecond=0)
-        time_range_in_days = self.config_full['portal_dashboard']['time_range_in_days']
-        since = at - datetime.timedelta(days=time_range_in_days)
+        time_range_in_days = self.get_time_range_in_days()
+        since = at - datetime.timedelta(days=time_range_in_days-1)
         counts = self._obtain_counts(since)
         response_data = {
             'at': at,
@@ -289,39 +295,22 @@ class N6DashboardView(EssentialAPIsViewMixin,
         }
         return self.json_response(response_data)
 
-    def _obtain_counts(self, since):
-        # type: (datetime.datetime) -> Dict[str, int]
-        access_filtering_conditions = self._get_access_filtering_conditions()
-        all_counts = self.data_backend_api.get_counts_per_category(     # type: Dict[str, int]
+    def _obtain_counts(self, since: datetime.datetime) -> dict[str, int]:
+        access_filtering_conditions = self.get_access_zone_filtering_conditions('inside')
+        all_counts: dict[str, int] = self.data_backend_api.get_counts_per_category(
             self.auth_data,
             access_filtering_conditions,
             since)
         assert all_counts.keys() == set(CATEGORY_ENUMS)
-        counts = {                                                      # type: Dict[str, int]
+        counts: dict[str, int] = {
             category: all_counts[category]
-            for category in self.config_full['portal_dashboard']['counted_categories']}
+            for category in self.get_counted_categories()}
         counts[self.ALL_REMAINING_CATEGORIES_KEY] = sum(
             single_count
             for category, single_count in all_counts.items()
             if category not in counts)
         assert counts.keys() <= set(CATEGORY_ENUMS) | {self.ALL_REMAINING_CATEGORIES_KEY}
         return counts
-
-    def _get_access_filtering_conditions(self):
-        # type: () -> Optional[list]
-        inside_access_zone = 'inside'
-        inside_resource_id = ACCESS_ZONE_TO_RESOURCE_ID[inside_access_zone]
-        access_info = self.auth_api.get_access_info(self.auth_data)   # type: Optional[AccessInfo]
-        if not self.is_event_data_resource_available(access_info, inside_resource_id):
-            LOGGER.warning('User %a (org_id=%a) is trying to access '
-                           'the dashboard data - but is not authorized '
-                           'to access the related resource %a',
-                           self.user_id, self.org_id, inside_resource_id)
-            raise HTTPForbidden(u'Access not allowed.')
-        assert access_info is not None
-        access_filtering_conditions = access_info['access_zone_conditions'][inside_access_zone]
-        assert access_filtering_conditions
-        return access_filtering_conditions
 
 
 # noinspection PyAbstractClass
@@ -335,7 +324,7 @@ class _AbstractClientFormalitiesView(EssentialAPIsViewMixin, AbstractViewBase):
     params_only_from_body = True
 
     def __init__(self, *args, **kwargs):
-        super(_AbstractClientFormalitiesView, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         # Note that -- even if the client is authenticated (so the value
         # of `self.auth_data` is available and `self.auth_data_or_none`
         # is equal to it, and is not `None`) -- the `self._access_info`
@@ -344,7 +333,7 @@ class _AbstractClientFormalitiesView(EssentialAPIsViewMixin, AbstractViewBase):
         # still return `None` (this is the case when the organization
         # has no access to any subsources, no matter whether its fields
         # `access_to_{inside,threats,search}` are `True` or `False`).
-        self._access_info = (                                         # type: Optional[AccessInfo]
+        self._access_info: Optional[AccessInfo] = (
             self.auth_api.get_access_info(self.auth_data)
             if self.auth_data_or_none is not None
             else None)
@@ -362,7 +351,44 @@ class _AbstractClientFormalitiesView(EssentialAPIsViewMixin, AbstractViewBase):
                 yield resource_id
 
 
-class N6InfoView(PreparingNoParamsViewMixin, _AbstractClientFormalitiesView):
+class _AbstractKnowledgeBaseRelatedView(WithDataSpecsAlsoForRequestParamsViewMixin,
+                                        ConfigFromPyramidSettingsViewMixin,
+                                        AbstractViewBase):
+
+    config_spec = '''
+        [knowledge_base]
+        active = false :: bool
+        base_dir = ~/.n6_knowledge_base/ :: str
+    '''
+
+    @classmethod
+    def concrete_view_class(cls, **kwargs):
+        view_class = super().concrete_view_class(**kwargs)
+        view_class._provide_knowledge_base_data()
+        return view_class
+
+    @classmethod
+    def is_knowledge_base_enabled(cls) -> bool:
+        return cls._knowledge_base_data is not None
+
+    @classmethod
+    def _provide_knowledge_base_data(cls) -> None:
+        assert cls.config_full is not None
+        if cls.config_full['knowledge_base']['active']:
+            base_dir = osp.expanduser(cls.config_full['knowledge_base']['base_dir'])
+            cls._knowledge_base_data = cls._get_knowledge_base_data(base_dir)
+        else:
+            cls._knowledge_base_data = None
+
+    @staticmethod
+    @memoized(max_size=1)
+    def _get_knowledge_base_data(base_dir: str) -> dict:
+        return build_knowledge_base_data(base_dir)
+
+
+class N6InfoView(PreparingNoParamsViewMixin,
+                 _AbstractClientFormalitiesView,
+                 _AbstractKnowledgeBaseRelatedView):
 
     """
     Get info about the client (among others, whether the client is
@@ -371,14 +397,8 @@ class N6InfoView(PreparingNoParamsViewMixin, _AbstractClientFormalitiesView):
     REST API keys is enabled).
     """
 
-    def __init__(self, *args, **kwargs):
-        super(N6InfoView, self).__init__(*args, **kwargs)
-        self._certificate_fetched = self._check_for_certificate(self.request)
-
     def make_response(self):
         body = {}
-        if not os.environ.get('N6_PORTAL_AUTH_2021'):
-            body['certificate_fetched'] = self._certificate_fetched
         if self.request.auth_data:
             assert self.auth_data is self.request.auth_data
             body['authenticated'] = True
@@ -391,17 +411,12 @@ class N6InfoView(PreparingNoParamsViewMixin, _AbstractClientFormalitiesView):
                 body['full_access'] = True
             if self.auth_api.is_api_key_authentication_enabled():
                 body['api_key_auth_enabled'] = True
+            if self.is_knowledge_base_enabled():
+                body['knowledge_base_enabled'] = True
         else:
             body['authenticated'] = False
         assert EVENT_DATA_RESOURCE_IDS >= set(body.get('available_resources', ()))
         return self.json_response(body)
-
-    @staticmethod
-    def _check_for_certificate(request):
-        if (request.environ.get(WSGI_SSL_ORG_ID_FIELD)
-                and request.environ.get(WSGI_SSL_USER_ID_FIELD)):
-            return True
-        return False
 
 
 class N6InfoConfigView(PreparingNoParamsViewMixin, _AbstractClientFormalitiesView):
@@ -423,7 +438,7 @@ class N6InfoConfigView(PreparingNoParamsViewMixin, _AbstractClientFormalitiesVie
     def make_response(self):
         conf = self._get_notifications_and_inside_criteria_conf()
         # * Obligatory items:
-        body = {
+        body: JsonableDict = {
             'available_resources': sorted(self.iter_available_event_data_resource_ids()),
             'user_id': self.user_id,
             'org_id': self.org_id,
@@ -499,31 +514,26 @@ class _AbstractPortalAuthRelatedView(WithDataSpecsAlsoForRequestParamsViewMixin,
     '''
 
     @classmethod
-    def get_token_server_secret(cls, token_type):
-        # type: (String) -> str
+    def get_token_server_secret(cls, token_type: str) -> str:
         return cls.config_full['web_tokens']['token_type_to_settings'][token_type]['server_secret']
 
     @classmethod
-    def get_token_max_age(cls, token_type):
-        # type: (String) -> int
+    def get_token_max_age(cls, token_type: str) -> int:
         return cls.config_full['web_tokens']['token_type_to_settings'][token_type]['token_max_age']
 
     @classmethod
-    def get_server_secret_for_pseudo_tokens(cls):
-        # type: () -> str
+    def get_server_secret_for_pseudo_tokens(cls) -> str:
         return cls.config_full['web_tokens']['server_secret_for_pseudo_tokens']
 
     @classmethod
-    def get_portal_frontend_base_url(cls):
-        # type: () -> str
+    def get_portal_frontend_base_url(cls) -> str:
         return cls.config_full['portal_frontend_properties']['base_url']
 
     #
     # Data-spec-related stuff
 
     @classmethod
-    def prepare_field_specs(cls):
-        # type: () -> Dict[str, Field]
+    def prepare_field_specs(cls) -> dict[str, Field]:
 
         # Typical combinations of field constructor's generic **kwargs:
         in_params = dict(in_params='required', single_param=True)
@@ -531,7 +541,7 @@ class _AbstractPortalAuthRelatedView(WithDataSpecsAlsoForRequestParamsViewMixin,
         in_both = dict(in_params, **in_result)
 
         return dict(
-            super(_AbstractPortalAuthRelatedView, cls).prepare_field_specs(),
+            super().prepare_field_specs(),
 
             login = UserLoginField(**in_params),
             password_to_be_tested = PasswordToBeTestedField(**in_params),
@@ -575,8 +585,9 @@ class _AbstractPortalAuthRelatedView(WithDataSpecsAlsoForRequestParamsViewMixin,
                 self.auth_manage_api.delete_web_token(token_id)
             raise
 
-    def create_token(self, token_type, login):
-        # type: (String, String) -> WebTokenData
+    def create_token(self,
+                     token_type: str,
+                     login: str) -> WebTokenData:
         token_id = self.generate_new_token_id()
         try:
             created_on = self.auth_manage_api.create_web_token_for_nonblocked_user(token_id,
@@ -592,8 +603,9 @@ class _AbstractPortalAuthRelatedView(WithDataSpecsAlsoForRequestParamsViewMixin,
             created_on=created_on,
         )
 
-    def get_login_of_legit_token_owner(self, token_id, token_type):
-        # type: (String, String) -> String
+    def get_login_of_legit_token_owner(self,
+                                       token_id: str,
+                                       token_type: str) -> str:
         token_max_age = self.get_token_max_age(token_type)
         self.auth_manage_api.delete_outdated_web_tokens_of_given_type(token_type, token_max_age)
         # Note: after the above call we are sure that the token
@@ -611,8 +623,9 @@ class _AbstractPortalAuthRelatedView(WithDataSpecsAlsoForRequestParamsViewMixin,
     #
     # Helper method related to authentication headers
 
-    def make_logged_in_response_headerlist(self, org_id, user_id):
-        # type: (String, String) -> List[Tuple[str, str]]
+    def make_logged_in_response_headerlist(self,
+                                           org_id: str,
+                                           user_id: str) -> list[tuple[str, str]]:
         """
         A utility method: get a list of headers that provide
         authentication information (specific to the authentication
@@ -636,23 +649,20 @@ class _AbstractPortalMFARelatedView(_AbstractPortalAuthRelatedView):
     ''')
 
     @classmethod
-    def get_mfa_server_secret(cls):
-        # type: () -> str
+    def get_mfa_server_secret(cls) -> str:
         return cls.config_full['mfa']['server_secret']
 
     @classmethod
-    def get_mfa_issuer_name(cls):
-        # type: () -> str
+    def get_mfa_issuer_name(cls) -> str:
         return cls.config_full['mfa']['issuer_name']
 
     #
     # Data-spec related stuff
 
     @classmethod
-    def prepare_field_specs(cls):
-        # type: () -> Dict[str, Field]
+    def prepare_field_specs(cls) -> dict[str, Field]:
         return dict(
-            super(_AbstractPortalMFARelatedView, cls).prepare_field_specs(),
+            super().prepare_field_specs(),
 
             mfa_code = MFACodeField(
                 in_params='required',
@@ -673,8 +683,7 @@ class _AbstractPortalMFARelatedView(_AbstractPortalAuthRelatedView):
     generate_secret_key_qr_code_url = staticmethod(mfa_helpers.generate_secret_key_qr_code_url)
     does_mfa_code_matches_now = staticmethod(mfa_helpers.does_mfa_code_matches_now)
 
-    def create_provisional_mfa_config(self, login):
-        # type: (String) -> Tuple[MFAConfigData, WebTokenData]
+    def create_provisional_mfa_config(self, login: str) -> tuple[MFAConfigData, WebTokenData]:
         token_data = self.create_token(WEB_TOKEN_TYPE_FOR_MFA_CONFIG, login)
         mfa_key_base = self.generate_new_mfa_key_base()
         self.auth_manage_api.create_provisional_mfa_config(mfa_key_base,
@@ -687,10 +696,10 @@ class _AbstractPortalMFARelatedView(_AbstractPortalAuthRelatedView):
         return mfa_config_data, token_data
 
     def turn_provisional_mfa_config_into_actual(self,
-                                                token_id,
-                                                mfa_code,
-                                                allow_overwrite_existing=False):
-        # type: (String, int, bool) -> AuthData
+                                                token_id: str,
+                                                mfa_code: int,
+                                                allow_overwrite_existing: bool = False,
+                                                ) -> AuthData:
         login = self.get_login_of_legit_token_owner(token_id, WEB_TOKEN_TYPE_FOR_MFA_CONFIG)
         if (self.auth_manage_api.get_actual_mfa_key_base_or_none(login) is not None
               and not allow_overwrite_existing):
@@ -707,8 +716,9 @@ class _AbstractPortalMFARelatedView(_AbstractPortalAuthRelatedView):
         assert isinstance(auth_data, dict) and auth_data
         return auth_data
 
-    def authenticate_with_mfa_code(self, login, mfa_code):
-        # type: (String, int) -> AuthData
+    def authenticate_with_mfa_code(self,
+                                   login: str,
+                                   mfa_code: int) -> AuthData:
         try:
             if self.auth_manage_api.is_user_blocked(login):
                 LOGGER.warning('Auth of %a by MFA code failed - user is blocked', login)
@@ -723,8 +733,7 @@ class _AbstractPortalMFARelatedView(_AbstractPortalAuthRelatedView):
         assert isinstance(auth_data, dict) and auth_data
         return auth_data
 
-    def get_actual_mfa_key_base(self, login):
-        # type: (String) -> String
+    def get_actual_mfa_key_base(self, login: str) -> str:
         mfa_key_base = self.auth_manage_api.get_actual_mfa_key_base_or_none(login)
         if mfa_key_base is None:
             LOGGER.warning('Actual MFA configuration for user %a not found', login)
@@ -735,8 +744,10 @@ class _AbstractPortalMFARelatedView(_AbstractPortalAuthRelatedView):
     #
     # Internal helpers
 
-    def _try_to_authenticate_using_login_and_mfa(self, login, mfa_code, mfa_key_base):
-        # type: (String, int, String) -> Optional[AuthData]
+    def _try_to_authenticate_using_login_and_mfa(self,
+                                                 login: str,
+                                                 mfa_code: int,
+                                                 mfa_key_base: str) -> Optional[AuthData]:
         self.auth_manage_api.delete_outdated_spent_mfa_codes(
             mfa_code_max_age=MFA_CODE_MAX_ACCEPTABLE_AGE_IN_SECONDS)
         secret_key = self.generate_secret_key(mfa_key_base, self.get_mfa_server_secret())
@@ -758,7 +769,7 @@ class N6LoginView(_AbstractPortalMFARelatedView):
     @classmethod
     def prepare_data_specs(cls):
         return dict(
-            super(N6LoginView, cls).prepare_data_specs(),
+            super().prepare_data_specs(),
 
             # data spec to clean request params
             request_params=cls.make_data_spec(
@@ -845,7 +856,7 @@ class N6LoginMFAView(_AbstractPortalMFARelatedView):
     @classmethod
     def prepare_data_specs(cls):
         return dict(
-            super(N6LoginMFAView, cls).prepare_data_specs(),
+            super().prepare_data_specs(),
 
             request_params=cls.make_data_spec(
                 token=cls.field_specs['token_for_login'],
@@ -882,7 +893,7 @@ class N6LoginMFAConfigConfirmView(_AbstractPortalMFARelatedView):
     @classmethod
     def prepare_data_specs(cls):
         return dict(
-            super(N6LoginMFAConfigConfirmView, cls).prepare_data_specs(),
+            super().prepare_data_specs(),
 
             request_params=cls.make_data_spec(
                 token=cls.field_specs['token_for_mfa_config'],
@@ -925,7 +936,7 @@ class N6MFAConfigView(_AbstractPortalMFARelatedView):
     @classmethod
     def prepare_data_specs(cls):
         return dict(
-            super(N6MFAConfigView, cls).prepare_data_specs(),
+            super().prepare_data_specs(),
 
             new_mfa_config_response=cls.make_data_spec(
                 token=cls.field_specs['token_for_mfa_config'],
@@ -975,7 +986,7 @@ class N6MFAConfigConfirmView(_AbstractPortalMFARelatedView):
     @classmethod
     def prepare_data_specs(cls):
         return dict(
-            super(N6MFAConfigConfirmView, cls).prepare_data_specs(),
+            super().prepare_data_specs(),
 
             request_params=cls.make_data_spec(
                 token=cls.field_specs['token_for_mfa_config'],
@@ -1020,7 +1031,7 @@ class N6PasswordForgottenView(_AbstractPortalAuthRelatedView):
     @classmethod
     def prepare_data_specs(cls):
         return dict(
-            super(N6PasswordForgottenView, cls).prepare_data_specs(),
+            super().prepare_data_specs(),
 
             request_params=cls.make_data_spec(
                 login=cls.field_specs['login'],
@@ -1072,7 +1083,7 @@ class N6PasswordResetView(_AbstractPortalAuthRelatedView):
     @classmethod
     def prepare_data_specs(cls):
         return dict(
-            super(N6PasswordResetView, cls).prepare_data_specs(),
+            super().prepare_data_specs(),
 
             request_params = cls.make_data_spec(
                 token=cls.field_specs['token_for_password_reset'],
@@ -1108,77 +1119,6 @@ class N6LogoutView(_AbstractPortalAuthRelatedView):
     def make_response(self):
         logged_out_response_headerlist = forget(self.request)
         return self.json_response({}, headerlist=logged_out_response_headerlist)
-
-
-class N6LegacyLoginView(_AbstractPortalAuthRelatedView):
-
-    # XXX: this class is a backward-compatibility stuff -- to be removed...
-
-    @classmethod
-    def prepare_data_specs(cls):
-        return dict(
-            super(N6LegacyLoginView, cls).prepare_data_specs(),
-
-            request_params=cls.make_data_spec(
-                org_id=OrgIdField(single_param=True, in_params='required'),
-                user_id=cls.field_specs['login'],
-                password=cls.field_specs['password_to_be_tested'],
-            ),
-        )
-
-    def make_response(self):
-        org_id = self.params['org_id']
-        login = self.params['user_id']
-        password = self.params['password']
-
-        with self.auth_manage_api:
-            auth_data = self._authenticate(org_id, login, password)
-
-        logged_in_response_headerlist = self.make_logged_in_response_headerlist(**auth_data)
-        return self.text_response(body='', headerlist=logged_in_response_headerlist)
-
-    def exc_on_param_value_cleaning_error(self, cleaning_error, invalid_params_set):
-        return HTTPForbidden
-
-    def _authenticate(self, org_id, login, password):
-        if (self.auth_manage_api.do_nonblocked_user_and_password_exist_and_match(login, password)
-              and self.auth_manage_api.do_nonblocked_user_and_org_exist_and_match(login, org_id)):
-            auth_data = dict(
-                org_id=org_id,
-                user_id=login,
-            )
-            return auth_data
-        password_characterization = ('non-empty' if password else 'empty')
-        LOGGER.warning('User tried to authenticate with invalid credentials - '
-                       'organization id set to %a + login (user id) set to %a '
-                       '+ %s password', org_id, login, password_characterization)
-        raise HTTPForbidden
-
-
-class N6CertificateLoginView(_AbstractPortalAuthRelatedView):
-
-    # XXX: this class implements a deprecated endpoint -- to be removed...
-
-    def make_response(self):
-        org_id, login = get_certificate_credentials(self.request)
-
-        with self.auth_manage_api:
-            auth_data = self._authenticate(org_id, login)
-
-        logged_in_response_headerlist = self.make_logged_in_response_headerlist(**auth_data)
-        return self.text_response(body='', headerlist=logged_in_response_headerlist)
-
-    def _authenticate(self, org_id, login):
-        if self.auth_manage_api.do_nonblocked_user_and_org_exist_and_match(login, org_id):
-            auth_data = dict(
-                org_id=org_id,
-                user_id=login,
-            )
-            return auth_data
-        LOGGER.warning('Could not authenticate with certificate for: '
-                       'organization id set to %a + login (user id) '
-                       'set to %a', org_id, login)
-        raise HTTPForbidden
 
 
 class N6RegistrationView(EssentialAPIsViewMixin,
@@ -1255,7 +1195,7 @@ class N6RegistrationView(EssentialAPIsViewMixin,
         except (KeyError, ValueError):
             return '<unknown>'
         else:
-            return '"{}"'.format(ascii_str(raw_org_id))
+            return ascii_str(f'"{raw_org_id}"')
 
 
 class N6OrgConfigView(EssentialAPIsViewMixin,
@@ -1280,7 +1220,7 @@ class N6OrgConfigView(EssentialAPIsViewMixin,
         assert isinstance(values, list)
         if (key in self.multi_value_param_keys) and values == ['']:
             return []
-        return super(N6OrgConfigView, self).preprocess_param_values(key, values)
+        return super().preprocess_param_values(key, values)
 
     def make_response(self):
         if self.request.method == 'POST':
@@ -1381,9 +1321,10 @@ class N6OrgConfigView(EssentialAPIsViewMixin,
                                     _forbidden=frozenset({'org_id', 'requesting_user_login'})):
         found = _forbidden.intersection(self.params)
         if found:
+            listing = ', '.join(map('"{}"'.format, sorted(found)))
             raise HTTPBadRequest(
-                'Illegal, explicitly forbidden, query parameters: '
-                '{}.'.format(', '.join(map('"{}"'.format, sorted(found)))))
+                f'Illegal, explicitly forbidden, '
+                f'query parameters: {listing}.')
 
     def _try_to_send_email_notices(self, to_addresses, notice_data):
         lang = notice_data['notification_language']  # TODO?: separate per-user setting?...
@@ -1404,21 +1345,22 @@ class N6APIKeyView(EssentialAPIsViewMixin,
         return 'GET', 'POST', 'DELETE'
 
     def make_response(self):
+        self._verify_api_key_support_enabled()
         if self.request.method == 'POST':
             return self._make_post_response()
         elif self.request.method == 'DELETE':
             return self._make_delete_response()
         return self._make_get_response()
 
+    def _verify_api_key_support_enabled(self):
+        if not self.auth_api.is_api_key_authentication_enabled():
+            raise HTTPForbidden('API key support is not enabled')
+
     def _make_post_response(self):
         api_key_id = self._generate_api_key_id()
         with self.auth_manage_api:
             self.auth_manage_api.set_user_api_key_id(login=self.user_id, api_key_id=api_key_id)
-        api_key = self.auth_api.get_api_key_as_jwt_or_none(user_id=self.user_id,
-                                                           api_key_id=api_key_id)
-        if api_key is None:
-            raise HTTPForbidden(u'API key support is not enabled')
-        return self.json_response({'api_key': api_key})
+        return self.json_response({'api_key': self._get_api_key(api_key_id)})
 
     def _make_delete_response(self):
         with self.auth_manage_api:
@@ -1427,18 +1369,198 @@ class N6APIKeyView(EssentialAPIsViewMixin,
 
     def _make_get_response(self):
         with self.auth_manage_api:
-            user_key_id = self.auth_manage_api.get_user_api_key_id(login=self.user_id)
-        if user_key_id is None:
+            api_key_id = self.auth_manage_api.get_user_api_key_id_or_none(login=self.user_id)
+        if api_key_id is None:
             return self.json_response({'api_key': None})
-        api_key = self.auth_api.get_api_key_as_jwt_or_none(user_id=self.user_id,
-                                                           api_key_id=user_key_id)
-        if api_key is None:
-            raise HTTPForbidden(u'API key support is not enabled')
-        return self.json_response({'api_key': api_key})
+        return self.json_response({'api_key': self._get_api_key(api_key_id)})
 
     @staticmethod
     def _generate_api_key_id():
         return str(uuid.uuid4())
+
+    def _get_api_key(self, api_key_id):
+        api_key = self.auth_api.get_api_key_as_jwt_or_none(self.user_id, api_key_id)
+        assert api_key is not None  # (we ensured earlier that API key support is enabled)
+        return api_key
+
+
+class N6KnowledgeBaseContentsView(_AbstractKnowledgeBaseRelatedView):
+
+    def make_response(self):
+        if not self.is_knowledge_base_enabled():
+            raise HTTPNotFound
+        return self.json_response(self._get_table_of_contents())
+
+    def _get_table_of_contents(self) -> dict:
+        return self._knowledge_base_data["table_of_contents"]
+
+
+class N6KnowledgeBaseArticlesView(_AbstractKnowledgeBaseRelatedView):
+
+    def make_response(self):
+        if not self.is_knowledge_base_enabled():
+            raise HTTPNotFound
+        article = self._get_article(self.request.matchdict.get('article_id'))
+        if not article:
+            raise HTTPNotFound
+        return self.json_response(article)
+
+    def _get_article(self, article_id: str) -> Optional[dict]:
+        return self._knowledge_base_data["articles"].get(article_id)
+
+
+class N6KnowledgeBaseSearchView(_AbstractKnowledgeBaseRelatedView):
+
+    @classmethod
+    def prepare_data_specs(cls):
+        return dict(
+            super().prepare_data_specs(),
+
+            request_params=cls.make_data_spec(
+                lang=KnowledgeBaseLangField(in_params='required', single_param=True),
+                q=KnowledgeBaseSearchQueryField(in_params='required', single_param=True),
+            ),
+        )
+
+    def make_response(self):
+        if not self.is_knowledge_base_enabled():
+            raise HTTPNotFound
+        return self.json_response(self._get_search_result())
+
+    def _get_search_result(self) -> dict:
+        return search_in_knowledge_base(
+            knowledge_base_data=self._knowledge_base_data,
+            lang=self.params['lang'],
+            search_phrase=self.params['q'],
+        )
+
+
+class N6DailyEventsCountsView(EssentialAPIsViewMixin,
+                              _DashboardConfigViewMixin,
+                              PreparingNoParamsViewMixin,
+                              AbstractViewBase):
+
+    def make_response(self):
+        GROUPING_CATEGORY = 'remaining categories'
+        time_range_in_days = self.get_time_range_in_days()
+        at = datetime.datetime.utcnow().replace(microsecond=0)
+        since = at - datetime.timedelta(days=(time_range_in_days-1))
+        dates_range = sorted([(at - datetime.timedelta(days=day)).strftime('%Y-%m-%d')
+                              for day in range(time_range_in_days)])
+        access_filtering_conditions = self.get_access_zone_filtering_conditions('inside')
+        most_frequent = self.data_backend_api.get_the_most_frequent_categories(
+            self.auth_data,
+            access_filtering_conditions,
+            since)
+        all_events = self.data_backend_api.get_counts_per_day_per_category(
+            self.auth_data,
+            access_filtering_conditions,
+            since)
+        if not all_events:
+            data = {
+                'days_range': time_range_in_days,
+                'empty_dataset': True,
+            }
+        else:
+            events = self._group_events_and_count_remaining(all_events,
+                                                            most_frequent,
+                                                            GROUPING_CATEGORY)
+            data_sets = self._get_events_sets(events, dates_range)
+            categories = list(most_frequent)
+            categories.append(GROUPING_CATEGORY)
+            categories = tuple(categories)
+            dataset = {category: [0] * time_range_in_days for category in categories}
+            dataset = self._get_dataset(categories, GROUPING_CATEGORY, data_sets, dataset)
+            data = {
+                'days': dates_range,
+                'datasets': dataset,
+            }
+        return self.json_response(data)
+
+    @staticmethod
+    def _group_events_and_count_remaining(events: dict[str, list],
+                                          most_frequent: tuple,
+                                          grouping_category: str) -> dict[str, list]:
+        for date, group in events.items():
+            count = 0
+            counted = []
+            for event in group:
+                if event[0] in most_frequent:
+                    counted.append(event)
+                else:
+                    count += event[1]
+            if count != 0:
+                counted.append([grouping_category, count])
+            events[date] = counted
+        return events
+
+    @staticmethod
+    def _get_events_sets(events: dict[str, list], days_range: list) -> list[tuple]:
+        """
+        Creates a list of tuples with data:
+        #   1. index on which to place event into the final list
+        #   2. category of a particular event
+        #   3. number of events per category per specific day
+        """
+        events_set = []
+        for date, per_day_data in events.items():
+            if date in days_range:
+                position = days_range.index(date)
+                if per_day_data:
+                    for data in per_day_data:
+                        category, count = data
+                        events_set.append((position, category, count))
+        return events_set
+
+    @staticmethod
+    def _get_dataset(categories: tuple,
+                     grouping_category: str,
+                     data_sets: list[tuple],
+                     dataset: dict[str, list]) -> dict[str, list]:
+        for event in data_sets:
+            position, cat, count = event
+            if cat in categories:
+                dataset[cat][position] = count
+        if grouping_category in dataset.keys() \
+                and all(daily_count == 0 for daily_count in dataset[grouping_category]):
+            dataset.pop(grouping_category, None)
+        return dataset
+
+
+class N6NamesRankingView(EssentialAPIsViewMixin,
+                         _DashboardConfigViewMixin,
+                         PreparingNoParamsViewMixin,
+                         AbstractViewBase):
+    @classmethod
+    def get_default_http_methods(cls):
+        return 'GET'
+
+    def make_response(self):
+        at = datetime.datetime.utcnow().replace(microsecond=0)
+        time_range_in_days = self.get_time_range_in_days()
+        since = at - datetime.timedelta(days=time_range_in_days-1)
+        access_filtering_conditions = self.get_access_zone_filtering_conditions('inside')
+        bots = self.data_backend_api.get_names_ranking_per_category(
+            self.auth_data,
+            access_filtering_conditions,
+            since,
+            category='bots')
+        amplifier = self.data_backend_api.get_names_ranking_per_category(
+            self.auth_data,
+            access_filtering_conditions,
+            since,
+            category='amplifier')
+        vulnerable = self.data_backend_api.get_names_ranking_per_category(
+            self.auth_data,
+            access_filtering_conditions,
+            since,
+            category='vulnerable')
+
+        tables = {'bots': bots if bots else None,
+                  'amplifier': amplifier if amplifier else None,
+                  'vulnerable': vulnerable if vulnerable else None,
+                  }
+        return self.json_response(tables)
 
 
 #
@@ -1469,7 +1591,7 @@ class N6ConfigHelper(ConfigHelper):
         self.auth_manage_api = auth_manage_api
         self.mail_notices_api = mail_notices_api
         self.rt_client_api = rt_client_api
-        super(N6ConfigHelper, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def prepare_pyramid_configurator(self, pyramid_configurator):
         #pyramid_configurator.add_tween(
@@ -1489,11 +1611,11 @@ class N6ConfigHelper(ConfigHelper):
         pyramid_configurator.registry.auth_manage_api = self.auth_manage_api
         pyramid_configurator.registry.mail_notices_api = self.mail_notices_api
         pyramid_configurator.registry.rt_client_api = self.rt_client_api
-        return super(N6ConfigHelper, self).prepare_pyramid_configurator(pyramid_configurator)
+        return super().prepare_pyramid_configurator(pyramid_configurator)
 
     @classmethod
     def exception_view(cls, exc, request):
-        http_exc = super(N6ConfigHelper, cls).exception_view(exc, request)
+        http_exc = super().exception_view(exc, request)
         log_debug_info_on_http_exc(http_exc)
         return http_exc
 
@@ -1519,15 +1641,14 @@ class BaseUserAuthenticationPolicy(BaseAuthenticationPolicy):
         if dev_fake_auth_flag_config['dev_fake_auth']:
             # this is a hack for developers only
             return DevFakeUserAuthenticationPolicy(settings)
-        return super(BaseUserAuthenticationPolicy, cls).__new__(cls)
+        return super().__new__(cls)
 
     @staticmethod
     def merge_orgid_userid(org_id, user_id):
-        return '{},{}'.format(org_id, user_id)
+        return f'{org_id},{user_id}'
 
     @staticmethod
-    def get_auth_data(request):
-        # type: (...) -> Optional[AuthData]
+    def get_auth_data(request) -> Optional[AuthData]:
         """
         Queries the auth manage api for auth_data.
 
@@ -1557,8 +1678,7 @@ class BaseUserAuthenticationPolicy(BaseAuthenticationPolicy):
         return None
 
     def effective_principals(self, request):
-        effective_principals = super(BaseUserAuthenticationPolicy,
-                                     self).effective_principals(request)
+        effective_principals = super().effective_principals(request)
         assert Everyone in effective_principals
         if request.auth_data is not None:
             assert Authenticated in effective_principals
@@ -1626,8 +1746,8 @@ class AuthTktUserAuthenticationPolicy(BaseUserAuthenticationPolicy):
     def _validate_credentials(credentials):
         try:
             _org_id, _user_id = credentials.split(',')
-        except ValueError:
-            LOGGER.warning("User tried to authenticate with invalid credentials: %s.",
+        except (TypeError, AttributeError, ValueError):
+            LOGGER.warning("User tried to authenticate with invalid credentials: %a",
                            credentials)
             return False
         return True
@@ -1652,8 +1772,8 @@ class APIKeyOrSSLUserAuthenticationPolicy(SSLUserAuthenticationPolicy):
                 and request.authorization
                 and request.authorization.authtype == self.HTTP_AUTH_TYPE):
             api_key = request.authorization.params
-            return 'api_key:{}'.format(api_key)
-        return super(APIKeyOrSSLUserAuthenticationPolicy, self).unauthenticated_userid(request)
+            return f'api_key:{api_key}'
+        return super().unauthenticated_userid(request)
 
     @classmethod
     def get_auth_data(cls, request):
@@ -1665,14 +1785,14 @@ class APIKeyOrSSLUserAuthenticationPolicy(SSLUserAuthenticationPolicy):
             except AuthAPIUnauthenticatedError:
                 LOGGER.warning('Could not authenticate - the given API key has not been accepted.')
                 raise cls._http_unauthorized()
-        auth_data = super(APIKeyOrSSLUserAuthenticationPolicy, cls).get_auth_data(request)
+        auth_data = super().get_auth_data(request)
         if auth_data is None and request.registry.auth_api.is_api_key_authentication_enabled():
             raise cls._http_unauthorized()
         return auth_data
 
     @classmethod
     def _http_unauthorized(cls):
-        www_authenticate = '{} realm="{}"'.format(cls.HTTP_AUTH_TYPE, cls.HTTP_AUTH_REALM)
+        www_authenticate = f'{cls.HTTP_AUTH_TYPE} realm="{cls.HTTP_AUTH_REALM}"'
         response_exc = HTTPUnauthorized()
         response_exc.headers['WWW-Authenticate'] = www_authenticate
         return response_exc

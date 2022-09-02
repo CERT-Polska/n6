@@ -7,6 +7,7 @@ export interface IInfo {
   org_actual_name?: string;
   full_access?: boolean;
   api_key_auth_enabled?: boolean;
+  knowledge_base_enabled?: boolean;
 }
 
 interface IIpMinMaxSeq {

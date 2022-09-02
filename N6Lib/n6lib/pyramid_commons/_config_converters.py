@@ -1,10 +1,6 @@
-#  Copyright (c) 2021 NASK. All rights reserved.
+#  Copyright (c) 2021-2022 NASK. All rights reserved.
 
-from typing import (
-    Any,
-    Dict,
-    Tuple,
-)
+from typing import Any
 
 from n6lib.auth_db import WEB_TOKEN_TYPES
 from n6lib.common_helpers import (
@@ -24,46 +20,41 @@ from n6lib.structured_data_conversion.exceptions import DataConversionError
 # Actual converters provided by this module
 #
 
-def conv_int_only_positive(opt_value):
-    # type: (str) -> int
+def conv_int_only_positive(opt_value: str) -> int:
     n = Config.BASIC_CONVERTERS['int'](opt_value)
     if n < 1:
         raise ValueError('should be >= 1')
     return n
 
 
-def conv_tuple_of_categories(opt_value):
-    # type: (str) -> Tuple[str]
+def conv_tuple_of_categories(opt_value: str) -> tuple[str]:
     categories = Config.BASIC_CONVERTERS['list_of_str'](opt_value)
     illegal_categories = set(categories).difference(CATEGORY_ENUMS)
     if illegal_categories:
-        raise ValueError('illegal (non-existent) categories: {}'.format(
-            ', '.join(map(ascii, sorted(illegal_categories)))))
+        listing = ', '.join(map(ascii, sorted(illegal_categories)))
+        raise ValueError(f'illegal (non-existent) categories: {listing}')
     return tuple(categories)
 
 
-def conv_server_secret_str(opt_value):
-    # type: (...) -> str
+def conv_server_secret_str(opt_value: str) -> str:
     value = Config.BASIC_CONVERTERS['str'](opt_value)
     [result] = _adjust_server_secret(value)
     return result
 
 
-def conv_token_type_to_settings(opt_value):
-    # type: (str) -> Dict[str, Dict[str, Any]]
+def conv_token_type_to_settings(opt_value: str) -> dict[str, dict[str, Any]]:
     raw_dict = Config.BASIC_CONVERTERS['py_namespaces_dict'](opt_value)
     [result] = _adjust_token_type_to_settings(raw_dict)
     return result
 
 
-def conv_web_url(opt_value):
-    # type: (...) -> str
+def conv_web_url(opt_value: str) -> str:
     value = Config.BASIC_CONVERTERS['str'](opt_value)
     if value != ascii_str(value):
         raise ValueError('contains non-ASCII characters')
     if not value.lower().startswith(_LEGAL_WEB_URL_PREFIXES):
-        raise ValueError('does not start with {}'.format(
-            ' or '.join(map(ascii, _LEGAL_WEB_URL_PREFIXES))))
+        descr = ' or '.join(map(ascii, _LEGAL_WEB_URL_PREFIXES))
+        raise ValueError(f'does not start with {descr}')
     return value
 
 
@@ -74,11 +65,11 @@ def conv_web_url(opt_value):
 _LEGAL_WEB_URL_PREFIXES = ('https://', 'http://')
 
 
-def _adjust_server_secret(value):
-    # type: (...) -> str
+def _adjust_server_secret(value) -> str:
     if not isinstance(value, (str, bytes)):
-        raise DataConversionError('not a `str` or `bytes` - its type is `{}`'
-                                  .format(ascii_str(type(value).__qualname__)))
+        raise DataConversionError(ascii_str(
+            f'not a `str` or `bytes` - its type '
+            f'is `{type(value).__qualname__}`'))
     try:
         value = as_unicode(value)
     except UnicodeDecodeError:
@@ -90,14 +81,13 @@ def _adjust_server_secret(value):
     yield value
 
 
-def _adjust_token_max_age(value):
-    # type: (...) -> int
+def _adjust_token_max_age(value) -> int:
     orig_value = value
     value = int(value)
     if value == orig_value and not isinstance(orig_value, bool):
         yield value
     else:
-        raise DataConversionError('{!a} is not an integer number'.format(orig_value))
+        raise DataConversionError(f'{orig_value!a} is not an integer number')
 
 
 _adjust_settings_of_single_token_type = NamespaceMappingConverter(

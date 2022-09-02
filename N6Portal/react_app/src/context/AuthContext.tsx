@@ -1,5 +1,6 @@
 import { FC, createContext, useState, useCallback, useContext } from 'react';
-import { useIntl } from 'react-intl';
+import { useQueryClient } from 'react-query';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { useInfo } from 'api/services/info';
 import { TAvailableResources } from 'api/services/info/types';
 
@@ -16,6 +17,7 @@ interface IAuthState {
   orgId: string;
   orgActualName: string;
   apiKeyAuthEnabled?: boolean;
+  knowledgeBaseEnabled?: boolean;
 }
 
 interface IAuthContext extends IAuthState {
@@ -42,15 +44,24 @@ const initialContext: IAuthContext = {
 const AuthContext = createContext<IAuthContext>(initialContext);
 
 export const AuthContextProvider: FC = ({ children }) => {
-  const { messages } = useIntl();
+  const queryClient = useQueryClient();
+  const { messages } = useTypedIntl();
   const [authState, setAuthState] = useState<IAuthState>(initialAuthState);
   const [hasInfoApiError, setHasInfoApiError] = useState(false);
 
   const info = useInfo({
-    onSuccess: ({ api_key_auth_enabled, authenticated, available_resources, org_id, org_actual_name }) => {
+    onSuccess: ({
+      api_key_auth_enabled,
+      authenticated,
+      available_resources,
+      org_id,
+      org_actual_name,
+      knowledge_base_enabled
+    }) => {
       const apiKeyAuthEnabled = api_key_auth_enabled ? { apiKeyAuthEnabled: api_key_auth_enabled } : {};
       setAuthState({
         ...apiKeyAuthEnabled,
+        knowledgeBaseEnabled: knowledge_base_enabled,
         isAuthenticated: authenticated,
         availableResources: available_resources ?? [],
         contextStatus: PermissionsStatus.fetched,
@@ -69,9 +80,10 @@ export const AuthContextProvider: FC = ({ children }) => {
   }, [info]);
 
   const resetAuthState = useCallback(() => {
+    queryClient.clear();
     setAuthState(initialAuthState);
     info.refetch();
-  }, [info]);
+  }, [queryClient, info]);
 
   if (hasInfoApiError) {
     throw new Error(`${messages['errApiLoader_header']}`);

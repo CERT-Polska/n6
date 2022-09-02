@@ -1,10 +1,10 @@
 import { FC, useState, useRef, useEffect, useMemo } from 'react';
-import { useIntl } from 'react-intl';
 import { AxiosError } from 'axios';
 import { useForm, FormProvider, SubmitHandler, SubmitErrorHandler } from 'react-hook-form';
 import { ToastContainer, toast } from 'react-toastify';
 import { useMutation, useQueryClient } from 'react-query';
 import classnames from 'classnames';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { postOrgConfig } from 'api/orgConfig';
 import { IOrgConfig } from 'api/orgConfig/types';
 import FormInput from 'components/forms/FormInput';
@@ -45,7 +45,7 @@ export type TEditSettingsForm = TEditSettingsFieldArray & {
 
 const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
   const [submitResponse, setSubmitResponse] = useState<TApiResponse>();
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const queryClient = useQueryClient();
   const feedbackRef = useRef<HTMLDivElement>(null);
 
@@ -71,7 +71,7 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
   );
 
   // extract names that should be used into dirty comparsion
-  const { org_id, additional_comment, ...settingFieldsNames } = defaultValues;
+  const { org_id: _org_id, additional_comment: _additional_comment, ...settingFieldsNames } = defaultValues;
   // check if settings were changed by looking for any of the settingFieldsNames in dirtyFields
   const areSettingsChanged = Object.keys(settingFieldsNames).some((name) => name in formState.dirtyFields);
 

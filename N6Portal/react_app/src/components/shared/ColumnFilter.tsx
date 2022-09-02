@@ -1,8 +1,8 @@
 import { FC, useState } from 'react';
 import { ColumnInstance, IdType } from 'react-table';
-import { useIntl } from 'react-intl';
 import classNames from 'classnames';
 import Dropdown from 'react-bootstrap/esm/Dropdown';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as Chevron } from 'images/chevron.svg';
 
 interface IProps {
@@ -11,7 +11,7 @@ interface IProps {
 }
 
 const ColumnFilter: FC<IProps> = ({ columns, customOnClick }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const [isOpen, setIsOpen] = useState(false);
 
   const sortedColumns = columns.sort((a, b) => (a.Header as string).localeCompare(b.Header as string));

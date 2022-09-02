@@ -35,17 +35,10 @@ from n6lib.db_filtering_abstractions import (
     PredicateConditionBuilder,
     SQLAlchemyConditionBuilder,
 )
-from n6lib.jwt_helpers import (
-    JWT_ALGO_HMAC_SHA256,
-    JWTDecodeError,
-    jwt_decode,
-    jwt_encode,
-)
 from n6lib.log_helpers import get_logger
 from n6lib.ldap_api_replacement import (
     LdapAPI,
     LdapAPIConnectionError,
-    LdapAPIReplacementWrongOrgUserAPIKeyIdError,
     get_attr_value,
     get_attr_value_list,
     get_dn_segment_value,
@@ -171,24 +164,12 @@ class AuthAPI(object):
         with auth_api:
             inside_crit_resolver = auth_api.get_inside_criteria_resolver()
             org_id_to_acc_inf = auth_api.get_org_ids_to_access_infos()
-
-    **Note:** N6ConfigHelper (defined in n6lib.pyramid_commons) installs
-    a tween which makes the whole view-level handling of each Pyramid
-    request (including the entire process of generating the chunks of a
-    stream response) be automatically wrapped in the Auth API's context
-    manager (see: n6lib.pyramid_commons.auth_api_context_tween_factory).
     """
-
-    config_spec = '''
-        [api_key_based_auth]
-        server_secret = :: str
-    '''
 
     def __init__(self, settings=None):
         self._root_node_deposit = ThreadLocalContextDeposit(repr_token=self.__class__.__name__)      #3: `__name__` -> `__qualname__`
         self._ldap_api = LdapAPI(settings)
         self._data_preparer = _DataPreparer()
-        self._config_full = Config(self.config_spec, settings=settings)
 
 
     #
@@ -212,71 +193,9 @@ class AuthAPI(object):
             root_node = self._get_root_node()
         return root_node
 
-    def is_api_key_authentication_enabled(self):
-        return bool(self._config_full['api_key_based_auth']['server_secret'].strip())
-
-    def get_api_key_as_jwt_or_none(self, user_id, api_key_id):
-        server_secret = self._config_full['api_key_based_auth']['server_secret']
-        if not server_secret.strip():
-            return None
-        api_key = jwt_encode({'login': user_id, 'api_key_id': api_key_id},
-                             server_secret,
-                             algorithm=JWT_ALGO_HMAC_SHA256)
-        return api_key
-
-    def authenticate_with_api_key(self, api_key):
-        server_secret = self._config_full['api_key_based_auth']['server_secret']
-        if not server_secret.strip():
-            raise AuthAPIUnauthenticatedError
-        try:
-            payload = jwt_decode(api_key,
-                                 server_secret,
-                                 accepted_algorithms=[JWT_ALGO_HMAC_SHA256],
-                                 required_claims={'login', 'api_key_id'})
-        except JWTDecodeError:
-            raise AuthAPIUnauthenticatedError
-
-        assert 'login' in payload and 'api_key_id' in payload
-        user_id = payload['login']
-        api_key_id = payload['api_key_id']
-
-        auth_data = self._get_auth_data_for_user(user_id)
-        org_id = auth_data['org_id']
-        assert auth_data == {'user_id': user_id, 'org_id': org_id}
-        try:
-            self._ldap_api.authenticate_with_api_key_id(org_id, user_id, api_key_id)
-        except LdapAPIReplacementWrongOrgUserAPIKeyIdError:
-            raise AuthAPIUnauthenticatedError
-        return auth_data
-
-    def _get_auth_data_for_user(self, user_id):
-        """
-        Verify that the given `user_id` is the login of an existing and
-        non-blocked user, then return an appropriate *auth data* dict.
-
-        Args:
-            `user_id`: user id (login) as a str.
-
-        Returns:
-            {'org_id': <organization id (str)>,
-             'user_id': <user id *aka* login> (str)}
-
-        Raises:
-            AuthAPIUnauthenticatedError if:
-            * the given `user_id` is empty, or
-            * the user does not exist, or
-            * the user is blocked.
-        """
-        if not user_id:
-            raise AuthAPIUnauthenticatedError
-        user_ids_to_org_ids = self.get_user_ids_to_org_ids()
-        try:
-            org_id = user_ids_to_org_ids[user_id]
-        except KeyError:
-            raise AuthAPIUnauthenticatedError
-        assert user_id is not None
-        assert org_id is not None
-        return {'user_id': user_id, 'org_id': org_id}
+    # [...]
+    # Note: this is a legacy Py2 version of Auth API;
+    # the API-key-auth-related stuff has been removed from here.
 
     @deep_copying_result  # <- just defensive programming
     @cached_basing_on_ldap_root_node

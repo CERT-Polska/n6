@@ -1,16 +1,20 @@
-# Copyright (c) 2018-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2022 NASK. All rights reserved.
 
 from collections.abc import MutableSequence
 
+from flask import g
 from flask_admin.contrib.sqla import form
 from flask_admin.model.fields import InlineModelFormField
 from sqlalchemy import inspect
 from sqlalchemy.sql.sqltypes import String
+from wtforms.fields import Field
 
 from n6adminpanel.tools import (
+    CSRF_FIELD_NAME,
     get_exception_message,
     unescape_html_attr,
 )
+from n6lib.common_helpers import ascii_str
 
 
 class _PatchedInlineModelFormField(InlineModelFormField):
@@ -69,7 +73,7 @@ def get_patched_get_form(original_func):
 
 def patched_populate_obj(self, obj, name):
     """
-    A patched version of flask_admin's Field.populate_obj().
+    A patched version of `wtforms.fields.Field.populate_obj()`.
 
     This patch is needed to:
 
@@ -102,6 +106,21 @@ def patched_populate_obj(self, obj, name):
             else:
                 self.errors.append(u'Failed to create/update record.')
         raise
+
+
+def patched_validate(self, *args, __orig_validate=Field.validate, **kwargs):
+    """
+    A patched version of `wtforms.fields.Field.validate()`.
+
+    This patch is needed to properly display CSRF-related error messages.
+    """
+    is_ok = __orig_validate(self, *args, **kwargs)  # noqa
+    if self.name == CSRF_FIELD_NAME and not is_ok:
+        # (see: `n6adminpanel.app.AdminPanel._flash_csrf_errors_if_needed()`)
+        g.n6_csrf_deferred_error_messages.extend(
+            msg if msg.endswith('.') else msg + '.'
+            for msg in map(ascii_str, self.errors))
+    return is_ok
 
 
 def _get_action_meth_wrapper(original_meth):

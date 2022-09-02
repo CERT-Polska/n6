@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import collections
 import collections.abc as collections_abc
@@ -26,8 +26,8 @@ from n6lib.common_helpers import (
 
 
 __all__ = [
+    'DoNotPublish',
     'BaseAMQPTool',
-    'AMQPSimpleGetter',
     'AMQPSimplePusher',
     'AMQPThreadedPusher',
 ]
@@ -43,6 +43,8 @@ class BaseAMQPTool(object):
 
     CONNECTION_ATTEMPTS = 10
     CONNECTION_RETRY_DELAY = 0.5
+
+    SHUTDOWN_CONNECTION_LOCK_TIMEOUT = 20
 
     def __init__(self,
                  connection_params_dict,
@@ -79,6 +81,7 @@ class BaseAMQPTool(object):
         self._queues_to_declare = queues_to_declare
 
         self._shutdown_lock = threading.Lock()
+        self._shutdown_initiated = False
 
         self._connection_lock = threading.Lock()
         self._connection_lock_nonblocking = NonBlockingLockWrapper(
@@ -91,10 +94,21 @@ class BaseAMQPTool(object):
 
 
     def __repr__(self):
-        return '<{0} object at {1:#x} with {2!r}>'.format(
-              self.__class__.__qualname__,
-              id(self),
-              self._connection_params_dict)
+        def param_safe_repr(key_value_pair):
+            key, val = key_value_pair
+            if isinstance(key, str):
+                if key == 'credentials':
+                    return f'{key}=<{val.__class__.__qualname__} object...>'
+                return f'{key}={val!r}'
+            return '<???>'  # (<- just in case, typically should not occur)
+
+        params_listing = ', '.join(map(param_safe_repr, self._connection_params_dict.items()))
+        return (
+            f'<'
+            f'{self.__class__.__qualname__} object '
+            f'at {id(self):#x} '
+            f'with {params_listing}'
+            f'>')
 
 
     #
@@ -111,13 +125,23 @@ class BaseAMQPTool(object):
     # Public methods
 
     def shutdown(self):
+        self._shutdown_initiated = True
         with self._shutdown_lock:
             try:
                 self._before_close()
+            except:
+                dump_condensed_debug_msg(
+                    f'EXCEPTION FROM {self!a}._before_close():')
+                raise
             finally:
                 if not self._connection_closed:
-                    with self._connection_lock:
-                        self._connection.close()
+                    try:
+                        self._close_connection_with_lock(self.SHUTDOWN_CONNECTION_LOCK_TIMEOUT)
+                    except:
+                        dump_condensed_debug_msg(
+                            f'CANNOT CLOSE AMQP CONNECTION PROPERLY BECAUSE OF EXCEPTION '
+                            f'FROM {self!a}._close_connection_with_lock(...):')
+                        raise
                     self._connection_closed = True
 
 
@@ -142,8 +166,11 @@ class BaseAMQPTool(object):
             try:
                 return pika.BlockingConnection(parameters)
             except pika.exceptions.AMQPConnectionError:
-                if attempt >= self.CONNECTION_ATTEMPTS:
+                if self._shutdown_initiated or attempt >= self.CONNECTION_ATTEMPTS:
                     raise
+                dump_condensed_debug_msg(
+                    f'Connection problem in {self!a}._make_connection() '
+                    f'(will retry after a short sleep...):')
             time.sleep(self.CONNECTION_RETRY_DELAY)
         assert False, 'this code line should never be reached'
 
@@ -160,6 +187,21 @@ class BaseAMQPTool(object):
     def _before_close(self):
         pass
 
+    def _close_connection_with_lock(self, timeout):
+        if not self._connection_lock.acquire(timeout=timeout):
+            raise RuntimeError(
+                f"the connection cannot be closed gracefully, "
+                f"as the connection/channel operations lock's "
+                f"timeout ({timeout}s) has been reached!")
+        try:
+            self._connection.close()
+        except pika.exceptions.ConnectionClosed:
+            dump_condensed_debug_msg(
+                'AMQP connection seems to be already closed. '
+                'That, by itself, is not a big problem, so '
+                'the following exception will be suppressed:')
+        finally:
+            self._connection_lock.release()
 
 
 # TODO: finish implementation of this class! (now it's only a stub!)
@@ -343,9 +385,9 @@ class AMQPSimplePusher(BaseAMQPTool):
     def push(self, data, routing_key, custom_prop_kwargs=None):
         with self._push_lock:
             if not self._publishing:
-                raise ValueError('cannot publish message as '
-                                 '{0!a} is currently inactive'
-                                 .format(self))
+                raise ValueError(
+                    f'cannot publish message as '
+                    f'{self!a} is currently inactive')
             self._do_push(data, routing_key, custom_prop_kwargs)
 
 
@@ -398,11 +440,16 @@ class AMQPSimplePusher(BaseAMQPTool):
 ### threads."  (http://pika.readthedocs.org/en/0.10.0/faq.html)
 class AMQPThreadedPusher(AMQPSimplePusher):
 
+    _OUTPUT_FIFO_MAX_SIZE = 20000
+
+    # these values seem to be conservative enough, even paranoic a bit :-)
+    _PUBLISHING_THREAD_START_TIMEOUT = 5
+    _PUBLISHING_THREAD_JOIN_TIMEOUT = 15
+
     def __init__(self,
-                 output_fifo_max_size=20000,
+                 output_fifo_max_size=_OUTPUT_FIFO_MAX_SIZE,
                  error_callback=None,
-                 # 15 seems to be conservative enough, even paranoic a bit :-)
-                 publishing_thread_join_timeout=15,
+                 publishing_thread_join_timeout=_PUBLISHING_THREAD_JOIN_TIMEOUT,
                  **kwargs):
         """
         Initialize the instance and start the publishing co-thread.
@@ -428,7 +475,7 @@ class AMQPThreadedPusher(AMQPSimplePusher):
             `publishing_thread_join_timeout` (int; default: 15):
                 Related to pusher shut down: the timeout value (in seconds)
                 for joining the publishing thread before checking the internal
-                heartbeat flag; the value should not be smaller than a
+                liveliness indicator; the value should not be smaller than a
                 reasonable duration of one iteration of the publishing thread
                 loop (which includes getting a message from the inner queue,
                 serializing the message and sending it to the AMQP broker,
@@ -443,7 +490,8 @@ class AMQPThreadedPusher(AMQPSimplePusher):
         self._error_callback = error_callback
         self._publishing_thread_join_timeout = publishing_thread_join_timeout
         self._publishing_thread = None  # to be set in _start_publishing()
-        self._publishing_thread_heartbeat_flag = False
+        self._publishing_thread_started = threading.Event()
+        self._publishing_thread_liveliness_indicator = False
 
         super(AMQPThreadedPusher, self).__init__(**kwargs)
 
@@ -458,6 +506,11 @@ class AMQPThreadedPusher(AMQPSimplePusher):
         self._publishing_thread.daemon = True
         self._publishing = True
         self._publishing_thread.start()
+        if not self._publishing_thread_started.wait(self._PUBLISHING_THREAD_START_TIMEOUT):
+            raise RuntimeError(
+                f'reached the publishing thread start timeout '
+                f'({self._PUBLISHING_THREAD_START_TIMEOUT}s) '
+                f'of {self!a}')
 
     def _do_push(self, data, routing_key, custom_prop_kwargs):
         self._output_fifo.put_nowait((data, routing_key, custom_prop_kwargs))
@@ -471,37 +524,46 @@ class AMQPThreadedPusher(AMQPSimplePusher):
             except queue_lib.Full:
                 pass
         while True:
-            self._publishing_thread_heartbeat_flag = False
+            self._publishing_thread_liveliness_indicator = False
             self._publishing_thread.join(self._publishing_thread_join_timeout)
             if (not self._publishing_thread.is_alive() or
-                  not self._publishing_thread_heartbeat_flag):
+                  not self._publishing_thread_liveliness_indicator):
                 break
 
     def _check_state_after_stop(self):
         if self._publishing_thread.is_alive():
-            raise RuntimeError('{0!a} is being shut down but the pushing '
-                               'thread seems to be still alive (though '
-                               'probably malfunctioning); there may be some '
-                               'pending messages that have not been '
-                               '(and will not be) published!'
-                               .format(self))
+            raise RuntimeError(
+                f'{self!a} is being shut down but the pushing thread seems '
+                f'to be still alive (though probably malfunctioning); '
+                f'there may be some pending messages that have not been '
+                f'(and will not be) published!')
         underlying_deque = self._output_fifo.queue
         assert isinstance(underlying_deque, collections.deque)
         num_of_pending = sum(1 for item in underlying_deque
                              if item is not None)
         if num_of_pending:
-            raise ValueError('{0!a} is being shut down but '
-                             '{1} pending messages have not been '
-                             '(and will not be) published!'
-                             .format(self, num_of_pending))
+            raise ValueError(
+                f'{self!a} is being shut down but {num_of_pending} pending '
+                f'messages have not been (and will not be) published!')
 
     @staticmethod
     def _publishing_loop(proxy):
         # proxy is a weakref.proxy(self) (to avoid reference cycles)
         try:
+            proxy._publishing_thread_started.set()
             output_fifo = proxy._output_fifo
+
+            # this order of checks -- first the `_publishing` flag, then
+            # whether the output fifo has some data -- is *important* to
+            # avoid silent omissions of data `push()`-ed by other threads
+            # just before switching the flag (note: during the lifetime
+            # of the publishing thread the flag may be switched *only
+            # from true to false*, and it is *not* possible to `push()`
+            # successfully when `_publishing` is already false, thanks
+            # to `_push_lock`)
             while proxy._publishing or not output_fifo.empty():
-                proxy._publishing_thread_heartbeat_flag = True
+
+                proxy._publishing_thread_liveliness_indicator = True
                 item = output_fifo.get()
                 if item is not None:  # None is a "wake up!" sentinel
                     data, routing_key, custom_prop_kwargs = item
@@ -521,13 +583,13 @@ class AMQPThreadedPusher(AMQPSimplePusher):
         try:
             self._publish(data, routing_key, custom_prop_kwargs)
         except pika.exceptions.ConnectionClosed:
-            if self._publishing:
-                self._setup_communication()
-                self._publish(data, routing_key, custom_prop_kwargs)
-            else:
-                # the pusher is being shut down
-                # => do not try to reconnect
+            if self._shutdown_initiated or not self._publishing:
                 raise
+            dump_condensed_debug_msg(
+                f'{self!a} will try to reconnect '
+                f'after connection problem:')
+            self._setup_communication()
+            self._publish(data, routing_key, custom_prop_kwargs)
 
     def _handle_error(self, exc):
         if self._error_callback is None:
@@ -537,7 +599,6 @@ class AMQPThreadedPusher(AMQPSimplePusher):
                 self._error_callback(exc)
             except Exception:
                 dump_condensed_debug_msg(
-                    'Exception caught when calling '
-                    '{0!a}._error_callback({1!a}):'
-                    .format(self, exc))
+                    f'Exception caught when calling '
+                    f'{self!a}._error_callback({exc!a}):')
                 traceback.print_exc()

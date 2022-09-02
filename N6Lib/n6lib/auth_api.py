@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import collections
 import bisect
@@ -12,7 +12,7 @@ import threading
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from n6lib.class_helpers import get_class_name
+from n6lib.auth_db.api import AuthManageAPI
 from n6lib.common_helpers import (
     LimitedDict,
     ascii_str,
@@ -200,7 +200,7 @@ class AuthAPI(object):
 
 
     #
-    # Public methods
+    # Public methods + their private helpers
 
     # WARNING: when you call this function you should *never* modify its results!
     def get_ldap_root_node(self):
@@ -210,34 +210,46 @@ class AuthAPI(object):
         return root_node
 
     def is_api_key_authentication_enabled(self):
-        return bool(self._config_full['api_key_based_auth']['server_secret'].strip())
+        return bool(self._get_api_key_server_secret_or_none())
 
     def get_api_key_as_jwt_or_none(self, user_id, api_key_id):
-        server_secret = self._config_full['api_key_based_auth']['server_secret']
-        if not server_secret.strip():
+        server_secret = self._get_api_key_server_secret_or_none()
+        if server_secret is None:
             return None
         api_key = jwt_encode({'login': user_id, 'api_key_id': api_key_id},
                              server_secret,
-                             algorithm=JWT_ALGO_HMAC_SHA256)
+                             algorithm=JWT_ALGO_HMAC_SHA256,
+                             required_claims={'login': str, 'api_key_id': str})
         return api_key
 
     def authenticate_with_api_key(self, api_key):
-        server_secret = self._config_full['api_key_based_auth']['server_secret']
-        if not server_secret.strip():
+        server_secret = self._get_api_key_server_secret_or_none()
+        if server_secret is None:
             raise AuthAPIUnauthenticatedError
+        api_key_payload = self._verify_and_decode_api_key(api_key, server_secret)
+        auth_data = self._authenticate_with_user_id_and_api_key_id(
+            user_id=AuthManageAPI.adjust_if_is_legacy_user_login(api_key_payload['login']),
+            api_key_id=api_key_payload['api_key_id'])
+        return auth_data
+
+    def _verify_and_decode_api_key(self, api_key, server_secret):
         try:
             payload = jwt_decode(api_key,
                                  server_secret,
                                  accepted_algorithms=[JWT_ALGO_HMAC_SHA256],
-                                 required_claims={'login', 'api_key_id'})
+                                 required_claims={'login': str, 'api_key_id': str})
         except JWTDecodeError:
             raise AuthAPIUnauthenticatedError
+        assert 'login' in payload and isinstance(payload['login'], str)
+        assert 'api_key_id' in payload and isinstance(payload['api_key_id'], str)
+        return payload
 
-        assert 'login' in payload and 'api_key_id' in payload
-        user_id = payload['login']
-        api_key_id = payload['api_key_id']
+    def _get_api_key_server_secret_or_none(self):
+        server_secret = self._config_full['api_key_based_auth']['server_secret']
+        return (server_secret if server_secret.strip() else None)
 
-        auth_data = self._get_auth_data_for_user(user_id)
+    def _authenticate_with_user_id_and_api_key_id(self, user_id, api_key_id):
+        auth_data = self._get_auth_data_for_user_id(user_id)
         org_id = auth_data['org_id']
         assert auth_data == {'user_id': user_id, 'org_id': org_id}
         try:
@@ -246,7 +258,7 @@ class AuthAPI(object):
             raise AuthAPIUnauthenticatedError
         return auth_data
 
-    def _get_auth_data_for_user(self, user_id):
+    def _get_auth_data_for_user_id(self, user_id):
         """
         Verify that the given `user_id` is the login of an existing and
         non-blocked user, then return an appropriate *auth data* dict.
@@ -711,7 +723,7 @@ class AuthAPI(object):
             self.get_ldap_root_node())
 
     #
-    # Non-public methods
+    # Non-public, but overridable, methods
 
     @memoized(expires_after=600, max_size=3)
     def _get_root_node(self):

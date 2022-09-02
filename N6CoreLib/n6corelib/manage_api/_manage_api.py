@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2014-2022 NASK. All rights reserved.
 
 import contextlib
 import datetime
@@ -11,6 +11,7 @@ from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.exc import StatementError
 
 from n6lib.auth_db.config import SQLAuthDBConnector
+from n6lib.auth_db.fields import EmailCustomizedField
 from n6lib.auth_db.models import (
     CLIENT_CA_PROFILE_NAME,
     SERVICE_CA_PROFILE_NAME,
@@ -128,6 +129,18 @@ def db_property_factory(db_obj_attr_name):
             return super(database_property, self).__get__(instance, owner)
     database_property.__name__ = '{}__{}'.format(database_property.__name__, db_obj_attr_name)
     return database_property
+
+
+def _adjust_if_is_legacy_user_login(login):
+    # Even though, nowadays, *user logins* (aka *user ids*) cannot
+    # contain any uppercase letters, user logins from subjects of
+    # *legacy client certificates* can include such characters.
+    if (login is not None
+          and EmailCustomizedField.regex.search(login)
+          and login != login.lower()):
+        login = login.lower()
+    return login
+
 
 
 class ManageAPIError(Exception):
@@ -426,7 +439,7 @@ class ManageAPI(ConfigMixin):
             cert = CertificateCreated(context,
                                       ca_repr_obj=ca_cert,
                                       created_on=created_on,
-                                      creator_login=managing_entity.cert_cn,
+                                      creator_login=managing_entity.login,
                                       creator_type=managing_entity.entity_type,
                                       creator_hostname=creator_hostname,
                                       database_login=managing_entity.database_login,
@@ -480,7 +493,7 @@ class ManageAPI(ConfigMixin):
             cert = CertificateCreated(context,
                                       ca_repr_obj=ca_cert,
                                       created_on=datetime.datetime.utcnow(),
-                                      creator_login=managing_entity.cert_cn,
+                                      creator_login=managing_entity.login,
                                       creator_type=managing_entity.entity_type,
                                       creator_hostname=creator_hostname,
                                       database_login=managing_entity.database_login,
@@ -797,7 +810,7 @@ class ManagingEntity(_AuthDBInterfaceMixin):
         cert_file_obj = ManagingEntityCertFile(cert_pem)
         cert_subject_dict = cert_file_obj.subject_dict
         cert_serial_nr = cert_file_obj.serial_number
-        self._cert_cn = cert_subject_dict['cn']
+        self._login = _adjust_if_is_legacy_user_login(cert_subject_dict['cn'])
         self._entity_type = self._get_entity_type(cert_subject_dict)
         self._verify_is_o_internal(cert_subject_dict)
         self._user_db_obj = None
@@ -805,6 +818,7 @@ class ManagingEntity(_AuthDBInterfaceMixin):
         assert self._entity_type in ('user', 'component')
         if self._entity_type == 'user':
             self._user_db_obj = self._get_db_obj(self.user_db_model)
+            self._verify_user_not_blocked(self._user_db_obj)
             self._verify_owned_cert(cert_serial_nr, self._user_db_obj, 'owner')
             self._verify_admins_system_group(self._user_db_obj)
         else:
@@ -832,10 +846,15 @@ class ManagingEntity(_AuthDBInterfaceMixin):
 
     def _get_db_obj(self, db_model):
         try:
-            return db_model.from_db(self._connection_context, 'login', self._cert_cn)
+            return db_model.from_db(self._connection_context, 'login', self.login)
         except self.not_found_exception:
             raise AccessForbiddenError("Access forbidden: managing {} {!r} was not found in "
-                                       "Auth DB".format(self._entity_type, self._cert_cn))
+                                       "Auth DB".format(self._entity_type, self.login))
+
+    def _verify_user_not_blocked(self, user_db_obj):
+        if user_db_obj.is_blocked:
+            raise AccessForbiddenError("Access forbidden: managing user {!r} "
+                                       "is blocked".format(self.login))
 
     def _verify_owned_cert(self, cert_serial_nr, owner_db_obj, relation_name):
         try:
@@ -869,12 +888,12 @@ class ManagingEntity(_AuthDBInterfaceMixin):
         assert self._entity_type == 'user', "Only users may belong to system groups"
         if not admins_system_group.is_in_relation_with(user_db_obj, 'users'):
             raise AccessForbiddenError("Access forbidden: managing user {!r} does not belong "
-                                       "to {!r} system group".format(self._cert_cn,
+                                       "to {!r} system group".format(self.login,
                                                                      ADMINS_SYSTEM_GROUP_NAME))
 
     @property
-    def cert_cn(self):
-        return self._cert_cn
+    def login(self):
+        return self._login
 
     @property
     def entity_type(self):

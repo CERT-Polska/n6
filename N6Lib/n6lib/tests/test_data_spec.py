@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import copy
 import datetime
@@ -91,6 +91,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'proxy_type',
         'dns_version',
         'facebook_id',
+        'gca_specific',
         'ipmi_version',
         'mac_address',
         'misp_eventdid',    # use of the field is deprecated
@@ -120,6 +121,14 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'tags',
         'filename',
         'block',
+        'vendor',
+        'revision',
+        'product_code',
+        'device_vendor',
+        'device_type',
+        'device_model',
+        'device_version',
+        'device_id',
     }
 
     RESULT_KEYS = NONCUSTOM_RESULT_KEYS | CUSTOM_RESULT_KEYS

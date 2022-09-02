@@ -7,6 +7,11 @@
 # some of the docstrings are taken from or contain fragments of the
 # docs of the `pika` library.
 
+###
+### [TODO] this module needs special attention during migration
+###        to a new version of `pika`!...
+###
+
 from __future__ import print_function
 from future.utils import raise_
 import collections

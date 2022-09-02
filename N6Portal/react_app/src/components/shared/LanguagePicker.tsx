@@ -1,6 +1,6 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
 import classNames from 'classnames';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as Pl } from 'images/pl-icon.svg';
 import { ReactComponent as En } from 'images/en-icon.svg';
 import useLanguageContext from 'context/LanguageProvider';
@@ -13,7 +13,7 @@ interface IProps {
 
 const LanguagePicker: FC<IProps> = ({ mode, fullDictName, buttonClassName }) => {
   const { handleChangeLang } = useLanguageContext();
-  const { locale, messages } = useIntl();
+  const { locale, messages } = useTypedIntl();
   return (
     <>
       <button

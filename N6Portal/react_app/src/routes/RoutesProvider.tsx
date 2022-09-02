@@ -12,7 +12,12 @@ const RoutesProvider: React.FC = () => (
       </Route>
     ))}
     {privateRoutes.map((route) => (
-      <PrivateRoute exact path={`${route.path}${route.param ?? ''}`} key={route.path} redirectPath={route.redirectPath}>
+      <PrivateRoute
+        exact={route.exact ?? true}
+        path={`${route.path}${route.param ?? ''}`}
+        key={route.path}
+        redirectPath={route.redirectPath}
+      >
         {route.component}
       </PrivateRoute>
     ))}

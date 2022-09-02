@@ -1,10 +1,9 @@
-#  Copyright (c) 2021 NASK. All rights reserved.
+#  Copyright (c) 2021-2022 NASK. All rights reserved.
 
 import re
+from collections.abc import Iterable
 from typing import (
     Any,
-    Dict,
-    Iterable,
     Union,
 )
 
@@ -37,25 +36,23 @@ JWT_ROUGH_REGEX = re.compile(r'\A[a-zA-Z0-9\-_.]+\Z', re.ASCII)
 
 class AbstractJWTError(Exception):
 
-    _op_descr = None
+    _op_descr: str = None
 
     @attr_required('_op_descr')
-    def __init__(self,
-                 msg_or_underlying_exc=None,  # type: Union[str, Exception, None]
-                 ):
+    def __init__(self, msg_or_underlying_exc: Union[str, Exception, None] = None):
         if isinstance(msg_or_underlying_exc, Exception):
             # (only the exception type's name as we don't want to reveal too much...)
             msg_or_underlying_exc = type(msg_or_underlying_exc).__name__
         self._msg = ascii_str(msg_or_underlying_exc or '<unknown error>')
-        super(AbstractJWTError, self).__init__(self._msg)
+        super().__init__(self._msg)
 
-    def __repr__(self):
-        return '{}({!r})'.format(type(self).__name__, self._msg)
+    def __repr__(self) -> str:
+        return f'{type(self).__qualname__}({self._msg!r})'
 
-    def __str__(self):
-        return 'could not properly {} a JSON Web Token - {}'.format(self._op_descr, self._msg)
+    def __str__(self) -> str:
+        return f'could not properly {self._op_descr} a JSON Web Token - {self._msg}'
 
-    def __format__(self, format_spec):
+    def __format__(self, format_spec: str) -> str:
         return format(str(self), format_spec)
 
 
@@ -70,12 +67,11 @@ class JWTEncodeError(AbstractJWTError):
 #
 # Public utility functions
 
-def jwt_decode(token,                                     # type: StrOrBinary
-               secret_key,                                # type: StrOrBinary
-               accepted_algorithms=(JWT_ALGO_DEFAULT,),   # type: Iterable[str]
-               required_claims=(),                        # type: Iterable[str]
-               ):
-    # type: (...) -> Dict[str, Any]
+def jwt_decode(token: StrOrBinary,
+               secret_key: StrOrBinary,
+               accepted_algorithms: Iterable[str] = (JWT_ALGO_DEFAULT,),
+               required_claims: Union[Iterable[str], dict[str, type]] = (),
+               ) -> dict[str, Any]:
     try:
         token = as_unicode(token)
         secret_key = as_unicode(secret_key)
@@ -91,12 +87,11 @@ def jwt_decode(token,                                     # type: StrOrBinary
     return payload
 
 
-def jwt_encode(payload,                      # type: Dict[str, Any]
-               secret_key,                   # type: StrOrBinary
-               algorithm=JWT_ALGO_DEFAULT,   # type: str
-               required_claims=(),           # type: Iterable[str]
-               ):
-    # type: (...) -> str
+def jwt_encode(payload: dict[str, Any],
+               secret_key: StrOrBinary,
+               algorithm: str = JWT_ALGO_DEFAULT,
+               required_claims: Union[Iterable[str], dict[str, type]] = (),
+               ) -> str:
     _verify_required_claims(payload, required_claims, JWTEncodeError)
     try:
         secret_key = as_unicode(secret_key)
@@ -114,9 +109,37 @@ def jwt_encode(payload,                      # type: Dict[str, Any]
 #
 # Internal (module-local-use-only) helpers
 
-def _verify_required_claims(payload, required_claims, exc_factory):
-    # type: (Dict[str, Any], Iterable[str], ExcFactory) -> None
+def _verify_required_claims(payload: dict[str, Any],
+                            required_claims: Union[Iterable[str], dict[str, type]],
+                            exc_factory: ExcFactory,
+                            ) -> None:
+    _verify_no_missing_claims(payload, required_claims, exc_factory)
+    if isinstance(required_claims, dict):
+        _verify_no_claims_of_wrong_types(payload, required_claims, exc_factory)
+
+
+def _verify_no_missing_claims(payload: dict[str, Any],
+                              required_claims: Union[Iterable[str], dict[str, type]],
+                              exc_factory: ExcFactory,
+                              ) -> None:
     missing_claims = frozenset(required_claims).difference(payload)
     if missing_claims:
-        missing_claims_repr = ', '.join(sorted(map(ascii, missing_claims)))
-        raise exc_factory('missing claims: ' + missing_claims_repr)
+        listing = ', '.join(map(ascii, sorted(missing_claims)))
+        raise exc_factory('missing claims: ' + listing)
+
+
+def _verify_no_claims_of_wrong_types(payload: dict[str, Any],
+                                     required_claims: dict[str, type],
+                                     exc_factory: ExcFactory,
+                                     ) -> None:
+    claims_of_wrong_types = [
+        claim_key
+        for claim_key, required_type in required_claims.items()
+        if not isinstance(payload[claim_key], required_type)]
+    if claims_of_wrong_types:
+        listing = ascii_str(', '.join(
+            f'{claim_key!a} '
+            f'(required `{required_claims[claim_key].__qualname__}`, '
+            f'got `{type(payload[claim_key]).__qualname__}`)'
+            for claim_key in sorted(claims_of_wrong_types)))
+        raise exc_factory('claims whose types are wrong: ' + listing)

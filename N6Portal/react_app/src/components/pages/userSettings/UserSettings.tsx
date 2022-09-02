@@ -1,10 +1,10 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import UserSettingsApiKey from 'components/pages/userSettings/UserSettingsApiKey';
 import UserSettingsMfa from 'components/pages/userSettings/UserSettingsMfa';
 
 const UserSettings: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   return (
     <div className="user-settings-wrapper">

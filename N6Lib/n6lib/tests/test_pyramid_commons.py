@@ -1,8 +1,7 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import datetime
 import json
-import os
 import unittest
 from unittest.mock import (
     ANY,
@@ -98,12 +97,11 @@ info_endpoint_cases = [
         full_access=True,
         is_authenticated=True,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=True,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': ['/search/events'],
-            'certificate_fetched': True,
             'full_access': True,
             'authenticated': True,
             'api_key_auth_enabled': True,
@@ -121,12 +119,11 @@ info_endpoint_cases = [
         full_access=True,
         is_authenticated=True,
         is_api_key_stuff_enabled_on_server=False,
-        is_cert_available=True,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': ['/search/events'],
-            'certificate_fetched': True,
             'full_access': True,
             'authenticated': True,
         },
@@ -141,12 +138,11 @@ info_endpoint_cases = [
         full_access=True,
         is_authenticated=YES_BUT_IS_BLOCKED_ACCORDING_TO_AUTH_API_CACHE,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=True,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': [],
-            'certificate_fetched': True,
             'full_access': True,
             'authenticated': True,
             'api_key_auth_enabled': True,
@@ -162,12 +158,11 @@ info_endpoint_cases = [
         full_access=True,
         is_authenticated=YES_BUT_HAS_ANOTHER_ORG_ACCORDING_TO_AUTH_API_CACHE,
         is_api_key_stuff_enabled_on_server=False,
-        is_cert_available=True,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': [],
-            'certificate_fetched': True,
             'full_access': True,
             'authenticated': True,
         },
@@ -185,7 +180,7 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=True,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=False,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
@@ -193,7 +188,6 @@ info_endpoint_cases = [
                 '/report/inside',
                 '/search/events',
             ],
-            'certificate_fetched': False,
             'authenticated': True,
             'api_key_auth_enabled': True,
         },
@@ -210,12 +204,11 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=YES_BUT_IS_BLOCKED_ACCORDING_TO_AUTH_API_CACHE,
         is_api_key_stuff_enabled_on_server=False,
-        is_cert_available=False,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': [],
-            'certificate_fetched': False,
             'authenticated': True,
         },
     ),
@@ -231,12 +224,11 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=YES_BUT_HAS_ANOTHER_ORG_ACCORDING_TO_AUTH_API_CACHE,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=False,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': [],
-            'certificate_fetched': False,
             'authenticated': True,
             'api_key_auth_enabled': True,
         },
@@ -252,14 +244,13 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=True,
         is_api_key_stuff_enabled_on_server=False,
-        is_cert_available=False,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': [
                 '/search/events',
             ],
-            'certificate_fetched': False,
             'authenticated': True,
         },
     ),
@@ -275,14 +266,13 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=True,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=False,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': [
                 '/report/inside',
             ],
-            'certificate_fetched': False,
             'authenticated': True,
             'api_key_auth_enabled': True,
         },
@@ -301,7 +291,7 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=True,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=True,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
@@ -310,7 +300,6 @@ info_endpoint_cases = [
                 '/report/threats',
                 '/search/events',
             ],
-            'certificate_fetched': True,
             'authenticated': True,
             'api_key_auth_enabled': True,
         },
@@ -330,9 +319,8 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=False,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=True,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
-            'certificate_fetched': True,
             'authenticated': False,
         },
     ),
@@ -342,9 +330,8 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=False,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=False,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
-            'certificate_fetched': False,
             'authenticated': False,
         },
     ),
@@ -356,12 +343,11 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=True,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=False,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': [],
-            'certificate_fetched': False,
             'authenticated': True,
             'api_key_auth_enabled': True,
         },
@@ -374,12 +360,11 @@ info_endpoint_cases = [
         full_access=True,
         is_authenticated=True,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=False,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': [],
-            'certificate_fetched': False,
             'full_access': True,
             'authenticated': True,
             'api_key_auth_enabled': True,
@@ -393,12 +378,11 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=True,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=True,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': [],
-            'certificate_fetched': True,
             'authenticated': True,
             'api_key_auth_enabled': True,
         },
@@ -413,14 +397,43 @@ info_endpoint_cases = [
         full_access=False,
         is_authenticated=True,
         is_api_key_stuff_enabled_on_server=True,
-        is_cert_available=False,
+        is_knowledge_base_stuff_enabled_on_server=False,
         expected_response={
             'org_id': example_org_id,
             'org_actual_name': example_org_actual_name,
             'available_resources': [],
-            'certificate_fetched': False,
             'authenticated': True,
             'api_key_auth_enabled': True,
+        },
+    ),
+    # if user is authenticated and knowledge base is enabled
+    # `knowledge_base_enabled` is shown and equals `True`
+    param(
+        res_limits={},
+        access_zone_conditions={},
+        full_access=False,
+        is_authenticated=True,
+        is_api_key_stuff_enabled_on_server=False,
+        is_knowledge_base_stuff_enabled_on_server=True,
+        expected_response={
+            'org_id': example_org_id,
+            'org_actual_name': example_org_actual_name,
+            'available_resources': [],
+            'authenticated': True,
+            'knowledge_base_enabled': True,
+        },
+    ),
+    # if user is not authenticated and knowledge base is enabled
+    # `knowledge_base_enabled` is not shown
+    param(
+        res_limits={},
+        access_zone_conditions={},
+        full_access=False,
+        is_authenticated=False,
+        is_api_key_stuff_enabled_on_server=False,
+        is_knowledge_base_stuff_enabled_on_server=True,
+        expected_response={
+            'authenticated': False,
         },
     ),
 ]
@@ -431,11 +444,11 @@ class TestN6InfoView(unittest.TestCase):
 
     api_method_name = 'get_user_info'
     info_res_id = '/info'
-    mocked_context = sen.context
+    context_dummy = sen.context
     expected_content_type = 'application/json'
     http_method = 'GET'
 
-    class MockedAuthAPI(object):
+    class AuthAPIStub(object):
 
         def __init__(self, is_authenticated, is_api_key_stuff_enabled_on_server, access_info):
             assert (isinstance(is_authenticated, bool)
@@ -472,9 +485,9 @@ class TestN6InfoView(unittest.TestCase):
         def is_api_key_authentication_enabled(self):
             return self.__is_api_key_stuff_enabled_on_server
 
-    class MockedRequest(object):
+    class RequestStub(object):
 
-        def __init__(self, is_authenticated, is_cert_available, auth_api):
+        def __init__(self, is_authenticated, auth_api):
             self.registry = Mock()
             self.registry.auth_api = auth_api
             self.registry.data_backend_api = N6DataBackendAPI.__new__(N6DataBackendAPI)
@@ -484,31 +497,25 @@ class TestN6InfoView(unittest.TestCase):
                 if is_authenticated
                 else None)
 
-            self.environ = {}
-            if is_cert_available:
-                self.environ[WSGI_SSL_ORG_ID_FIELD] = sen.ssl_org_id
-                self.environ[WSGI_SSL_USER_ID_FIELD] = sen.ssl_user_id
-
-    def _get_mocked_request(self,
-                            res_limits,
-                            access_zone_conditions,
-                            full_access,
-                            is_authenticated,
-                            is_api_key_stuff_enabled_on_server,
-                            is_cert_available):
-        auth_api = self.MockedAuthAPI(
+    def _get_request_stub(self,
+                          res_limits,
+                          access_zone_conditions,
+                          full_access,
+                          is_authenticated,
+                          is_api_key_stuff_enabled_on_server):
+        auth_api = self.AuthAPIStub(
             is_authenticated,
             is_api_key_stuff_enabled_on_server,
             access_info=dict(
                 rest_api_resource_limits=res_limits,
                 access_zone_conditions=access_zone_conditions,
                 rest_api_full_access=full_access))
-        return self.MockedRequest(is_authenticated, is_cert_available, auth_api)
+        return self.RequestStub(is_authenticated, auth_api)
 
-    def _get_view_instance(self, mocked_request):
+    def _get_view_instance(self, request_stub):
         N6InfoView.resource_id = self.info_res_id
         N6InfoView.data_backend_api_method = self.api_method_name
-        return N6InfoView(self.mocked_context, mocked_request)
+        return N6InfoView(self.context_dummy, request_stub)
 
     @foreach(info_endpoint_cases)
     def test_response(self,
@@ -517,25 +524,19 @@ class TestN6InfoView(unittest.TestCase):
                       full_access,
                       is_authenticated,
                       is_api_key_stuff_enabled_on_server,
-                      is_cert_available,
+                      is_knowledge_base_stuff_enabled_on_server,
                       expected_response):
-        # TODO later: get rid of the `N6_PORTAL_AUTH_2021` env variable
-        #             and of the following condition, together with the
-        #             deprecated certificate-based auth, and with the
-        #             `is_cert_available` arg (here and in the related
-        #             helpers in this test class), and with the
-        #             'certificate_fetched' item of the
-        #             `expected_response` arg...
-        if os.environ.get('N6_PORTAL_AUTH_2021'):
-            expected_response.pop('certificate_fetched', None)
-        mocked_request = self._get_mocked_request(res_limits,
-                                                  access_zone_conditions,
-                                                  full_access,
-                                                  is_authenticated,
-                                                  is_api_key_stuff_enabled_on_server,
-                                                  is_cert_available)
-        view_inst = self._get_view_instance(mocked_request)
-        resp = view_inst.make_response()
+        request_stub = self._get_request_stub(
+            res_limits,
+            access_zone_conditions,
+            full_access,
+            is_authenticated,
+            is_api_key_stuff_enabled_on_server)
+        view_inst = self._get_view_instance(request_stub)
+        with patch('n6lib.pyramid_commons._pyramid_commons._AbstractKnowledgeBaseRelatedView.'
+                   'is_knowledge_base_enabled',
+                    return_value=is_knowledge_base_stuff_enabled_on_server):
+            resp = view_inst.make_response()
         self.assertIsInstance(resp, Response)
         resp_body = json.loads(resp.body)
         self.assertDictEqual(resp_body, expected_response)
@@ -621,7 +622,8 @@ class TestN6RegistrationView(RequestHelperMixin, DBConnectionPatchMixin, unittes
             actual_name=[u'Śome , Ńąmę'],
             submitter_title=[u'CEO'],
             submitter_firstname_and_surname=[u'Marian <script>hax0r</script> Examplówski'],
-            csr=[u'-----BEGIN CERTIFICATE REQUEST-----\nabc\n-----END CERTIFICATE REQUEST-----'],
+            terms_version=[u'Zażółć #2'],
+            terms_lang=[u'PL'],
         )
         expected_db_obj_attributes_base = dict(
             submitted_on=AnyInstanceOf(datetime.datetime),
@@ -632,7 +634,8 @@ class TestN6RegistrationView(RequestHelperMixin, DBConnectionPatchMixin, unittes
             actual_name=u'Śome , Ńąmę',
             submitter_title=u'CEO',
             submitter_firstname_and_surname=u'Marian <script>hax0r</script> Examplówski',
-            csr=u'-----BEGIN CERTIFICATE REQUEST-----\nabc\n-----END CERTIFICATE REQUEST-----',
+            terms_version=u'Zażółć #2',
+            terms_lang=u'PL',
         )
         if use_rt:
             def get_expected_rt_calls(Queue='&  &'):
@@ -858,7 +861,12 @@ class TestN6RegistrationView(RequestHelperMixin, DBConnectionPatchMixin, unittes
     @foreach(use_rt_or_not)
     @foreach(
         param(
-            changing={'org_id': u'blabla@not-valid'},
+            changing={'email': 'USEr@example.com'},  # (not valid: disallowed uppercase)
+            omitting=[],
+            orig_exc_expected_instance_of=ParamValueCleaningError,
+        ),
+        param(
+            changing={'org_id': 'blabla@not-valid'},  # (not a valid org id)
             omitting=[],
             orig_exc_expected_instance_of=ParamValueCleaningError,
         ),
@@ -1202,42 +1210,48 @@ class TestSSLUserAuthenticationPolicy(unittest.TestCase):
             'merge_orgid_userid',
         ])
 
-    def test__unauthenticated_userid__ok(self):
+    def _make_request_mock(self):
         request = MagicMock()
-        request.environ = {'SSL_CLIENT_S_DN_O': 'OrgName1', 'SSL_CLIENT_S_DN_CN': 'UserName1'}
+        request.registry.auth_manage_api.adjust_if_is_legacy_user_login = \
+            AuthManageAPI.adjust_if_is_legacy_user_login
+        return request
+
+    def test__unauthenticated_userid__ok(self):
+        request = self._make_request_mock()
+        request.environ = {'SSL_CLIENT_S_DN_O': 'orgname', 'SSL_CLIENT_S_DN_CN': 'LogIn@mail'}
         result = self.meth.unauthenticated_userid(request)
-        expected_result = 'OrgName1,UserName1'
+        expected_result = 'orgname,login@mail'  # (note the lower-cased "login" part)
         self.assertEqual(result, expected_result)
 
     def test__unauthenticated_userid__user_id_is_None(self):
-        request = MagicMock()
-        request.environ = {'SSL_CLIENT_S_DN_O': 'testorgname2', 'SSL_CLIENT_S_DN_CN': None}
+        request = self._make_request_mock()
+        request.environ = {'SSL_CLIENT_S_DN_O': 'orgname', 'SSL_CLIENT_S_DN_CN': None}
         result = self.meth.unauthenticated_userid(request)
         self.assertIsNone(result)
 
     def test__unauthenticated_userid__org_id_is_None(self):
-        request = MagicMock()
-        request.environ = {'SSL_CLIENT_S_DN_O': None, 'SSL_CLIENT_S_DN_CN': 'testusername3'}
+        request = self._make_request_mock()
+        request.environ = {'SSL_CLIENT_S_DN_O': None, 'SSL_CLIENT_S_DN_CN': 'LogIn@mail'}
         result = self.meth.unauthenticated_userid(request)
         self.assertIsNone(result)
 
     @patch('n6lib.pyramid_commons._pyramid_commons.LOGGER.warning')
     def test__unauthenticated_userid__comma_in_user_id(self, LOGGER_warning_mock):
-        request = MagicMock()
-        request.environ = {'SSL_CLIENT_S_DN_O': 'orgname4', 'SSL_CLIENT_S_DN_CN': 'user,name4'}
+        request = self._make_request_mock()
+        request.environ = {'SSL_CLIENT_S_DN_O': 'orgname', 'SSL_CLIENT_S_DN_CN': 'Log,In@mail'}
         result = self.meth.unauthenticated_userid(request)
         self.assertIsNone(result)
         self.assertEqual(LOGGER_warning_mock.mock_calls,
-                         [call('Comma in user_id %a.', 'user,name4')])
+                         [call('Comma in user_id %a.', 'Log,In@mail')])
 
     @patch('n6lib.pyramid_commons._pyramid_commons.LOGGER.warning')
     def test__unauthenticated_userid__comma_in_org_id(self, LOGGER_warning_mock):
-        request = MagicMock()
-        request.environ = {'SSL_CLIENT_S_DN_O': 'orgname,5', 'SSL_CLIENT_S_DN_CN': 'username5'}
+        request = self._make_request_mock()
+        request.environ = {'SSL_CLIENT_S_DN_O': 'org,name', 'SSL_CLIENT_S_DN_CN': 'LogIn@mail'}
         result = self.meth.unauthenticated_userid(request)
         self.assertIsNone(result)
         self.assertEqual(LOGGER_warning_mock.mock_calls,
-                         [call('Comma in org_id %a.', 'orgname,5')])
+                         [call('Comma in org_id %a.', 'org,name')])
 
     def test_other_important_methods_are_from_BaseUserAuthenticationPolicy(self):
         self.assertIs(SSLUserAuthenticationPolicy.get_auth_data,

@@ -56,7 +56,7 @@ def list_console_scripts():
 
 
 n6_version = get_n6_version('.n6-version')
-requirements = ['n6sdk==' + n6_version, 'n6lib==' + n6_version, 'intelmq', 'iptools==0.7.0']
+requirements = ['n6sdk==' + n6_version, 'n6lib==' + n6_version, 'intelmq']
 console_scripts = list_console_scripts()
 
 setup(

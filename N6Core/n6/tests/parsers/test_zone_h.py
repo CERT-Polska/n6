@@ -6,10 +6,10 @@ import unittest
 
 from n6.parsers.generic import BaseParser
 from n6.parsers.zone_h import ZoneHRSSParser
-from n6.tests.parsers._parser_test_mixin import ParserTestMixIn
+from n6.tests.parsers._parser_test_mixin import ParserTestMixin
 
 
-class TestZoneHRSSParser(ParserTestMixIn, unittest.TestCase):
+class TestZoneHRSSParser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'zoneh.rss'
     PARSER_CLASS = ZoneHRSSParser

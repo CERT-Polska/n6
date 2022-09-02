@@ -1,6 +1,6 @@
 import { FC } from 'react';
 import format from 'date-fns/format';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { IResponseTableData } from 'api/services/globalTypes';
 import { TAvailableResources } from 'api/services/info/types';
 
@@ -10,7 +10,7 @@ interface IProps {
 }
 
 const ExportJSON: FC<IProps> = ({ data, resource = 'empty' }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   const time = format(new Date(), 'yyyyMMddHHmmss');
   const filename = `n6${resource.replaceAll('/', '-')}${time}.json`;

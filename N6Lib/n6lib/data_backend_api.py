@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import base64
 import collections
@@ -22,6 +22,7 @@ from typing import (
 
 import sqlalchemy.event
 from sqlalchemy import (
+    desc,
     distinct,
     engine_from_config,
     func as sqla_func,
@@ -48,6 +49,7 @@ from n6lib.data_spec.typing_helpers import (
     ParamsDict,
     ResultDict,
 )
+from n6lib.datetime_helpers import midnight_datetime
 from n6lib.db_events import (
     _DBSession,
     Base,
@@ -59,7 +61,7 @@ from n6lib.generate_test_events import RandomEvent
 from n6lib.log_helpers import get_logger
 from n6lib.typing_helpers import (
     AccessZone,
-    AccessZoneConditions,
+    AccessZoneConditionsDict,
     AuthData,
     ColumnElementTransformer,
     DateTime,
@@ -327,6 +329,41 @@ class N6DataBackendAPI(object):
             with dbapi_connection.cursor() as cursor:
                 cursor.execute(setter_sql)
 
+    def get_the_most_frequent_categories(self,
+                                         auth_data: AuthData,
+                                         access_filtering_conditions: List[ColumnElement],
+                                         since: DateTime) -> Tuple[str]:
+        if not access_filtering_conditions:
+            raise AssertionError('filtering conditions not provided')
+        query_processor = _DailyEventsCountsQueryProcessor(
+            access_filtering_conditions=access_filtering_conditions,
+            client_org_ids=[auth_data['org_id']])
+        return query_processor.get_the_most_frequent_events_categories(since)
+
+    def get_counts_per_day_per_category(self,
+                                        auth_data: AuthData,
+                                        access_filtering_conditions: List[ColumnElement],
+                                        since: DateTime) -> Dict[str, List]:
+        if not access_filtering_conditions:
+            raise AssertionError('filtering conditions not provided')
+        query_processor = _DailyEventsCountsQueryProcessor(
+            access_filtering_conditions=access_filtering_conditions,
+            client_org_ids=[auth_data['org_id']])
+        return query_processor.get_counts_per_day_per_category(since)
+
+    def get_names_ranking_per_category(self,
+                                       auth_data: AuthData,
+                                       access_filtering_conditions: List[ColumnElement],
+                                       since: DateTime,
+                                       category: str,
+                                       ) -> Optional[Dict[str, Optional[dict]]]:
+        if not access_filtering_conditions:
+            # We are dealing with access rights, so let's be on a safe side.
+            raise AssertionError('filtering conditions not provided')
+        query_processor = _NamesRankingQueryProcessor(
+            access_filtering_conditions=access_filtering_conditions,
+            client_org_ids=[auth_data['org_id']])
+        return query_processor.get_names_ranking_counts_per_category(since, category)
 
     def get_counts_per_category(self,
                                 auth_data,                    # type: AuthData
@@ -370,7 +407,7 @@ class N6DataBackendAPI(object):
                       auth_data,               # type: AuthData
                       params,                  # type: ParamsDict
                       data_spec,               # type: N6DataSpec
-                      access_zone_conditions,  # type: AccessZoneConditions
+                      access_zone_conditions,  # type: AccessZoneConditionsDict
                       ):  # type: (...) -> Iterator[ResultDict]
         """
         Obtain the data of security events matching the given request
@@ -426,7 +463,7 @@ class N6DataBackendAPI(object):
                        auth_data,               # type: AuthData
                        params,                  # type: ParamsDict
                        data_spec,               # type: N6DataSpec
-                       access_zone_conditions,  # type: AccessZoneConditions
+                       access_zone_conditions,  # type: AccessZoneConditionsDict
                        ):  # type: (...) -> Iterator[ResultDict]
         """
         Obtain the data of security events matching the given request
@@ -474,7 +511,7 @@ class N6DataBackendAPI(object):
                       auth_data,               # type: AuthData
                       params,                  # type: ParamsDict
                       data_spec,               # type: N6DataSpec
-                      access_zone_conditions,  # type: AccessZoneConditions
+                      access_zone_conditions,  # type: AccessZoneConditionsDict
                       ):  # type: (...) -> Iterator[ResultDict]
         """
         Obtain the data of security events matching the given request
@@ -521,7 +558,7 @@ class N6DataBackendAPI(object):
     def _generate_result_dicts(self,
                                params,                  # type: ParamsDict
                                data_spec,               # type: N6DataSpec
-                               access_zone_conditions,  # type: AccessZoneConditions
+                               access_zone_conditions,  # type: AccessZoneConditionsDict
                                access_zone,             # type: AccessZone
                                client_org_ids,          # type: Optional[List[Str]]
                                ):  # type: (...) -> Iterator[ResultDict]
@@ -582,7 +619,7 @@ class N6DataBackendAPI(object):
         return query_processor.generate_query_results()
 
     def _get_access_filtering_conditions(self, access_zone_conditions, access_zone):
-        # type: (AccessZoneConditions, AccessZone) -> List[ColumnElement]
+        # type: (AccessZoneConditionsDict, AccessZone) -> List[ColumnElement]
         access_filtering_conditions = access_zone_conditions.get(access_zone)
         if not access_filtering_conditions:
             # We are dealing with access rights, so let's be on a safe side.
@@ -635,7 +672,7 @@ class N6TestDataBackendAPI(N6DataBackendAPI):
     def _generate_result_dicts(self,
                                params,                  # type: ParamsDict
                                data_spec,               # type: N6DataSpec
-                               access_zone_conditions,  # type: AccessZoneConditions
+                               access_zone_conditions,  # type: AccessZoneConditionsDict
                                access_zone,             # type: AccessZone
                                client_org_ids,          # type: Optional[List[Str]]
                                ):  # type: (...) -> Iterator[ResultDict]
@@ -743,6 +780,102 @@ class _BaseQueryProcessor(object):
         return 'DB API error - {}...'.format(error_shortened_msg.replace('\n', ' '))
 
 
+class _DailyEventsCountsQueryProcessor(_BaseQueryProcessor):
+
+    def get_counts_per_day_per_category(self, since: DateTime) -> Dict[str, List]:
+        query = self._build_query_for_counts_per_day_per_category(since)
+        with self.handling_db_api_error():
+            query_result = query.all()
+
+        day_to_data = {}
+        for date, category, count in query_result:
+            date = date.strftime('%Y-%m-%d')
+            event_data = [category, count]
+            if date in day_to_data.keys():
+                day_to_data[date].append(event_data)
+            else:
+                day_to_data[date] = [event_data]
+        return day_to_data
+
+    def _build_query_for_counts_per_day_per_category(self, since: DateTime) -> Query:
+        event_model = self.queried_model_class
+        client_model = self.client_asoc_model_class
+        query = _DBSession.query(sqla_func.date(event_model.time).label('events_time'),
+                                 event_model.category,
+                                 sqla_func.count(distinct(event_model.id)))
+        query = query.join(client_model,
+                           and_(client_model.id == event_model.id,
+                                client_model.time >= midnight_datetime(since)))
+        query = self.query__access_filtering(query)
+        query = self.query__client_filtering(query)
+        query = query.group_by(sqla_func.date(event_model.time), event_model.category)
+        query = query.order_by('events_time')
+        return query
+
+    def get_the_most_frequent_events_categories(self, since: DateTime) -> Tuple[str]:
+        category_to_count = {}
+        query = self._build_query_for_the_most_frequent_events_categories(since)
+        with self.handling_db_api_error():
+            query_result = query.all()
+            category_to_count.update(query_result)
+        categories = tuple([str(category) for category in category_to_count.keys()][:6])
+        return categories
+
+    def _build_query_for_the_most_frequent_events_categories(self, since: DateTime) -> Query:
+        event_model = self.queried_model_class
+        client_model = self.client_asoc_model_class
+        query = _DBSession.query(event_model.category,
+                                 sqla_func.count(
+                                     distinct(event_model.id)).label('categories_counts'))
+        query = query.join(client_model,
+                           and_(client_model.id == event_model.id,
+                                client_model.time >= midnight_datetime(since)))
+        query = self.query__access_filtering(query)
+        query = self.query__client_filtering(query)
+        query = query.group_by(event_model.category)
+        query = query.order_by(desc('categories_counts'))
+        return query
+
+
+class _NamesRankingQueryProcessor(_BaseQueryProcessor):
+
+    def get_names_ranking_counts_per_category(self, since: DateTime, category: str) \
+            -> Optional[Dict[str, Optional[dict]]]:
+        query_result = self._build_query_for_ranking_per_category(since, category)
+        with self.handling_db_api_error():
+            query = query_result.all()
+            names_to_count = dict(query)
+        ranking = [str(number) for number in range(1, 10 + 1)]
+        ranking_to_names: Dict[str, Optional[Dict]] = dict.fromkeys(ranking, None)
+        names_to_count.pop(None, None)
+        sorted_names_to_counts = dict(sorted(names_to_count.items(),
+                                             key=operator.itemgetter(1),
+                                             reverse=True)[:10])
+        if sorted_names_to_counts:
+            counter = 1
+            for name, count in sorted_names_to_counts.items():
+                ranking_value = {str(counter): {name: count}}
+                ranking_to_names.update(ranking_value)
+                counter += 1
+            return ranking_to_names
+        return None
+
+    def _build_query_for_ranking_per_category(self, since: DateTime, category: str) -> Query:
+        event_model = self.queried_model_class
+        client_model = self.client_asoc_model_class
+        query = _DBSession.query(event_model.name,
+                                 sqla_func.count(distinct(event_model.id)).label('names_count'))
+        query = query.join(client_model,
+                           and_(client_model.id == event_model.id,
+                                client_model.time >= midnight_datetime(since)))
+        query = query.filter(event_model.category == category)
+        query = self.query__access_filtering(query)
+        query = self.query__client_filtering(query)
+        query = query.group_by(event_model.name)
+        query = query.order_by('names_count')
+        return query
+
+
 class _CountsQueryProcessor(_BaseQueryProcessor):
 
     def get_counts_per_category(self, since):
@@ -764,11 +897,11 @@ class _CountsQueryProcessor(_BaseQueryProcessor):
         cl_model = self.client_asoc_model_class
         # * Actual query building:
         query = _DBSession.query(model.category, func_count(distinct(model.id)))
-        query = query.outerjoin(
+        query = query.join(
             cl_model,
             and_(cl_model.id == model.id,
-                 cl_model.time >= since))
-        query = query.filter(model.time >= since)
+                 cl_model.time >= midnight_datetime(since)))
+        query = query.filter(model.time >= midnight_datetime(since))
         query = self.query__access_filtering(query)
         query = self.query__client_filtering(query)
         query = query.group_by(model.category)

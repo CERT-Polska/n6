@@ -98,6 +98,11 @@ export type TFilter =
       validateTimeRequired?: Record<string, Validate<string>>;
     };
 
+type TStoreValue = { value?: string | SelectOption<TCategory>[] | SelectOption<TProto>[] };
+type TStoreFilter = ({ isDate: true } | TFilter) & TStoreValue;
+
+export type TStoredFilter = Record<keyof IIncidentsForm, TStoreFilter>;
+
 export const allFilters: TFilter[] = [
   { name: 'asn', label: 'incidents_form_asn', type: 'input', validate: validateAsnNumberRequired },
   {

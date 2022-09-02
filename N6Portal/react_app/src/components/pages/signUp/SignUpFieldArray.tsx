@@ -1,6 +1,6 @@
 import { FC } from 'react';
 import { useFormContext, useFieldArray, Validate } from 'react-hook-form';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import useMatchMediaContext from 'context/MatchMediaContext';
 import FormInput from 'components/forms/FormInput';
 import CustomButton from 'components/shared/CustomButton';
@@ -20,7 +20,7 @@ const SignUpFieldArray: FC<IProps> = ({ name, label, tooltip, validate }) => {
   const { control } = useFormContext<IStepTwoForm>();
   const { fields, append, remove } = useFieldArray({ name, control });
 
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   return (
     <>

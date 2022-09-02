@@ -1,5 +1,5 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import CustomButton from 'components/shared/CustomButton';
 
 export type IProps = {
@@ -8,7 +8,7 @@ export type IProps = {
 };
 
 const FormRenderSelectedFile: FC<IProps> = ({ filename, onClick }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const parts = filename.split('.');
   const fileExtension = '.' + parts.pop();
   const fileName = parts.join('');

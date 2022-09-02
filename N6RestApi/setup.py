@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import glob
 import os.path as osp
@@ -21,16 +21,16 @@ def get_n6_version(filename_base):
         path = matching_paths[0]
     except IndexError:
         sys.exit('[{}] Cannot determine the n6 version '
-                 '(no files match the pattern {!r}).'       #3: !r -> !a
+                 '(no files match the pattern {!a}).'
                  .format(setup_human_readable_ref,
                          path_glob_pattern))
     try:
-        with open(path, 'rb') as f:                         #3: <- add `, encoding='ascii'`
-            return str(f.read().decode('ascii')).strip()    #3: <- remove `str...` and `.decode...`
+        with open(path, 'r', encoding='ascii') as f:
+            return f.read().strip()
     except (OSError, UnicodeError) as exc:
         sys.exit('[{}] Cannot determine the n6 version '
                  '(an error occurred when trying to '
-                 'read it from the file {!r} - {}).'        #3: !r -> !a
+                 'read it from the file {!a} - {}).'
                  .format(setup_human_readable_ref,
                          path,
                          exc))
@@ -47,8 +47,6 @@ requires = [
 ]
 
 tests_require = ['unittest_expander==0.3.1']
-if sys.version_info[0] < 3:
-    tests_require.append('mock==3.0.5')
 
 setup(
     name='n6web',
@@ -57,11 +55,7 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     zip_safe=False,
-    python_requires=(
-        # Python 2.7 *or* 3.9
-        '>=2.7, '
-        '!=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*, !=3.6.*, !=3.7.*, !=3.8.*, '
-        '<3.10'),
+    python_requires='==3.9.*',
     tests_require=tests_require,
     test_suite='n6web.tests',
     install_requires=requires,
@@ -79,7 +73,6 @@ setup(
         'License :: OSI Approved :: GNU Affero General Public License v3',
         'Operating System :: POSIX :: Linux',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3.9',
         'Framework :: Pyramid',
         'Topic :: Security',

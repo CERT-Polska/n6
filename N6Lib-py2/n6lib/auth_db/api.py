@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2021 NASK. All rights reserved.
+# Copyright (c) 2019-2022 NASK. All rights reserved.
 
 from builtins import map                                                         #3--
 import datetime
@@ -45,7 +45,6 @@ from n6lib.data_spec.fields import (
     ASNField,
     CCField,
     UnicodeLimitedField,
-    UnicodeRegexField,
 )
 from n6lib.typing_helpers import String as Str
 from n6sdk.data_spec.fields import FlagField
@@ -411,32 +410,18 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
             max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
         ),
-        csr=UnicodeRegexField(   # TODO later: remove it when getting rid of `N6_PORTAL_AUTH_2021`
-            single_param=True,
-            in_params='optional',
-            auto_strip=True,
-            regex=re.compile(
-                # see: https://tools.ietf.org/html/rfc7468#section-3
-                r'\A'
-                r'-----BEGIN CERTIFICATE REQUEST-----\s*'
-                r'[a-zA-Z0-9+/=\s]+'
-                r'-----END CERTIFICATE REQUEST-----\s*'
-                r'\Z', re.ASCII),
-            error_msg_template=u'"Not a valid PEM-formatted Certificate Signing Request',
-        ),
         terms_version=UnicodeLimitedField(
             single_param=True,
-            in_params='optional',  # TODO later: we'll make it required, see #8013
-                                   #      (when getting rid of `N6_PORTAL_AUTH_2021`)
+            in_params='required',
             auto_strip=True,
             max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
         ),
         terms_lang=CCField(
             single_param=True,
-            in_params='optional',  # TODO later: we'll make it required, see #8013
-                                   #      (when getting rid of `N6_PORTAL_AUTH_2021`)
+            in_params='required',
             auto_strip=True,
         ),
+
         notification_language=CCField(
             single_param=True,
             in_params='optional',
@@ -468,11 +453,10 @@ class AuthManageAPI(_AuthDatabaseAPI):
                                     email,
                                     submitter_title,
                                     submitter_firstname_and_surname,
+                                    terms_version,
+                                    terms_lang,
 
                                     # *optional param* arguments:
-                                    csr=None,
-                                    terms_version=None,
-                                    terms_lang=None,
                                     notification_language=None,
                                     notification_emails=(),
                                     asns=(),
@@ -491,7 +475,9 @@ class AuthManageAPI(_AuthDatabaseAPI):
             email=email,
             submitter_title=submitter_title,
             submitter_firstname_and_surname=submitter_firstname_and_surname,
-            csr=csr,
+            terms_version=terms_version,
+            terms_lang=terms_lang,
+
             notification_language=notification_language,
 
             # (Note: we ensure that values of multi-value fields are
@@ -500,9 +486,6 @@ class AuthManageAPI(_AuthDatabaseAPI):
             asns=sorted(set(asns)),
             fqdns=sorted(set(fqdns)),
             ip_networks=sorted(set(ip_networks)),
-
-            terms_version=terms_version,
-            terms_lang=terms_lang,
         )
 
         init_kwargs = new_req_pure_data.copy()

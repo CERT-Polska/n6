@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import datetime
 import json
@@ -33,17 +33,17 @@ from n6lib.unit_test_helpers import TestCaseMixin
 @expand
 class TestAggregator(TestCaseMixin, unittest.TestCase):
 
-    sample_routing_key = "testsource.testchannel"
+    sample_routing_key = "testprovider.testchannel"
     sample_dbpath = "/tmp/sample_dbfile"
     sample_time_tolerance = 600
     sample_time_tolerance_per_source = {
-        'anothersource.andchannel': 1200,
+        'anotherprovider.andchannel': 1200,
     }
     starting_datetime = datetime.datetime(2017, 6, 1, 10)
     mocked_utcnow = datetime.datetime(2017, 7, 1, 7, 0, 0)
     input_callback_proper_msg = (
         '{'
-        '"source": "testsource.testchannel",'
+        '"source": "testprovider.testchannel",'
         '"_group": "group1",'
         '"id": "d41d8cd98f00b204e9800998ecf8427b",'
         '"time": "2017-06-01 10:00:00"'
@@ -51,7 +51,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
     )
     input_callback_msg_no__group = (
         '{'
-        '"source": "testsource.testchannel",'
+        '"source": "testprovider.testchannel",'
         '"id": "d41d8cd98f00b204e9800998ecf8427b",'
         '"time": "2017-06-01 10:00:00"'
         '}'
@@ -72,19 +72,19 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": str(cls.starting_datetime),
                 },
                 {
                     "id": "c81e728d9d4c2f636f067f89cc14862c",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": str(cls.starting_datetime),
                 },
                 {
                     "id": "eccbc87e4b5ce2fe28308fd9f2a7baf3",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group3",
                     "time": str(cls.starting_datetime + datetime.timedelta(hours=1)),
                 },
@@ -105,43 +105,43 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": str(cls.starting_datetime),
                 },
                 {
                     "id": "c81e728d9d4c2f636f067f89cc14862c",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": str(cls.starting_datetime),
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8426f",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group3",
                     "time": str(cls.starting_datetime),
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427a",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": str(cls.starting_datetime + datetime.timedelta(hours=1)),
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427c",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": str(cls.starting_datetime + datetime.timedelta(hours=1)),
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": str(cls.starting_datetime + datetime.timedelta(hours=2)),
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427d",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": str(cls.starting_datetime + datetime.timedelta(hours=14)),
                 },
@@ -182,43 +182,43 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "1",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 08:00:00",
                 },
                 {
                     "id": "2",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2017-06-01 08:02:00",
                 },
                 {
                     "id": "3",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group3",
                     "time": "2017-06-01 08:04:00",
                 },
                 {
                     "id": "4",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 09:00:00",
                 },
                 {
                     "id": "5",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2017-06-01 09:00:20",
                 },
                 {
                     "id": "6",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "7",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 21:30:00",
                 },
@@ -241,19 +241,19 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 01:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427c",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-01 11:00:01',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427e",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-01 12:00:01',
                 },
@@ -267,19 +267,19 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 01:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427c",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-01 02:00:00',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427e",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-01 14:00:01',
                 },
@@ -306,25 +306,25 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 18:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427c",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": '2017-06-01 19:00:00',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427d",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 20:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427e",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-02 01:00:02',
                 },
@@ -350,31 +350,31 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 18:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427c",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": '2017-06-01 19:00:00',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8425c",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": '2017-06-01 19:28:00',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427d",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 20:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427e",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": '2017-06-02 01:00:02',
                 },
@@ -406,25 +406,25 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427d",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 12:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8426d",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 11:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427e",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-02 11:00:02',
                 },
@@ -449,19 +449,19 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427d",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 09:51:00",  # time within mocked time tolerance
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427e",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-02 11:00:02',
                 },
@@ -486,25 +486,25 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "1",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "2",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 09:51:00",  # within time tolerance
                 },
                 {
                     "id": "3",
-                    "source": "anothersource.andchannel",
+                    "source": "anotherprovider.andchannel",
                     "_group": "group1",
                     "time": '2017-06-01 11:00:00',
                 },
                 {
                     "id": "4",
-                    "source": "anothersource.andchannel",
+                    "source": "anotherprovider.andchannel",
                     "_group": "group1",
                     "time": '2017-06-01 10:40:00',   # within time tolerance
                 },
@@ -524,31 +524,31 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 17:00:00",
                 },
                 {
                     "id": "53b325261706c63aed655a3ca8810780",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": '2017-06-01 18:00:00',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427f",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": '2017-06-01 19:00:00',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427c",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-01 23:57:00',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427e",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-02 00:03:01',
                 },
@@ -571,31 +571,31 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 17:00:00",
                 },
                 {
                     "id": "53b325261706c63aed655a3ca8810780",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": '2017-06-01 18:00:00',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427c",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-01 19:00:00',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427f",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": '2017-06-01 23:57:00',
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427e",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-02 00:03:01',
                 },
@@ -625,25 +625,25 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427d",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 08:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8426d",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 09:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427e",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-01 11:00:02',
                 },
@@ -666,25 +666,25 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427b",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427d",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2017-06-01 08:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8426d",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 09:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998ecf8427e",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": '2017-06-01 11:00:02',
                 },
@@ -708,25 +708,25 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998hg351",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 00:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998hg352",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 23:51:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998hg353",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2020-01-02 00:01:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998hg354",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-02 00:00:00",
                 },
@@ -752,25 +752,25 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998hg351",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 22:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998hg352",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 23:51:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998hg353",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2020-01-02 00:01:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998hg354",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-02 00:00:00",
                 },
@@ -799,25 +799,25 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             input_data=[
                 {
                     "id": "d41d8cd98f00b204e9800998hg351",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 00:00:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998hg352",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 20:51:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998hg353",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2020-01-02 22:01:00",
                 },
                 {
                     "id": "d41d8cd98f00b204e9800998hg354",
-                    "source": "testsource.testchannel",
+                    "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-02 22:00:00",
                 },
@@ -897,13 +897,13 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         ).label("count over limit"),
     ])
     def test_publish_event(self, count, expected_body_content):
-        type_ = "foobar"
+        event_type = "foobar"
         payload = {
             "source": "ham.spam",
             "_group": "something",
             "count": count,
         }
-        data = type_, payload
+        data = event_type, payload
         expected_routing_key = "foobar.aggregated.ham.spam"
         self._aggregator.publish_output = MagicMock()
 
@@ -918,7 +918,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
 
     def test_input_callback(self):
         with patch.object(Aggregator, "process_event") as process_event_mock:
-            self._aggregator.input_callback("testsource.testchannel",
+            self._aggregator.input_callback("testprovider.testchannel",
                                             self.input_callback_proper_msg,
                                             self.sample_routing_key)
         process_event_mock.assert_called_with(json.loads(self.input_callback_proper_msg))
@@ -927,7 +927,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
     def test_input_callback_with__group_missing(self):
         with self.assertRaisesRegex(n6QueueProcessingException, r"\bmissing '_group' field\b"):
             with patch.object(Aggregator, "process_event"):
-                self._aggregator.input_callback("testsource.testchannel",
+                self._aggregator.input_callback("testprovider.testchannel",
                                                 self.input_callback_msg_no__group,
                                                 self.sample_routing_key)
 
@@ -938,19 +938,17 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             config_mock.return_value["aggregator"]["dbpath"] = fp.name
             self._aggregator.__init__()
 
-        # store dir does not exist
+        # state dir does not exist
         with tempfile.NamedTemporaryFile() as fp, \
-                self.assertRaisesRegex(Exception, r"store dir does not exist, stop aggregator"):
+                self.assertRaisesRegex(Exception, r"state directory does not exist"):
             config_mock.return_value["aggregator"]["dbpath"] = os.path.join(fp.name,
                                                                             "nonexistent_file")
             self._aggregator.__init__()
 
-        # store directory exists, but it has no rights to write
+        # state directory exists, but it has no rights to write
         with tempfile.NamedTemporaryFile() as fp, \
                 patch("os.access", return_value=None), \
-                self.assertRaisesRegex(Exception,
-                                        r"stop aggregator, remember to set the rights for user, "
-                                        r"which runs aggregator"):
+                self.assertRaisesRegex(Exception, r"write access to the state directory needed"):
             config_mock.return_value["aggregator"]["dbpath"] = fp.name
             self._aggregator.__init__()
 
@@ -1011,26 +1009,26 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
 
 
     @staticmethod
-    def _get_expected_event_from_input_data(input_data, type_):
+    def _get_expected_event_from_input_data(input_data, event_type):
         """
         Turn an input data to event-like dicts, that are expected
         to be created during the calls to `process_event()` method.
         Args:
             `input_data`:
                 a dict with input data.
-            `type_`:
+            `event_type`:
                 a type of event ('event' or 'suppressed').
 
         Returns:
             an event-like dict, that is expected to be created
             during the call to `process_event()`.
         """
-        input_data.update({"type": type_})
+        input_data.update({"type": event_type})
         # final events do not contain field `_group`
         del input_data["_group"]
         return {
             "body": input_data,
-            "routing_key": "{}.aggregated.{}".format(type_, input_data['source']),
+            "routing_key": f"{event_type}.aggregated.{input_data['source']}",
         }
 
 
@@ -1051,21 +1049,21 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
 @expand
 class TestAggregatorDataWrapper(unittest.TestCase):
 
-    tested_source_channel = "testsource.testchannel"
-    other_source_channel = "othersource.otherchannel"
+    tested_source = "testprovider.testchannel"
+    other_source = "otherprovider.otherchannel"
     sample_db_path = "/tmp/example.pickle"
     sample_time_tolerance = 600
     sample_time_tolerance_per_source = {
-        other_source_channel: 1200,
+        other_source: 1200,
     }
     mocked_utcnow = datetime.datetime(2017, 7, 1, 12, 0, 0)
-    sources_tested_for_inactivity = [tested_source_channel, other_source_channel]
+    sources_tested_for_inactivity = [tested_source, other_source]
 
     group1_expected_suppressed_payload = dict(
         count=5,
         _first_time="2017-06-01 07:00:00",
         id="c4ca4238a0b923820dcc509a6f75849b",
-        source=tested_source_channel,
+        source=tested_source,
         time="2017-06-01 07:00:00",
         _group="group1",
         until="2017-06-01 09:00:00",
@@ -1078,7 +1076,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         count=4,
         _first_time="2017-06-01 08:00:00",
         id="c4ca4238a0b923820dcc509a6f75849c",
-        source=tested_source_channel,
+        source=tested_source,
         time="2017-06-01 08:00:00",
         _group="group2",
         until="2017-06-01 10:00:00",
@@ -1115,7 +1113,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
@@ -1138,13 +1136,13 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": cls.other_source_channel,
+                    "source": cls.other_source,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850c",
-                    "source": cls.other_source_channel,
+                    "source": cls.other_source,
                     "_group": "group1",
                     "time": "2017-06-01 09:40:00",
                 },
@@ -1165,13 +1163,13 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850c",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group2",
                     "time": "2017-06-01 12:00:00",
                 },
@@ -1199,31 +1197,31 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 11:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850c",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group2",
                     "time": "2017-06-01 12:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75851c",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group2",
                     "time": "2017-06-01 13:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75852b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 14:00:00",
                 },
@@ -1259,43 +1257,43 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75851b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group2",
                     "time": "2017-06-01 10:15:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75751c",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group2",
                     "time": "2017-06-01 10:30:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 11:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850c",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 12:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75851c",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 13:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75852b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-02 14:00:00",
                 },
@@ -1341,43 +1339,43 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             messages=[
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75849b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 07:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 08:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75751b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group2",
                     "time": "2017-06-01 08:10:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75851b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group2",
                     "time": "2017-06-01 08:30:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75850c",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 09:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75851c",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
                     "id": "c4ca4238a0b923820dcc509a6f75852b",
-                    "source": cls.tested_source_channel,
+                    "source": cls.tested_source,
                     "_group": "group1",
                     "time": "2017-06-01 22:00:01",
                 },
@@ -1421,7 +1419,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         yield param(
             new_message={
                 "id": "c4ca4238a0b923820dcc509a6f75852b",
-                "source": cls.tested_source_channel,
+                "source": cls.tested_source,
                 "_group": "group1",
                 "time": "2017-06-02 10:00:01",
             },
@@ -1441,7 +1439,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         yield param(
             new_message={
                 "id": "c4ca4238a0b923820dcc509a6f75852b",
-                "source": cls.tested_source_channel,
+                "source": cls.tested_source,
                 "_group": "group1",
                 "time": "2017-06-01 21:10:00",
             },
@@ -1458,7 +1456,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         yield param(
             new_message={
                 "id": "c4ca4238a0b923820dcc509a6f75852b",
-                "source": cls.tested_source_channel,
+                "source": cls.tested_source,
                 "_group": "group1",
                 "time": "2017-06-01 22:10:00",
             },
@@ -1473,11 +1471,11 @@ class TestAggregatorDataWrapper(unittest.TestCase):
     @paramseq
     def _test_generate_suppressed_events_after_timeout_data(cls):
         # more than 24 hours has passed since processing of last
-        # event for the source "testsource.testchannel"
+        # event for the source "testprovider.testchannel"
         yield param(
             mocked_utcnow=datetime.datetime(2017, 6, 2, 15),
             expected_inactive_sources=[
-                cls.tested_source_channel,
+                cls.tested_source,
             ],
         )
 
@@ -1486,8 +1484,8 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         yield param(
             mocked_utcnow=datetime.datetime(2017, 6, 2, 20, 2),
             expected_inactive_sources=[
-                cls.tested_source_channel,
-                cls.other_source_channel,
+                cls.tested_source,
+                cls.other_source,
             ],
         )
 
@@ -1511,14 +1509,14 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         """
         message = {
             "id": "c4ca4238a0b923820dcc509a6f75852b",
-            "source": self.tested_source_channel,
+            "source": self.tested_source,
             "_group": "group1",
             "time": "2017-06-01 22:10:00",
         }
 
         expected_stored_message = {
             "id": "c4ca4238a0b923820dcc509a6f75852b",
-            "source": self.tested_source_channel,
+            "source": self.tested_source,
             "_group": "group1",
             "time": "2017-06-01 22:10:00",
         }
@@ -1533,7 +1531,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             # check restored state from existing file
             self._adw.restore_state()
             self.assertDictEqual(
-                self._adw.aggr_data.sources[self.tested_source_channel].groups[
+                self._adw.aggr_data.sources[self.tested_source].groups[
                     message["_group"]].payload,
                 expected_stored_message)
             # assert given path exist
@@ -1627,9 +1625,9 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         the message is from another day.
         """
         tested_source_data = self._get_source_data_for_suppressed_events_tests(
-            self.tested_source_channel)
+            self.tested_source)
         another_source_data = self._get_source_data_for_suppressed_events_tests(
-            self.other_source_channel)
+            self.other_source)
         hifreq_new_data = HiFreqEventData(new_message)
         tested_source_data.groups["group1"] = hifreq_new_data
         # `time` attribute should be equal to last message's
@@ -1639,8 +1637,8 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         # `last_event` attribute is not relevant for the test
         tested_source_data.last_event = datetime.datetime(2017, 6, 2, 20)
         another_source_data.last_event = datetime.datetime(2017, 6, 2, 20)
-        self._adw.aggr_data.sources[self.tested_source_channel] = tested_source_data
-        self._adw.aggr_data.sources[self.other_source_channel] = another_source_data
+        self._adw.aggr_data.sources[self.tested_source] = tested_source_data
+        self._adw.aggr_data.sources[self.other_source] = another_source_data
 
         generated_events = list(self._adw.generate_suppresed_events_for_source(new_message))
         self.assertCountEqual(expected_results, generated_events)
@@ -1648,24 +1646,24 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         # in `groups` attribute, but not in `buffer` - suppressed
         # event of the "group1" should have been generated
         self.assertIn(
-            "group1", self._adw.aggr_data.sources[self.tested_source_channel].groups)
+            "group1", self._adw.aggr_data.sources[self.tested_source].groups)
         self.assertNotIn(
-            "group1", self._adw.aggr_data.sources[self.tested_source_channel].buffer)
+            "group1", self._adw.aggr_data.sources[self.tested_source].buffer)
         # if aggregated events of the "group2" were generated, then
         # there should not be any `HiFreqEventData` objects of this
         # group in `groups` nor `buffer` attribute
         if self.group2_expected_suppressed_event in expected_results:
             self.assertNotIn(
-                "group2", self._adw.aggr_data.sources[self.tested_source_channel].groups)
+                "group2", self._adw.aggr_data.sources[self.tested_source].groups)
             self.assertNotIn(
-                "group2", self._adw.aggr_data.sources[self.tested_source_channel].buffer)
+                "group2", self._adw.aggr_data.sources[self.tested_source].buffer)
 
         # check if the other source's elements, for which suppressed
         # events were not generated, are unchanged
         self.assertIn(
-            "group2", self._adw.aggr_data.sources[self.other_source_channel].groups)
+            "group2", self._adw.aggr_data.sources[self.other_source].groups)
         self.assertIn(
-            "group1", self._adw.aggr_data.sources[self.other_source_channel].buffer)
+            "group1", self._adw.aggr_data.sources[self.other_source].buffer)
 
 
     @foreach(_test_generate_suppressed_events_after_timeout_data)
@@ -1678,16 +1676,16 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         for them.
         """
         tested_source_data = self._get_source_data_for_suppressed_events_tests(
-            self.tested_source_channel)
+            self.tested_source)
         another_source_data = self._get_source_data_for_suppressed_events_tests(
-            self.other_source_channel)
+            self.other_source)
         # `time` attribute should be equal to last message's
         tested_source_data.time = datetime.datetime(2017, 6, 1, 10)
         another_source_data.time = datetime.datetime(2017, 6, 1, 10)
         tested_source_data.last_event = datetime.datetime(2017, 6, 1, 14)
         another_source_data.last_event = datetime.datetime(2017, 6, 1, 20)
-        self._adw.aggr_data.sources[self.tested_source_channel] = tested_source_data
-        self._adw.aggr_data.sources[self.other_source_channel] = another_source_data
+        self._adw.aggr_data.sources[self.tested_source] = tested_source_data
+        self._adw.aggr_data.sources[self.other_source] = another_source_data
 
         source_to_expected_events = self._get_source_to_expected_events_mapping()
 
@@ -1759,19 +1757,19 @@ class TestAggregatorDataWrapper(unittest.TestCase):
 
     def _get_source_to_expected_events_mapping(self):
         group1_other_source_payload = self.group1_expected_suppressed_payload.copy()
-        group1_other_source_payload["source"] = self.other_source_channel
+        group1_other_source_payload["source"] = self.other_source
         group1_other_source_event = ("suppressed", group1_other_source_payload)
         group2_other_source_payload = self.group2_expected_suppressed_payload.copy()
-        group2_other_source_payload["source"] = self.other_source_channel
+        group2_other_source_payload["source"] = self.other_source
         group2_other_source_event = ("suppressed", group2_other_source_payload)
         group3_other_source_event = self.group3_expected_suppressed_event
         return {
-            self.tested_source_channel: [
+            self.tested_source: [
                 self.group1_expected_suppressed_event,
                 self.group2_expected_suppressed_event,
                 self.group3_expected_suppressed_event,
             ],
-            self.other_source_channel: [
+            self.other_source: [
                 group1_other_source_event,
                 group2_other_source_event,
                 group3_other_source_event,
@@ -1784,8 +1782,8 @@ class TestAggregatorDataWrapper(unittest.TestCase):
 
 class TestAggregatorData(unittest.TestCase):
 
-    sample_source = "testsource.testchannel"
-    sample_other_source = "othersource.otherchannel"
+    sample_source = "testprovider.testchannel"
+    sample_other_source = "otherprovider.otherchannel"
     sample_group = "group1"
     sample_other_group = "group2"
     sample_time_tolerance = 500

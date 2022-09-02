@@ -17,6 +17,27 @@
   }
 }
 
+.action-input-group {
+  .input-field {
+    border-right: 0;
+  }
+  .input-group-prepend {
+    border-radius: 0 sizeToRem(5) sizeToRem(5) 0;
+    background-color: $dark-lighter;
+  }
+  .action-button-wrapper {
+    width: sizeToRem(54);
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    & > button {
+      margin: 0;
+      padding: 0;
+      background: transparent;
+    }
+  }
+}
+
 .input-field,
 .form-select .custom-select-button__control {
   min-height: sizeToRem(54) !important;

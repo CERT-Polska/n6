@@ -1,23 +1,44 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import ast
-import collections
 import configparser
+import contextlib
 import functools
 import json
 import os
 import os.path as osp
 import re
 import sys
+from collections.abc import (
+    Iterator,
+    Mapping,
+    Sequence,
+)
+from dataclasses import dataclass
+from typing import (
+    Any,
+    Callable,
+    Final,
+    Optional,
+    Protocol,
+    Union,
+    overload,
+    runtime_checkable,
+)
 
 from n6lib.argument_parser import N6ArgumentParser
-from n6lib.class_helpers import get_class_name
+from n6lib.class_helpers import (
+    CombinedWithSuper,
+    UnsupportedClassAttributesMixin,
+    get_class_name,
+)
 from n6lib.common_helpers import (
     DictWithSomeHooks,
     as_bytes,
     as_unicode,
     ascii_str,
     import_by_dotted_name,
+    make_exc_ascii_str,
     memoized,
     reduce_indent,
     splitlines_asc,
@@ -40,7 +61,7 @@ LOGGER = get_logger(__name__)
 # 0. Monkey-patching helpers
 ###
 
-# TODO: deprecate and later remove these legacy behaviors...
+# maybe TODO later: deprecate + later remove these legacy behaviors...
 def monkey_patch_configparser_to_provide_some_legacy_defaults():
     """
     Monkey-patch `__init__()` of `configparser.RawConfigParser` (and of
@@ -75,13 +96,171 @@ def monkey_patch_configparser_to_provide_some_legacy_defaults():
 
 
 ###
-# 1. Standard stuff (mainly `configparser`-based)
+# 1. Standard stuff (significant parts are `configparser`-based)
 ###
+
+OptConverter = Callable[[str], Any]
+
+
+
+@runtime_checkable
+class ConfigSpecEgg(Protocol):
+
+    r"""
+    A [protocol](https://peps.python.org/pep-0544/) of an alternate
+    form of a *configuration specification* (aka *config spec*; see
+    the docs of the `Config` class to learn what *config specs* are
+    in general...).
+
+    An object compliant with the `ConfigSpecEgg` protocol can be used,
+    interchangeably with a `str` (with an appropriately formatted
+    content), as an object representing a *configuration specification*
+    (or formattable *configuration specification pattern* if applicable)
+    when making use of the following tools provided by this module: the
+    `Config` and `ConfigMixin` classes, as well as the functions:
+    `as_config_spec_string()`, `parse_config_spec()`,
+    `join_config_specs()` and `combined_config_spec()`.
+
+    The central element of this protocol is the `hatch_out()` method
+    (see its signature and docs for more information).
+
+    Note that this protocol is a
+    [runtime-checkable](https://docs.python.org/3/library/typing.html#typing.runtime_checkable)
+    one.
+
+    ***
+
+    >>> class ExampleConfigSpecEgg:
+    ...
+    ...     __my_example_spec = '[spam]\nham = {default_ham} :: int'
+    ...
+    ...     def hatch_out(self, format_data_mapping=None):
+    ...         if format_data_mapping is None:
+    ...             return self.__my_example_spec
+    ...         return self.__my_example_spec.format_map(format_data_mapping)
+    ...
+    >>> egg = ExampleConfigSpecEgg()
+    >>> isinstance(egg, ConfigSpecEgg)  # (works because the protocol is runtime-checkable)
+    True
+    >>> egg.hatch_out()
+    '[spam]\nham = {default_ham} :: int'
+    >>> egg.hatch_out({'default_ham': 42})
+    '[spam]\nham = 42 :: int'
+    >>> egg.hatch_out(format_data_mapping={'default_ham': 42})
+    '[spam]\nham = 42 :: int'
+    """
+
+    def hatch_out(self,
+                  format_data_mapping: Optional[Mapping[str, Any]] = None) -> str:
+        """
+        Obtain a *configuration specification* string (or *configuration
+        specification pattern* string) that is "virtually" represented
+        by a `ConfigSpecEgg`-compliant object on which this method is
+        invoked.
+
+        ***
+
+        Any `ConfigSpecEgg`-compliant object is supposed to represent a
+        certain *configuration specification* string or *configuration
+        specification pattern* string, even though the string itself
+        does not need to be stored -- as "materialization" of it (or
+        "hatching out") can be deferred until this method is invoked.
+        That is, execution of this method is the last moment when the
+        underlying data (whatever form it takes) needs to be processed
+        to produce a plain string.
+
+        In other words, before a call to this method a *configuration
+        specification* (or *configuration specification pattern*)
+        represented by the object may be "virtual", but such a call
+        extracts from it its "concrete" form (a `str`).
+
+        In still other words: a *config spec* string (or *config spec
+        pattern* string) "hatches" from the *config spec egg*.
+
+        ***
+
+        Args/kwargs:
+            `format_data_mapping` (a mapping or `None`; default: `None`):
+                If the argument is given and not `None` then the
+                resultant string should be a *configuration
+                specification* that "hatched" involving a
+                `str.format_map()`-like operation equivalent
+                to `<the underlying "virtual" config spec
+                pattern>.format_map(format_data_mapping)`.
+
+                If the argument is `None` (or not given) then
+                the resultant string should be the underlying
+                *configuration specification* (or *configuration
+                specification pattern*) that "hatched" *without*
+                any such `str.format_map()`-like operation.
+
+        Returns:
+            The "hatched" *configuration specification* (or
+            *configuration specification pattern*), being a
+            plain `str`.
+
+        Raises:
+            The exact type is implementation-dependant; preferably:
+            `ConfigSpecEggError` or a subclass of it (unless there is
+            a good reason to raise some other exception).
+
+        ***
+
+        *Important:*
+
+        * It should be assumed that this method may be invoked multiple
+          times on the same `ConfigSpecEgg`-compliant object, to obtain
+          results based on the same underlying object's data (possibly
+          with different values of the `format_data_mapping` argument,
+          if given); so implementations should treat the `self` object
+          as immutable, or at least ensure that a call to this method
+          never changes the object's state in a way that could affect
+          results of any further calls.
+
+        * Unless there is a specific reason to do otherwise, the
+          `format_data_mapping` object *itself*, if not None, should be
+          used to perform all `str.format_map()`-like operations on (any
+          underlying) *config spec pattern(s)* -- to let any features
+          and side effects provided by the type of that mapping object
+          (which does not need to be a plain `dict`!) be used/take place
+          *regarding that particular mapping object*, during all that
+          operations.
+
+        ***
+
+        *Additional note:*
+
+        When, in your client code, you need to obtain a *config spec*
+        (or a formattable *config spec pattern*) as a string -- from a
+        *config spec* (or, respectively, *config spec pattern*) which
+        may be either an egg (`ConfigSpecEgg`-compliant object) or a
+        string -- then it is recommended to use the utility function
+        `as_config_spec_string()`; by using that function you are able
+        to treat the input value uniformly regardless of whether it is
+        an egg or a string (the function takes care of doing the right
+        thing, in particular, by invoking the `hatch_out()` method if
+        the argument is an egg). This advice regards also obtaining a
+        formatted *config spec* from a formattable *config spec pattern*
+        (regardless whether an egg or a string is given): in such a case
+        just pass your *format data mapping* as the second argument to
+        the `as_config_spec_string()` function (see also its docs).
+        """
+        raise NotImplementedError
+
+
+
+class ConfigSpecEggError(Exception):
+    """
+    The preferred class of exceptions raised by concrete implementations
+    of the `ConfigSpecEgg.hatch_out()` method (see its docs).
+    """
+
+
 
 class ConfigError(Exception):
 
     """
-    A generic, Config-related, exception class.
+    A generic, `Config`-related, exception class.
 
     >>> print(ConfigError('Some Message'))
     [configuration-related error] Some Message
@@ -92,7 +271,7 @@ class ConfigError(Exception):
     """
 
     def __str__(self):
-        return '[configuration-related error] ' + super(ConfigError, self).__str__()
+        return '[configuration-related error] ' + super().__str__()
 
 
 
@@ -101,14 +280,22 @@ _KeyError_str = getattr(KeyError.__str__, '__func__', KeyError.__str__)
 class _KeyErrorSubclassMixin(KeyError):  # a non-public helper
 
     def __str__(self):
-        # we want to *avoid* using KeyError.__str__() (which -- contrary
-        # to what Exception.__str__() does -- applies repr() to a sole
-        # string argument) so we *skip* it in the MRO
-        method = super(_KeyErrorSubclassMixin, self).__str__
+        # Rationale: we want to *avoid* use of the `KeyError`'s
+        # implementation of `__str__()` because that implementation
+        # -- contrary to what `Exception.__str__()` does -- applies
+        # `repr()` (instead of `str()`) to the value of the exception
+        # Constructor's argument also when it is the only argument.
+        # So here we *skip* that implementation in the MRO of the
+        # exception class.
+        method = super().__str__
         if getattr(method, '__objclass__', None) is KeyError or (
-              # for compatibility with non-CPython (e.g. PyPy):
+              # (Let's perform also a *pure-Python* version of this check
+              # -- for compatibility with non-CPython, e.g., PyPy, just
+              # in case it is ever used by us...)
               _KeyError_str is not None and
               _KeyError_str is getattr(method, '__func__', None)):
+            # Note: here the first argument passed to `super()` is
+            # `KeyError`, *not* the current class (!).
             method = super(KeyError, self).__str__
         return method()
 
@@ -117,7 +304,7 @@ class _KeyErrorSubclassMixin(KeyError):  # a non-public helper
 class NoConfigSectionError(_KeyErrorSubclassMixin, ConfigError):
 
     """
-    Raised by Config.__getitem__() when the specified section is missing.
+    Raised by `Config.__getitem__()` when the specified section is missing.
 
     >>> exc = NoConfigSectionError('some_sect')
     >>> isinstance(exc, ConfigError) and isinstance(exc, KeyError)
@@ -127,17 +314,26 @@ class NoConfigSectionError(_KeyErrorSubclassMixin, ConfigError):
     >>> exc.sect_name
     'some_sect'
 
-    >>> from decimal import Decimal as D
-    >>> exc2 = NoConfigSectionError('some_sect', 'arg', D(42))
+    >>> exc2 = NoConfigSectionError()
     >>> print(exc2)
+    [configuration-related error] no config section <unspecified>
+    >>> exc2.sect_name is None
+    True
+
+    >>> from decimal import Decimal as D
+    >>> exc3 = NoConfigSectionError('some_sect', 'arg', D(42))
+    >>> print(exc3)
     [configuration-related error] ('no config section `some_sect`', 'arg', Decimal('42'))
-    >>> exc2.sect_name
+    >>> exc3.sect_name
     'some_sect'
     """
 
-    def __init__(self, sect_name, *args):
-        msg = "no config section `{0}`".format(sect_name)
-        super(NoConfigSectionError, self).__init__(msg, *args)
+    sect_name: Optional[str]
+
+    def __init__(self, sect_name=None, *args):
+        sect_ref = f'`{sect_name}`' if sect_name is not None else '<unspecified>'
+        msg = f'no config section {sect_ref}'
+        super().__init__(msg, *args)
         self.sect_name = sect_name
 
 
@@ -145,7 +341,7 @@ class NoConfigSectionError(_KeyErrorSubclassMixin, ConfigError):
 class NoConfigOptionError(_KeyErrorSubclassMixin, ConfigError):
 
     """
-    Raised by ConfigSection.__getitem__() when the specified option is missing.
+    Raised by `ConfigSection.__getitem__()` when the specified option is missing.
 
     >>> exc = NoConfigOptionError('mysect', 'myopt')
     >>> isinstance(exc, ConfigError) and isinstance(exc, KeyError)
@@ -157,19 +353,30 @@ class NoConfigOptionError(_KeyErrorSubclassMixin, ConfigError):
     >>> exc.opt_name
     'myopt'
 
-    >>> from decimal import Decimal as D
-    >>> exc2 = NoConfigOptionError('S', 'o', D(42))
+    >>> exc2 = NoConfigOptionError()
     >>> print(exc2)
+    [configuration-related error] no config option <unspecified> in section <unspecified>
+    >>> exc2.sect_name is None and exc2.opt_name is None
+    True
+
+    >>> from decimal import Decimal as D
+    >>> exc3 = NoConfigOptionError('S', 'o', D(42))
+    >>> print(exc3)
     [configuration-related error] ('no config option `o` in section `S`', Decimal('42'))
-    >>> exc2.sect_name
+    >>> exc3.sect_name
     'S'
-    >>> exc2.opt_name
+    >>> exc3.opt_name
     'o'
     """
 
-    def __init__(self, sect_name, opt_name, *args):
-        msg = "no config option `{0}` in section `{1}`".format(opt_name, sect_name)
-        super(NoConfigOptionError, self).__init__(msg, *args)
+    sect_name: Optional[str]
+    opt_name: Optional[str]
+
+    def __init__(self, sect_name=None, opt_name=None, *args):
+        sect_ref = f'`{sect_name}`' if sect_name is not None else '<unspecified>'
+        opt_ref = f'`{opt_name}`' if opt_name is not None else '<unspecified>'
+        msg = f'no config option {opt_ref} in section {sect_ref}'
+        super().__init__(msg, *args)
         self.sect_name = sect_name
         self.opt_name = opt_name
 
@@ -178,110 +385,137 @@ class NoConfigOptionError(_KeyErrorSubclassMixin, ConfigError):
 class Config(DictWithSomeHooks):
 
     r"""
-    Parse the configuration and provide a dict-like access to it.
+    Parse the configuration and provide a `dict`-like access to it.
 
-    Config is a dict subclass.  Generally, its instances behave like a
-    dict; lookup-by-key failures are signalled with NoConfigSectionError
-    which is a subclass of both KeyError and ConfigError.  A Config
-    instance maps configuration section names (str) to ConfigSection
-    instances.
+    `Config` is a subclass of `dict`.  Generally, `Config` instances
+    behave like a `dict`; lookup-by-key failures are signalled with
+    `NoConfigSectionError` which is a subclass of both `KeyError`
+    and `ConfigError`.  A `Config` instance maps configuration
+    section names (`str`) to `ConfigSection` instances.
 
-    There are two main ways of Config instantiation:
+    There are two main ways of `Config` instantiation:
 
     * the modern (recommended) way -- with so called *configuration
       specification* as the obligatory argument (`config_spec`) and
       a few optional keyword arguments (see the "Modern way of
       instantiation" section below).
 
-    * the legacy (obsolete) way -- with the `required` dict (that maps
-      required section names to sequences of required option names) as
-      the sole (but still *optional*) argument (see the "Legacy way of
-      instantiation" section below).
+    * the legacy (obsolete) way -- with exactly one argument
+      (`required`) whose value is a `dict` that maps required
+      section names to sequences of required option names (see
+      the "Legacy way of instantiation" section below).
 
 
     Modern way of instantiation (recommended)
     -----------------------------------------
 
-    Args (obligatory):
-        `config_spec` (str):
-            The configuration specification in a `configparser`-like
-            format.  It defines: what config sections are to be
-            included, what config options are legal, what config options
-            are required, how values of particular config options shall
-            be converted (e.g., coerced to int or bool...).  See the
-            "Configuration specification format" section below.
+    Args (positional-only):
+        `config_spec` (a `str` or `ConfigSpecEgg`-compliant object):
+            The *configuration specification* (aka *config spec*) in a
+            format which is somewhat similar to the `configparser`-like
+            `*.ini`-format.  Such a specification defines: what config
+            sections are to be included, what config options are legal,
+            what config options are required, how values of particular
+            config options shall be converted (e.g., coerced to `int` or
+            `bool`...).  See the "Configuration specification format"
+            section below.
 
-    Kwargs (optional):
-        `settings` (dict or None; default: None):
+            *Note*: unlike some other tools provided by this module, the
+            `Config` class by itself supports only ready *configuration
+            specifications*, not formattable *configuration specification
+            patterns* (but, obviously, an already formatted configuration
+            specification based on such a pattern is perfectly OK).
+
+    Kwargs (all optional):
+        `settings` (a mapping or `None`; default: `None`):
             Depending on the value of the argument:
 
-            * if it is None (the default value), the configuration will
-              be read from /etc/n6/*.conf and ~/.n6/*.conf files
-              (excluding logging.* and logging-*); this is so called
-              "N6Core way" of obtaining the configuration;
+            * if it is `None` (the default value), the configuration will
+              be loaded from all files that:
+
+              * reside in the "/etc/n6" or "~/.n6" directories, or any
+                subdirectories of them (recursively...), *and*
+
+              * have a name matching the regular expression specified
+                by the `config_filename_regex` argument (by default:
+                a string starting with two ASCII digits followed by
+                '_', and ending with '.conf') and -- at the same
+                time -- *not* matching the regex specified by the
+                `config_filename_excluding_regex` argument (by default:
+                a string starting with 'logging.' or 'logging-');
+
+              this is so called "N6DataPipeline way" of obtaining the
+              configuration;
 
               NOTE that all normal `configparser` processing is done
               (in its modern-Python 3.x-specific flavor, except that
               `;`-prefixed inline comments are still enabled and
               duplicate section or option names are still allowed);
               especially option names (but *not* section names) are
-              normalized to lowercase -- before applying converters
-              (see below: the description of the `custom_converters`
-              argument);
+              normalized to lowercase;
 
-            * if it is not None, it must be a Pyramid-like settings
-              dictionary -- mapping '<section name>.<option name>'
+            * if not `None`, it must be a Pyramid-like settings mapping
+              (e.g., `dict`) -- that maps '<section name>.<option name>'
               strings to raw option value strings; the configuration
-              will be taken from the dictionary, *not* from any files;
-              this is so called "Pyramid way" of obtaining the
-              configuration; typically the content of the `settings`
-              dictionary is the result of parsing the `[app:main]` part
-              of a Pyramid *.ini file in which each option is specified
+              will be taken from the mapping, *not* from any files;
+
+              this is so-called "Pyramid way" of obtaining the
+              configuration; then `settings` is typically a `dict` whose
+              content is the result of parsing the `[app:main]` part of
+              a Pyramid "*.ini" file in which each option is specified
               in the `<section name>.<option name> = <option value>`
               format;
 
-              NOTE: option names taken from a `settings` dict (contrary
-              to option names from configuration files parsed with
-              `configparser` stuff) are *not* normalized to lowercase;
-              on the other hand, any non-str option values (if any) --
-              before being converted (see below: the description of
-              the `custom_converters` argument) -- are coerced to str
-              (especially, bytes/bytearray values are decoded to str
-              using UTF-8).
+              NOTE: option names taken from `settings` (contrary
+              to option names from configuration files residing in
+              "/etc/n6" or "~/.n6", or their subdirectories...) are
+              *not* normalized to lowercase; on the other hand, any
+              non-`str` option values (if any) -- before being converted
+              (see below: the description of the `custom_converters`
+              argument) -- are coerced to `str` (especially, `bytes`
+              and `bytearray` values are decoded to `str` using the
+              UTF-8 encoding).
 
-        `custom_converters` (dict or None; default: None):
-            If not None it must be a dictionary that maps custom
-            converter names (being strings) to actual converter callables.
-            Such a callable (e.g., a function) must take one argument being
-            a str instance and return a value of some type.  By default,
-            only converters defined in the Config.BASIC_CONVERTERS
-            dictionary (mapping standard converter names to their
-            callables) are used to convert values of raw options (which
-            are marked in `config_spec` with a particular converter
-            name, aka converter spec) to actual values; if a
-            `custom_converters` dictionary is specified the converters
-            it contains are also applied (they can even override
-            converters defined in Config.BASIC_CONVERTERS).  See also
-            the "Configuration specification format" and "Standard
-            converter specs" sections below.
+        `custom_converters` (a mapping or `None`; default: `None`):
+            If not `None` it must be a mapping (e.g., `dict`) that maps
+            custom converter names (of type `str`) to actual converter
+            callables. Such a callable (e.g., a function) must take one
+            argument being a `str` instance and return a value of some
+            type.  By default, only converters defined in the
+            `Config.BASIC_CONVERTERS` mapping (that maps standard
+            converter names to their callables) can be used to convert
+            values of raw options (options are marked in `config_spec`
+            with a particular converter name, aka *converter spec*) to
+            actual values; if a `custom_converters` mapping is specified,
+            the converters it contains can also be used (they can even
+            override converters defined in `Config.BASIC_CONVERTERS`,
+            though such a practice is *not* recommended).  See also the
+            "Configuration specification format" and "Standard converter
+            specs" sections below.
 
-        `default_converter` (str or callable; default: the str() constructor):
-            This argument specifies the converter callable (see the
-            description of `custom_converters` above) to be used to
-            convert values of options that are *not* marked in
-            `config_spec` with any converter name.  If a str (i.e., not
-            a callable) then it must be a key in at least one of the
-            mappings: Config.BASIC_CONVERTERS or `custom_converters`.
+        `config_filename_regex` (a `str` or `re.Pattern`, or `None`; default: `None`):
+            Configuration may be loaded *only* from those files whose
+            names match this regular expression. `None` is equivalent
+            to the value of `Config.DEFAULT_CONFIG_FILENAME_REGEX`. The
+            argument is relevant only when the "N6DataPipeline way" of
+            obtaining the configuration is in use (i.e., if `settings`
+            is `None`), otherwise it is ignored.
+
+        `config_filename_excluding_regex` (a `str` or `re.Pattern`, or `None`; default: `None`):
+            Configuration will *never* be loaded from any files whose
+            names match this regular expression. `None` is equivalent to
+            the value of `Config.DEFAULT_CONFIG_FILENAME_EXCLUDING_REGEX`.
+            The argument is relevant only when the "N6DataPipeline way"
+            of obtaining the configuration is in use (i.e., if `settings`
+            is `None`), otherwise it is ignored.
 
     Raises:
-        * ConfigError -- for any configuration-related error,
-          with an error message describing what was the problem.
+        Any exception from `parse_config_spec(config_spec)`:
+            see the docs of the `parse_config_spec()` function.
 
-        * TypeError -- if `config_spec` is not an instance of str.
-
-        * KeyError -- if `default_converter` specified as a str
-          is not a key in in at least one of the mappings:
-          Config.BASIC_CONVERTERS and `custom_converters`.
+        `ConfigError`:
+            for any configuration-related error (with an error message
+            describing what is the problem).
 
 
     NOTE:
@@ -291,9 +525,8 @@ class Config(DictWithSomeHooks):
 
     * Option values are converted (see: the description of the
       `custom_converters` argument above) according to the specified
-      `config_spec`, using Config.BASIC_CONVERTERS (optionally, also
-      `custom_converters` and/or `default_converter` -- described
-      above).
+      `config_spec`, using `Config.BASIC_CONVERTERS` (optionally, also
+      `custom_converters` -- described above).
 
     (Compare the above notes with those in the "Legacy way of
     instantiation" section below.)
@@ -301,31 +534,25 @@ class Config(DictWithSomeHooks):
 
     Examples:
 
-        MY_CONFIG_SPEC = '''
-        [first]
-        foo = bar          ; no converter spec, default value: 'bar'
-        spam = 42 :: int   ; converter spec: int, default value: 42
+        config_spec = '''
+            [first]
+            foo = bar          ; no converter spec, default value: 'bar'
+            spam = 42 :: int   ; converter spec: int, default value: 42
 
-        [second]
-        spam :: float      ; converter spec: float, no default value (required)
-        boo = yes :: bool  ; converter spec: bool, default value: True
+            [second]
+            spam :: float      ; converter spec: float, no default value (required)
+            boo = yes :: bool  ; converter spec: bool, default value: True
         '''
 
         # from config files:
-        my_config = Config(MY_CONFIG_SPEC)
+        my_config = Config(config_spec)
 
-        # from a Pyramid-like `settings` dict:
-        my_config = Config(MY_CONFIG_SPEC, settings={
+        # from a Pyramid-like `settings` mapping:
+        my_config = Config(config_spec, settings={
             'first.foo': 'two bars',
             'first.spam': '43',       # note: this is a raw value (str)
             'second.spam': '44.2',    # note: this is a raw value (str)
         })
-
-        # from config files + with custom default converter
-        # (which here will be applied to the value of the
-        # `foo` option in the `first` section because that
-        # option does not have its own converter spec)
-        my_config = Config(MY_CONFIG_SPEC, default_converter=str.upper)
 
     Then you can easily get the needed information:
 
@@ -335,44 +562,47 @@ class Config(DictWithSomeHooks):
         foo = my_config['first']['foo']
 
 
-    See also: the ConfigMixin class which makes Config instantiation
+    See also: the `ConfigMixin` class which makes `Config` instantiation
     (the modern variant) as convenient as possible.
 
 
-    Convenience class method: Config.section()
-    ------------------------------------------
+    Convenience class method: `Config.section()`
+    --------------------------------------------
 
     There is also a convenience solution for (frequent) cases when there
-    is only one section in the config spec -- so you are interested
-    directly in the ConfigSection object (the only one) rather than in
-    its "parent" Config object: the Config.section() class method.
+    is only one section in the *config spec* -- so you are interested
+    directly in the `ConfigSection` object (the only one) rather than in
+    its "parent" `Config` object: the `Config.section()` class method.
+
     Example:
 
-        SIMPLE_CONFIG_SPEC = '''
+        simple_config_spec = '''
             [the]
             foo = bar
             spam = 42 :: int
         '''
-        the_section = Config.section(SIMPLE_CONFIG_SPEC,
+        the_section = Config.section(simple_config_spec,
                                      settings={'the.foo': 'Xyz'})
         assert the_section['foo'] == 'Xyz'
         assert the_section['spam'] == 42
 
-    See also: the ConfigMixin class which makes creating a ConfigSection
-    from config spec even more convenient.
+    See also: the `ConfigMixin` class which makes creating a
+    `ConfigSection` based on a *config spec* even more convenient.
 
 
     Configuration specification format
     ----------------------------------
 
-    The syntax of `config_spec` strings is similar to the standard
-    INI-format config syntax -- with the proviso that:
+    The syntax of *configuration specification* (aka *config spec*)
+    strings is similar to the standard `*.ini`-format config syntax --
+    with the proviso that:
 
     * the value of an option specifies its default value;
 
-    * it can be followed by `:: <converter_spec>` where <converter_spec>
-      is a name of a value converter (such as 'int', 'float', 'bool'
-      etc.);
+    * it can be followed by `:: <converter_spec>` where `<converter_spec>`
+      is a name of a value converter (such as `int`, `float`, `bool`
+      etc.; in particular, see the "Standard converter specs" section
+      below);
 
     * if the default value is not specified (i.e., the *no-value* option
       syntax is used) the `:: <config_spec>` part can follow just the
@@ -386,31 +616,47 @@ class Config(DictWithSomeHooks):
 
     * a `...` marker can be followed by `:: <converter_spec>` -- then
       the specified value converter will be applied to all "free"
-      ("arbitrary") options in a particular section.
+      ("arbitrary") options in a particular section;
+
+    * the whole string must not contain any *reserved characters*, i.e.,
+      any of `Config.CONFIG_SPEC_RESERVED_CHARS` (which are `\x00` and
+      `\x01`, that is, the characters whose ASCII codes are, respectively,
+      0 and 1);
+
+    * the crux of the configuration specification *parsing algorithm* is
+      implemented in a (non-public) subclass of the `ConfigString` class
+      (which is *not* based on the standard `configparser` stuff; see
+      the docs of `ConfigString` for information on some, non-major,
+      syntactic differences);
+
+    * the whole operation of parsing a *config spec* (normally, run by
+      the machinery of `Config`) is exposed as the `parse_config_spec()`
+      utility function (see also its docs, in particular, the examples
+      included there...).
 
     Example:
 
-        SOME_CONFIG_SPEC = '''
-        [some_section]
-        some_opt = default val :: bool   ; default value + converter spec
-        another_opt = its default val    ; default value, no converter spec
-        required_without_default :: int  ; converter spec, no default value
-        another_required_opt             ; no converter spec, no default value
-        ...           ; `...` means that other (arbitrary) options are allowed
+        config_spec = '''
+            [some_section]
+            some_opt = default val :: bool   ; default value + converter spec
+            another_opt = its default val    ; default value, no converter spec
+            required_without_default :: int  ; converter spec, no default value
+            another_required_opt             ; no converter spec, no default value
+            ...           ; `...` means that other (arbitrary) options are allowed in this section
 
-        [another_section]
-        some_required_opt :: bool
-        yet_another_option : yes :: date
-        # below: `...` with a converter spec -- means that other (arbitrary)
-        # options are allowed and that the specified converter shall be applied
-        # to their values
-        ... :: bool
+            [another_section]
+            some_required_opt :: bool
+            yet_another_option : yes :: date
+            # below: `...` with a converter spec -- means that other
+            # (arbitrary) options are allowed is this section *and* that
+            # the specified converter shall be applied to their values
+            ... :: bool
 
-        [yet_another_section]
-        some_required_opt
-        a_few_numbers = 1, 2, 3, 44 :: list_of_int
-        # note: lack of `...` means that only the `some_required_opt` and
-        # `a_few_numbers` options are allowed in this section
+            [yet_another_section]
+            some_required_opt
+            a_few_numbers = 1, 2, 3, 44 :: list_of_int
+            # note: lack of `...` means that only the `some_required_opt` and
+            # `a_few_numbers` options are allowed in this section
         '''
 
 
@@ -418,108 +664,116 @@ class Config(DictWithSomeHooks):
     ------------------------
 
     There is a set of converters that are accessible out-of-the-box
-    (they are defined in the Config.BASIC_CONVERTERS constant).
+    (they are defined in the `Config.BASIC_CONVERTERS` constant).
 
-    Below -- standard converter specs with example conversions:
+    Below -- the standard converter specs with conversion examples:
 
-    * str: 'abc ś' -> 'abc ś'
-           (practically, it is a "do nothing" conversion)
+    `str`:
+        `"abc ś"` -> `"abc ś"`
+        (practically, it is a "do nothing" conversion)
 
-    * unicode: 'abc ś' -> 'abc ś'
-               (implementation: n6lib.common_helpers.as_unicode();
-               deprecated, as in Py3 it practically duplicates str)
+    `bytes`:
+        `"abc ś"` -> `b"abc \xc5\x9b"`
+        (implementation: `n6lib.common_helpers.as_bytes()`)
 
-    * bytes: 'abc ś' -> b'abc \xc5\x9b'
-             (implementation: n6lib.common_helpers.as_bytes())
+    `bool`:
+        `"true"` or `"t"` or `"yes"` or `"y"` or `"on"` or `"1"` -> `True`
+        `"false"` or `"f"` or `"no"` or `"n"` or `"off"` or `"0"` -> `False`
+        (case-insensitive, so uppercase letters are also OK;
+        implementation: `n6lib.common_helpers.str_to_bool()`)
 
-    * bool: 'true' or 't' or 'yes' or 'y' or 'on' or '1' -> True
-            'false' or 'f' or 'no' or 'n' or 'off' or '0' -> False
-            (case-insensitive so uppercase letters are also OK;
-            implementation: n6lib.common_helpers.str_to_bool())
+    `int`:
+        `"42"` -> `42`
+        `"-42"` -> `-42`
 
-    * int: '42' -> 42
-           '-42' -> -42
+    `float`:
+        `"42"` -> `42.0`
+        `"-42.2"` -> `-42.2`
 
-    * float: '42' -> 42.0
-             '-42.2' -> -42.2
+    `date`:
+        `"2010-07-19"` -> `datetime.date(2010, 7, 19)`
+        (implementation: `n6lib.datetime_helpers.parse_iso_date()`)
 
-    * date: '2010-07-19' -> datetime.date(2010, 7, 19)
-            (implementation: n6lib.datetime_helpers.parse_iso_date())
+    `datetime`:
+        `"2010-07-19 12:39:45+02:00"`
+        -> `datetime.datetime(2010, 7, 19, 10, 39, 45)`
+        (note: normalizing timezone to UTC; implementation:
+        `n6lib.datetime_helpers.parse_iso_datetime_to_utc()`)
 
-    * datetime: '2010-07-19 12:39:45+02:00'
-                -> datetime.datetime(2010, 7, 19, 10, 39, 45)
-                (note: normalizing timezone to UTC; implementation:
-                n6lib.datetime_helpers.parse_iso_datetime_to_utc())
+    `list_of_str`:
+        `"a, b, c, d, e,"`  -> `["a", "b", "c", "d", "e"]`
+        `"a,b,c,d,e"`       -> `["a", "b", "c", "d", "e"]`
+        `" a, b,c,d , e, "` -> `["a", "b", "c", "d", "e"]`
 
-    * list_of_str: 'a, b, c, d, e,'  -> ['a', 'b', 'c', 'd', 'e']
-                   'a,b,c,d,e'       -> ['a', 'b', 'c', 'd', 'e']
-                   ' a, b,c,d , e, ' -> ['a', 'b', 'c', 'd', 'e']
+    `list_of_bytes`:
+        `" a, b,c,d , e, "` -> `[`b"a", b"b", b"c", b"d", b"e"]`
 
-    * list_of_unicode: ' a, b,c,d , e, ' -> ['a', 'b', 'c', 'd', 'e']
-                       (deprecated, as in Py3 it practically duplicates list_of_str)
+    `list_of_bool`:
+        `"yes,No , True ,OFF"` -> `[True, False, True, False]`
 
-    * list_of_bytes: ' a, b,c,d , e, ' -> [b'a', b'b', b'c', b'd', b'e']
+    `list_of_int`:
+        `"42,43,44,"` -> `[42, 43, 44]`
 
-    * list_of_bool: 'yes,No , True ,OFF' -> [True, False, True, False]
+    `list_of_float`:
+        `" 0.2 , 0.4 "` -> `[0.2, 0.4]`
 
-    * list_of_int: '42,43,44,' -> [42, 43, 44]
+    `list_of_date`:
+        `"2010-07-19, 2011-08-20"`
+        -> `[datetime.date(2010, 7, 19), datetime.date(2010, 7, 20)]`
 
-    * list_of_float: ' 0.2 , 0.4 ' -> [0.2, 0.4]
+    `list_of_datetime`:
+        `"2010-07-19 12:39:45+02:00,2011-08-20T23:23,"`
+        -> `[datetime.datetime(2010, 7, 19, 10, 39, 45),
+             datetime.datetime(2010, 7, 20, 23, 23)]`
 
-    * list_of_date: '2010-07-19, 2011-08-20'
-                    -> [datetime.date(2010, 7, 19),
-                        datetime.date(2010, 7, 20)]
+    `importable_dotted_name`:
+        `"sqlalchemy.orm.properties.ColumnProperty"`
+        -> <the `ColumnProperty` class from the `sqlalchemy.orm.properties` module>
+        (implementation: `n6lib.common_helpers.import_by_dotted_name()`)
 
-    * list_of_datetime: '2010-07-19 12:39:45+02:00,2011-08-20T23:23,'
-                        -> [datetime.datetime(2010, 7, 19, 10, 39, 45),
-                            datetime.datetime(2010, 7, 20, 23, 23)]
+    `py`:
+        `"[('a',), {42: None}]"` -> `[("a",), {42: None}]`
+        (accepts any Python literal; implementation makes use of
+        `ast.literal_eval()`)
 
-    * importable_dotted_name: 'sqlalchemy.orm.properties.ColumnProperty'
-                              -> <the `ColumnProperty` class from the
-                                 `sqlalchemy.orm.properties` module>
-                              (implementation:
-                              n6lib.common_helpers.import_by_dotted_name())
+    `py_namespaces_dict`:
+        `"{'spam': [42, 43, 44], 'ham': {'a': 45.6789}"`
+        -> `{'spam': [42, 43, 44], 'ham': {'a': 45.6789}`
+        (same as `py` but accepts only a literal of a `dict`
+        whose all keys are `str` instances; values can be of
+        any literal-representable types, except that those being
+        `dict`s must obey the same restrictions, recursively...)
 
-    * py: "[('a',), {42: None}]" -> [('a',), {42: None}]
-          (accepts any Python literal;
-          implementation makes use of ast.literal_eval())
-
-    * py_namespaces_dict: "{'spam': [42, 43, 44], 'ham': {'a': 45.6789}"
-                          -> {'spam': [42, 43, 44], 'ham': {'a': 45.6789}
-                          (same as `py` but accepts only a literal of
-                          a dict whose all keys are of the str type;
-                          values can be of any literal-representable
-                          types, except that those being dicts must
-                          obey the same restrictions, recursively...)
-
-    * json: '[["a"], {"b": null}]' -> [['a'], {'b': None}]
-            (implementation uses json.loads())
+    `json`:
+        `'[["a"], {"b": null}]'` -> `[['a'], {'b': None}]`
+        (implementation uses `json.loads()`)
 
     All `list_of_...` converters are implemented using the
-    Config.make_list_converter() static method; you can use it to
-    implement your own custom list converters.
+    `Config.make_list_converter()` static method; you can
+    use it to implement your own custom *list-of* converters.
 
 
     Legacy way of instantiation (obsolete)
     --------------------------------------
 
-    Args/kwargs (optional):
-        `required` (dict):
-            A dictionary that maps required section names (strings) to
+    Args/kwargs:
+        `required` (a `dict`):
+            A dictionary that maps required section names (`str`) to
             sequences (such as tuples or lists) of required option
-            names, e.g.: `{'section1': ('opt1', 'opt2'), 'section2':
-            ['another_opt']}`.  Note that any other section/option names
-            are legal and the resultant Config will contain them as
-            well.
+            names (`str`), e.g.: `{'section1': ('opt1', 'opt2'),
+            'section2': ['another_opt']}`.  Note that any other
+            section/option names are legal and the resultant
+            `Config` will contain them as well.
 
     Raises:
-        * SystemExit (!) -- if any required section/option is missing.
-        * configparser.Error (or any of its subclasses) -- if a config
-          file cannot be properly parsed.
+        `SystemExit` (!):
+            if any required section/option is missing.
+        `configparser.Error` (or any of its subclasses):
+            if a config file cannot be properly parsed.
 
     NOTE:
 
-    * The resultant Config instance contains all sections and options --
+    * The resultant `Config` instance contains all sections and options --
       from all read files.
 
     * All resultant option values are just strings (*no* conversion is
@@ -532,19 +786,20 @@ class Config(DictWithSomeHooks):
     Override config values for particular script run
     ------------------------------------------------
 
-    If a script uses the "N6Core way" of obtaining the configuration
-    data (i.e., reads them from `.conf` files) -- no matter whether the
-    *modern* or the *legacy* variant of instantiation is employed -- it
-    is possible to override selected config options *for a particular
-    script run* using the `--n6config-override` command line argument.
+    If a script uses the "N6DataPipeline way" of obtaining the
+    configuration (i.e., reads it from files in "/etc/n6/", "~/.n6/",
+    etc.) -- no matter whether the *modern* or the *legacy* variant of
+    instantiation is employed -- it is possible to override selected
+    config options *for a particular script run* using the command-line
+    argument `--n6config-override`.
 
     Check `n6lib.argument_parser.N6ArgumentParser` for more information.
 
     **Important proviso**: the *logging configuration* options are read
     and parsed by a machinery which is completely *separate* from the
     `n6lib.config.Config`-related stuff -- therefore you **cannot** use
-    the `--n6config-override` command line argument to override those
-    options.
+    the `--n6config-override` command line argument to override logging
+    configuration options.
     """
 
 
@@ -599,8 +854,8 @@ class Config(DictWithSomeHooks):
             non_str_keys = [key for key, _ in items if not isinstance(key, str)]
             if non_str_keys:
                 raise _NonStrKey(
-                    'this {} should contain only str keys '
-                    '(but contains some non-str ones: {})'.format(
+                    'this {} should contain only string keys '
+                    '(but contains some non-string ones: {})'.format(
                         ref_word,
                         ', '.join(map(ascii, non_str_keys))))
             for key, val in items:
@@ -623,11 +878,22 @@ class Config(DictWithSomeHooks):
     # Public interface
     #
 
-    # public constant (should never be modified in-place!)
-    BASIC_CONVERTERS = dict({
+    #
+    # Public constants (should never be modified in-place or replaced!)
+
+    # (characters not allowed in *config specs*, as they
+    # are reserved for this module's internal purposes)
+    CONFIG_SPEC_RESERVED_CHAR_00: Final[str] = '\x00'
+    CONFIG_SPEC_RESERVED_CHAR_01: Final[str] = '\x01'
+    CONFIG_SPEC_RESERVED_CHARS: Final[frozenset[str]] = frozenset({
+        CONFIG_SPEC_RESERVED_CHAR_00,
+        CONFIG_SPEC_RESERVED_CHAR_01,
+    })
+
+    DEFAULT_CONVERTER_SPEC: Final[str] = 'str'
+    BASIC_CONVERTERS: Final[Mapping[str, OptConverter]] = dict({
         'str': str,
         'bytes': as_bytes,
-        'unicode': as_unicode,
         'bool': str_to_bool,
         'int': int,
         'float': float,
@@ -635,7 +901,6 @@ class Config(DictWithSomeHooks):
         'datetime': parse_iso_datetime_to_utc,
         'list_of_str': __make_list_converter(str, 'list_of_str'),
         'list_of_bytes': __make_list_converter(as_bytes, 'list_of_bytes'),
-        'list_of_unicode': __make_list_converter(as_unicode, 'list_of_unicode'),
         'list_of_bool': __make_list_converter(str_to_bool, 'list_of_bool'),
         'list_of_int': __make_list_converter(int, 'list_of_int'),
         'list_of_float': __make_list_converter(float, 'list_of_float'),
@@ -644,40 +909,65 @@ class Config(DictWithSomeHooks):
         'importable_dotted_name': import_by_dotted_name,
         'json': json.loads,
     }, **__py_literal_converters())
+    assert DEFAULT_CONVERTER_SPEC in BASIC_CONVERTERS
+
+    DEFAULT_CONFIG_FILENAME_REGEX: Final[str] = r'\A[0-9][0-9]_.*\.conf\Z'
+    DEFAULT_CONFIG_FILENAME_EXCLUDING_REGEX: Final[str] = r'\Alogging[-.]'
 
 
-    # public static method
+    #
+    # Public static method
+
     make_list_converter = staticmethod(__make_list_converter)
 
 
-    def __init__(self, *args, **kwargs):
-        super(Config, self).__init__()
-        self._config_overridden_dict = N6ArgumentParser().get_config_overridden_dict()
-        if (not args and not kwargs or  # no arguments...
-              # ...or only the `required` argument given:
-              not kwargs and len(args) == 1 and isinstance(args[0], dict) or
-              not args and len(kwargs) == 1 and isinstance(kwargs.get('required'), dict)):
+    #
+    # Construction-and-initialization-related public stuff
+
+    @overload
+    def __init__(self,
+                 config_spec: Union[str, ConfigSpecEgg],
+                 /,
+                 *,
+                 settings: Optional[Mapping] = None,
+                 custom_converters: Optional[Mapping[str, OptConverter]] = None,
+                 config_filename_regex: Optional[Union[str, re.Pattern[str]]] = None,
+                 config_filename_excluding_regex: Optional[Union[str, re.Pattern[str]]] = None):
+        """
+        The *modern* way of instantiation of `Config` (see its main docs).
+        """
+
+    @overload
+    def __init__(self, required: dict[str, Sequence[str]]):
+        """
+        The *legacy* way of instantiation of `Config` (see its main docs).
+        """
+
+    def __init__(self, /, *args, **kwargs):                             # noqa
+        self._common_preinit()
+        if self._are_init_arguments_for_legacy_init(args, kwargs):
             self._legacy_init(*args, **kwargs)
         else:
-            self._modern_init(*args, **kwargs)
+            self._modern_init(*args, **kwargs)                          # noqa
 
 
     @classmethod
-    def section(cls, *args, **kwargs):
+    def section(cls, /, *args, **kwargs):
         """
-        A class method that creates a Config and picks its sole section.
+        A class method that creates a `Config` and picks its sole section.
 
         This method exists just for convenience.  It requires that the
-        config spec contains exactly one config section.
+        *config spec* contains exactly one config section.
 
         Args/kwargs:
-            Like for the Config constructor.
+            Like for the `Config` constructor when the *modern way of
+            instantiation* is aimed (see the main docs of `Config`).
 
         Returns:
             A ConfigSection instance.
 
         Raises:
-            ConfigError -- also if there is no config section or more
+            `ConfigError` -- also if there is no config section or more
             than one config section.
 
         A few minor examples:
@@ -704,13 +994,15 @@ class Config(DictWithSomeHooks):
               ...
             n6lib.config.ConfigError: ...but the following sections found: 'bar', 'foo'
 
-        See also: ConfigMixin.get_config_section().
+        See also: `ConfigMixin.get_config_section()`.
         """
-        self = cls(*args, **kwargs)
+        new = cls.__new__(cls)
+        new._common_preinit()
+        new._modern_init(*args, **kwargs)                               # noqa
         try:
-            [section] = self.values()
+            [section] = new.values()
         except ValueError:
-            all_sections = sorted(self)
+            all_sections = sorted(new)
             sections_descr = (
                 'the following sections found: {0}'.format(
                     ', '.join(map(repr, map(ascii_str, all_sections))))
@@ -724,28 +1016,30 @@ class Config(DictWithSomeHooks):
     @classmethod
     def make(cls, /, *args, **kwargs):
         """
-        An alternative (dict-like) constructor.
+        An alternative (`dict`-like) constructor.
 
-        (Useful especially in unit tests.)
+        (Useful mainly in unit tests.)
 
         Args/kwargs:
-            Like for dict() or dict.update() -- except that keys (of
-            the resultant mapping) are required to be str instances
-            and values are required to be either: mappings whose keys
-            are str instances, or iterables of (<key being str
-            instance>, <value (being anything)>) pairs (where "pair"
+            Like for `dict()` or `dict.update()` -- except that keys (of
+            the resultant mapping) are required to be `str` instances
+            and values are required to be *either* mappings whose keys
+            are `str` instances, *or* iterables of `(<key being a `str`
+            instance>, <value (being anything)>)` pairs (here "pair"
             means: a 2-tuple or any other 2-element iterable).
 
         Returns:
-            A new Config instance (whose values are new ConfigSection
+            A new `Config` instance (whose values are new `ConfigSection`
             instances).
 
         Raises:
-            * TypeError -- if any non-str key is detected in the
-              resultant mapping or in any of the mappings being its
-              values (see below).
-            * TypeError or ValueError (adequately) -- if the given args
-              are not "appropriate for a dict of dicts" (see below).
+            `TypeError`:
+                if any non-`str` key is detected in the resultant
+                mapping or in any of the mappings being its values
+                (see the relevant examples below).
+            `TypeError` or `ValueError` (adequately):
+                if the given args are not *appropriate for a dict of
+                dicts* (see the relevant examples below).
 
         >>> Config.make()
         Config(<{}>)
@@ -841,17 +1135,19 @@ class Config(DictWithSomeHooks):
           ...
         ValueError: ...
         """
-        self = cls.__new__(cls)
-        super(Config, self).__init__(*args, **kwargs)
-        for sect_name, opt_name_to_value in self.items():
+        new = cls.__new__(cls)
+        new._common_preinit(
+            super_init_args=args,
+            super_init_kwargs=kwargs)
+        for sect_name, opt_name_to_value in new.items():
             sect = ConfigSection(sect_name, opt_name_to_value)
             keys = [sect_name]
             keys.extend(sect.keys())
             for key in keys:
                 if not isinstance(key, str):
                     raise TypeError('key {0!a} is not a `str`'.format(key))
-            self[sect_name] = sect
-        return self
+            new[sect_name] = sect
+        return new
 
 
     #
@@ -859,40 +1155,51 @@ class Config(DictWithSomeHooks):
     #
 
     #
+    # Pre-initialization helpers
+
+    def _common_preinit(self, *, super_init_args=(), super_init_kwargs=None):
+        super().__init__(*super_init_args, **(super_init_kwargs or {}))
+        self._config_overridden_dict = N6ArgumentParser().get_config_overridden_dict()
+
+    def _are_init_arguments_for_legacy_init(self, args, kwargs):
+        return (
+            (len(args) == 1 and not kwargs and isinstance(args[0], dict)) or
+            (len(kwargs) == 1 and not args and isinstance(kwargs.get('required'), dict)))
+
+    #
     # DictWithSomeHooks-specific customizations
 
     def _constructor_args_repr(self):
-        content_repr = super(Config, self)._constructor_args_repr()
-        return '<{0}>'.format(content_repr)
+        content_repr = super()._constructor_args_repr()
+        return f'<{content_repr}>'
 
     def _custom_key_error(self, key_error, method_name):
-        exc = super(Config, self)._custom_key_error(key_error, method_name)
+        exc = super()._custom_key_error(key_error, method_name)
         return NoConfigSectionError(*exc.args)
 
     #
     # Implementation of the modern way of initialization
 
-    def _modern_init(self, config_spec,
+    def _modern_init(self, config_spec, /,
+                     *,
                      settings=None,
                      custom_converters=None,
-                     default_converter=str):
-        if not isinstance(config_spec, str):
-            raise TypeError('config_spec must be str, not {0}'.format(
-                get_class_name(config_spec)))
-        converters = dict(self.BASIC_CONVERTERS)
-        if custom_converters is not None:
-            converters.update(custom_converters)
-        if not callable(default_converter):
-            default_converter = converters[default_converter]
-        converters[None] = default_converter
+                     config_filename_regex=None,
+                     config_filename_excluding_regex=None):
+        conf_spec_data = parse_config_spec(config_spec)
+        converters = {
+            **self.BASIC_CONVERTERS,
+            **(custom_converters or {}),
+        }
         try:
             try:
-                conf_spec_data = parse_config_spec(config_spec)
                 if settings is None:
-                    sect_name_to_opt_dict = self._load_n6_config_files()
+                    sect_name_to_opt_dict = self._load_n6_config_files(
+                        config_filename_regex,
+                        config_filename_excluding_regex)
                     self._override_config_values_by_cmdlines_arguments(sect_name_to_opt_dict)
                 else:
-                    sect_name_to_opt_dict = self._convert_settings_dict(settings)
+                    sect_name_to_opt_dict = self._convert_settings_mapping(settings)
                 self.update(
                     (config_sect.sect_name, config_sect)
                     for config_sect in self._make_config_sections(
@@ -910,10 +1217,11 @@ class Config(DictWithSomeHooks):
                 e = None  # noqa   # To break a traceback-related reference cycle (if any).
         except ConfigError as err:
             if settings is None:
-                print(_N6CORE_CONFIG_ERROR_MSG_PATTERN.format(ascii_str(err)), file=sys.stderr)
+                print(_N6DATAPIPELINE_CONFIG_ERROR_MSG_PATTERN.format(ascii_str(err)),
+                      file=sys.stderr)
             raise
 
-    def _convert_settings_dict(self, settings):
+    def _convert_settings_mapping(self, settings):
         sect_name_to_opt_dict = {}
         for key, value in settings.items():
             if not isinstance(key, str):
@@ -1008,7 +1316,7 @@ class Config(DictWithSomeHooks):
                 resultant_config_sect[opt_spec.name] = opt_value
 
             free_opt_names = sorted(
-                input_opt_dict.keys() - set(opt_spec.name for opt_spec in sect_spec.opt_specs))
+                input_opt_dict.keys() - {opt_spec.name for opt_spec in sect_spec.opt_specs})
             if free_opt_names:
                 if sect_spec.free_opts_allowed:
                     if some_declared_opts_are_absent:
@@ -1096,20 +1404,20 @@ class Config(DictWithSomeHooks):
                     opt_value,
                     get_class_name(exc),
                     ascii_str(exc)))
-            # we use this special sentinel object because None is a valid value
+            # We use this special sentinel object because `None` is a valid value.
             return self.__NOT_CONVERTED
 
     #
     # Implementation of the legacy way of initialization
 
-    def _legacy_init(self, required=None):
+    def _legacy_init(self, required):
+        assert isinstance(required, dict)
         sect_name_to_opt_dict = self._load_n6_config_files()
         self._override_config_values_by_cmdlines_arguments(sect_name_to_opt_dict)
-        if required is not None:
-            missing_msg = self._get_error_msg_if_missing(sect_name_to_opt_dict, required)
-            if missing_msg:
-                LOGGER.error('%s', missing_msg)
-                sys.exit(_N6CORE_CONFIG_ERROR_MSG_PATTERN.format(missing_msg))
+        missing_msg = self._get_error_msg_if_missing(sect_name_to_opt_dict, required)
+        if missing_msg:
+            LOGGER.error('%s', missing_msg)
+            sys.exit(_N6DATAPIPELINE_CONFIG_ERROR_MSG_PATTERN.format(missing_msg))
         self.update(
             (sect_name, ConfigSection(
                 sect_name,
@@ -1145,12 +1453,12 @@ class Config(DictWithSomeHooks):
 
     @classmethod
     @memoized(expires_after=60)
-    def _load_n6_config_files(cls):
+    def _load_n6_config_files(cls, *filename_regexes):
         sect_name_to_opt_dict = {}
         config_parser = configparser.ConfigParser()
         config_files = []
-        config_files.extend(cls._get_config_file_paths(ETC_DIR))
-        config_files.extend(cls._get_config_file_paths(USER_DIR))
+        config_files.extend(cls._get_config_file_paths(ETC_DIR, *filename_regexes))
+        config_files.extend(cls._get_config_file_paths(USER_DIR, *filename_regexes))
         if not config_files:
             LOGGER.warning('No config files to read')
             return sect_name_to_opt_dict
@@ -1185,24 +1493,44 @@ class Config(DictWithSomeHooks):
         return sect_name_to_opt_dict
 
     @staticmethod
-    def _get_config_file_paths(path):
+    def _get_config_file_paths(path,
+                               config_filename_regex=None,
+                               config_filename_excluding_regex=None):
         """
         Get the paths of configuration files from a given dir.
 
-        (All *.conf files except those whose names start with 'logging.'
-        or 'logging-'.)
+        (All files whose names match `config_filename_regex` except
+        those whose names match `config_filename_excluding_regex`.)
 
-        Args:
-            `path`: path of the directory to search for *.conf files in.
+        Args/kwargs:
+            `path` (a `str`):
+                The path of the directory to search for configuration
+                files in.
+            `config_filename_regex` (a `str` or `re.Pattern`, or `None`; default `None`):
+                Configuration may be loaded *only* from those files whose
+                names match this regular expression. `None` is equivalent
+                to the value of `Config.DEFAULT_CONFIG_FILENAME_REGEX`.
+            `config_filename_excluding_regex` (a `str` or `re.Pattern`, or `None`; default `None`):
+                Configuration will *never* be loaded from any files whose
+                names match this regular expression. `None` is equivalent to
+                the value of `Config.DEFAULT_CONFIG_FILENAME_EXCLUDING_REGEX`.
 
         Returns:
             A sorted list of paths of configuration files.
         """
+        if config_filename_regex is None:
+            config_filename_regex = Config.DEFAULT_CONFIG_FILENAME_REGEX
+        if isinstance(config_filename_regex, str):
+            config_filename_regex = re.compile(config_filename_regex)
+        if config_filename_excluding_regex is None:
+            config_filename_excluding_regex = Config.DEFAULT_CONFIG_FILENAME_EXCLUDING_REGEX
+        if isinstance(config_filename_excluding_regex, str):
+            config_filename_excluding_regex = re.compile(config_filename_excluding_regex)
         config_files = []
         for directory, _, fnames in os.walk(path):
             for fname in fnames:
-                if (fname.endswith(".conf") and
-                      not fname.startswith(("logging.", "logging-"))):
+                if (config_filename_regex.search(fname)
+                      and not config_filename_excluding_regex.search(fname)):
                     config_files.append(osp.join(directory, fname))
         return sorted(config_files)
 
@@ -1216,29 +1544,36 @@ class Config(DictWithSomeHooks):
 class ConfigSection(DictWithSomeHooks):
 
     """
-    A dict subclass; its instances are values of a Config mapping.
+    A subclass of `dict`; its instances are values of `Config` mappings.
 
-    Generally, ConfigSection instances behave like a dict; lookup-by-key
-    failures are signalled with NoConfigOptionError which is a subclass
-    of both KeyError and ConfigError.  A ConfigSection instance
-    represents a configuration section; it maps configuration option
-    names (str) to option values (possibly of any types).  It keeps also
-    the name of the configuration section it represents.
+    Generally, `ConfigSection` instances behave like a `dict`;
+    lookup-by-key failures are signalled with `NoConfigOptionError`
+    which is a subclass of both `KeyError` and `ConfigError`.
+
+    A `ConfigSection` instance represents a configuration section; it
+    maps configuration option names (`str`) to option values (possibly
+    of any types).  It keeps also the name of the configuration section
+    it represents.
 
     >>> s = ConfigSection('some_sect', {'some_opt': 'FOO_bar,spam'})
+    >>> from collections.abc import Mapping, MutableMapping
+    >>> (isinstance(s, ConfigSection) and
+    ...  isinstance(s, DictWithSomeHooks) and
+    ...  isinstance(s, dict) and
+    ...  isinstance(s, MutableMapping) and
+    ...  isinstance(s, Mapping))
+    True
+
     >>> s
     ConfigSection('some_sect', {'some_opt': 'FOO_bar,spam'})
     >>> s.sect_name
     'some_sect'
-
     >>> len(s)
     1
     >>> s.items()
     dict_items([('some_opt', 'FOO_bar,spam')])
-
     >>> s['some_opt']
     'FOO_bar,spam'
-
     >>> s == {'some_opt': 'FOO_bar,spam'}
     True
     >>> s != {'some_opt': 'FOO_bar,spam'}
@@ -1268,7 +1603,11 @@ class ConfigSection(DictWithSomeHooks):
     dict_items([])
     >>> another_s == {}
     True
+    >>> another_s == ConfigSection('some_sect')
+    True
     >>> another_s == {'some_opt': 'FOO_bar,spam'}
+    False
+    >>> another_s == s
     False
 
     >>> another_s['some_opt'] = 'FOO_bar,spam'
@@ -1283,6 +1622,8 @@ class ConfigSection(DictWithSomeHooks):
     >>> another_s
     ConfigSection('some_sect', {'some_opt': 'FOO_bar,spam'})
     >>> another_s == {}
+    False
+    >>> another_s == ConfigSection('some_sect')
     False
     >>> another_s == {'some_opt': 'FOO_bar,spam'}
     True
@@ -1304,70 +1645,88 @@ class ConfigSection(DictWithSomeHooks):
         self.sect_name = sect_name
         if opt_name_to_value is None:
             opt_name_to_value = {}
-        super(ConfigSection, self).__init__(opt_name_to_value)
+        super().__init__(opt_name_to_value)
 
     def __eq__(self, other):
         if isinstance(other, ConfigSection) and other.sect_name != self.sect_name:
             return False
-        return super(ConfigSection, self).__eq__(other)
+        return super().__eq__(other)
 
     #
     # DictWithSomeHooks-specific customizations
 
     def _constructor_args_repr(self):
-        content_repr = super(ConfigSection, self)._constructor_args_repr()
-        return '{0!r}, {1}'.format(self.sect_name, content_repr)
+        content_repr = super()._constructor_args_repr()
+        return f'{self.sect_name!r}, {content_repr}'
 
     def _custom_key_error(self, key_error, method_name):
-        exc = super(ConfigSection, self)._custom_key_error(key_error, method_name)
+        exc = super()._custom_key_error(key_error, method_name)
         return NoConfigOptionError(self.sect_name, *exc.args)
 
 
 
-class ConfigMixin(object):
+class ConfigMixin(UnsupportedClassAttributesMixin):
 
-    """
-    A convenience mixin for classes that make use of Config stuff.
+    r"""
+    A convenience mixin for classes that make use of `Config` stuff.
 
     The most important public methods it provides are:
 
-    * get_config_full(...) -- returns a ready-to-use Config instance.
-    * get_config_section(...) -- returns a ready-to-use ConfigSection
+    * `get_config_full()` -- returns a ready-to-use `Config` instance.
+    * `get_config_section()` -- returns a ready-to-use `ConfigSection`
       instance
 
-    -- you can use them *instead* of calling Config stuff directly.
+    -- you can use them *instead* of calling `Config` stuff directly.
 
-    The get_config_section() method is probably more handy than
-    get_config_full() because in most cases you are interested in a
+    The `get_config_section()` method is probably more handy than
+    `get_config_full()` because in most cases you are interested in a
     particular (only one) config section.
 
     Both of them make use of the following attributes (which, typically,
-    will be class attributes -- but they are got through an instance so
-    it is possible to customize them per-instance if needed):
+    will be class attributes -- but they are got through an instance, so
+    it is possible to customize them on a per-instance basis if needed):
 
-    * `config_spec` or -- alternatively -- `config_spec_pattern`;
+    * `config_spec` (providing a ready *configuration specification*)
+       or -- alternatively -- `config_spec_pattern` (providing a
+       formattable *configuration specification pattern*);
     * `custom_converters` -- optional;
-    * `default_converter` -- optional;
-    * `config_required` (for compatibility with legacy stuff)
-      -- optional;
-    * `config_group` (for compatibility with legacy stuff)
-      -- optional.
+    * `config_filename_regex` -- optional (relevant only to the
+      "N6DataPipeline way" of obtaining the configuration; see the
+      docs of `Config`);
+    * `config_filename_excluding_regex` -- optional (relevant only to
+      the "N6DataPipeline way" of obtaining the configuration; see the
+      docs of `Config`).
 
-    Additionally, there are two public helper methods
+    When any of the two aforementioned methods is called, the value of
+    the `config_spec` attribute (if present and not `None`) is passed to
+    the `Config` constructor as the *config spec* argument. If, instead
+    of it, a `config_spec_pattern` attribute is present (and not `None`),
+    its value is transformed by calling the `as_config_spec_string()`
+    function (see its docs...) with that value as the first positional
+    argument (`config_spec`) and a `dict`, gathering all *format kwargs*
+    taken by `get_config_full()`/`get_config_section()`, as the second
+    argument (named `format_data_mapping`). Then the result of that
+    transformation is passed to the `Config` constructor as the *config
+    spec* argument.
 
-    * is_config_spec_or_group_declared() -- which informs whether
-      at least one of the following attributes is present and set
-      to some non-None value: `config_spec`, `config_spec_pattern`,
-      `config_group`.
-    * make_list_converter() -- a static method being an alias of
-      Config.make_list_converter() (just for convenience).
+    Values of the rest of the above-mentioned attributes are passed to
+    the `Config` constructor as the respective keyword arguments (see:
+    the docs of `Config`).
+
+    Additionally, there are two public helper methods:
+
+    * `is_config_spec_declared()` -- which informs whether at least one
+      of the following attributes is present and set to some non-`None`
+      value: `config_spec` or `config_spec_pattern`.
+    * `make_list_converter()` -- a static method being an alias of
+      `Config.make_list_converter()` (just for convenience).
 
     Let the examples speak...
 
 
     First, let us consider a case when a simple `config_spec` is
     defined; it contains just one config section -- so we can use the
-    get_config_section() method:
+    `get_config_section()` method:
 
         >>> class MyClass(ConfigMixin):
         ...
@@ -1398,11 +1757,12 @@ class ConfigMixin(object):
         42
         >>> m.config['spam']
         [None]
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.is_config_spec_declared()
         True
 
     Below is the same -- but with config contents taken from a Pyramid
-    `settings` dict (and *not* loaded from *.conf files):
+    `settings` mapping (*not* loaded from files in "/etc/n6", "~/.n6",
+    etc.):
 
         >>> example_settings = {'foo.spam': '[null]', 'other.ham': 'Abc'}
         >>> m = MyClass(example_settings)
@@ -1416,21 +1776,31 @@ class ConfigMixin(object):
         42
         >>> m.config['spam']
         [None]
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.is_config_spec_declared()
         True
 
 
     Again, `config_spec` and one config section in use -- but
-    additionally with `custom_converters`:
+    additionally with `custom_converters`... Also, in this example
+    `config_spec` is a `ConfigSpecEgg`-compliant object, rather than
+    `str`:
 
         >>> from decimal import Decimal
+        >>> class SimpleConfigSpecEgg:
+        ...     def __init__(self, s):
+        ...         self._s = s
+        ...     def hatch_out(self, format_data_mapping=None):
+        ...         if format_data_mapping is None:
+        ...             return self._s
+        ...         return self._s.format_map(format_data_mapping)
+        ...
         >>> class MyClass(ConfigMixin):
         ...
-        ...     config_spec = '''
+        ...     config_spec = SimpleConfigSpecEgg('''
         ...         [foo]
         ...         bar = 42 :: int
         ...         spam :: list_of_decimal
-        ...     '''
+        ...     ''')
         ...     custom_converters = {
         ...         'list_of_decimal': Config.make_list_converter(Decimal),
         ...     }
@@ -1440,7 +1810,6 @@ class ConfigMixin(object):
         ...
         >>> example_conf_from_files = {'foo': {'spam': ' 0 , 123,12345,'},
         ...                            'other': {'ham': 'Abc'}}
-        >>> from unittest.mock import patch
         >>> with patch.object(Config, '_load_n6_config_files',
         ...                   return_value=example_conf_from_files):
         ...     m = MyClass()
@@ -1455,11 +1824,11 @@ class ConfigMixin(object):
         42
         >>> m.config['spam']
         [Decimal('0'), Decimal('123'), Decimal('12345')]
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.is_config_spec_declared()
         True
 
-    The same with config contents taken from a Pyramid `settings` dict
-    (*not* loaded from *.conf files):
+    The same with config contents taken from a Pyramid `settings` mapping
+    (*not* loaded from files in "/etc/n6" or "~/.n6", etc.):
 
         >>> example_settings = {'foo.spam': '0,123,12345', 'other.ham': 'Abc'}
         >>> m = MyClass(example_settings)
@@ -1469,13 +1838,13 @@ class ConfigMixin(object):
         42
         >>> m.config['spam']
         [Decimal('0'), Decimal('123'), Decimal('12345')]
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.is_config_spec_declared()
         True
 
 
-    Now, with `default_converter`; plus also, this time, there is more
-    than one config section specified (so the get_config_full() method
-    is used instead of get_config_section()):
+    Now, there is more than one config section specified (so the
+    `get_config_full()` method needs to be used instead of
+    `get_config_section()`):
 
         >>> class MyClass(ConfigMixin):
         ...
@@ -1485,9 +1854,8 @@ class ConfigMixin(object):
         ...         spam :: json
         ...
         ...         [other]
-        ...         ham
+        ...         ham :: py
         ...     '''
-        ...     default_converter = 'py'
         ...
         ...     def __init__(self, settings=None):
         ...         self.config_full = self.get_config_full(settings)
@@ -1515,11 +1883,11 @@ class ConfigMixin(object):
         [None]
         >>> m.config_full['other']
         ConfigSection('other', {'ham': {42: 'abc'}})
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.is_config_spec_declared()
         True
 
-    The same with config contents taken from a Pyramid `settings` dict
-    (*not* loaded from *.conf files):
+    The same with config contents taken from a Pyramid `settings` mapping
+    (*not* loaded from files in "/etc/n6" or "~/.n6", etc.):
 
         >>> example_settings = {'foo.spam': '[null]',
         ...                     'other.ham': '{42: "abc"}'}
@@ -1539,12 +1907,88 @@ class ConfigMixin(object):
         [None]
         >>> m.config_full['other']
         ConfigSection('other', {'ham': {42: 'abc'}})
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.is_config_spec_declared()
         True
 
 
-    Another example: with `config_spec_pattern` (str.format()-able
-    pattern) defined instead of `config_spec`:
+    The next example, even though somewhat similar to the previous one,
+    differs from it in a few ways: `config_spec` is an object compliant
+    with `ConfigSpecEgg` (rather than a `str`), and the contents of it
+    -- and the actual configuration data -- are slightly different than
+    above...
+
+        >>> class MyClass(ConfigMixin):
+        ...
+        ...     config_spec = SimpleConfigSpecEgg('''
+        ...         [foo]
+        ...         bar = 42 :: int
+        ...         spam :: json
+        ...
+        ...         [other]
+        ...         bar = 43 :: bytes
+        ...     ''')
+        ...
+        ...     def __init__(self, settings=None):
+        ...         self.config_full = self.get_config_full(settings)
+        ...
+        >>> example_conf_from_files = {'foo': {'spam': '[null]'}}
+        >>> with patch.object(Config, '_load_n6_config_files',
+        ...                   return_value=example_conf_from_files):
+        ...     m = MyClass()
+        ...
+        >>> isinstance(m.config_full, Config)
+        True
+        >>> sorted(m.config_full.keys())
+        ['foo', 'other']
+        >>> (isinstance(m.config_full['foo'], ConfigSection) and
+        ...  isinstance(m.config_full['other'], ConfigSection))
+        True
+        >>> m.config_full['foo'].sect_name
+        'foo'
+        >>> sorted(m.config_full['foo'].keys())
+        ['bar', 'spam']
+        >>> m.config_full['foo']['bar']
+        42
+        >>> m.config_full['foo']['spam']
+        [None]
+        >>> m.config_full['other']
+        ConfigSection('other', {'bar': b'43'})
+        >>> m.config_full['other']['bar']
+        b'43'
+        >>> m.is_config_spec_declared()
+        True
+
+    The same with config contents taken from a Pyramid `settings` mapping
+    (*not* loaded from files in "/etc/n6" or "~/.n6", etc.):
+
+        >>> example_settings = {'foo.spam': '[null]'}
+        >>> m = MyClass(example_settings)
+        >>> isinstance(m.config_full, Config)
+        True
+        >>> sorted(m.config_full.keys())
+        ['foo', 'other']
+        >>> (isinstance(m.config_full['foo'], ConfigSection) and
+        ...  isinstance(m.config_full['other'], ConfigSection))
+        True
+        >>> sorted(m.config_full['foo'].keys())
+        ['bar', 'spam']
+        >>> m.config_full['foo']['bar']
+        42
+        >>> m.config_full['foo']['spam']
+        [None]
+        >>> m.config_full['other']
+        ConfigSection('other', {'bar': b'43'})
+        >>> m.config_full['other']['bar']
+        b'43'
+        >>> m.is_config_spec_declared()
+        True
+
+
+    Another example: with `config_spec_pattern` (`str.format()`-able
+    pattern) present instead of `config_spec`, as well as with
+    `config_filename_regex` and `config_filename_excluding_regex`
+    (plus, by the way, uncovering some details of invocation of
+    the non-public method `Config._load_n6_config_files`...):
 
         >>> class MyClass(ConfigMixin):
         ...
@@ -1553,20 +1997,27 @@ class ConfigMixin(object):
         ...         {opt_name} = 42 :: {opt_converter_spec}
         ...         spam :: json
         ...     '''
+        ...     config_filename_regex = r'^[0-9][0-9]_'
+        ...     config_filename_excluding_regex = r'.backup\Z'
         ...
-        ...     def __init__(self, settings=None, **fmt_args):
-        ...         self.config = self.get_config_section(settings, **fmt_args)
+        ...     def __init__(self, settings=None, **format_kwargs):
+        ...         self.config = self.get_config_section(settings, **format_kwargs)
         ...
         >>> example_conf_from_files = {'tralala': {'spam': '[null]'},
         ...                            'other': {'ham': 'Abc'}}
         >>> with patch.object(Config, '_load_n6_config_files',
-        ...                   return_value=example_conf_from_files):
+        ...                   return_value=example_conf_from_files) as loading_method:
         ...
         ...     # keyword arguments to format actual config_spec:
         ...     m = MyClass(section_name='tralala',
         ...                 opt_name='hop-hop',
         ...                 opt_converter_spec='float')
         ...
+        >>> from unittest.mock import call
+        >>> loading_method.mock_calls == [
+        ...     call(r'^[0-9][0-9]_', r'.backup\Z'),
+        ... ]
+        True
         >>> isinstance(m.config, ConfigSection)
         True
         >>> m.config.sect_name
@@ -1577,11 +2028,11 @@ class ConfigMixin(object):
         42.0
         >>> m.config['spam']
         [None]
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.is_config_spec_declared()
         True
 
-    The same with config contents taken from a Pyramid `settings` dict
-    (*not* loaded from *.conf files):
+    The same with config contents taken from a Pyramid `settings` mapping
+    (*not* loaded from files in "/etc/n6" or "~/.n6", etc.):
 
         >>> example_settings = {'tralala.spam': '[null]'}
         >>> m = MyClass(example_settings,
@@ -1593,379 +2044,290 @@ class ConfigMixin(object):
         42.0
         >>> m.config['spam']
         [None]
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.is_config_spec_declared()
         True
 
 
-    The following examples involve the legacy attributes: 'config_group`
-    and/or 'config_required` (many n6 collectors have them).
-
-
-    First, just 'config_group` + `config_required` (note that
-    `config_spec` -- being omitted here -- defaults to an empty str;
-    but also that -- because the section defined as `config_group` is
-    not present in the initial `config_spec` -- the section in the
-    resultant config spec contains the `...` marker):
+    And almost a twin example, but with `config_spec_pattern` being a
+    `ConfigSpecEgg`-compliant object (rather than a `str` instance), and
+    with `config_filename_regex` and `config_filename_excluding_regex`
+    being `re.Pattern` instances (rather than `str` instances):
 
         >>> class MyClass(ConfigMixin):
         ...
-        ...     config_group = 'foo'
-        ...     config_required = ('bar', 'ham')
-        ...
-        ...     def __init__(self, settings=None):
-        ...         self.config = self.get_config_section(settings)
-        ...
-        >>> example_conf_from_files = {'foo': {'bar': '123', 'ham': '1'},
-        ...                            'other': {'ham': 'Abc'}}
-        >>> with patch.object(Config, '_load_n6_config_files',
-        ...                   return_value=example_conf_from_files):
-        ...     m = MyClass()
-        ...
-        >>> # note the resultant config spec
-        ... m._ConfigMixin__get_config_spec() == '''
-        ... [foo]
-        ... bar
-        ... ham
-        ... ...
-        ...
-        ... '''
-        True
-        >>> isinstance(m.config, ConfigSection)
-        True
-        >>> m.config.sect_name
-        'foo'
-        >>> sorted(m.config.keys())
-        ['bar', 'ham']
-        >>> m.config['bar']
-        '123'
-        >>> m.config['ham']
-        '1'
-        >>> m.is_config_spec_or_group_declared()
-        True
-
-    Another example -- `config_required` + `config_spec` [sic]
-    (`config_required` addes the option `ham` to the config spec):
-
-        >>> class MyClass(ConfigMixin):
-        ...
-        ...     config_required = ('bar', 'ham')
-        ...     config_spec = '''
-        ...         [foo]
-        ...         bar = 42 :: int
+        ...     config_spec_pattern = SimpleConfigSpecEgg('''
+        ...         [{section_name}]
+        ...         {opt_name} = 42 :: {opt_converter_spec}
         ...         spam :: json
-        ...     '''
+        ...     ''')
+        ...     config_filename_regex = re.compile(r'^[0-9][0-9]_')
+        ...     config_filename_excluding_regex = re.compile(r'.backup\Z')
         ...
-        ...     def __init__(self, settings=None):
-        ...         self.config = self.get_config_section(settings)
+        ...     def __init__(self, settings=None, **format_kwargs):
+        ...         self.config = self.get_config_section(settings, **format_kwargs)
         ...
-        >>> example_conf_from_files = {'foo': {'spam': '[null]', 'ham': '1'},
+        >>> example_conf_from_files = {'tralala': {'spam': '[null]'},
         ...                            'other': {'ham': 'Abc'}}
         >>> with patch.object(Config, '_load_n6_config_files',
-        ...                   return_value=example_conf_from_files):
-        ...     m = MyClass()
+        ...                   return_value=example_conf_from_files) as loading_method:
         ...
-        >>> # note the resultant config spec
-        >>> m._ConfigMixin__get_config_spec() == '''
-        ... [foo]
-        ... bar = 42 :: int
-        ... spam :: json
-        ... ham
-        ... '''
+        ...     # keyword arguments to format actual config_spec:
+        ...     m = MyClass(section_name='tralala',
+        ...                 opt_name='hop-hop',
+        ...                 opt_converter_spec='float')
+        ...
+        >>> loading_method.mock_calls == [
+        ...     call(re.compile(r'^[0-9][0-9]_'), re.compile(r'.backup\Z')),
+        ... ]
         True
         >>> isinstance(m.config, ConfigSection)
         True
         >>> m.config.sect_name
-        'foo'
+        'tralala'
         >>> sorted(m.config.keys())
-        ['bar', 'ham', 'spam']
-        >>> m.config['bar']
-        42
-        >>> m.config['ham']
-        '1'
+        ['hop-hop', 'spam']
+        >>> m.config['hop-hop']
+        42.0
         >>> m.config['spam']
         [None]
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.is_config_spec_declared()
         True
 
-    And a similar example -- here `config_required` is legal but
-    completely redundant because it does not add any information to what
-    `config_spec` specifies:
+    The same with config contents taken from a Pyramid `settings` mapping
+    (*not* loaded from files in "/etc/n6" or "~/.n6", etc.):
 
-        >>> class MyClass(ConfigMixin):
+        >>> example_settings = {'tralala.spam': '[null]'}
+        >>> m = MyClass(example_settings,
+        ...             # keyword arguments to format actual config_spec:
+        ...             section_name='tralala',
+        ...             opt_name='hop-hop',
+        ...             opt_converter_spec='float')
+        >>> m.config['hop-hop']
+        42.0
+        >>> m.config['spam']
+        [None]
+        >>> m.is_config_spec_declared()
+        True
+
+
+    It is also possibe to use `combined_config_spec()` in conjunction
+    with `ConfigMixin` (indeed, in such cases both those tools really
+    shine!):
+
+        >>> class MyBaseClass(ConfigMixin):
         ...
-        ...     config_required = ('bar', 'spam')
-        ...     config_spec = '''
-        ...         [foo]
-        ...         bar = 42 :: int
+        ...     config_spec_pattern = combined_config_spec('''
+        ...         [{section_name}]
+        ...         {opt_name} = 42 :: {opt_converter_spec}
         ...         spam :: json
-        ...     '''
+        ...         refrigerator = true :: bool
+        ...     ''')
         ...
-        ...     def __init__(self, settings=None):
-        ...         self.config = self.get_config_section(settings)
+        ...     def __init__(self, settings=None, **format_kwargs):
+        ...         self.config = self.get_config_section(settings, **format_kwargs)
         ...
-        >>> example_conf_from_files = {'foo': {'spam': '[null]'},
+        >>> class MySubClass(MyBaseClass):
+        ...
+        ...     config_spec_pattern = combined_config_spec('''
+        ...         [{section_name}]
+        ...         {opt_name} = 123456789 :: {opt_converter_spec}
+        ...         fruit = Lemon!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        ...         vegetables :: list_of_str
+        ...     ''')
+        ...
+        >>> example_conf_from_files = {'tralala': {'spam': '[null]',
+        ...                                        'vegetables': 'Tomato, Celery'},
         ...                            'other': {'ham': 'Abc'}}
         >>> with patch.object(Config, '_load_n6_config_files',
         ...                   return_value=example_conf_from_files):
-        ...     m = MyClass()
         ...
-        >>> m._ConfigMixin__get_config_spec() == '''
-        ...         [foo]
-        ...         bar = 42 :: int
-        ...         spam :: json
-        ...     '''
-        True
+        ...     # keyword arguments to format actual config_spec:
+        ...     m = MySubClass(section_name='tralala',
+        ...                    opt_name='hop-hop',
+        ...                    opt_converter_spec='float')
+        ...
         >>> isinstance(m.config, ConfigSection)
         True
         >>> m.config.sect_name
-        'foo'
+        'tralala'
         >>> sorted(m.config.keys())
-        ['bar', 'spam']
-        >>> m.config['bar']
-        42
+        ['fruit', 'hop-hop', 'refrigerator', 'spam', 'vegetables']
+        >>> m.config['fruit']
+        'Lemon!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+        >>> m.config['hop-hop']
+        123456789.0
+        >>> m.config['refrigerator']
+        True
         >>> m.config['spam']
         [None]
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.config['vegetables']
+        ['Tomato', 'Celery']
+        >>> m.is_config_spec_declared()
         True
 
-    And two other examples -- a bit different -- with `config_group` +
-    `config_required` + `config_spec`:
+    The same with config contents taken from a Pyramid `settings` mapping
+    (*not* loaded from files in "/etc/n6" or "~/.n6", etc.):
 
-        >>> class MyClass(ConfigMixin):
-        ...     config_group = 'other'
-        ...     config_required = ('bar', 'ham')
-        ...     config_spec = '''
-        ...         [foo]
-        ...         bar = 42 :: int
-        ...         spam :: json
-        ...
-        ...         [other]
-        ...         bar = 43 :: float
-        ...     '''
-        ...
-        >>> m = MyClass()
-        >>> m._ConfigMixin__get_config_spec() == '''
-        ... [foo]
-        ... bar = 42 :: int
-        ... spam :: json
-        ...
-        ... [other]
-        ... bar = 43 :: float
-        ... ham
-        ... '''
+        >>> example_settings = {'tralala.spam': '[null]',
+        ...                     'tralala.vegetables': 'Tomato, Celery'}
+        >>> m = MySubClass(example_settings,
+        ...                # keyword arguments to format actual config_spec:
+        ...                section_name='tralala',
+        ...                opt_name='hop-hop',
+        ...                opt_converter_spec='float')
+        >>> isinstance(m.config, ConfigSection)
         True
-        >>> example_conf_from_files = {'foo': {'spam': '[null]'},
-        ...                            'other': {'ham': 'Abc'}}
-        >>> with patch.object(Config, '_load_n6_config_files',
-        ...                   return_value=example_conf_from_files):
-        ...
-        ...     config_full = m.get_config_full()
-        ...
-        ...     # although there is more than one section it is still
-        ...     # clear which one we want -- because of `config_group`:
-        ...     config_section = m.get_config_section()
-        ...
-        >>> isinstance(config_full, Config)
+        >>> m.config.sect_name
+        'tralala'
+        >>> sorted(m.config.keys())
+        ['fruit', 'hop-hop', 'refrigerator', 'spam', 'vegetables']
+        >>> m.config['fruit']
+        'Lemon!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+        >>> m.config['hop-hop']
+        123456789.0
+        >>> m.config['refrigerator']
         True
-        >>> isinstance(config_section, ConfigSection)
-        True
-        >>> config_section == config_full['other']
-        True
-        >>> sorted(config_full.keys())
-        ['foo', 'other']
-        >>> (isinstance(config_full['foo'], ConfigSection) and
-        ...  isinstance(config_full['other'], ConfigSection))
-        True
-        >>> config_full['foo'].sect_name
-        'foo'
-        >>> sorted(config_full['foo'].keys())
-        ['bar', 'spam']
-        >>> config_full['foo']['bar']
-        42
-        >>> config_full['foo']['spam']
+        >>> m.config['spam']
         [None]
-        >>> config_full['other'].sect_name
-        'other'
-        >>> sorted(config_full['other'].keys())
-        ['bar', 'ham']
-        >>> config_full['other']['bar']
-        43.0
-        >>> config_full['other']['ham']
-        'Abc'
-        >>> m.is_config_spec_or_group_declared()
-        True
-
-        >>> class MyClass2(ConfigMixin):
-        ...     config_group = 'other'
-        ...     config_required = ('bar', 'ham')
-        ...     config_spec = '''
-        ...         [foo]
-        ...         bar = 42 :: int
-        ...         spam :: json
-        ...     '''
-        ...     # NOTE: here we specify `default_converter` as a callable
-        ...     # so we decorate it with staticmethod() to avoid treating
-        ...     # it as MyClass2 method
-        ...     default_converter = staticmethod(str.upper)
-        ...
-        >>> m = MyClass2()
-        >>> m._ConfigMixin__get_config_spec() == '''
-        ... [foo]
-        ... bar = 42 :: int
-        ... spam :: json
-        ...
-        ... [other]
-        ... bar
-        ... ham
-        ... ...
-        ...
-        ... '''
-        True
-        >>> example_conf_from_files = {'foo': {'spam': '[null]'},
-        ...                            'other': {'ham': 'Abc', 'bar': 'bbb'}}
-        >>> with patch.object(Config, '_load_n6_config_files',
-        ...                   return_value=example_conf_from_files):
-        ...
-        ...     config_full = m.get_config_full()
-        ...
-        ...     # although there is more than one section it is still
-        ...     # clear which one we want -- because of `config_group`:
-        ...     config_section = m.get_config_section()
-        ...
-        >>> isinstance(config_full, Config)
-        True
-        >>> isinstance(config_section, ConfigSection)
-        True
-        >>> config_section == config_full['other']
-        True
-        >>> sorted(config_full.keys())
-        ['foo', 'other']
-        >>> (isinstance(config_full['foo'], ConfigSection) and
-        ...  isinstance(config_full['other'], ConfigSection))
-        True
-        >>> config_full['foo'].sect_name
-        'foo'
-        >>> sorted(config_full['foo'].keys())
-        ['bar', 'spam']
-        >>> config_full['foo']['bar']
-        42
-        >>> config_full['foo']['spam']
-        [None]
-        >>> config_full['other'].sect_name
-        'other'
-        >>> sorted(config_full['other'].keys())
-        ['bar', 'ham']
-        >>> config_full['other']['bar']  # (note: the str.upper() applied)
-        'BBB'
-        >>> config_full['other']['ham']  # (note: the str.upper() applied)
-        'ABC'
-        >>> m.is_config_spec_or_group_declared()
-        True
-
-    Yet two other examples -- with `config_group` + `config_spec` (but,
-    this time, without `config_required`):
-
-        >>> class MyClass(ConfigMixin):
-        ...     config_group = 'foo'
-        ...     config_spec = '''
-        ...         [foo]
-        ...         bar = 42 :: int
-        ...         spam :: json
-        ...     '''
-        >>> m = MyClass()
-        >>> m._ConfigMixin__get_config_spec() == '''
-        ...         [foo]
-        ...         bar = 42 :: int
-        ...         spam :: json
-        ...     '''
-        True
-        >>> example_conf_from_files = {'foo': {'spam': '[null]'}}
-        >>> with patch.object(Config, '_load_n6_config_files',
-        ...                   return_value=example_conf_from_files):
-        ...     config_full = m.get_config_full()
-        ...     config_section = m.get_config_section()
-        ...
-        >>> isinstance(config_full, Config)
-        True
-        >>> isinstance(config_section, ConfigSection)
-        True
-        >>> config_full.keys()
-        dict_keys(['foo'])
-        >>> config_section == config_full['foo']
-        True
-        >>> sorted(config_section.keys())
-        ['bar', 'spam']
-        >>> config_section['bar']
-        42
-        >>> config_section['spam']
-        [None]
-        >>> m.is_config_spec_or_group_declared()
-        True
-
-        >>> class MyClass2(ConfigMixin):
-        ...     config_group = 'other'
-        ...     config_spec = '''
-        ...         [foo]
-        ...         bar = 42 :: int
-        ...         spam :: json
-        ...     '''
-        >>> m = MyClass2()
-        >>> m._ConfigMixin__get_config_spec() == '''
-        ... [foo]
-        ... bar = 42 :: int
-        ... spam :: json
-        ...
-        ... [other]
-        ... ...
-        ...
-        ... '''
-        True
-        >>> with patch.object(Config, '_load_n6_config_files',
-        ...                   return_value=example_conf_from_files):
-        ...     config_full = m.get_config_full()
-        ...     config_section = m.get_config_section()
-        ...
-        >>> isinstance(config_full, Config)
-        True
-        >>> isinstance(config_section, ConfigSection)
-        True
-        >>> config_full.keys()
-        dict_keys(['foo', 'other'])
-        >>> config_full['foo']['bar']
-        42
-        >>> config_full['foo']['spam']
-        [None]
-        >>> config_section == config_full['other']
-        True
-        >>> config_section.keys()
-        dict_keys([])
-        >>> m.is_config_spec_or_group_declared()
+        >>> m.config['vegetables']
+        ['Tomato', 'Celery']
+        >>> m.is_config_spec_declared()
         True
 
 
-    There are also some basic conditions which must be satisfied or an
+    There are some basic conditions which must be satisfied or an
     exception will be raised...
 
-    TypeError if `config_spec` is not a str instance:
+    `TypeError` is raised if the value of the `config_spec` attribute is
+    neither a `str` nor a `ConfigSpecEgg`-compliant object; also, if the
+    object has the (`ConfigSpecEgg`-specific) method `hatch_out()` but
+    that method returns a non-`str` object:
 
         >>> class MyClass(ConfigMixin):
-        ...     config_spec = bytearray(b'not a str!!!')
+        ...     config_spec = b'not a str!!!'
         ...
         >>> m = MyClass()
         >>> m.get_config_full()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        TypeError: config_spec must be str, not bytearray
+        TypeError: `config_spec` is expected to be a `str` or ..., not an instance of `bytes`
+
         >>> m.get_config_section()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        TypeError: config_spec must be str, not bytearray
-        >>> m.is_config_spec_or_group_declared()
+        TypeError: `config_spec` is expected to be a `str` or ..., not an instance of `bytes`
+
+        >>> m.is_config_spec_declared()
         True
 
-    ValueError if `config_spec` is present when get_config_section() or
-    get_config_full() is called with *additional format keyword
-    arguments*:
+        >>> class MyClass2(ConfigMixin):
+        ...     config_spec = SimpleConfigSpecEgg(b'not a str!!!')
+        ...
+        >>> m = MyClass2()
+        >>> m.get_config_full()  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+          ...
+        TypeError: `config_spec` is expected to be a `str` or ..., not an instance of `bytes`
+
+        >>> m.get_config_section()  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+          ...
+        TypeError: `config_spec` is expected to be a `str` or ..., not an instance of `bytes`
+
+        >>> m.is_config_spec_declared()
+        True
+
+    The same appies to `config_spec_pattern`:
+
+        >>> class MyClass(ConfigMixin):
+        ...     config_spec_pattern = bytearray(b'not a str!!!')
+        ...
+        >>> m = MyClass()
+        >>> m.get_config_full(foo='bar')  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+          ...
+        TypeError: `config_spec` is expected to be a `str` or ..., not an instance of `bytearray`
+
+        >>> m.get_config_section(foo='bar')  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+          ...
+        TypeError: `config_spec` is expected to be a `str` or ..., not an instance of `bytearray`
+
+        >>> m.is_config_spec_declared()
+        True
+
+    Apart from that, `TypeError` is also raised if an attempt is made to
+    pass `settings` among format keyword arguments:
+
+        >>> class MyClass(ConfigMixin):
+        ...
+        ...     config_spec_pattern = '''
+        ...         [{section_name}]
+        ...         foo
+        ...     '''
+        ...
+        >>> example_settings = {'hophop.foo': 'bar'}
+        >>> m = MyClass()
+        >>> m.get_config_full(settings=example_settings,
+        ...                   section_name='hophop')  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+          ...
+        TypeError: the `settings` format kwarg is forbidden ...
+
+        >>> m.get_config_section(settings=example_settings,
+        ...                      section_name='hophop')  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+          ...
+        TypeError: the `settings` format kwarg is forbidden ...
+
+    Obviously, the fix is to pass the settings as the positional argument:
+
+        >>> m.get_config_full(example_settings,
+        ...                   section_name='hophop')
+        Config(<{'hophop': ConfigSection('hophop', {'foo': 'bar'})}>)
+
+        >>> m.get_config_section(example_settings,
+        ...                      section_name='hophop')
+        ConfigSection('hophop', {'foo': 'bar'})
+
+    Another error-related remark: if the `hatch_out()` method of
+    `config_spec` or `config_spec_pattern` raises an exception then
+    that exception bubbles up:
+
+        >>> class ConfigSpecRottenEgg:
+        ...     def hatch_out(self, format_data_mapping=None):
+        ...         1 / 0
+        ...
+        >>> class MyClass(ConfigMixin):
+        ...     config_spec = ConfigSpecRottenEgg()
+        ...
+        >>> m = MyClass()
+        >>> m.get_config_full()  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+          ...
+        ZeroDivisionError: ...
+        >>> m.get_config_section()  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+          ...
+        ZeroDivisionError: ...
+
+        >>> class MyClass(ConfigMixin):
+        ...     config_spec_pattern = ConfigSpecRottenEgg()
+        ...
+        >>> m = MyClass()
+        >>> m.get_config_full(foo='bar')  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+          ...
+        ZeroDivisionError: ...
+        >>> m.get_config_section(foo='bar')  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+          ...
+        ZeroDivisionError: ...
+
+    `ValueError` is raised if `config_spec` (rather than
+    `config_spec_pattern`) is present when `get_config_section()`
+    or `get_config_full()` is being called *with* format keyword
+    arguments (aka *format kwargs*):
 
         >>> class MyClass(ConfigMixin):
         ...     config_spec = 'foo'
@@ -1975,16 +2337,36 @@ class ConfigMixin(object):
         Traceback (most recent call last):
           ...
         ValueError: ... `config_spec_pattern` attribute is expected ...
+
         >>> m.get_config_section(a='b')  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
         ValueError: ... `config_spec_pattern` attribute is expected ...
-        >>> m.is_config_spec_or_group_declared()
+
+        >>> m.is_config_spec_declared()
         True
 
-    ValueError if `config_spec_pattern` is present when
-    get_config_section() or get_config_full() is called *without*
-    additional format keyword arguments:
+        >>> class MyClass2(ConfigMixin):
+        ...     config_spec = SimpleConfigSpecEgg('foo')
+        ...
+        >>> m = MyClass2()
+        >>> m.get_config_full(a='b')  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+          ...
+        ValueError: ... `config_spec_pattern` attribute is expected ...
+
+        >>> m.get_config_section(a='b')  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+          ...
+        ValueError: ... `config_spec_pattern` attribute is expected ...
+
+        >>> m.is_config_spec_declared()
+        True
+
+    `ValueError` is also raised if `config_spec_pattern` (rather
+    than `config_spec`) is present when `get_config_section()`
+    or `get_config_full()` is called *without* format keyword
+    arguments:
 
         >>> class MyClass(ConfigMixin):
         ...     config_spec_pattern = 'foo'
@@ -1994,62 +2376,39 @@ class ConfigMixin(object):
         Traceback (most recent call last):
           ...
         ValueError: ... `config_spec` attribute is expected ...
+
         >>> m.get_config_section()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
         ValueError: ... `config_spec` attribute is expected ...
-        >>> m.is_config_spec_or_group_declared()
+
+        >>> m.is_config_spec_declared()
         True
 
-    ConfigError if `config_required` is specified and `config_group` is
-    not and it cannot be inferred automagically from `config_spec`
-    (because there is no section or there is more than one section):
-
-        >>> class MyClass(ConfigMixin):
-        ...     config_required = ('a', 'b')
+        >>> class MyClass2(ConfigMixin):
+        ...     config_spec_pattern = SimpleConfigSpecEgg('foo')
         ...
-        >>> m = MyClass()
+        >>> m = MyClass2()
         >>> m.get_config_full()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        n6lib.config.ConfigError: ... `config_group` ... cannot be inferred ...
-        >>> m.get_config_section()  # doctest: +ELLIPSIS
-        Traceback (most recent call last):
-          ...
-        n6lib.config.ConfigError: ... `config_group` ... cannot be inferred ...
-        >>> m.is_config_spec_or_group_declared()  # note the result here!
-        False
+        ValueError: ... `config_spec` attribute is expected ...
 
-        >>> class MyClass(ConfigMixin):
-        ...     config_required = ('a', 'b')
-        ...     config_spec = '''; note that there are two sections
-        ...         [foo]
-        ...         a = XYZ
-        ...         b = 43 :: int
-        ...         [bar]
-        ...         j = null :: json
-        ...     '''
-        ...
-        >>> m = MyClass()
-        >>> m.get_config_full()  # doctest: +ELLIPSIS
-        Traceback (most recent call last):
-          ...
-        n6lib.config.ConfigError: ... `config_group` ... cannot be inferred ...
         >>> m.get_config_section()  # doctest: +ELLIPSIS
         Traceback (most recent call last):
           ...
-        n6lib.config.ConfigError: ... `config_group` ... cannot be inferred ...
-        >>> m.is_config_spec_or_group_declared()
+        ValueError: ... `config_spec` attribute is expected ...
+
+        >>> m.is_config_spec_declared()
         True
 
-    Note that if neither `config_spec` nor `config_spec_pattern`, nor
-    `config_group`, nor `config_required` is specified -- normal rules
-    apply, that is:
+    Note that if neither `config_spec` nor `config_spec_pattern` is
+    specified then:
 
-    * get_config_section() must fail because there is no possibility to
-      infer the section name;
+    * `get_config_section()` must fail because there is no possibility
+      to infer the section name;
 
-    * get_config_full() succeeds but the obtained Config is empty.
+    * `get_config_full()` succeeds but the obtained `Config` is empty.
 
         >>> class MyClass(ConfigMixin):
         ...     pass
@@ -2075,126 +2434,150 @@ class ConfigMixin(object):
         Config(<{}>)
         >>> m.get_config_full(example_settings)
         Config(<{}>)
-        >>> m.is_config_spec_or_group_declared()  # note the result here
+        >>> m.is_config_spec_declared()  # note the result here
         False
 
-    Of course, ConfigError -- as well as TypeError or KeyError -- will
-    occur in all cases when the Config stuff raises them (see the docs
-    of the Config class for details).
+    Of course, `ConfigError` -- as well as other exceptions (e.g.,
+    `TypeError`, `ValueError`...) -- will occur always when the `Config`
+    stuff raises them (see the docs of the `Config` class for details).
     """
 
+    unsupported_class_attributes = CombinedWithSuper(frozenset({
+        # (previously supported stuff, now explicitly prohibited)
+        'config_required',
+        'config_group',
+        'default_converter',
+    }))
 
-    def get_config_full(self, settings=None, **format_kwargs):
+
+    def get_config_full(self, settings=None, /, **format_kwargs):
         """
-        Get a Config containing stuff from files or from `settings`.
+        Get a `Config` containing stuff from files or from `settings`.
 
-        Args/kwargs:
-            `settings` (optional; default: None):
-                If not None it should be a dict containing Pyramid-like
-                settings.
+        Args (positional-only, optional):
+            `settings` (a mapping or `None`; default: `None`):
+                If not `None` it should be a mapping containing
+                Pyramid-like settings (see the description of the
+                `settings` argument if tne docs of `Config`).
 
-        Arbitrary optional kwargs:
-            Keyword arguments to be used to format config spec from the
-            `config_spec_pattern` attribute.  If they are not given
-            `config_spec` attribute will be used instead.
+        Any kwargs (unrestricted, except that `settings` is forbidden):
+            If given, they will be engaged as *format kwargs* to make
+            the *config spec* by formatting it using the value of the
+            `config_spec_pattern` attribute (which then must be present
+            and not `None`) as the formattable *config spec pattern*.
+
+            If not even one is given then no such attempt will be made;
+            instead of that, the value of the `config_spec` attribute
+            (which then must be present and not `None`) will be used as
+            the *config spec*.
 
         Raises:
-            ConfigError, TypeError, ValueError, KeyError (see the docs
-            of this class).
+            `ConfigError`, `TypeError`, `ValueError` and possibly
+            others... (see the main docs of this class).
 
         The method makes use of the following attributes:
 
         * `config_spec` (empty by default) or `config_spec_pattern`;
-        * optional (modern): `custom_converters`, `default_converter`;
-        * optional (legacy): `config_group`, `config_required`.
+        * optional: `custom_converters`, and possibly (if the `settings`
+          argument is `None`) also: `config_filename_regex` and
+          `config_filename_excluding_regex`.
 
-        (See the docs of this class for details.)
-
+        (See the main docs of this class for details.)
         """
+        if 'settings' in format_kwargs:
+            raise TypeError(
+                'the `settings` format kwarg is forbidden (if you '
+                'meant to provide a Pyramid-like settings mapping, '
+                'please pass it as the positional argument)')
         args, kwargs = self.__get_args_kwargs(settings, **format_kwargs)
         return Config(*args, **kwargs)
 
 
-    def get_config_section(self, settings=None, **format_kwargs):
+    def get_config_section(self, settings=None, /, **format_kwargs):
         """
-        Get a ConfigSection containing stuff from files or from `settings`.
+        Get a `ConfigSection` containing stuff from files or from `settings`.
 
-        Args/kwargs:
-            `settings` (optional; default: None):
-                If not None it should be a dict containing Pyramid-like
-                settings.
+        Args (positional-only, optional):
+            `settings` (a mapping or `None`; default: `None`):
+                If not `None` it should be a mapping containing
+                Pyramid-like settings (see the description of the
+                `settings` argument if tne docs of `Config`).
 
-        Arbitrary optional kwargs:
-            Keyword arguments to be used to format config spec from the
-            `config_spec_pattern` attribute.  If they are not given
-            `config_spec` attribute will be used instead.
+        Any kwargs (unrestricted, except that `settings` is forbidden):
+            If given, they will be engaged as *format kwargs* to make
+            the *config spec* by formatting it using the value of the
+            `config_spec_pattern` attribute (which then must be present
+            and not `None`) as the formattable *config spec pattern*.
+
+            If not even one is given then no such attempt will be made;
+            instead of that, the value of the `config_spec` attribute
+            (which then must be present and not `None`) will be used as
+            the *config spec*.
 
         Raises:
-            ConfigError, TypeError, ValueError, KeyError (see the docs
-            of this class).
+            `ConfigError`, `TypeError`, `ValueError` and possibly
+            others... (see the main docs of this class).
 
         The method makes use of the following attributes:
 
         * `config_spec` (empty by default) or `config_spec_pattern`;
-        * optional (modern): `custom_converters`, `default_converter`;
-        * optional (legacy): `config_group`, `config_required`.
+        * optional: `custom_converters`, and possibly (if the `settings`
+          argument is `None`) also: `config_filename_regex` and
+          `config_filename_excluding_regex`.
 
-        (See the docs of this class for details.)
+        (See the main docs of this class for details.)
 
-        NOTE: this method (unlike get_config_full()) can be called
-        *only* if it is clear which is *the* section, i.e., if
-        `config_spec` contains exactly one section, or if `config_group`
-        is specified.
+        NOTE: this method (unlike `get_config_full()`) is *only* allowed
+        to be called if it is clear which is *the* section, i.e., if
+        `config_spec` contains exactly one section.
 
-        Typically you are interested in one section only -- so in most
-        cases this method will probably be more handy than
-        get_config_full().
+        Typically, you are interested in one section only -- so in
+        most cases this method will probably be more handy than
+        `get_config_full()`.
         """
+        if 'settings' in format_kwargs:
+            raise TypeError(
+                'the `settings` format kwarg is forbidden (if you '
+                'meant to provide a Pyramid-like settings mapping, '
+                'please pass it as the positional argument)')
         args, kwargs = self.__get_args_kwargs(settings, **format_kwargs)
-        config_group = self.__get_config_group()
-        if config_group is None:
-            config_section = Config.section(*args, **kwargs)
-        else:
-            full_config = Config(*args, **kwargs)
-            config_section = full_config[config_group]
-        return config_section
+        return Config.section(*args, **kwargs)
 
 
-    def is_config_spec_or_group_declared(self):
+    def is_config_spec_declared(self):
         """
         Check whether a minimum configuration-related stuff is declared
         explicitly.
 
         Returns:
-            True -- if *any* of the following attributes is present and
-            set to some non-None value:
+            `True` -- if *any* of the following attributes is present
+            and set to some non-`None` value:
 
             * `config_spec`,
-            * `config_spec_pattern`,
-            * `config_group`;
+            * `config_spec_pattern`;
 
-            False -- otherwise.  Note that in such a case a call to the
-            get_config_section() method must always fail (raising an
-            exception) but a call to get_config_full() may succeed
-            (though returning an empty Config instance).
+            `False` -- otherwise.  Note that in such a case a call to
+            the `get_config_section()` method must always fail (raising
+            an exception) but a call to `get_config_full()` would
+            succeed (though returning an empty `Config` instance).
         """
         return (getattr(self, 'config_spec', None) is not None or
-                getattr(self, 'config_spec_pattern', None) is not None or
-                self.__get_config_group() is not None)
+                getattr(self, 'config_spec_pattern', None) is not None)
 
 
     make_list_converter = staticmethod(Config.make_list_converter)
 
 
-    def __get_args_kwargs(self, settings, **format_kwargs):
+    def __get_args_kwargs(self, settings, /, **format_kwargs):
         config_spec = self.__get_config_spec(**format_kwargs)
         return (config_spec,), dict(
             settings=settings,
-            custom_converters=self.__get_custom_converters(),
-            default_converter=self.__get_default_converter())
+            custom_converters=getattr(self, 'custom_converters', None),
+            config_filename_regex=getattr(self, 'config_filename_regex', None),
+            config_filename_excluding_regex=getattr(self, 'config_filename_excluding_regex', None))
 
 
-    def __get_config_spec(self, **format_kwargs):
+    def __get_config_spec(self, /, **format_kwargs):
         if format_kwargs:
             if getattr(self, 'config_spec', None) is not None:
                 raise ValueError(
@@ -2202,7 +2585,7 @@ class ConfigMixin(object):
                     'the `config_spec_pattern` attribute is expected '
                     '(to be non-None) rather than `config_spec`')
             config_spec_pattern = getattr(self, 'config_spec_pattern', '') or ''
-            config_spec = config_spec_pattern.format(**format_kwargs)
+            config_spec = as_config_spec_string(config_spec_pattern, format_kwargs)
         else:
             if getattr(self, 'config_spec_pattern', None) is not None:
                 raise ValueError(
@@ -2210,126 +2593,228 @@ class ConfigMixin(object):
                     'the `config_spec` attribute is expected '
                     '(to be non-None) rather than `config_spec_pattern`')
             config_spec = getattr(self, 'config_spec', '') or ''
-        if not isinstance(config_spec, str):
-            raise TypeError('config_spec must be str, not {0}'.format(
-                get_class_name(config_spec)))
-        config_spec = self.__enrich_config_spec_with_legacy_stuff(config_spec)
         return config_spec
 
 
-    def __get_custom_converters(self):
-        return getattr(self, 'custom_converters', None)
+
+def as_config_spec_string(config_spec, /, format_data_mapping=None):
+    """
+    Obtain a `str` from the given object that represents a *config spec*.
+
+    Args (positional-only):
+        `config_spec` (a `str` or `ConfigSpecEgg`-compliant object):
+            The input object that represents a *config spec* (or a
+            formattable *config spec pattern*).
+
+            If `config_spec` is an *egg object*, i.e., an object compliant
+            with the `ConfigSpecEgg` protocol, then its `hatch_out()`
+            method will be called, with `format_data_mapping` (see below)
+            as the sole argument (no matter whether it is a mapping or
+            `None`), to obtain the result.
+
+            If `config_spec` is a `str` and `format_data_mapping` *is*
+            `None` then `config_spec` will be treated as the actual
+            *config spec*.
+
+            If `config_spec` is a `str` and `format_data_mapping` is *not*
+            `None` then a `config_spec.format_map(format_data_mapping)`
+            call will be made to obtain the actual *config spec*.
+
+            Finally, in any case, the resultant string will be processed
+            using the `n6lib.common_helpers.reduce_indent()` function.
+
+    Args/kwargs:
+        `format_data_mapping` (a mapping or `None`; default: `None`):
+            If given and not `None` it should be a mapping ready to
+            be passed to `str.format_map()`/`<egg object>.hatch_out()`
+            (see the above description of the `config_spec` argument).
+
+    Returns:
+        A *config spec* (or *config spec pattern*), appropriately
+        prepared and coerced to `str` (see the above description
+        of the `config_spec` argument).
+
+    Raises:
+        `TypeError`:
+            if the `config_spec` argument is neither a string (note: an
+            instance of some subclass of `str` is also acceptable) nor
+            an object compliant with `ConfigSpecEgg`; also, if the given
+            object has the (`ConfigSpecEgg`-specific) `hatch_out()`
+            method but that method returns a non-string object.
+
+        Any exception from `config_spec.format_map(format_data_mapping)`:
+            if the `config_spec` argument is a string *and* an exception
+            -- in particular, a `KeyError` -- is obtained from the
+            `config_spec.format_map(format_data_mapping)` call (note:
+            that call is made only if `format_data_mapping` is *not*
+            `None`).
+
+        Any exception from `config_spec.hatch_out(...)`:
+            if the `config_spec` argument is an object compliant with
+            `ConfigSpecEgg` *and* an exception -- in particular, a
+            `ConfigSpecEggError` (or a subclass of it) -- is obtained
+            from the `config_spec.hatch_out(...)` call (note: that call
+            is made *regardless* of whether `format_data_mapping` is
+            `None`).
+
+    Note that this function, unlike `parse_config_spec()`, does *not*
+    parse or validate the content of the processed *config spec* (unless
+    some parsing/validation is performed by the internal machinery of
+    the given *egg object* if any).
+
+    >>> class SpecEgg:  # (compliant with `ConfigSpecEgg`)
+    ...     def __init__(self, s):
+    ...         self._s = s
+    ...     def hatch_out(self, format_data_mapping=None):
+    ...         if format_data_mapping is None:
+    ...             return self._s
+    ...         return self._s.format_map(format_data_mapping)
+    ...
+    >>> class CustomStr(str):
+    ...     pass
+    ...
+    >>> class CustomDict(dict):
+    ...     def __missing__(self, key):
+    ...         return ('brave' if key == 'lancelot_trait'
+    ...                 else super().__missing__(key))
+    ...
+    >>> pattern = '''
+    ...     [knights]
+    ...     Galahad = {galahad_trait}
+    ...     Lancelot = {lancelot_trait} :: bytes
+    ...
+    ...     [shrubbery]
+    ...     price :: int
+    ... '''
+    >>> expected_pattern = '''
+    ... [knights]
+    ... Galahad = {galahad_trait}
+    ... Lancelot = {lancelot_trait} :: bytes
+    ...
+    ... [shrubbery]
+    ... price :: int
+    ... '''
+    >>> assert expected_pattern == reduce_indent(pattern)
+    >>> str_pattern = as_config_spec_string(pattern)
+    >>> str_pattern == expected_pattern and type(str_pattern) is str
+    True
+    >>> conv_str_pattern = as_config_spec_string(SpecEgg(pattern))
+    >>> conv_str_pattern == expected_pattern and type(conv_str_pattern) is str
+    True
+    >>> cust_pattern = as_config_spec_string(CustomStr(pattern))
+    >>> cust_pattern == expected_pattern and type(cust_pattern) is str
+    True
+    >>> conv_cust_pattern = as_config_spec_string(SpecEgg(CustomStr(pattern)))
+    >>> conv_cust_pattern == expected_pattern and type(conv_cust_pattern) is str
+    True
+    >>> format_data_mapping = CustomDict(
+    ...     galahad_trait='pure',
+    ... )
+    >>> expected_formatted = '''
+    ... [knights]
+    ... Galahad = pure
+    ... Lancelot = brave :: bytes
+    ...
+    ... [shrubbery]
+    ... price :: int
+    ... '''
+    >>> assert expected_formatted == expected_pattern.format_map(format_data_mapping)
+    >>> str_formatted = as_config_spec_string(pattern, format_data_mapping)
+    >>> str_formatted == expected_formatted and type(str_formatted) is str
+    True
+    >>> conv_str_formatted = as_config_spec_string(SpecEgg(pattern), format_data_mapping)
+    >>> conv_str_formatted == expected_formatted and type(conv_str_formatted) is str
+    True
+    >>> cust_formatted = as_config_spec_string(CustomStr(pattern), format_data_mapping)
+    >>> cust_formatted == expected_formatted and type(cust_formatted) is str
+    True
+    >>> conv_cust_formatted = as_config_spec_string(SpecEgg(CustomStr(pattern)),
+    ...                                             format_data_mapping=format_data_mapping)
+    >>> conv_cust_formatted == expected_formatted and type(conv_cust_formatted) is str
+    True
+
+    >>> as_config_spec_string(42)                            # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: `config_spec` is expected to be a `str` or ..., not an instance of `int`
+
+    >>> as_config_spec_string(b'abc', format_data_mapping)   # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: `config_spec` is expected to be a `str` or ..., not an instance of `bytes`
+
+    >>> as_config_spec_string(pattern, format_data_mapping={})
+    Traceback (most recent call last):
+      ...
+    KeyError: 'galahad_trait'
+
+    >>> class RottenEgg:
+    ...     def hatch_out(self, format_data_mapping=None):
+    ...         raise ValueError(format_data_mapping)
+    ...
+    >>> as_config_spec_string(RottenEgg())
+    Traceback (most recent call last):
+      ...
+    ValueError: None
+
+    >>> as_config_spec_string(RottenEgg(), format_data_mapping)
+    Traceback (most recent call last):
+      ...
+    ValueError: {'galahad_trait': 'pure'}
+    """
+    if isinstance(config_spec, ConfigSpecEgg):
+        config_spec = config_spec.hatch_out(format_data_mapping)
+    elif isinstance(config_spec, str) and format_data_mapping is not None:
+        config_spec = config_spec.format_map(format_data_mapping)
+    if not isinstance(config_spec, str):
+        raise TypeError(ascii_str(
+            f'`config_spec` is expected to be a `str` or a '
+            f'`{ConfigSpecEgg.__qualname__}`-compliant object, '
+            f'not an instance of `{type(config_spec).__qualname__}`'))
+    return reduce_indent(config_spec)
 
 
-    def __get_default_converter(self):
-        return getattr(self, 'default_converter', str)
 
-
-    def __enrich_config_spec_with_legacy_stuff(self, config_spec):
-        config_group = self.__get_config_group()
-        config_required = self.__get_config_required()
-        assert all(isinstance(opt_name, str) for opt_name in config_required)
-        if config_group is not None or config_required:
-            conf_spec_data = parse_config_spec(config_spec)
-            sect_name_to_spec = self.__get_sect_name_to_spec(conf_spec_data)
-            if config_group is None:
-                assert config_required
-                try:
-                    [(config_group, sect_spec)] = sect_name_to_spec.items()
-                except ValueError:
-                    all_sections = sorted(sect_name_to_spec)
-                    sections_descr = (
-                        'the following sections found: {0}'.format(
-                            ', '.join(map(repr, map(ascii_str, all_sections))))
-                        if all_sections else 'no sections found')
-                    raise ConfigError(
-                        'attribute `config_required` is specified but '
-                        '`config_group` is not and it cannot be inferred '
-                        'from `config_spec` because it does not contain '
-                        'exactly one section ({0})'.format(sections_descr)) from None
-            else:
-                sect_spec = sect_name_to_spec.get(config_group)
-            assert isinstance(config_group, str)
-            if sect_spec is None:
-                sect_spec = _SectSpec(
-                    name=config_group,
-                    opt_specs=[
-                        _OptSpec(name=str(opt_name),
-                                 default=None,
-                                 converter_spec=None)
-                        for opt_name in config_required],
-                    free_opts_allowed=True,
-                    free_opts_converter_spec=None)
-                config_spec = '{0}\n{1}'.format(
-                    reduce_indent(config_spec),
-                    sect_spec)
-            else:
-                assert conf_spec_data.contains(config_group)
-                assert isinstance(sect_spec, _SectSpec)
-                additional_required_opts = sorted(
-                    set(config_required).difference(
-                            opt.name
-                            for opt in sect_spec.opt_specs),
-                    key=config_required.index)
-                if additional_required_opts:
-                    sect_spec = sect_spec._replace(
-                        opt_specs=sect_spec.opt_specs + [
-                            _OptSpec(name=str(opt_name),
-                                     default=None,
-                                     converter_spec=None)
-                            for opt_name in additional_required_opts])
-                    config_spec = str(conf_spec_data.substitute(
-                        config_group,
-                        str(sect_spec)))
-            assert type(config_spec) is str
-            assert isinstance(sect_spec, _SectSpec)
-            assert all(isinstance(opt.name, str) for opt in sect_spec.opt_specs)
-            assert sect_spec.name == config_group
-            assert config_group in (
-                self.__get_sect_name_to_spec(parse_config_spec(config_spec)))
-            assert set(config_required).issubset(opt.name for opt in sect_spec.opt_specs)
-        return config_spec
-
-
-    def __get_config_group(self):
-        config_group = getattr(self, 'config_group', None)
-        if config_group is not None:
-            config_group = str(config_group)
-        return config_group
-
-
-    def __get_config_required(self):
-        config_required = getattr(self, 'config_required', ()) or ()
-        if isinstance(config_required, str):
-            config_required = (config_required,)
-        return tuple(map(str, config_required))
-
-
-    @staticmethod
-    def __get_sect_name_to_spec(conf_spec_data):
-        all_sect_specs = conf_spec_data.get_all_sect_specs()
-        return dict((spec.name, spec) for spec in all_sect_specs)
-
-
-
-def parse_config_spec(config_spec):
+def parse_config_spec(config_spec, /):
     r"""
-    Translate a config spec string to an object that is easier to manipulate.
+    Translate a *config spec* string to an object that is easier to
+    manipulate. (Note that, first, the `as_config_spec_string()`
+    function is always applied to the argument.)
 
-    Args:
-        `config_spec` (str): the config spec string.
+    Args (positional-only):
+        `config_spec` (a `str` or `ConfigSpecEgg`-compliant object):
+            The *config spec* to be parsed (see the "Configuration
+            specification format" section of the docs of the `Config`
+            class).
+
+            It can also be a formattable *config spec pattern*, provided
+            that the "replacement fields" it contains do not make it
+            unparseable as a valid *config spec*.
 
     Returns:
         An object that provides an interface similar to the interface
-        provided by the ConfigString class -- but fitted to manipulate
-        a config spec; especially, a few additional methods are provided
-        (see the examples below).
+        provided by the `ConfigString` class -- but fitted to manipulate
+        a *config spec*; especially, a few additional methods are provided
+        (see the examples below). Its type is a subclass of `str`, so the
+        object can be used in most contexts where a string is needed.
+
+    Raises:
+        Any exception from `as_config_spec_string(config_spec)`:
+            see the docs of the `as_config_spec_string()` function.
+
+        `ValueError`:
+            if `config_spec` cannot be parsed because its content is not
+            a valid *config spec*, including also cases when it contains
+            any of `Config.CONFIG_SPEC_RESERVED_CHARS` (which are `\x00`
+            and `\x01`, that is, the characters whose ASCII codes are,
+            respectively, 0 and 1).
+
 
     >>> parsed = parse_config_spec('''
     ...     [first]
     ...     foo = 42 :: int  ; comment
     ...     bar = 43         ; comment
-    ...     ham::unicode
+    ...     ham::bytes
     ...     spam
     ...     glam ;comment
     ...     # the `...` below means that free (arbitrary, i.e.,
@@ -2370,9 +2855,7 @@ def parse_config_spec(config_spec):
     '42'
     >>> opt_spec_foo.converter_spec
     'int'
-    >>> opt_spec_foo == ('foo', '42', 'int')
-    True
-    >>> isinstance(opt_spec_foo, tuple) and type(opt_spec_foo) is not tuple
+    >>> opt_spec_foo == _OptSpec('foo', '42', 'int')
     True
 
     >>> parsed.get_opt_spec('second.foo')
@@ -2389,9 +2872,9 @@ def parse_config_spec(config_spec):
     'bar'
     >>> opt_spec_bar1.default
     '43'
-    >>> opt_spec_bar1.converter_spec is None
-    True
-    >>> opt_spec_bar1 == ('bar', '43', None)
+    >>> opt_spec_bar1.converter_spec
+    'str'
+    >>> opt_spec_bar1 == _OptSpec('bar', '43', 'str')
     True
 
     >>> opt_spec_bar2 = parsed.get_opt_spec('second.bar')
@@ -2401,7 +2884,7 @@ def parse_config_spec(config_spec):
     True
     >>> opt_spec_bar2.converter_spec
     'url'
-    >>> opt_spec_bar2 == ('bar', None, 'url')
+    >>> opt_spec_bar2 == _OptSpec('bar', None, 'url')
     True
 
     >>> sect_spec_first = parsed.get_sect_spec('first')
@@ -2414,18 +2897,18 @@ def parse_config_spec(config_spec):
     ...     parsed.get_opt_spec('first.spam'),
     ...     parsed.get_opt_spec('first.glam'),
     ... ] == [
-    ...     ('foo', '42', 'int'),
-    ...     ('bar', '43', None),
-    ...     ('ham', None, 'unicode'),
-    ...     ('spam', None, None),
-    ...     ('glam', None, None),
+    ...     _OptSpec('foo', '42', 'int'),
+    ...     _OptSpec('bar', '43', 'str'),
+    ...     _OptSpec('ham', None, 'bytes'),
+    ...     _OptSpec('spam', None, 'str'),
+    ...     _OptSpec('glam', None, 'str'),
     ... ]
     True
     >>> sect_spec_first.free_opts_allowed   # the `...` marker is present
     True
-    >>> sect_spec_first.free_opts_converter_spec is None
-    True
-    >>> sect_spec_first == (
+    >>> sect_spec_first.free_opts_converter_spec
+    'str'
+    >>> sect_spec_first == _SectSpec(
     ...     'first',
     ...     [
     ...         parsed.get_opt_spec('first.foo'),
@@ -2435,7 +2918,7 @@ def parse_config_spec(config_spec):
     ...         parsed.get_opt_spec('first.glam'),
     ...     ],
     ...     True,
-    ...     None,
+    ...     'str',
     ... )
     True
     >>> sect_spec_first.required  # includes at least 1 opt without default
@@ -2452,16 +2935,16 @@ def parse_config_spec(config_spec):
     ... ]
     True
 
-    The parse_config_spec() function automatically *reduces
-    indentation* (note the difference against the ConfigString constructor!)
-    -- that's why the config spec in the following example is
-    perfectly synonymous to the one defined earlier:
+    Note: `parse_config_spec()` makes use of the `as_config_spec_string()`
+    function which (apart from doing other things) automatically *reduces
+    indentation* -- that's why the *config spec* in the following example
+    is perfectly synonymous to the one defined earlier:
 
     >>> parsed == parse_config_spec('''
     ... [first]
     ... foo = 42 :: int  ; comment
     ... bar = 43         ; comment
-    ... ham::unicode
+    ... ham::bytes
     ... spam
     ... glam ;comment
     ... # the `...` below means that free (arbitrary, i.e.,
@@ -2496,14 +2979,22 @@ def parse_config_spec(config_spec):
     >>> another_parsed.get_opt_value('foo.bar')
     '\nspam'
 
-    >>> yet_another_parsed = parse_config_spec('''x = y
+    >>> class SimpleConfigSpecEgg:
+    ...     def __init__(self, s):
+    ...         self._s = s
+    ...     def hatch_out(self, format_data_mapping=None):
+    ...         if format_data_mapping is None:
+    ...             return self._s
+    ...         return self._s.format_map(format_data_mapping)
+    ...
+    >>> yet_another_parsed = parse_config_spec(SimpleConfigSpecEgg('''x = y
     ...       z
     ...     [foo]
     ... \t
     ...     bar =
     ...         spam
     ...     baz = ham
-    ...     \t''')
+    ...     \t'''))
     >>> str(yet_another_parsed) == ('''x = y
     ...   z
     ... [foo]
@@ -2520,7 +3011,7 @@ def parse_config_spec(config_spec):
     >>> yet_another_parsed.get_opt_value('foo.baz')
     'ham'
 
-    Some typical error conditions related to ill-formed config specs
+    Some typical error conditions related to ill-formed *config specs*
     are presented below:
 
     >>> parse_config_spec('''
@@ -2531,39 +3022,64 @@ def parse_config_spec(config_spec):
     ...     [first]
     ...     b = BBB
     ...     c = CCC
-    ... ''')                                         # doctest: +ELLIPSIS
+    ... ''')
     Traceback (most recent call last):
       ...
     ValueError: duplicate section name 'first'
 
-    >>> parse_config_spec('''
+    >>> parse_config_spec(SimpleConfigSpecEgg('''
     ...     [first]
     ...     a = AAA
     ...     b = BBB
     ...     a = AAA
-    ... ''')                                         # doctest: +ELLIPSIS
+    ... '''))
     Traceback (most recent call last):
       ...
     ValueError: duplicate option name 'a' in section 'first'
 
-    >>> parse_config_spec('wrong opt :: some_conv')  # doctest: +ELLIPSIS
+    >>> parse_config_spec('[wrong.sect]')                   # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line '[wrong.sect]' is not valid ...
+
+    >>> parse_config_spec('[wrong_opt')                     # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line '[wrong_opt' is not valid ...
+
+    >>> parse_config_spec(']wrong_opt = val')               # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line ']wrong_opt = val' is not valid ...
+
+    >>> parse_config_spec('wrong opt :: some_conv')         # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     ValueError: config line 'wrong opt :: some_conv' is not valid ...
 
-    >>> parse_config_spec('some_opt :: wrong-conv')  # doctest: +ELLIPSIS
+    >>> parse_config_spec('some_opt = val :: wrong conv')   # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    ValueError: config line 'some_opt :: wrong-conv' is not valid ...
+    ValueError: ...wrong conv' is not valid...
 
-    >>> parse_config_spec('\n   xyz\n  abc\n\n')     # doctest: +ELLIPSIS
+    >>> parse_config_spec('\n   xyz\n  abc\n\n')            # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     ValueError: first non-blank ... ' xyz' looks like a continuation line...
 
+    >>> parse_config_spec('some_opt = \0')                  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: found config spec's character(s) reserved for internal purposes: '\x00'
+
+    >>> parse_config_spec(SimpleConfigSpecEgg('some_opt = \0\1'))   # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: found config spec's character(s) reserved for internal purposes: '\x00', '\x01'
+
     As it was said, the methods analogous to those provided by
-    ConfigString are also provided; the code below includes a few
-    examples...
+    `ConfigString` are also provided; the code below includes a
+    few examples...
 
     >>> parsed.contains('first')
     True
@@ -2593,7 +3109,7 @@ def parse_config_spec(config_spec):
     >>> first == parse_config_spec('''[first]
     ...   foo = 42 :: int  ; comment
     ...   bar = 43         ; comment
-    ...   ham::unicode
+    ...   ham::bytes
     ...   spam
     ...   glam ;comment
     ...   # the `...` below means that free (arbitrary, i.e.,
@@ -2624,13 +3140,13 @@ def parse_config_spec(config_spec):
     True
     >>> sect_spec.free_opts_allowed
     False
-    >>> sect_spec.free_opts_converter_spec is None
-    True
-    >>> sect_spec == (
+    >>> sect_spec.free_opts_converter_spec
+    'str'
+    >>> sect_spec == _SectSpec(
     ...     '',
     ...     [opt_spec_foo],
     ...     False,
-    ...     None,
+    ...     'str',
     ... )
     True
     >>> sect_spec.required    # all included opts have default values defined
@@ -2649,7 +3165,7 @@ def parse_config_spec(config_spec):
     True
     >>> parsed.get_opt_names('') == []
     True
-    >>> parsed.get_opt_names('nonexistent')          # doctest: +ELLIPSIS
+    >>> parsed.get_opt_names('nonexistent')
     Traceback (most recent call last):
       ...
     KeyError: 'nonexistent'
@@ -2675,7 +3191,7 @@ def parse_config_spec(config_spec):
     ...      [first]
     ...      foo = 123 :: someconv
     ...      bar = 43         ; comment
-    ...      ham::unicode
+    ...      ham::bytes
     ...      spam
     ...      glam ;comment
     ...      # the `...` below means that free (arbitrary, i.e.,
@@ -2688,36 +3204,49 @@ def parse_config_spec(config_spec):
     ...      '''))
     True
     """
-    # for more doctests related to the class of objects returned by
+    config_spec_string = as_config_spec_string(config_spec)
+    _verify_no_config_spec_reserved_chars(config_spec_string)
+    # (For more doctests related to the class of objects returned by
     # this function -- including some peculiar/corner cases -- see the
-    # docstring of the _ConfSpecData class
-    return _ConfSpecData(reduce_indent(config_spec))
+    # docstring of the `_ConfSpecData` non-pubic class...)
+    return _ConfSpecData(config_spec_string)
 
 
 
 def join_config_specs(*config_specs):
     r"""
-    Join config spec strings (interleaving them with additional newline
-    characters), first reducing their indentation individually, so that
-    the final result can be passed to `parse_config_spec()`.
+    Prepare the given *config specs* by applying to them the function
+    `as_config_spec_string()`, and then join them (interleaving them
+    with additional newline characters); the final result can be passed
+    to `parse_config_spec()`.
 
-    Positional *args:
-        Several config spec strings (`str`).
+    Possibly multiple *args (positional-only):
+        *Config specs* (or formattable *config spec patterns*) -- each
+        should be a string or a `ConfigSpecEgg`-compliant object.
 
     Returns:
-        A new config spec string (`str`).
+        A new *config spec* (or *config spec pattern*) string derived
+        from the arguments.
+
+    Raises:
+        Any exception from `as_config_spec_string(<any of the given specs>)`:
+            see the docs of the `as_config_spec_string()` function.
+
+    Note: this function performs a simple-minded "concatenation" of
+    *config specs* (treated just as strings). For a smarter way of
+    merging *config specs* -- see the `combined_config_spec()` tool.
 
     >>> joined = join_config_specs(
-    ...     # Note different levels of indentation in each of these three
-    ...     # config specs (this helper deals with that without a problem).
+    ...     # Note that different levels of indentation in each of these
+    ...     # three config specs is not a problem for this helper.
     ...     '''
     ...     [first]
     ...     foo = 42 :: int  ; comment
     ...
-    ...     ham::unicode''',
+    ...     ham::bytes''',
     ... '''[SPAM_SPAM_SPAM]
     ... glam ;comment
-    ... # some free options as possible:
+    ... # some free options are possible:
     ... ...
     ...
     ... ''',
@@ -2728,10 +3257,10 @@ def join_config_specs(*config_specs):
     ... [first]
     ... foo = 42 :: int  ; comment
     ...
-    ... ham::unicode
+    ... ham::bytes
     ... [SPAM_SPAM_SPAM]
     ... glam ;comment
-    ... # some free options as possible:
+    ... # some free options are possible:
     ... ...
     ...
     ...
@@ -2751,15 +3280,23 @@ def join_config_specs(*config_specs):
 
     A few more examples:
 
+    >>> class SimpleConfigSpecEgg:
+    ...     def __init__(self, s):
+    ...         self._s = s
+    ...     def hatch_out(self, format_data_mapping=None):
+    ...         if format_data_mapping is None:
+    ...             return self._s
+    ...         return self._s.format_map(format_data_mapping)
+    ...
     >>> s1 = '''
     ...      1-indented
     ...     zero-indented
     ...                   '''
-    >>> s2 = '''Zero-indented
+    >>> s2 = SimpleConfigSpecEgg('''Zero-indented
     ...   ZERO-indented
     ...      3-indented
     ...
-    ... '''
+    ... ''')
     >>> s3 = '''  zeRO-indented
     ...               2-indented
     ...                                   \t
@@ -2826,7 +3363,902 @@ def join_config_specs(*config_specs):
     >>> join_config_specs(s1, '   0-indented \t x ')
     '\n 1-indented\nzero-indented\n\n0-indented    x '
     """
-    return '\n'.join(reduce_indent(conf_spec) for conf_spec in config_specs)
+    return '\n'.join(map(as_config_spec_string, config_specs))
+
+
+
+def combined_config_spec(config_spec, /):
+    r"""
+    Given a *config spec* (or formattable *config spec pattern*), make a
+    [descriptor](https://docs.python.org/3/reference/datamodel.html#implementing-descriptors)
+    ready to be assigned to an attribute of a class (hereafter referred
+    to as the *owning class*) -- to make it possible to automatically
+    combine that *config spec* (or formattable *config spec pattern*)
+    with another *config spec* (or, respectively, *config spec pattern*)
+    accessible as the same-named attribute of a superclass (and,
+    *if* this tool is used consistently, of further superclasses,
+    recursively -- along the [method resolution
+    order](https://rhettinger.wordpress.com/2011/05/26/super-considered-super/).
+
+    >>> class OwningClass:
+    ...     my_config_spec = combined_config_spec('''
+    ...         [well_informed_circles]
+    ...         how_many :: int
+    ...         radius    =    1.234567::float
+    ...     ''')
+    ...
+    >>> class AnotherOwningClass(OwningClass):
+    ...     my_config_spec = combined_config_spec('''
+    ...         [well_informed_circles]
+    ...         how_many = 42 :: int
+    ...         filled :: bool
+    ...
+    ...         [vehicle_horn]
+    ...         sound = beep, beep   ; no converter spec so the default one (`str`) is implied
+    ...     ''')
+    ...
+    >>> class YetAnotherOwningClass(AnotherOwningClass):
+    ...     my_config_spec = combined_config_spec('''
+    ...         [vehicle_horn]
+    ...         sound  :: str
+    ...     ''')
+
+    >>> lone_egg = OwningClass.my_config_spec
+    >>> isinstance(lone_egg, ConfigSpecEgg)  # (see `ConfigSpecEgg` protocol definition)
+    True
+    >>> lone = as_config_spec_string(lone_egg)
+    >>> lone == (
+    ... # Here we have the first config spec string intact
+    ... # (except that indentation in it has been reduced)
+    ... # because there were no specs to combine it with:
+    ... '''
+    ... [well_informed_circles]
+    ... how_many :: int
+    ... radius    =    1.234567::float
+    ... ''')
+    True
+    >>> instance = OwningClass()
+    >>> lone == as_config_spec_string(instance.my_config_spec)  # (same when got from instance)
+    True
+
+    >>> combined_egg = AnotherOwningClass.my_config_spec
+    >>> isinstance(combined_egg, ConfigSpecEgg)
+    True
+    >>> combined = as_config_spec_string(combined_egg)
+    >>> combined == (
+    ... # Here we have the result of parsing and *combining* two config specs (from
+    ... # `OwningClass.my_config_spec` and `AnotherOwningClass.my_config_spec`):
+    ... '''
+    ... [well_informed_circles]
+    ... how_many = 42 :: int
+    ... radius = 1.234567 :: float
+    ... filled :: bool
+    ...
+    ... [vehicle_horn]
+    ... sound = beep, beep
+    ... ''')
+    True
+    >>> instance = AnotherOwningClass()
+    >>> combined == as_config_spec_string(instance.my_config_spec)  # (same when got from instance)
+    True
+
+    >>> as_config_spec_string(YetAnotherOwningClass.my_config_spec) == (
+    ... # Here we have the result of parsing and *combining*
+    ... # all three config specs:
+    ... '''
+    ... [well_informed_circles]
+    ... how_many = 42 :: int
+    ... radius = 1.234567 :: float
+    ... filled :: bool
+    ...
+    ... [vehicle_horn]
+    ... sound
+    ... ''')
+    True
+
+    ***
+
+    Args (positional-only):
+        `config_spec` (a `str` or `ConfigSpecEgg`-compliant object):
+            A *config spec* (or formattable *config spec pattern*) to be
+            combined -- by the resultant attribute descriptor -- with a
+            *config spec* (or, respectively, a formattable *config spec
+            pattern*) assigned to the relevant attribute of a superclass
+            (if any) of the owning class.
+
+            Technical details: the value of the `config_spec` argument
+            -- after conversion to a `ConfigSpecEgg`-compliant object,
+            which includes also applying the `as_config_spec_string()`
+            utility function -- becomes the resultant descriptor's
+            *local value* (see the docs of the `CombinedWithSuper`
+            class defined in `n6lib.class_helpers` for an explanation
+            of the term *local value*).
+
+    Returns:
+        An attribute descriptor (whose type is a subclass of the
+        `n6lib.class_helpers.CombinedWithSuper` class) that wraps the
+        given `config_spec`. When an attempt is made to get (from the
+        owning class or its instance) the attribute handled by this
+        descriptor, the result is as follows.
+
+        * (1) If any superclass of the owning class has the same-named
+          attribute:
+
+          * (a) *if* the value of that same-named attribute does not
+            contain any of `Config.CONFIG_SPEC_RESERVED_CHARS` *and*
+            is acceptable by `as_config_spec_string()`, the result is a
+            `ConfigSpecEgg`-compliant object whose method `hatch_out()`,
+            when invoked, will produce a `str` instance being a
+            **combined** *config spec*;
+
+            the value returned by `hatch_out()` will include all config
+            sections and options copied from the *superclass's config
+            spec*, updated/overridden with all sections and options from
+            `config_spec` -- with such a **consistency rule** that the
+            aforementioned updating/overriding must *not* change, add or
+            remove the converter spec of any already encountered option
+            or free options marker (except that adding or removing `str`,
+            which is the default converter spec, is obviously OK, though
+            meaningless); if this rule is violated then an exception
+            whose type is `ConfigSpecEggError` (or a subclass of it)
+            will be raised;
+
+          * (b) *if* the value of the same-named attribute *either*
+            contains some of `Config.CONFIG_SPEC_RESERVED_CHARS`, which
+            must cause `ValueError`, *or* causes that an underlying
+            call to the `as_config_spec_string()` function raises an
+            exception -- *then* that exception bubbles up (see the docs
+            of `as_config_spec_string()` for a description of error
+            cases possible when a single argument is passed to that
+            function).
+
+        * (2) Otherwise, i.e., if no superclass of the owning class has
+          the same-named attribute (so there is nothing to *combine*):
+
+          the resultant value is a `ConfigSpecEgg`-compliant object
+          whose `hatch_out()` method, when invoked, will produce a `str`
+          instance being a *config spec* equivalent to (or based only
+          on) the given `config_spec` argument value.
+
+        Note: an exception may bubble up from any of the aforementioned
+        invocations of `hatch_out()`. In such cases, typically, it will
+        be of type `ConfigSpecEggError` (or a subclass of it), either
+        coming directly from that object's internal machinery (for
+        example, when some necessary keys are missing from the *format
+        data mapping*, if passed to `hatch_out()`), or wrapping another
+        exception (which, in particular, may be similar to exceptions
+        raised by the `parse_config_spec()` function; see its docs).
+
+        ***
+
+        The returned descriptor has its own implementation of the
+        [`__set_name__()`](https://docs.python.org/3/reference/datamodel.html#object.__set_name__)
+        special method which may raise:
+
+        * `ValueError`:
+          -- if the given *config spec* (or *config spec pattern*)
+          contains some of `Config.CONFIG_SPEC_RESERVED_CHARS`;
+
+        * any exception from `as_config_spec_string(config_spec)`
+          -- see the docs of the `as_config_spec_string()` function.
+
+        Note that when `__set_name__()` is invoked by the Python class
+        creation machinery (when the owning class is created) and an
+        exception is obtained from that invocation then Python raises
+        `RuntimeError` (with that exception as its *context* exception).
+
+        ***
+
+        *Advice:* the preferred way of obtaining a final *config spec*
+        string from the `ConfigSpecEgg`-compliant object provided by the
+        returned descriptor (possibly wrapping a formattable *config spec
+        pattern*) is to make use of the `as_config_spec_string()` utility
+        function, instead of invoking the object's method `hatch_out()`
+        directly. That makes it possible to handle in a unified way two
+        forms of config specs (or config specs patterns): plain strings
+        and `ConfigSpecEgg`-compliant objects; `as_config_spec_string()`
+        is able to handle each of them. (See also: various examples in
+        the docs of this class as well as the *additional note* in the
+        docs of the `ConfigSpecEgg.hatch_out()` method's definition.)
+
+    ***
+
+    More examples (including a few complex cases and some corner cases):
+
+    >>> class Root:
+    ...
+    ...     ni_spec = combined_config_spec('''
+    ...         string = Tralala    ; note: the default *converter spec* is `str`
+    ...         number :: int
+    ...
+    ...         [first]
+    ...         abra :: int
+    ...         kadabra = hop-hop :: str
+    ...         ... :: bool
+    ...
+    ...         [second]
+    ...         torba.borba =       ; note: the default *converter spec* is `str`
+    ...         ósme.smake = ""     ; note: the default *converter spec* is `str`
+    ...     ''')
+    ...
+    ...     nu_spec_pattern = combined_config_spec('''
+    ...         [{owning_class_name}]
+    ...     ''')
+    ...
+    ...     def __init__(self, /, nu_format_data_mapping=None):
+    ...         self.ni = as_config_spec_string(self.ni_spec)
+    ...         if nu_format_data_mapping is not None:
+    ...             nu_format_data_mapping['owning_class_name'] = type(self).__qualname__
+    ...         self.nu = as_config_spec_string(
+    ...             self.nu_spec_pattern,
+    ...             format_data_mapping=nu_format_data_mapping)
+    ...
+    >>> class A(Root):
+    ...
+    ...     ni_spec = combined_config_spec('''
+    ...         string = Rymcymcym::    str
+    ...         number = 2 :: int
+    ...
+    ...         [first]
+    ...         kadabra   =   BUM albo ŁUP   ; note: the default *converter spec* is `str`
+    ...         świekra-konstabla :: list_of_int
+    ...     ''')
+    ...
+    ...     nu_spec_pattern = combined_config_spec('''
+    ...         [{owning_class_name}]
+    ...         {x_name} = {x_default!r} :: {x_conv!s}
+    ...     ''')
+    ...
+    >>> a = A(nu_format_data_mapping={
+    ...     'x_name' : 'x            ',
+    ...     'x_default' : 42,
+    ...     'x_conv' : '      int    ',
+    ... })
+    >>> a.ni == '''
+    ... string = Rymcymcym
+    ... number = 2 :: int
+    ...
+    ... [first]
+    ... abra :: int
+    ... kadabra = BUM albo ŁUP
+    ... świekra-konstabla :: list_of_int
+    ... ... :: bool
+    ...
+    ... [second]
+    ... torba.borba = ""
+    ... ósme.smake = ""
+    ... '''
+    True
+    >>> a.nu == '''
+    ... [A]
+    ... x = 42 :: int
+    ... '''
+    True
+    >>> a_no_format = A()
+    >>> a_no_format.nu == '''
+    ... [{owning_class_name}]
+    ... {x_name} = {x_default!r} :: {x_conv!s}
+    ... '''
+    True
+
+    If formatting is requested (i.e., a *format data mapping* is given)
+    then missing keys cause an exception (`ConfigSpecEggError` or its
+    subclass) -- but, generally speaking, *only* for those missing keys
+    that are necessary to format the fragments that the final *combined*
+    result includes.
+
+    >>> A(nu_format_data_mapping={'x_default': 42})                     # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ... `....A.nu_spec_pattern` ...: 'x_name', 'x_conv')
+    >>> A(nu_format_data_mapping={})                                    # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ... `....A.nu_spec_pattern` ...: 'x_name', 'x_default', 'x_conv')
+
+    Note: a value wrapped by our descriptor (its *local value*) may also
+    be a `ConfigSpecEgg`-compliant object itself.
+
+    >>> class WeirdConfigSpecEgg:
+    ...     def __init__(self, s):
+    ...         self._s = s
+    ...     def hatch_out(self, format_data_mapping=None):
+    ...         if format_data_mapping is not None:
+    ...             return "excuse: I didn't know you were called Dennis! :: str"
+    ...         return self._s
+    ...
+    >>> class B(Root):
+    ...
+    ...     ni_spec = combined_config_spec(WeirdConfigSpecEgg('''
+    ...         number: 222 :: int
+    ...
+    ...         [first]
+    ...         kadabra   =   BUM, ale na pewno nie ŁUP::str
+    ...         hokus-pokus
+    ...
+    ...         [second]
+    ...         torba.borba=Morele Bax
+    ...     '''))
+    ...
+    ...     nu_spec_pattern = combined_config_spec(WeirdConfigSpecEgg('''
+    ...         [{x_name}]
+    ...         baba : Jaga
+    ...         {anything}
+    ...     '''))
+    ...
+    >>> b = B(nu_format_data_mapping={
+    ...     'x_name': 'xyz',
+    ...     'x_default': '...unused...',
+    ...     'anything': ' \t \t \r\n\t \t ',
+    ... })
+    >>> b.ni == '''
+    ... string = Tralala
+    ... number = 222 :: int
+    ...
+    ... [first]
+    ... abra :: int
+    ... kadabra = BUM, ale na pewno nie ŁUP
+    ... hokus-pokus
+    ... ... :: bool
+    ...
+    ... [second]
+    ... torba.borba = Morele Bax
+    ... ósme.smake = ""
+    ... '''
+    True
+    >>> b.nu == '''
+    ... [B]
+    ...
+    ... [xyz]
+    ... baba = Jaga
+    ... '''
+    True
+    >>> b2 = B(nu_format_data_mapping={
+    ...     'x_name': 'xyz',
+    ...     'x_default': '...unused...',
+    ...     'anything': ('oH = No! More Lemmings! :: list_of_bytes\n'
+    ...                  'BRAT = Maynard :: bytes'),
+    ... })
+    >>> b2.nu == '''
+    ... [B]
+    ...
+    ... [xyz]
+    ... baba = Jaga
+    ... oh = No! More Lemmings! :: list_of_bytes
+    ... brat = Maynard :: bytes
+    ... '''
+    True
+    >>> b_no_format = B()       # without formatting
+    >>> b_no_format.nu == '''
+    ... [{owning_class_name}]
+    ...
+    ... [{x_name}]
+    ... baba = Jaga
+    ... {anything}
+    ... '''
+    True
+    >>> B(nu_format_data_mapping={'x_default': 42})                     # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ... `....B.nu_spec_pattern` ...: 'x_name', 'anything')
+    >>> B(nu_format_data_mapping={})                                    # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ... `....B.nu_spec_pattern` ...: 'x_name', 'anything')
+
+    Note: multiple inheritance (of "diamond" shapes) is supported as well
+    without any trouble... Enjoy:
+
+    >>> class BA(B, A):
+    ...
+    ...     ni_spec = combined_config_spec('''
+    ...         ... :: float
+    ...
+    ...         [second]
+    ...         ene.due = !@#$::%^=&*=()::{}[]::some-<VERY.CUSTOM>-converter
+    ...     ''')
+    ...
+    ...     nu_spec_pattern = combined_config_spec('''
+    ...         [{owning_class_name}]
+    ...         proto = HTTPS  ::  another-<VERY.CUSTOM>-converter
+    ...         {anything}
+    ...
+    ...         [{x_name}]
+    ...         siostra: Małgosia
+    ...         brat: Jaś :: bytes
+    ...     ''')
+    ...
+    >>> BA.__mro__ == (BA, B, A, Root, object)
+    True
+    >>> ba = BA(nu_format_data_mapping={
+    ...     'x_name' : 'oh',
+    ...     'x_default': "yeah, yeah, yeah, it's goal!",
+    ...     'x_conv' : 'list_of_bytes',
+    ...     'anything': ('\n'
+    ...                  '\nghijk  :42.0::  float'
+    ...                  '\n'
+    ...                  '\n'
+    ...                  '\nklmn:   ; comment '
+    ...                  '\n'
+    ...                  '\n opq,'
+    ...                  '\n\trst,'
+    ...                  '\n'
+    ...                  '\n# comment'
+    ...                  '\n     uvw   '
+    ...                  '\n'
+    ...                  '\n :: list_of_str  '
+    ...                  '\n'
+    ...                  '\n'),
+    ... })
+    >>> ba.ni == '''
+    ... string = Rymcymcym
+    ... number = 222 :: int
+    ... ... :: float
+    ...
+    ... [first]
+    ... abra :: int
+    ... kadabra = BUM, ale na pewno nie ŁUP
+    ... świekra-konstabla :: list_of_int
+    ... hokus-pokus
+    ... ... :: bool
+    ...
+    ... [second]
+    ... torba.borba = Morele Bax
+    ... ósme.smake = ""
+    ... ene.due = !@#$::%^=&*=()::{}[] :: some-<VERY.CUSTOM>-converter
+    ... '''
+    True
+    >>> ba.nu == '''
+    ... [BA]
+    ... oh = "yeah, yeah, yeah, it's goal!" :: list_of_bytes
+    ... proto = HTTPS :: another-<VERY.CUSTOM>-converter
+    ... ghijk = 42.0 :: float
+    ... klmn = opq,
+    ...   rst,
+    ...   uvw :: list_of_str
+    ...
+    ... [oh]
+    ... baba = Jaga
+    ... ghijk = 42.0 :: float
+    ... klmn = opq,
+    ...   rst,
+    ...   uvw :: list_of_str
+    ... siostra = Małgosia
+    ... brat = Jaś :: bytes
+    ... '''
+    True
+    >>> di = {
+    ...     'x_name' : 'oh',
+    ...     # Note: here we do not include 'x_default' because it is
+    ...     # not necessary to format a fragment that the combined
+    ...     # result will include. The situation of 'x_conf` is similar
+    ...     # but we need to include it because it is a converter spec
+    ...     # -- if it was ommited here then differing converter specs
+    ...     # would be detected (and such a condition is treated as an
+    ...     # error).
+    ...     'x_conv': 'list_of_bytes',
+    ...     'anything': ('oH = No! More Lemmings! :: list_of_bytes\n'
+    ...                  'BRAT = Maynard :: bytes'),
+    ... }
+    >>> ba2 = BA(nu_format_data_mapping=di)
+    >>> from n6lib.common_helpers import CIDict
+    >>> ba3 = BA(                                #    Here: showing that mapping types
+    ...     nu_format_data_mapping=CIDict(di))   # <- other than `dict` are also OK.
+    >>> ba2.nu == ba3.nu == (
+    ... # Note: component *config spec patterns* are transformed into
+    ... # formatted *config specs* first, and only then those formatted
+    ... # specs are combined. Here, in particular, note how the results
+    ... # of formatting with items from the given *format data mapping*
+    ... # affect what is shadowed by what: the `oh` option value from
+    ... # the `A` class is shadowed (in the `BA` section) by the `oh`
+    ... # option value from the mapping (i.e., '"yeah, yeah, yeah, it's
+    ... # goal!"' is shadowed by 'No! More Lemmings!'); and the 'brat'
+    ... # option value from the mapping is shadowed (in the `oh`
+    ... # section) by the `brat` option value from the `BA` class
+    ... # (i.e., 'Maynard' is shadowed by 'Jaś').
+    ... '''
+    ... [BA]
+    ... oh = No! More Lemmings! :: list_of_bytes
+    ... proto = HTTPS :: another-<VERY.CUSTOM>-converter
+    ... brat = Maynard :: bytes
+    ...
+    ... [oh]
+    ... baba = Jaga
+    ... oh = No! More Lemmings! :: list_of_bytes
+    ... brat = Jaś :: bytes
+    ... siostra = Małgosia
+    ... ''')
+    True
+    >>> ba_no_format = BA()
+    >>> ba_no_format.nu == '''
+    ... [{owning_class_name}]
+    ... {x_name} = {x_default!r} :: {x_conv!s}
+    ... proto = HTTPS :: another-<VERY.CUSTOM>-converter
+    ... {anything}
+    ...
+    ... [{x_name}]
+    ... baba = Jaga
+    ... {anything}
+    ... siostra = Małgosia
+    ... brat = Jaś :: bytes
+    ... '''
+    True
+
+    >>> BA({'x_name' : 'oh',                                            # doctest: +ELLIPSIS
+    ...     'x_conv': 'list_of_bytes',
+    ...     # Here the value corresponding to the 'anything' key does
+    ...     # *not* contain the `oh` option -- so the `oh` option value
+    ...     # from the `A` class would *not* be shadowed, so a value
+    ...     # corresponding to the 'x_default' key remains necessary to
+    ...     # format a fragment that the combined result would include.
+    ...     # Therefore, here the lack of 'x_default' will cause an error.
+    ...     'anything': ('tralalalalalala = No! More Lemmings! :: list_of_bytes\n'
+    ...                  'BRAT = Maynard :: bytes'),
+    ... })
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ... `....BA.nu_spec_pattern` ...: 'x_default')
+
+    ***
+
+    Apart from missing format data keys, several other conditions also
+    cause exceptions...
+
+    The consistency rule described earlier is that when an option is
+    shadowed its *converter spec* should not change:
+
+    >>> class N:
+    ...     config_spec_pattern = combined_config_spec('''
+    ...         [grass]
+    ...         color = {color} :: str
+    ...     ''')
+    ...
+    >>> class P(N):
+    ...     config_spec_pattern = combined_config_spec('''
+    ...         [grass]
+    ...         color = {color} :: list_of_str
+    ...     ''')
+    ...
+    >>> as_config_spec_string(P.config_spec_pattern)                           # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ...differing *converter specs* of the option `color`...
+    >>> as_config_spec_string(P.config_spec_pattern, {'color': 'green'})       # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ...differing *converter specs* of the option `color`...
+
+    The same applies to *free options converter specs*:
+
+    >>> class Q:
+    ...     hakuna_matata = combined_config_spec('''
+    ...         [jungle]
+    ...         ...          ; (here: no converter spec, so `str` is implied`)
+    ...     ''')
+    ...
+    >>> class R(Q):
+    ...     hakuna_matata = combined_config_spec('''
+    ...         [jungle]
+    ...         ... :: bool
+    ...     ''')
+    ...
+    >>> as_config_spec_string(R.hakuna_matata)                                 # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ...differing *free options converter specs*...
+    >>> as_config_spec_string(R.hakuna_matata, di)                             # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ...differing *free options converter specs*...
+
+    Note, however, that a `:: str` converter spec declaration is
+    equivalent to the lack of any explicit converter spec declaration,
+    because `str` is the default converter spec. So in the following
+    cases we do *not* have exceptions:
+
+    >>> class P2(N):
+    ...     config_spec_pattern = combined_config_spec('''
+    ...         [grass]
+    ...         color = {color}
+    ...     ''')
+    ...
+    >>> as_config_spec_string(P2.config_spec_pattern)== '''
+    ... [grass]
+    ... color = {color}
+    ... '''
+    True
+    >>> as_config_spec_string(P2.config_spec_pattern, {'color': 'green'})== '''
+    ... [grass]
+    ... color = green
+    ... '''
+    True
+    >>> class R2(Q):
+    ...     hakuna_matata = combined_config_spec('''
+    ...         [jungle]
+    ...         ... :: str
+    ...     ''')
+    ...
+    >>> as_config_spec_string(R2.hakuna_matata) == '''
+    ... [jungle]
+    ... ...
+    ... '''
+    True
+    >>> as_config_spec_string(R2.hakuna_matata, di) == '''
+    ... [jungle]
+    ... ...
+    ... '''
+    True
+
+    Whereas shadowing a converter spec with a different one is forbidden,
+    shadowing a default value with a different one is perfectly OK:
+
+    >>> class Owning:
+    ...     my_config_spec = combined_config_spec('''
+    ...         [vehicle_horn]
+    ...         sound = beep, beep
+    ...     ''')
+    ...
+    >>> class OwningSub(Owning):
+    ...     my_config_spec = combined_config_spec('''
+    ...         [vehicle_horn]
+    ...         sound = AWOOGA!
+    ...     ''')
+    >>> as_config_spec_string(OwningSub.my_config_spec) == (
+    ... as_config_spec_string(OwningSub.my_config_spec, di)) == (
+    ... '''
+    ... [vehicle_horn]
+    ... sound = AWOOGA!
+    ... ''')
+    True
+
+    Also, note that it is perfectly OK to have a *required* option
+    (i.e., without a default value) shadowed by a *non-required* one
+    (i.e., with a default value), or a *non-required* option shadowed
+    by a *required* one:
+
+    >>> class J:
+    ...     config_spec = combined_config_spec('''
+    ...         [forest]
+    ...         leaves = 3 :: int        ; *non-required* (has default value)
+    ...     ''')
+    ...
+    >>> class K(J):
+    ...     config_spec = combined_config_spec('''
+    ...         [forest]
+    ...         leaves :: int            ; *required* (has *no* default value)
+    ...     ''')
+    ...
+    >>> as_config_spec_string(K.config_spec) == as_config_spec_string(K.config_spec, di) == '''
+    ... [forest]
+    ... leaves :: int
+    ... '''
+    True
+    >>> class L:
+    ...     config_spec = combined_config_spec('''
+    ...         [forest]
+    ...         leaves :: int            ; *required* (has *no* default value)
+    ...     ''')
+    ...
+    >>> class M(L):
+    ...     config_spec = combined_config_spec('''
+    ...         [forest]
+    ...         leaves = 3 :: int        ; *non-required* (has default value)
+    ...     ''')
+    ...
+    >>> as_config_spec_string(M.config_spec) == as_config_spec_string(M.config_spec, di) == '''
+    ... [forest]
+    ... leaves = 3 :: int
+    ... '''
+    True
+
+    ***
+
+    Below: various errors related to wrong contents of config specs (in
+    different stages of the descriptors' and eggs' lifetimes)...
+
+    >>> class Problematic:                                    # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...     x = combined_config_spec('\0\1')  # (<- reserved characters)
+    ...
+    Traceback (most recent call last):
+      ...
+    RuntimeError: ...
+
+    >>> class EggContainingReservedChars:
+    ...     def hatch_out(self, format_data_mapping=None):
+    ...         return '\0\1'  # (<- reserved characters)
+    ...
+    >>> class AnotherProblematic:                             # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...     x = combined_config_spec(EggContainingReservedChars())
+    ...
+    Traceback (most recent call last):
+      ...
+    RuntimeError: ...
+
+    >>> class FooBarBaz:
+    ...     x = EggContainingReservedChars()
+    ...
+    >>> class FooBarBazSub(FooBarBaz):
+    ...     x = combined_config_spec('spam = {glam}')
+    ...
+    >>> as_config_spec_string(FooBarBazSub.x, {'glam': 'ram-pam-pam'})
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ...keys missing...(or some reserved characters in the config spec?)
+
+    Obviously, incorrect (unparseable) config specs are also
+    unacceptable:
+
+    >>> class SomeWithUnparseable:
+    ...     x = combined_config_spec('''
+    ...             bad_indent :: int
+    ...         spam = {glam}
+    ...     ''')
+    ...
+    >>> class InnocentSubclass(SomeWithUnparseable):
+    ...     x = combined_config_spec('jaki_pan = taki_kran')
+    ...
+    >>> as_config_spec_string(SomeWithUnparseable.x)
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ... - ValueError: ...
+    >>> as_config_spec_string(InnocentSubclass.x)
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ... - ValueError: ...
+
+    ***
+
+    Below: various errors related to wrong types (in different stages of
+    the descriptors' and eggs' lifetimes)...
+
+    >>> class Erroneous:                                      # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...     x = combined_config_spec(123)
+    ...
+    Traceback (most recent call last):
+      ...
+    RuntimeError: ...
+
+    >>> class BadEgg:
+    ...     def hatch_out(self, format_data_mapping=None):
+    ...         return 123
+    ...
+    >>> class AnotherErroneous:                               # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...     x = combined_config_spec(BadEgg())
+    ...
+    Traceback (most recent call last):
+      ...
+    RuntimeError: ...
+
+    >>> class Some:
+    ...     x = 123
+    ...
+    >>> class SomeErroneous(Some):
+    ...     x = combined_config_spec('qwerty = 42 :: int')
+    ...
+    >>> SomeErroneous.x
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> class WithBadEgg:
+    ...     x = BadEgg()
+    ...
+    >>> class SubclassWithBadEgg(WithBadEgg):
+    ...     x = combined_config_spec('qwerty = 42 :: int')
+    ...
+    >>> as_config_spec_string(SubclassWithBadEgg.x)                     # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ... - TypeError: ...
+    >>> as_config_spec_string(SubclassWithBadEgg.x, {'a': 'b'})         # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    n6lib...nfigSpecEggError: ... - TypeError: ...
+
+    ***
+
+    It is worth to mention that the `combined_config_spec()` tool is
+    especially useful when it is used in conjunction with `ConfigMixin`.
+    See the relevant example in the docs of the latter.
+
+    ***
+
+    One more remark: if our class attribute was set to a config spec
+    *string* or *egg* (*not* to our special descriptor wrapping it) then
+    it *still* can be combined with other values provided by our special
+    descriptor but *only* as the "root" attribute, that is, it will
+    *always* completely replace any same-named attributes placed above
+    it in the inheritance hierarchy of owning classes:
+
+    >>> class ReplacingMixin:
+    ...     ni_spec = '''
+    ...         [second]
+    ...         abcd :: int    ; comment
+    ...         nobody-expect = [{(The Spanish Inquisition!)}] :: str
+    ...     '''
+    ...     nu_spec_pattern = '''
+    ...         [-=#=-_*_{owning_class_name}_*_-=#=-]
+    ...         efgh :: float    ; comment comment comment
+    ...         and-now-for-something-completely-different = {{It's}} Man!
+    ...     '''
+    ...
+    >>> class ReplacingBA(ReplacingMixin, BA):
+    ...     ni_spec = combined_config_spec('''
+    ...         [second]
+    ...         abcd = 12345678987654321 :: int
+    ...         aaa = hm... :: str
+    ...     ''')
+    ...     nu_spec_pattern = combined_config_spec('''
+    ...         [-=#=-_*_{owning_class_name}_*_-=#=-]
+    ...         and-now-for-something-completely-different = {{It's}} {It's}!!!!!!!!!!!!
+    ...     ''')
+    ...
+    >>> ReplacingBA.__mro__ == (ReplacingBA, ReplacingMixin, BA, B, A, Root, object)
+    True
+    >>> repl_ba = ReplacingBA(nu_format_data_mapping={"It's": 'swimming'})
+    >>> repl_ba.ni == '''
+    ... [second]
+    ... abcd = 12345678987654321 :: int
+    ... nobody-expect = [{(The Spanish Inquisition!)}]
+    ... aaa = hm...
+    ... '''
+    True
+    >>> repl_ba.nu == '''
+    ... [-=#=-_*_ReplacingBA_*_-=#=-]
+    ... efgh :: float
+    ... and-now-for-something-completely-different = {It's} swimming!!!!!!!!!!!!
+    ... '''
+    True
+    >>> repl_ba_no_format = ReplacingBA()
+    >>> repl_ba_no_format.nu == '''
+    ... [-=#=-_*_{owning_class_name}_*_-=#=-]
+    ... efgh :: float
+    ... and-now-for-something-completely-different = {{It's}} {It's}!!!!!!!!!!!!
+    ... '''
+    True
+    >>> class WeirdReplacingMixin:
+    ...     ni_spec = WeirdConfigSpecEgg(ReplacingMixin.ni_spec)
+    ...     nu_spec_pattern = WeirdConfigSpecEgg(ReplacingMixin.nu_spec_pattern)
+    ...
+    >>> class WeirdReplacingBA(WeirdReplacingMixin, BA):
+    ...     ni_spec = combined_config_spec('''
+    ...         [second]
+    ...         abcd = 12345678987654321 :: int
+    ...         aaa = hm... :: str
+    ...     ''')
+    ...     nu_spec_pattern = combined_config_spec('''
+    ...         [-=#=-_*_{owning_class_name}_*_-=#=-]
+    ...         and-now-for-something-completely-different = {{It's}} {It's}!!!!!!!!!!!!
+    ...     ''')
+    ...
+    >>> WeirdReplacingBA.__mro__ == (WeirdReplacingBA, WeirdReplacingMixin, BA, B, A, Root, object)
+    True
+    >>> weird_repl_ba = WeirdReplacingBA(nu_format_data_mapping={"It's": 'swimming'})
+    >>> weird_repl_ba.ni == '''
+    ... [second]
+    ... abcd = 12345678987654321 :: int
+    ... nobody-expect = [{(The Spanish Inquisition!)}]
+    ... aaa = hm...
+    ... '''
+    True
+    >>> weird_repl_ba.nu == (
+    ... # Note this (see also the definition of `WeirdConfigSpecEgg.hatch_out()`):
+    ... '''
+    ... excuse = I didn't know you were called Dennis!
+    ...
+    ... [-=#=-_*_WeirdReplacingBA_*_-=#=-]
+    ... and-now-for-something-completely-different = {It's} swimming!!!!!!!!!!!!
+    ... ''')
+    True
+    >>> weird_repl_ba_no_format = WeirdReplacingBA()
+    >>> weird_repl_ba_no_format.nu == '''
+    ... [-=#=-_*_{owning_class_name}_*_-=#=-]
+    ... efgh :: float
+    ... and-now-for-something-completely-different = {{It's}} {It's}!!!!!!!!!!!!
+    ... '''
+    True
+    """
+    return _CombinedConfigSpecDescriptor(config_spec)
 
 
 
@@ -2839,11 +4271,16 @@ class ConfigString(str):
     r"""
     A `str` subclass providing handy ways of raw-string config manipulation.
 
-    A subclass of `str` that provides several additional methods to
-    operate on .ini-formatted configurations -- including getting,
-    adding, removing and substitution of configuration sections and
-    options (preserving formatting and comments related to
-    sections/options that are not touched).
+    Constructor args (positional-only):
+        `s` (`str`; empty by default):
+            The input string.
+
+    `ConfigString` is a subclass of `str` that provides several
+    additional methods to operate on `*.ini`-like-formatted
+    configurations -- including getting, adding, removing and
+    substitution of configuration sections and options (preserving
+    formatting and comments related to sections/options that are
+    not touched).
 
     Note #1: This class uses the *universal newlines* approach for
     splitting lines originating from an input string, i.e., the
@@ -2852,20 +4289,43 @@ class ConfigString(str):
     contain `\n`-only (Unix-style) newlines.
 
     Note #2: Duplicate section names and duplicate option names (in a
-    particular section) are not accepted.
+    section) are *not* accepted.
 
-    Note #3: In contrast to other (`configparser`-related) classes in
-    this module, this class (as it is in the case of, e.g., the OpenSSL
-    configuration format) ignores whitespace characters between a
-    section name and the enclosing square brackets.
+    Note #3: Due to some specific requirements, but also for certain
+    historical reasons, there are syntactic differences -- rather
+    marginal from practical point of view -- from the standard
+    `configparser` stuff (which is used by `Config` et consortes
+    to parse actual configuration files), especially from its
+    modern-Python-3.x-specific flavor. Most important of those
+    differences are as follows:
 
-    Compatibility note: For the sake of the syntax change described
-    above in the note #3, as well as for simplicity of the
-    implementation, whitespace characters (accepted, in some cases,
-    by stdlib's `configparser` stuff) are *never* recognized as a
-    part of a section name or an option name.  Other incompatibilities
-    with `configparser` stuff are also possible (in particular with its
-    modern-Python-3.x-specific flavor).
+    * ASCII whitespace characters between a section name and the
+      enclosing square brackets are ignored (as in the case of, for
+      example, the OpenSSL configuration format);
+
+    * section names cannot contain `.` or any ASCII whitespace
+      characters (obviously, `]` is also excluded);
+
+    * option names cannot contain any ASCII whitespace characters
+      (obviously, `:` and `=` are also excluded), and they cannot
+      start with `[` or `]`;
+
+    * options can be placed also in the area above any explicit section
+      header -- then they belong to an implicitly created section whose
+      name is an empty string;
+
+    * options *without values* are supported (the behavior is similar
+      to that when the `configparser`'s `allow_no_value` flag is set;
+      related parsing details are close to the behavior of old Py-2.7's
+      `ConfigParser`);
+
+    * modern-`configparser`-style indentations are not supported (note,
+      however, that traditional indented continuation lines are OK;
+      related parsing details are close to the behavior of old Py-2.7's
+      `ConfigParser`);
+
+    * the `configparser`-style interpolation mechanisms are *not*
+      implemented.
 
     >>> cs = ConfigString('''
     ... [ first ]
@@ -3053,7 +4513,7 @@ class ConfigString(str):
     True
     >>> cs.get_opt_names('') == []
     True
-    >>> cs.get_opt_names('nonexistent')                 # doctest: +ELLIPSIS
+    >>> cs.get_opt_names('nonexistent')
     Traceback (most recent call last):
       ...
     KeyError: 'nonexistent'
@@ -3079,37 +4539,37 @@ class ConfigString(str):
     ...   example.com/''')
     True
 
-    >>> cs.get('somesect')                              # doctest: +ELLIPSIS
+    >>> cs.get('somesect')
     Traceback (most recent call last):
       ...
     KeyError: 'somesect'
 
-    >>> cs.get('somesect.someopt')                      # doctest: +ELLIPSIS
+    >>> cs.get('somesect.someopt')
     Traceback (most recent call last):
       ...
     KeyError: 'somesect'
 
-    >>> cs.get('first.someopt')                         # doctest: +ELLIPSIS
+    >>> cs.get('first.someopt')
     Traceback (most recent call last):
       ...
     KeyError: 'someopt'
 
-    >>> cs.insert_above('somesect', 'x = y\na = b')     # doctest: +ELLIPSIS
+    >>> cs.insert_above('somesect', 'x = y\na = b')
     Traceback (most recent call last):
       ...
     KeyError: 'somesect'
 
-    >>> cs.get_opt_value('somesect.someopt')            # doctest: +ELLIPSIS
+    >>> cs.get_opt_value('somesect.someopt')
     Traceback (most recent call last):
       ...
     KeyError: 'somesect'
 
-    >>> cs.remove('first.someopt')                      # doctest: +ELLIPSIS
+    >>> cs.remove('first.someopt')
     Traceback (most recent call last):
       ...
     KeyError: 'someopt'
 
-    >>> cs.get_opt_value('first')                       # doctest: +ELLIPSIS
+    >>> cs.get_opt_value('first')                   # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     ValueError: ...requires that the location argument specifies an option...
@@ -3134,8 +4594,8 @@ class ConfigString(str):
     ...   example.com/; not-a-comment\t
     ...
     ... [fifth]
-    ... SomeOption   :   A Value   ;   A Comment
-    ... no_value_option \t
+    ... Some.Option   :   A Value   ;   A Comment
+    ... no.value.option \t
     ...   for no-value options
     ...   comments are forbidden
     ...   and continuation lines are ignored \t
@@ -3157,13 +4617,13 @@ class ConfigString(str):
     >>> cs2.get_opt_value('fifth.foo')
     'aaa\nbbbccc \t ; not-a-comment\nzzz'
 
-    >>> cs2.get_opt_value('fifth.someoption')
+    >>> cs2.get_opt_value('fifth.some.option')
     'A Value'
 
-    >>> cs2.get_opt_value('fifth.no_value_option') is None
+    >>> cs2.get_opt_value('fifth.no.value.option') is None
     True
-    >>> cs2.get('fifth.no_value_option') == ConfigString(
-    ...     'no_value_option \t\n'
+    >>> cs2.get('fifth.no.value.option') == ConfigString(
+    ...     'no.value.option \t\n'
     ...     '  for no-value options\n'
     ...     '  comments are forbidden\n'
     ...     '  and continuation lines are ignored \t\n')
@@ -3174,12 +4634,12 @@ class ConfigString(str):
     >>> cs2.get_opt_names('second') == ['bar']
     True
     >>> cs2.get_opt_names('fifth') == [
-    ...     'someoption',
-    ...     'no_value_option',
+    ...     'some.option',
+    ...     'no.value.option',
     ...     'foo',
     ... ]
     True
-    >>> cs2.get_opt_names('nonexistent')                # doctest: +ELLIPSIS
+    >>> cs2.get_opt_names('nonexistent')
     Traceback (most recent call last):
       ...
     KeyError: 'nonexistent'
@@ -3191,8 +4651,8 @@ class ConfigString(str):
     ...     ('', ['bar', 'empty', 'empty2']),
     ...     ('second', ['bar']),
     ...     ('fifth', [
-    ...         'someoption',
-    ...         'no_value_option',
+    ...         'some.option',
+    ...         'no.value.option',
     ...         'foo',
     ...     ]),
     ... ]
@@ -3207,7 +4667,7 @@ class ConfigString(str):
 
     >>> ConfigString().get_opt_names('')
     []
-    >>> ConfigString().get_opt_names('nonexistent')     # doctest: +ELLIPSIS
+    >>> ConfigString().get_opt_names('nonexistent')
     Traceback (most recent call last):
       ...
     KeyError: 'nonexistent'
@@ -3269,8 +4729,8 @@ class ConfigString(str):
     [('', ['xyz', 'abc'])]
 
 
-    The constructor can raise ValueError when the given string cannot be
-    parsed, e.g.:
+    The constructor can raise `ValueError` when the given string cannot
+    be parsed, e.g.:
 
     >>> ConfigString('xyz\na b c\n\n')           # doctest: +ELLIPSIS
     Traceback (most recent call last):
@@ -3283,6 +4743,41 @@ class ConfigString(str):
     Traceback (most recent call last):
       ...
     ValueError: config line 'no_value_opt ; comment ...' is not valid ...
+
+    >>> ConfigString('[wrong.sect]')             # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line '[wrong.sect]' is not valid ...
+
+    >>> ConfigString('[wrong_opt')               # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line '[wrong_opt' is not valid ...
+
+    >>> ConfigString('[wrong_opt = val')         # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line '[wrong_opt = val' is not valid ...
+
+    >>> ConfigString(']wrong_opt')               # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line ']wrong_opt' is not valid ...
+
+    >>> ConfigString(']wrong_opt = val')         # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line ']wrong_opt = val' is not valid ...
+
+    >>> ConfigString('wrong opt')                # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line 'wrong opt' is not valid ...
+
+    >>> ConfigString('wrong opt = val')          # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line 'wrong opt = val' is not valid ...
 
     >>> ConfigString('  \n  xyz\n  abc\n\n')     # doctest: +ELLIPSIS
     Traceback (most recent call last):
@@ -3302,7 +4797,7 @@ class ConfigString(str):
     ... [first]
     ... b = BBB
     ... c = CCC
-    ... ''')                                     # doctest: +ELLIPSIS
+    ... ''')
     Traceback (most recent call last):
       ...
     ValueError: duplicate section name 'first'
@@ -3312,20 +4807,38 @@ class ConfigString(str):
     ... a = AAA
     ... b = BBB
     ... a = AAA
-    ... ''')                                     # doctest: +ELLIPSIS
+    ... ''')
     Traceback (most recent call last):
       ...
     ValueError: duplicate option name 'a' in section 'first'
+
+    Also, note that `TypeError` is raised if the argument is not a `str`...
+
+    >>> ConfigString(b'foo = 3')
+    Traceback (most recent call last):
+      ...
+    TypeError: expected a `str` (got an instance of `bytes`)
+
+    ...or when more than one argument is given:
+
+    >>> ConfigString(b'foo = 3', encoding='utf-8')      # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: ... got an unexpected ...
     """
 
-    def __new__(cls, *args, **kwargs):
-        s = str(*args, **kwargs)
+    def __new__(cls, s='', /):
+        if not isinstance(s, str):
+            raise TypeError(
+                f'expected a `str` (got an instance of '
+                f'`{ascii_str(type(s).__qualname__)}`)')
+        s = str(s)
         lines = cls._get_lines(s)
         sect_name_to_index_data = cls._get_sect_name_to_index_data(lines)
-        self = super(ConfigString, cls).__new__(cls, '\n'.join(lines))
-        self._lines = lines
-        self._sect_name_to_index_data = sect_name_to_index_data
-        return self
+        new = super().__new__(cls, '\n'.join(lines))
+        new._lines = lines
+        new._sect_name_to_index_data = sect_name_to_index_data
+        return new
 
 
     #
@@ -3333,25 +4846,24 @@ class ConfigString(str):
     #
 
     def __repr__(self):
-        return '{0}({1})'.format(
-            self.__class__.__qualname__,
-            (super(ConfigString, self).__repr__() if self else ''))
+        content_repr = super().__repr__() if self else ''
+        return f'{self.__class__.__qualname__}({content_repr})'
 
 
     def contains(self, location):
         """
         Check whether the specified section or option exists.
 
-        Args:
-            `location` (str):
+        Args/kwargs:
+            `location` (a `str`):
                 Either a section name (specifying a particular
                 section) or a string in the format: "section.option"
                 (specifying a particular option in a particular
                 section).
 
         Returns:
-            True if the specified `location` points to an existing
-            section or option; otherwise False.
+            `True` if the specified `location` points to an existing
+            section or option; otherwise `False`.
         """
         try:
             self._location_to_span(location)
@@ -3364,25 +4876,26 @@ class ConfigString(str):
         """
         Get the contents of the specified `location`.
 
-        Args:
-            `location` (str):
+        Args/kwargs:
+            `location` (a `str`):
                 Either a section name (specifying a particular
                 section) or a string in the format: "section.option"
                 (specifying a particular option in a particular
                 section).
 
         Returns:
-            A new instance of this class -- containing:
-            * if `location` specifies a section: the text of the section.
-            * if `location` specifies an option: the text of the option.
+            A new instance of this class, containing:
+            * the text of the section -- if `location` specifies a section.
+            * the text of the option -- if `location` specifies an option.
 
         Raises:
-            KeyError --
-            * instantiated with the section name as the sole argument --
-              if the specified section does not exist;
-            * instantiated with the option name as the sole argument --
-              if the specified option does not exist in the specified
-              (and existing) section.
+            `KeyError`:
+                instantiated with:
+                * the section name as the sole argument
+                  -- if the specified section does not exist;
+                * the option name as the sole argument
+                  -- if the specified option does not exist
+                  in the specified (and existing) section.
         """
         beg, end = self._location_to_span(location)
         return self._from_lines(self._lines[beg:end])
@@ -3392,13 +4905,13 @@ class ConfigString(str):
         """
         Get the whole contents with `text` inserted above `location`.
 
-        Args:
-            `location` (str):
+        Args/kwargs:
+            `location` (a `str`):
                 Either a section name (specifying a particular
                 section) or a string in the format: "section.option"
                 (specifying a particular option in a particular
                 section).
-            `text` (str):
+            `text` (a `str`):
                 The text to be inserted.
 
         Returns:
@@ -3406,12 +4919,13 @@ class ConfigString(str):
             inserted as described above).
 
         Raises:
-            KeyError --
-            * instantiated with the section name as the sole argument --
-              if the specified section does not exist;
-            * instantiated with the option name as the sole argument --
-              if the specified option does not exist in the specified
-              (and existing) section.
+            `KeyError`:
+                instantiated with:
+                * the section name as the sole argument
+                  -- if the specified section does not exist;
+                * the option name as the sole argument
+                  -- if the specified option does not exist
+                  in the specified (and existing) section.
         """
         beg, _ = self._location_to_span(location)
         return self._get_new_combined(beg, text, beg)
@@ -3421,13 +4935,13 @@ class ConfigString(str):
         """
         Get the whole contents with `text` inserted below `location`.
 
-        Args:
-            `location` (str):
+        Args/kwargs:
+            `location` (a `str`):
                 Either a section name (specifying a particular
                 section) or a string in the format: "section.option"
                 (specifying a particular option in a particular
                 section).
-            `text` (str):
+            `text` (a `str`):
                 The text to be inserted.
 
         Returns:
@@ -3435,12 +4949,13 @@ class ConfigString(str):
             inserted as described above).
 
         Raises:
-            KeyError --
-            * instantiated with the section name as the sole argument --
-              if the specified section does not exist;
-            * instantiated with the option name as the sole argument --
-              if the specified option does not exist in the specified
-              (and existing) section.
+            `KeyError`:
+                instantiated with:
+                * the section name as the sole argument
+                  -- if the specified section does not exist;
+                * the option name as the sole argument
+                  -- if the specified option does not exist
+                  in the specified (and existing) section.
         """
         _, end = self._location_to_span(location)
         return self._get_new_combined(end, text, end)
@@ -3451,13 +4966,13 @@ class ConfigString(str):
         Get the whole contents with the `location`-specified fragment
         replaced with `text`.
 
-        Args:
-            `location` (str):
+        Args/kwargs:
+            `location` (a `str`):
                 Either a section name (specifying a particular
                 section) or a string in the format: "section.option"
                 (specifying a particular option in a particular
                 section).
-            `text` (str):
+            `text` (a `str`):
                 The text to be inserted in place of the fragment
                 specified with `location`.
 
@@ -3466,12 +4981,13 @@ class ConfigString(str):
             as described above).
 
         Raises:
-            KeyError --
-            * instantiated with the section name as the sole argument --
-              if the specified section does not exist;
-            * instantiated with the option name as the sole argument --
-              if the specified option does not exist in the specified
-              (and existing) section.
+            `KeyError`:
+                instantiated with:
+                * the section name as the sole argument
+                  -- if the specified section does not exist;
+                * the option name as the sole argument
+                  -- if the specified option does not exist
+                  in the specified (and existing) section.
         """
         beg, end = self._location_to_span(location)
         return self._get_new_combined(beg, text, end)
@@ -3482,8 +4998,8 @@ class ConfigString(str):
         Get the whole contents with the `location`-specified fragment
         removed.
 
-        Args:
-            `location` (str):
+        Args/kwargs:
+            `location` (a `str`):
                 Either a section name (specifying a particular
                 section) or a string in the format: "section.option"
                 (specifying a particular option in a particular
@@ -3494,12 +5010,13 @@ class ConfigString(str):
             as described above).
 
         Raises:
-            KeyError --
-            * instantiated with the section name as the sole argument --
-              if the specified section does not exist;
-            * instantiated with the option name as the sole argument --
-              if the specified option does not exist in the specified
-              (and existing) section.
+            `KeyError`:
+                instantiated with:
+                * the section name as the sole argument
+                  -- if the specified section does not exist;
+                * the option name as the sole argument
+                  -- if the specified option does not exist
+                  in the specified (and existing) section.
         """
         beg, end = self._location_to_span(location)
         return self._get_new_combined(beg, '', end)
@@ -3509,26 +5026,28 @@ class ConfigString(str):
         """
         Get the value of the option specified with `location`.
 
-        Args:
-            `location_with_opt_name` (str):
+        Args/kwargs:
+            `location_with_opt_name` (a `str`):
                 It must be a string in the format: "section.option"
                 (specifying a particular option in a particular
                 section).
 
         Returns:
-            An ordinary str being the value of the specified option or
-            None (the latter if the option is a non-value one).
+            An ordinary `str` being the value of the specified option
+            or `None` (the latter if the option is a non-value one).
 
         Raises:
-            KeyError --
-            * instantiated with the section name as the sole argument --
-              if the specified section does not exist;
-            * instantiated with the option name as the sole argument --
-              if the specified option does not exist in the specified
-              (and existing) section.
+            `KeyError`:
+                instantiated with:
+                * the section name as the sole argument
+                  -- if the specified section does not exist;
+                * the option name as the sole argument
+                  -- if the specified option does not exist
+                  in the specified (and existing) section.
 
-            ValueError -- if the specified location does not include an
-            option name.
+            `ValueError`:
+                if the specified location does not include an option
+                name.
         """
         opt_value, _ = self._get_opt_value_and_match(location_with_opt_name)
         return opt_value
@@ -3536,22 +5055,23 @@ class ConfigString(str):
 
     def get_opt_names(self, sect_name):
         """
-        Get a list of options names in the specified section.
+        Get a `list` of options names in the specified section.
 
         Raises:
-            KeyError -- instantiated with the section name as the sole
-            argument, if the specified section does not exist.  It does
-            *not* apply to the '' (empty) section name -- referring to
-            the area of the config above any section header; if that
-            area does not contain any options then an empty list is
-            returned.
+            `KeyError`:
+                instantiated with the section name as the sole argument,
+                if the specified section does not exist; that does *not*
+                apply to the '' (empty) section name -- referring to the
+                area of the config above any section header; if that
+                area does not contain any options then an empty list is
+                returned.
         """
         return self._sect_name_to_index_data[sect_name].get_all_opt_names()
 
 
     def get_all_sect_names(self):
         """
-        Get a list of all section names.
+        Get a `list` of all section names.
 
         Important: the '' (empty) section name -- referring to the area
         of the config above any section header -- is included only if
@@ -3570,14 +5090,14 @@ class ConfigString(str):
 
     def get_all_sect_and_opt_names(self):
         """
-        Get a list of (<section name>, <list of option names>) pairs.
+        Get a `list` of `(<section name>, <list of option names>)` pairs.
 
         Important: the '' (empty) section name -- referring to the area
         of the config above any section header -- is included only if
         that area contains any options.
 
         The order of section names and of option names (within each
-        list) is the order of appearance in the config.
+        `list`) is the order of appearance in the config.
         """
         return [
             (sname, self._sect_name_to_index_data[sname].get_all_opt_names())
@@ -3603,7 +5123,7 @@ class ConfigString(str):
         \[
         \s*
         (?P<sect_name>
-            [^\]\s]+
+            [^\s\].]+
         )
         \s*
         \]
@@ -3612,7 +5132,7 @@ class ConfigString(str):
     _OPT_BEG_REGEX = re.compile(r'''
         \A
         (?P<opt_name>
-            [^:=\s\]]
+            [^:=\s\[\]]
             [^:=\s]*
         )
         \s*
@@ -3709,10 +5229,10 @@ class ConfigString(str):
             if li[0].isspace():  # is a continuation line?
                 if not non_blank_or_comment_encountered:
                     raise ValueError(
-                        'first non-blank config line {0!a} '
-                        'looks like a continuation line '
-                        '(that is, starts with whitespace '
-                        'characters)'.format(li))
+                        f'first non-blank config line {li!a} '
+                        f'looks like a continuation line '
+                        f'(that is, starts with whitespace '
+                        f'characters)')
                 continue
             non_blank_or_comment_encountered = True
 
@@ -3722,8 +5242,7 @@ class ConfigString(str):
                 sect_name_to_index_data[cur_sect_name].complete(end=i)
                 cur_sect_name = sect_match.group('sect_name')
                 if cur_sect_name in sect_name_to_index_data:
-                    raise ValueError(
-                        'duplicate section name {0!a}'.format(cur_sect_name))
+                    raise ValueError(f'duplicate section name {cur_sect_name!a}')
                 sect_name_to_index_data[cur_sect_name] = cls._SectIndexData(beg=i)
 
             else:
@@ -3735,16 +5254,16 @@ class ConfigString(str):
                     sect_idata = sect_name_to_index_data[cur_sect_name]
                     if sect_idata.contains_opt_name(opt_name):
                         raise ValueError(
-                            'duplicate option name {0!a} in section {1!a}'
-                            .format(opt_name, cur_sect_name))
+                            f'duplicate option name {opt_name!a} '
+                            f'in section {cur_sect_name!a}')
                     sect_idata.init_opt(opt_name, beg=i)
 
                 else:
                     raise ValueError(
-                        'config line {0!a} is not valid (note that '
-                        'section/option names that are empty or '
-                        'contain whitespace characters are '
-                        'not supported)'.format(li))
+                        f'config line {li!a} is not valid (note that '
+                        f'section/option names that are empty or '
+                        f'contain certain restricted characters, in '
+                        f'particular whitespace, are not supported)')
 
         sect_name_to_index_data[cur_sect_name].complete(end=len(lines))
 
@@ -3767,8 +5286,8 @@ class ConfigString(str):
             span = sect_idata.get_opt_span(opt_name)
         elif opt_required:
             raise ValueError(
-                'the called method requires that the location argument '
-                'specifies an option name (got: {0!a})'.format(location))
+                f'the called method requires that the location argument '
+                f'specifies an option name (got: {location!a})')
         else:
             span = sect_idata.get_span()
         return span
@@ -3794,31 +5313,22 @@ class ConfigString(str):
 
         opt_value_first_line = opt_match.group('opt_value')
         if opt_value_first_line is None:
-            # TODO: check whether each of the two remarks in this comment
-            #       is still true; it's quite probable they are not (for
-            #       the modern Python 3's version of `configparser`...).
-            #
-            # Apparently, it's a `no-value option`.  If it has some
-            # continuation lines after it they will be just ignored here
-            # (for ConfigString) -- because `configparser` classes raise
-            # AttributeError in such a case (it's obviously a bug in
-            # `configparser`).
-            #
-            # `configparser` classes have also another bug: `no-value`
-            # options have their inline comments appended to their
-            # names.  That's why, for ConfigString, `no-value options`
-            # with inline comments are just forbidden (cannot be parsed
-            # so they get the ConfigString constructor to raise
-            # ValueError).
+            # Apparently, it is a *no-value option*; if it has some
+            # continuation lines after it, they will be just ignored
+            # (for historical reasons: when implementing `ConfigString`
+            # we attempted to be close to the behavior of old Py-2.7's
+            # `ConfigParser`, but in this case it raised `AttributeError`
+            # which was obviously a bug; that version of `ConfigParser`
+            # had also another bug: `no-value` options had their inline
+            # comments appended to their names -- that's why here
+            # *no-value options* with inline comments are just
+            # forbidden, causing `ValueError`).
             return None, opt_match
 
-        # TODO: check whether the following remark is still true;
-        #       probably it is not (for the modern Python 3's version
-        #       of `configparser`...).
-        #
-        # Note that we try to mimic the (somewhat buggy) behaviour of
-        # `configparser` classes (that's why here, for example, we strip
-        # the first line and only then append continuation lines...).
+        # When `ConfigString` was implemented, we attempted to be
+        # close to the (somewhat buggy) behaviour of the old Py-2.7's
+        # `ConfigParser` (that's why here, for example, we strip the
+        # first line and only then append continuation lines...).
         opt_value_first_line = self._strip_opt_value(opt_value_first_line)
 
         continuation_lines = [
@@ -3842,17 +5352,17 @@ class ConfigString(str):
 
 
 
-#
-# Auxiliary constants and classes
-#
+###
+# *Non-public* auxiliary constants and classes
+###
 
-_N6CORE_CONFIG_ERROR_MSG_PATTERN = """
+_N6DATAPIPELINE_CONFIG_ERROR_MSG_PATTERN = """
 
 {0}.
 
-Make sure that config files for n6 are present in '/etc/n6' or '~/.n6'
-and that they are valid (especially, that they contain all needed
-entries).
+Make sure that config files for n6 are present in '/etc/n6' or
+'~/.n6' (or their directory subtrees) and that they are valid
+(especially, that they contain all needed entries).
 
 Note: you may want to copy config file prototypes (templates)
 from '<N6 CODE REPO DIR>/N6DataPipeline/n6datapipeline/data/conf/'
@@ -3863,13 +5373,14 @@ adjust them (in '~/.n6') to your needs.
 """
 
 
-class _SectSpec(collections.namedtuple(
-        '_SectSpec', [
-            'name',               # the section name (str)
-            'opt_specs',          # a list of _OptSpec instances
-            'free_opts_allowed',  # whether free (not specified) opts are allowed (bool)
-            'free_opts_converter_spec',  # the name of the value converter
-        ])):                             # for any free opts (str) or None
+# (*Beware:* it must be cohered with the content of
+# the `_ConfDataSpec._OPT_BEG_REGEX`'s capturing group
+# `no_val_converter_spec`.)
+_CONVERTER_SPEC_REGEX = re.compile(r'\A\S+\Z', re.ASCII)
+
+
+@dataclass
+class _SectSpec:
 
     r"""
     >>> s = _SectSpec('',
@@ -3877,7 +5388,9 @@ class _SectSpec(collections.namedtuple(
     ...               free_opts_allowed=False,
     ...               free_opts_converter_spec=None)
     >>> str(s)
-    'foo\nbar = x :: y\n\n'
+    '\nfoo\nbar = x :: y\n'
+    >>> s.free_opts_converter_spec  # (`free_opts_allowed` is false => 'str' here)
+    'str'
     >>> s.required
     True
 
@@ -3886,16 +5399,31 @@ class _SectSpec(collections.namedtuple(
     ...               free_opts_allowed=False,
     ...               free_opts_converter_spec=None)
     >>> str(s)
-    '[some]\nfoo\nbar = x :: y\n\n'
+    '\n[some]\nfoo\nbar = x :: y\n'
+    >>> s.free_opts_converter_spec  # (`free_opts_allowed` is false => 'str' here)
+    'str'
     >>> s.required
     True
 
-    >>> s = _SectSpec('some',
-    ...               [_OptSpec('foo', None, 'bb'), _OptSpec('bar', 'x', 'y')],
+    >>> s = _SectSpec(name='some',                           # (equivalent to the previous one)
+    ...               opt_specs=[_OptSpec('foo', None, None), _OptSpec('bar', 'x', 'y')],
     ...               free_opts_allowed=False,
-    ...               free_opts_converter_spec=None)
+    ...               free_opts_converter_spec='TO_BE_IGNORED_BECAUSE_FREE_OPTS_DISALLOWED')
     >>> str(s)
-    '[some]\nfoo :: bb\nbar = x :: y\n\n'
+    '\n[some]\nfoo\nbar = x :: y\n'
+    >>> s.free_opts_converter_spec  # (`free_opts_allowed` is false => 'str' here)
+    'str'
+    >>> s.required
+    True
+
+    >>> s = _SectSpec('some',                                # (equivalent to the previous one)
+    ...               [_OptSpec('foo', None, None), _OptSpec('bar', 'x', 'y')],
+    ...               False,
+    ...               'TO_BE_IGNORED_BECAUSE_FREE_OPTS_DISALLOWED')
+    >>> str(s)
+    '\n[some]\nfoo\nbar = x :: y\n'
+    >>> s.free_opts_converter_spec  # (`free_opts_allowed` is false => 'str' here)
+    'str'
     >>> s.required
     True
 
@@ -3904,7 +5432,9 @@ class _SectSpec(collections.namedtuple(
     ...               free_opts_allowed=False,
     ...               free_opts_converter_spec=None)
     >>> str(s)
-    '[some]\n\n'
+    '\n[some]\n'
+    >>> s.free_opts_converter_spec  # (`free_opts_allowed` is false => 'str' here)
+    'str'
     >>> s.required
     False
 
@@ -3913,57 +5443,122 @@ class _SectSpec(collections.namedtuple(
     ...               free_opts_allowed=True,
     ...               free_opts_converter_spec=None)
     >>> str(s)
-    '[some]\nfoo\nbar = x :: y\n...\n\n'
+    '\n[some]\nfoo\nbar = x :: y\n...\n'
+    >>> s.free_opts_converter_spec   # (`free_opts_allowed` is true + `None` given => 'str' here)
+    'str'
+    >>> s.required
+    True
+
+    >>> s = _SectSpec('some',                                # (equivalent to the previous one)
+    ...               [_OptSpec('foo', None, None), _OptSpec('bar', 'x', 'y')],
+    ...               free_opts_allowed=True,
+    ...               free_opts_converter_spec='str')
+    >>> str(s)
+    '\n[some]\nfoo\nbar = x :: y\n...\n'
+    >>> s.free_opts_converter_spec
+    'str'
     >>> s.required
     True
 
     >>> s = _SectSpec('some',
     ...               [_OptSpec('foo', None, None), _OptSpec('bar', 'x', 'y')],
-    ...               free_opts_allowed=True,
-    ...               free_opts_converter_spec='z')
+    ...               free_opts_allowed=True,         # <- `True` here, and
+    ...               free_opts_converter_spec='XY')  # <- SOMETHING here => include ':: SOMETHING'
     >>> str(s)
-    '[some]\nfoo\nbar = x :: y\n... :: z\n\n'
+    '\n[some]\nfoo\nbar = x :: y\n... :: XY\n'
+    >>> s.free_opts_converter_spec   # (`free_opts_allowed` is true + SOMETHING given => SOMETHING)
+    'XY'
     >>> s.required
     True
 
-    >>> s = _SectSpec('some',
-    ...               [_OptSpec('foo', 'A', None), _OptSpec('b', 'x\ny', 'y')],
+    >>> s = _SectSpec(name='some',
+    ...               opt_specs=[_OptSpec('foo', 'A', None), _OptSpec('b', 'x\ny', 'y')],
     ...               free_opts_allowed=True,
-    ...               free_opts_converter_spec='z')
+    ...               free_opts_converter_spec='XY')
     >>> str(s)
-    '[some]\nfoo = A\nb = x\n  y :: y\n... :: z\n\n'
+    '\n[some]\nfoo = A\nb = x\n  y :: y\n... :: XY\n'
+    >>> s.free_opts_converter_spec
+    'XY'
     >>> s.required
     False
+
+    >>> s = _SectSpec('some',                                # (equivalent to the previous one)
+    ...               [_OptSpec('foo', 'A', None), _OptSpec('b', 'x\ny', 'y')],
+    ...               True,
+    ...               'XY')
+    >>> str(s)
+    '\n[some]\nfoo = A\nb = x\n  y :: y\n... :: XY\n'
+    >>> s.free_opts_converter_spec
+    'XY'
+    >>> s.required
+    False
+
+    >>> s = _SectSpec('some',
+    ...               [_OptSpec('foo', 'A', None), _OptSpec('b', 'x\ny', 'y')],
+    ...               free_opts_allowed=True,                 # <- `True` here, and
+    ...               free_opts_converter_spec='wrong spec')  # <- invalid converter spec => ERROR!
+    Traceback (most recent call last):
+      ...
+    ValueError: the free options converter spec 'wrong spec' is not valid
+
+    >>> s = _SectSpec('some',
+    ...               [_OptSpec('foo', 'A', None), _OptSpec('b', 'x\ny', 'y')],
+    ...               free_opts_allowed=False,                # <- `False` here, so
+    ...               free_opts_converter_spec='wrong spec')  # <- ignore invalid converter spec
+    >>> str(s)
+    '\n[some]\nfoo = A\nb = x\n  y :: y\n'
+    >>> s.free_opts_converter_spec   # (`free_opts_allowed` is false => 'str' here)
+    'str'
     """
 
+    name: str                       # section name
+    opt_specs: list['_OptSpec']     # option specifications
+    free_opts_allowed: bool         # whether free (not declared in config spec) opts are allowed
+    free_opts_converter_spec: str   # value converter name (aka *converter spec*) for free opts
+
+    def __post_init__(self):
+        if self.free_opts_converter_spec is None or not self.free_opts_allowed:
+            self.free_opts_converter_spec = Config.DEFAULT_CONVERTER_SPEC
+        if not _CONVERTER_SPEC_REGEX.search(self.free_opts_converter_spec):
+            raise ValueError(
+                f'the free options converter spec '
+                f'{self.free_opts_converter_spec!a} '
+                f'is not valid')
+
     @property
-    def required(self):
-        "Whether the section is obligatory (True or False)."
+    def required(self) -> bool:
+        """Whether the section is obligatory."""
         return any(opt.default is None for opt in self.opt_specs)
 
-    def __str__(self):
-        s = ('[{0}]\n'.format(self.name) if self.name else '')
+    def __str__(self) -> str:
+        s = '\n'
+        if self.name:
+            s += f'[{self.name}]\n'
         if self.opt_specs:
             s += '\n'.join(map(str, self.opt_specs))
             s += '\n'
         if self.free_opts_allowed:
             s += '...'
-            if self.free_opts_converter_spec is not None:
-                s += ' :: {0}'.format(self.free_opts_converter_spec)
+            if self.free_opts_converter_spec != Config.DEFAULT_CONVERTER_SPEC:
+                s += f' :: {self.free_opts_converter_spec}'
             s += '\n'
-        s += '\n'
         return s
 
 
-class _OptSpec(collections.namedtuple(
-        '_OptSpec', [
-            'name',               # the option name (str)
-            'default',            # the default value (str) or None
-            'converter_spec',     # the name of the value converter (str) or None
-        ])):
+@dataclass
+class _OptSpec:
 
     r"""
     >>> str(_OptSpec('foo', None, None))
+    'foo'
+
+    >>> str(_OptSpec('foo', None, converter_spec=None))
+    'foo'
+
+    >>> str(_OptSpec('foo', default=None, converter_spec=None))
+    'foo'
+
+    >>> str(_OptSpec(name='foo', default=None, converter_spec=None))
     'foo'
 
     >>> str(_OptSpec('foo', '', None))
@@ -3989,14 +5584,34 @@ class _OptSpec(collections.namedtuple(
 
     >>> str(_OptSpec('foo', '\tbar\t\n\t spam\n ham \t\n\t', 'spam'))
     'foo = bar\n  spam\n  ham :: spam'
+
+    >>> str(_OptSpec(name='foo', default='\tbar\t\n\t spam\n ham \t\n\t', converter_spec='spam'))
+    'foo = bar\n  spam\n  ham :: spam'
+
+    >>> str(_OptSpec('foo', None, 'wrong spec'))
+    Traceback (most recent call last):
+      ...
+    ValueError: the `foo` option's converter spec 'wrong spec' is not valid
     """
+
+    name: str                # option name
+    default: Optional[str]   # default value
+    converter_spec: str      # value converter name (aka *converter spec*)
+
+    def __post_init__(self):
+        if self.converter_spec is None:
+            self.converter_spec = Config.DEFAULT_CONVERTER_SPEC
+        if not _CONVERTER_SPEC_REGEX.search(self.converter_spec):
+            raise ValueError(
+                f"the `{self.name}` option\'s converter spec "
+                f"{self.converter_spec!a} is not valid")
 
     def __str__(self):
         s = self.name
         if self.default is not None:
             default = '\n  '.join(filter(None, map(str.strip, splitlines_asc(self.default))))
             s += ' = {0}'.format(default or '""')
-        if self.converter_spec is not None:
+        if self.converter_spec != Config.DEFAULT_CONVERTER_SPEC:
             s += ' :: {0}'.format(self.converter_spec)
         return s
 
@@ -4004,16 +5619,16 @@ class _OptSpec(collections.namedtuple(
 class _ConfSpecData(ConfigString):
 
     r"""
-    A helper class to deal with config specs (parsing them and
+    A helper class to deal with *config specs* (parsing them and
     providing an interface to manipulate their data).
 
     This class should not be instantiated directly beyond this
-    module -- the parse_config_spec() public helper function (which,
-    additionally, automatically reduces indentation...) should be
-    used instead.
+    module -- the `parse_config_spec()` public helper function
+    (which has additional features, e.g., automatically reduces
+    indentation...) should be used instead.
 
-    Note that this class is a subclass of ConfigString (with some
-    methods adjusted and additional methods provided).
+    Note that this class is a subclass of `ConfigString` (with
+    some methods adjusted and additional methods provided).
 
     >>> cs = _ConfSpecData('''
     ... [ first ]
@@ -4022,7 +5637,7 @@ class _ConfSpecData(ConfigString):
     ... baz = 44 :: int
     ... spam = 45
     ...
-    ... ham::unicode
+    ... ham::bytes
     ... slam
     ... glam ;comment
     ...
@@ -4038,7 +5653,7 @@ class _ConfSpecData(ConfigString):
 
     >>> cs.get('first') == _ConfSpecData(
     ...   '[ first ]\nfoo = 42 :: int ; comment\nbar = 43 ; comment\n'
-    ...   'baz = 44 :: int\nspam = 45\n\nham::unicode\nslam\nglam ;comment\n\n'
+    ...   'baz = 44 :: int\nspam = 45\n\nham::bytes\nslam\nglam ;comment\n\n'
     ...   '# the `...` below means that free (arbitrary, i.e. not specified\n'
     ...   '# here) options will be allowed in this section\n...\n\n')
     True
@@ -4064,7 +5679,7 @@ class _ConfSpecData(ConfigString):
     >>> cs.get_opt_value('first.bar')
     '43'
     >>> cs.get_opt_spec('first.bar')
-    _OptSpec(name='bar', default='43', converter_spec=None)
+    _OptSpec(name='bar', default='43', converter_spec='str')
 
     >>> cs.get('first.bAz')
     _ConfSpecData('baz = 44 :: int')
@@ -4078,35 +5693,35 @@ class _ConfSpecData(ConfigString):
     >>> cs.get_opt_value('first.spam')
     '45'
     >>> cs.get_opt_spec('first.spam')
-    _OptSpec(name='spam', default='45', converter_spec=None)
+    _OptSpec(name='spam', default='45', converter_spec='str')
 
     >>> cs.get('first.Ham')
-    _ConfSpecData('ham::unicode')
+    _ConfSpecData('ham::bytes')
     >>> cs.get_opt_value('first.HAM') is None
     True
     >>> cs.get_opt_spec('first.HAM')
-    _OptSpec(name='ham', default=None, converter_spec='unicode')
+    _OptSpec(name='ham', default=None, converter_spec='bytes')
 
     >>> cs.get('first.SLAM')
     _ConfSpecData('slam')
     >>> cs.get_opt_value('first.Slam') is None
     True
     >>> cs.get_opt_spec('first.Slam')
-    _OptSpec(name='slam', default=None, converter_spec=None)
+    _OptSpec(name='slam', default=None, converter_spec='str')
 
     >>> cs.get('first.glam')                   # doctest: +ELLIPSIS
     _ConfSpecData('glam ;comment\n\n# the `...
     >>> cs.get_opt_value('first.glam') is None
     True
     >>> cs.get_opt_spec('first.glam')
-    _OptSpec(name='glam', default=None, converter_spec=None)
+    _OptSpec(name='glam', default=None, converter_spec='str')
 
     >>> cs.get('first....')
     _ConfSpecData('...\n\n')
     >>> cs.get_opt_value('first....') is None
     True
     >>> cs.get_opt_spec('first....')
-    _OptSpec(name='...', default=None, converter_spec=None)
+    _OptSpec(name='...', default=None, converter_spec='str')
 
     >>> cs.get('second.bar')
     _ConfSpecData('bAR = http:://\t\n  example.com/ :: url')
@@ -4136,15 +5751,15 @@ class _ConfSpecData(ConfigString):
     ...     name='first',
     ...     opt_specs=[
     ...         _OptSpec(name='foo', default='42', converter_spec='int'),
-    ...         _OptSpec(name='bar', default='43', converter_spec=None),
+    ...         _OptSpec(name='bar', default='43', converter_spec='str'),
     ...         _OptSpec(name='baz', default='44', converter_spec='int'),
-    ...         _OptSpec(name='spam', default='45', converter_spec=None),
-    ...         _OptSpec(name='ham', default=None, converter_spec='unicode'),
-    ...         _OptSpec(name='slam', default=None, converter_spec=None),
-    ...         _OptSpec(name='glam', default=None, converter_spec=None),
+    ...         _OptSpec(name='spam', default='45', converter_spec='str'),
+    ...         _OptSpec(name='ham', default=None, converter_spec='bytes'),
+    ...         _OptSpec(name='slam', default=None, converter_spec='str'),
+    ...         _OptSpec(name='glam', default=None, converter_spec='str'),
     ...     ],
     ...     free_opts_allowed=True,     # because the `...` marker is present
-    ...     free_opts_converter_spec=None,
+    ...     free_opts_converter_spec='str',
     ... )
     True
     >>> cs.get_sect_spec('first').required
@@ -4159,7 +5774,7 @@ class _ConfSpecData(ConfigString):
     ...         ),
     ...     ],
     ...     free_opts_allowed=False,    # because no `...` marker
-    ...     free_opts_converter_spec=None,
+    ...     free_opts_converter_spec='str',
     ... )
     True
     >>> cs.get_sect_spec('second').required
@@ -4169,15 +5784,15 @@ class _ConfSpecData(ConfigString):
     ...     name='first',
     ...     opt_specs=[
     ...         _OptSpec(name='foo', default='42', converter_spec='int'),
-    ...         _OptSpec(name='bar', default='43', converter_spec=None),
+    ...         _OptSpec(name='bar', default='43', converter_spec='str'),
     ...         _OptSpec(name='baz', default='44', converter_spec='int'),
-    ...         _OptSpec(name='spam', default='45', converter_spec=None),
-    ...         _OptSpec(name='ham', default=None, converter_spec='unicode'),
-    ...         _OptSpec(name='slam', default=None, converter_spec=None),
-    ...         _OptSpec(name='glam', default=None, converter_spec=None),
+    ...         _OptSpec(name='spam', default='45', converter_spec='str'),
+    ...         _OptSpec(name='ham', default=None, converter_spec='bytes'),
+    ...         _OptSpec(name='slam', default=None, converter_spec='str'),
+    ...         _OptSpec(name='glam', default=None, converter_spec='str'),
     ...     ],
     ...     free_opts_allowed=True,     # because the `...` marker is present
-    ...     free_opts_converter_spec=None,
+    ...     free_opts_converter_spec='str',
     ...   ),
     ...   _SectSpec(
     ...     name='second',
@@ -4189,7 +5804,7 @@ class _ConfSpecData(ConfigString):
     ...         ),
     ...     ],
     ...     free_opts_allowed=False,    # because no `...` marker
-    ...     free_opts_converter_spec=None,
+    ...     free_opts_converter_spec='str',
     ...   ),
     ... ]
     True
@@ -4417,9 +6032,9 @@ class _ConfSpecData(ConfigString):
     ... ...
     ...
     ... [fifth]
-    ... SomeOption   :   A Value   ::   unicode   ;   A Comment
-    ... ... :: unicode ; free options allowed + converter for them specified
-    ... no_value_option :: int \t; inline comment \t; here allowed! \t
+    ... Some.Option   :   A Value   ::   bytes   ;   A Comment
+    ... ... :: bytes ; free options allowed + converter for them specified
+    ... no.value.option :: int \t; inline comment \t; here allowed! \t
     ...   for no-value options
     ...   continuation lines are ignored \t
     ... Foo   =   aaa \t ; comment \t
@@ -4444,7 +6059,7 @@ class _ConfSpecData(ConfigString):
     >>> all(cs2.get_opt_value('second.' + o) == ''
     ...     for o in empty_options)
     True
-    >>> all(cs2.get_opt_spec('second.' + o) == _OptSpec(o, '', None)
+    >>> all(cs2.get_opt_spec('second.' + o) == _OptSpec(o, '', 'str')
     ...     for o in empty_options)
     True
 
@@ -4472,13 +6087,13 @@ class _ConfSpecData(ConfigString):
     >>> cs2.get_opt_value('fifth.foo')
     'aaa\nbbbccc \t ; not-a-comment'
 
-    >>> cs2.get_opt_value('fifth.someoption')
+    >>> cs2.get_opt_value('fifth.some.option')
     'A Value'
 
-    >>> cs2.get_opt_value('fifth.no_value_option') is None
+    >>> cs2.get_opt_value('fifth.no.value.option') is None
     True
-    >>> cs2.get('fifth.no_value_option') == (
-    ...     'no_value_option :: int \t; inline comment \t; here allowed! \t\n'
+    >>> cs2.get('fifth.no.value.option') == (
+    ...     'no.value.option :: int \t; inline comment \t; here allowed! \t\n'
     ...     '  for no-value options\n'
     ...     '  continuation lines are ignored \t')
     True
@@ -4498,9 +6113,9 @@ class _ConfSpecData(ConfigString):
     ...         '...',
     ...      ]),
     ...     ('fifth', [
-    ...         'someoption',
+    ...         'some.option',
     ...         '...',
-    ...         'no_value_option',
+    ...         'no.value.option',
     ...         'foo',
     ...      ]),
     ... ]
@@ -4512,7 +6127,7 @@ class _ConfSpecData(ConfigString):
     ...         _OptSpec(name='y', default='ZZ::XX', converter_spec='conv2'),
     ...         _OptSpec(name='z', default=None, converter_spec='conv3'),
     ...       ]
-    ...       + list(_OptSpec(name=o, default='', converter_spec=None)
+    ...       + list(_OptSpec(name=o, default='', converter_spec='str')
     ...              for o in empty_options)
     ...       + list(_OptSpec(name=o, default='', converter_spec='int')
     ...              for o in empty_int_options)
@@ -4525,7 +6140,7 @@ class _ConfSpecData(ConfigString):
     ...         ),
     ...     ],
     ...     free_opts_allowed=False,
-    ...     free_opts_converter_spec=None,
+    ...     free_opts_converter_spec='str',
     ... )
     True
     >>> cs2.get_sect_spec('second').required
@@ -4534,7 +6149,7 @@ class _ConfSpecData(ConfigString):
     ...     name='another',
     ...     opt_specs=[],
     ...     free_opts_allowed=True,
-    ...     free_opts_converter_spec=None,
+    ...     free_opts_converter_spec='str',
     ... )
     True
     >>> cs2.get_sect_spec('another').required
@@ -4543,12 +6158,12 @@ class _ConfSpecData(ConfigString):
     ...     name='fifth',
     ...     opt_specs=[
     ...         _OptSpec(
-    ...             name='someoption',
+    ...             name='some.option',
     ...             default='A Value',
-    ...             converter_spec='unicode',
+    ...             converter_spec='bytes',
     ...         ),
     ...         _OptSpec(
-    ...             name='no_value_option',
+    ...             name='no.value.option',
     ...             default=None,
     ...             converter_spec='int',
     ...         ),
@@ -4559,7 +6174,7 @@ class _ConfSpecData(ConfigString):
     ...         ),
     ...     ],
     ...     free_opts_allowed=True,
-    ...     free_opts_converter_spec='unicode',
+    ...     free_opts_converter_spec='bytes',
     ... )
     True
     >>> cs2.get_sect_spec('fifth').required
@@ -4572,7 +6187,7 @@ class _ConfSpecData(ConfigString):
     ...         _OptSpec(name='y', default='ZZ::XX', converter_spec='conv2'),
     ...         _OptSpec(name='z', default=None, converter_spec='conv3'),
     ...       ]
-    ...       + list(_OptSpec(name=o, default='', converter_spec=None)
+    ...       + list(_OptSpec(name=o, default='', converter_spec='str')
     ...              for o in empty_options)
     ...       + list(_OptSpec(name=o, default='', converter_spec='int')
     ...              for o in empty_int_options)
@@ -4584,24 +6199,24 @@ class _ConfSpecData(ConfigString):
     ...             converter_spec='int'),
     ...     ],
     ...     free_opts_allowed=False,
-    ...     free_opts_converter_spec=None,
+    ...     free_opts_converter_spec='str',
     ...   ),
     ...   _SectSpec(
     ...     name='another',
     ...     opt_specs=[],
     ...     free_opts_allowed=True,
-    ...     free_opts_converter_spec=None,
+    ...     free_opts_converter_spec='str',
     ...   ),
     ...   _SectSpec(
     ...     name='fifth',
     ...     opt_specs=[
     ...         _OptSpec(
-    ...             name='someoption',
+    ...             name='some.option',
     ...             default='A Value',
-    ...             converter_spec='unicode',
+    ...             converter_spec='bytes',
     ...         ),
     ...         _OptSpec(
-    ...             name='no_value_option',
+    ...             name='no.value.option',
     ...             default=None,
     ...             converter_spec='int',
     ...         ),
@@ -4612,27 +6227,92 @@ class _ConfSpecData(ConfigString):
     ...         ),
     ...     ],
     ...     free_opts_allowed=True,
-    ...     free_opts_converter_spec='unicode',
+    ...     free_opts_converter_spec='bytes',
     ...   ),
     ... ]
     True
 
-    >>> _ConfSpecData('wrong opt :: some_conv')  # doctest: +ELLIPSIS
+    >>> _ConfSpecData('[wrong.sect]')                      # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line '[wrong.sect]' is not valid ...
+
+    >>> _ConfSpecData('[wrong_opt')                        # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line '[wrong_opt' is not valid ...
+
+    >>> _ConfSpecData('[wrong_opt = val')                  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line '[wrong_opt = val' is not valid ...
+
+    >>> _ConfSpecData('[wrong_opt :: some_conv')           # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line '[wrong_opt :: some_conv' is not valid ...
+
+    >>> _ConfSpecData('[wrong_opt = val :: some_conv')     # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line '[wrong_opt = val :: some_conv' is not valid ...
+
+    >>> _ConfSpecData(']wrong_opt')                        # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line ']wrong_opt' is not valid ...
+
+    >>> _ConfSpecData(']wrong_opt = val')                  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line ']wrong_opt = val' is not valid ...
+
+    >>> _ConfSpecData(']wrong_opt :: some_conv')           # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line ']wrong_opt :: some_conv' is not valid ...
+
+    >>> _ConfSpecData(']wrong_opt = val :: some_conv')     # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line ']wrong_opt = val :: some_conv' is not valid ...
+
+    >>> _ConfSpecData('wrong opt')                         # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line 'wrong opt' is not valid ...
+
+    >>> _ConfSpecData('wrong opt = val')                   # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: config line 'wrong opt = val' is not valid ...
+
+    >>> _ConfSpecData('wrong opt :: some_conv')            # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     ValueError: config line 'wrong opt :: some_conv' is not valid ...
 
-    >>> _ConfSpecData('some_opt :: wrong-conv')  # doctest: +ELLIPSIS
+    >>> _ConfSpecData('wrong opt = val :: some_conv')      # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    ValueError: config line 'some_opt :: wrong-conv' is not valid ...
+    ValueError: config line 'wrong opt = val :: some_conv' is not valid ...
 
-    >>> _ConfSpecData('  \n  xyz\n  abc\n\n')    # doctest: +ELLIPSIS
+    >>> _ConfSpecData('some_opt :: wrong conv')            # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: ...wrong conv' is not valid...
+
+    >>> _ConfSpecData('some_opt = val :: wrong conv')      # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: ...wrong conv' is not valid...
+
+    >>> _ConfSpecData('  \n  xyz\n  abc\n\n')              # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     ValueError: first non-blank ... '  xyz' looks like a continuation line...
 
-    >>> _ConfSpecData('  [xyz]\n  abc=3')        # doctest: +ELLIPSIS
+    >>> _ConfSpecData('  [xyz]\n  abc=3')                  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     ValueError: first non-blank ... '  [xyz]' looks like a continuation line...
@@ -4645,7 +6325,7 @@ class _ConfSpecData(ConfigString):
     ... [first]
     ... b = BBB
     ... c = CCC
-    ... ''')                                     # doctest: +ELLIPSIS
+    ... ''')
     Traceback (most recent call last):
       ...
     ValueError: duplicate section name 'first'
@@ -4655,17 +6335,27 @@ class _ConfSpecData(ConfigString):
     ... a = AAA
     ... b = BBB
     ... a = AAA
-    ... ''')                                     # doctest: +ELLIPSIS
+    ... ''')
     Traceback (most recent call last):
       ...
     ValueError: duplicate option name 'a' in section 'first'
+
+    >>> _ConfSpecData(b'foo = 3')
+    Traceback (most recent call last):
+      ...
+    TypeError: expected a `str` (got an instance of `bytes`)
+
+    >>> _ConfSpecData(['foo = 3'])
+    Traceback (most recent call last):
+      ...
+    TypeError: expected a `str` (got an instance of `list`)
     """
 
 
     _OPT_BEG_REGEX = re.compile(r'''
         \A
         (?P<opt_name>
-            [^:=\s\]]
+            [^:=\s\[\]]
             [^:=\s]*
         )
         \s*
@@ -4685,8 +6375,8 @@ class _ConfSpecData(ConfigString):
             ::          # delimiter of converter spec for `no-value option`
             \s*
             (?P<no_val_converter_spec>
-                \w+     # converter spec for `no-value option`
-            )
+                \S+     # converter spec for `no-value option`
+            )           # (*beware:* it must be cohered with `_CONVERTER_SPEC_REGEX`)
         )?
         \s*?
         (?P<inline_comment>  # note: here allowed also for `no-value option`
@@ -4698,8 +6388,15 @@ class _ConfSpecData(ConfigString):
     ''', re.ASCII | re.VERBOSE)
 
 
+    def __new__(cls, /, *args, **kwargs):
+        new = super().__new__(cls, *args, **kwargs)
+        assert isinstance(new, cls)
+        new.get_all_sect_specs()  # (to trigger certain validations...)
+        return new
+
+
     def get_opt_value(self, location_with_opt_name):
-        value_with_optional_conv = super(_ConfSpecData, self).get_opt_value(location_with_opt_name)
+        value_with_optional_conv = super().get_opt_value(location_with_opt_name)
         if value_with_optional_conv is None:
             opt_value = None
         else:
@@ -4722,7 +6419,7 @@ class _ConfSpecData(ConfigString):
         return _OptSpec(opt_name, default_value, converter_spec)
 
 
-    # split into: (<the actual opt value>, <the converter spec>)
+    # split into: `(<actual option value>, <converter spec or None>)`
     def _split_value_with_optional_conv(self, value_with_optional_conv):
         first, conv_specified, second = value_with_optional_conv.rpartition('::')
         if conv_specified:
@@ -4737,7 +6434,7 @@ class _ConfSpecData(ConfigString):
 
     def get_sect_spec(self, sect_name):
         """
-        Get a _SectSpec instance for the given section name.
+        Get a `_SectSpec` instance for the given section name.
 
         The returned instance includes specifications of all options
         they contain -- except that `...` is not interpreted as an
@@ -4764,7 +6461,7 @@ class _ConfSpecData(ConfigString):
 
     def get_all_sect_specs(self):
         """
-        Get a list of _SectSpec instances.
+        Get a list of `_SectSpec` instances.
 
         They contain specifications of all sections and options that
         these sections contain -- except that:
@@ -4775,12 +6472,325 @@ class _ConfSpecData(ConfigString):
         * the '' section is included only if it contains any options
           and/or a "free options allowed" marker.
 
-        The order of sections and options (within each _SectSpec
+        The order of sections and options (within each `_SectSpec`
         instance) is the order of appearance in the config.
         """
         return [
             self.get_sect_spec(sect_name)
             for sect_name in self.get_all_sect_names()]
+
+
+
+class _CombinedConfigSpecDescriptor(CombinedWithSuper):
+
+    def __init__(self, config_spec: Union[str, ConfigSpecEgg]) -> None:
+        super().__init__(
+            value=config_spec,
+            value_combiner=self._combine_config_specs)
+
+    def __set_name__(self, *args) -> None:
+        super().__set_name__(*args)  # noqa
+        self.value = _CombinedConfigSpecEgg(
+            foreground=self.value,
+            foreground_location=(f'{self.fixed_owner.__module__}'
+                                 f'.{self.fixed_owner.__qualname__}'
+                                 f'.{self.name}'))
+
+    @staticmethod
+    def _combine_config_specs(background: Union[str, ConfigSpecEgg],
+                              foreground: '_CombinedConfigSpecEgg') -> '_CombinedConfigSpecEgg':
+        return foreground.copy_setting_background(background)
+
+
+
+class _CombinedConfigSpecEgg:
+
+    #
+    # Auxiliary exception class (non-public)
+
+    class _CombinedConfigSpecEggError(ConfigSpecEggError):
+        pass
+
+    #
+    # Other auxiliary classes and constants (non-public)
+
+    # When `str.format_map()` is applied to a *config spec pattern* then
+    # for each key *missing* from `format_data_mapping` a special object
+    # (of type `_MissingFragment`) is created. Markers which represent
+    # such objects in the resultant formatted *config spec* are always
+    # distinguishable from any surrounding characters -- *even if* a
+    # marker is trimmed to its one-character prefix (such a possibility
+    # is unlikely when it comes to real-word *config spec patterns*, but
+    # theoretically could occur if certain advanced techniques provided
+    # by `str.format()`/`str.format_map()` are used).
+    #
+    # Thanks to that trick, the machinery of `_CombinedConfigSpecEgg`
+    # is able to check whether the *final* combined *config spec*
+    # suffers from fragment omissions caused by lack of certain items
+    # in `format_data_mapping` -- whereas such omissions are ignored in
+    # *intermediary* combined *config specs*.
+
+    class _FormatDataDict(DictWithSomeHooks):
+
+        def __missing__(self, key):
+            return _CombinedConfigSpecEgg._MissingFragment(key)
+
+    class _MissingFragment:
+
+        def __init__(self, key):
+            self._key_repr = repr(key)
+
+        def __format__(self, _format_spec=None):
+            # (note: here format spec is purposely ignored)
+            return _CombinedConfigSpecEgg._MISSING_FRAGMENT_PATTERN.format(key_repr=self._key_repr)
+
+        __repr__ = __str__ = __format__
+
+    _MISSING_FRAGMENT_BOUNDARY_CHARS = Config.CONFIG_SPEC_RESERVED_CHARS
+
+    __TMPL = Config.CONFIG_SPEC_RESERVED_CHAR_01 + '<%s>' + Config.CONFIG_SPEC_RESERVED_CHAR_00
+    assert __TMPL.startswith(tuple(_MISSING_FRAGMENT_BOUNDARY_CHARS))
+    assert __TMPL.endswith(tuple(_MISSING_FRAGMENT_BOUNDARY_CHARS))
+    assert __TMPL == re.escape(__TMPL)
+
+    _MISSING_FRAGMENT_PATTERN = __TMPL % '{key_repr}'
+    _MISSING_FRAGMENT_REGEX = re.compile(__TMPL % '(?P<key_repr>[^\x00-\x1f]*)')
+
+
+    #
+    # Interface intended to be used only in `_CombinedConfigSpecDescriptor`
+
+    def __init__(self,
+                 foreground: Union[str, ConfigSpecEgg],
+                 foreground_location: Optional[str] = None,
+                 background: Optional[Union[str, ConfigSpecEgg]] = None) -> None:
+        foreground_raw = as_config_spec_string(foreground)
+        _verify_no_config_spec_reserved_chars(foreground_raw)
+        # Foreground *config spec string* (derived from `_CombinedConfigSpecDescriptor.value`)
+        self._foreground_raw: str = foreground_raw
+        # Fixed owner's module and qualname + attr name (if any, for better error messages)
+        self._foreground_location: Optional[str] = foreground_location
+        # Background (parent) *config spec egg* (if any):
+        self._background_egg: Optional[ConfigSpecEgg] = (
+            background if isinstance(background, ConfigSpecEgg) or background is None
+            else self.__class__(background))
+
+    def copy_setting_background(self,
+                                background: Union[str, ConfigSpecEgg]) -> '_CombinedConfigSpecEgg':
+        return self.__class__(
+            self._foreground_raw,
+            self._foreground_location,
+            background)
+
+
+    #
+    # Public interface, specific to the `ConfigSpecEgg` protocol
+
+    # (see the docs of `ConfigSpecEgg.hatch_out()`)
+
+    def hatch_out(self, format_data_mapping: Optional[Mapping[str, Any]] = None) -> str:
+        if complete_formatting := (format_data_mapping is not None
+                                   and not isinstance(format_data_mapping, self._FormatDataDict)):
+            # Here we know we are within the foremost (outermost) call
+            # in a chain of nested `hatch_out()` calls.
+            format_data_mapping = self._FormatDataDict(format_data_mapping)
+        rendered_config_spec = self._render(format_data_mapping)
+        if complete_formatting:
+            self._verify_no_missing_fragments(rendered_config_spec)
+        return rendered_config_spec
+
+
+    #
+    # Internal methods
+
+    def _render(self, format_data_mapping: Optional[_FormatDataDict[str, Any]]) -> str:
+        with self._unifying_rendering_exceptions():
+            fg_prepared = self._prepare_config_spec(self._foreground_raw, format_data_mapping)
+            if self._background_egg is None:
+                return str(fg_prepared)
+            bg_prepared = self._prepare_config_spec(self._background_egg, format_data_mapping)
+            return self._merge_config_specs(bg_prepared, fg_prepared)
+
+    @contextlib.contextmanager
+    def _unifying_rendering_exceptions(self):
+        try:
+            yield
+        except self._CombinedConfigSpecEggError:
+            raise
+        except Exception as exc:
+            msg = self._get_error_msg_for_wrapped_exc(exc)
+            raise self._CombinedConfigSpecEggError(msg) from exc
+
+    def _get_error_msg_for_wrapped_exc(self, exc: Exception) -> str:
+        config_spec_descr = self._get_config_spec_descr('the config spec')
+        return ascii_str(
+            f'{config_spec_descr} could not be rendered because '
+            f'of an exception - {make_exc_ascii_str(exc)}')
+
+    def _prepare_config_spec(self,
+                             config_spec: Union[str, ConfigSpecEgg],
+                             format_data_mapping: Optional[_FormatDataDict[str, Any]],
+                             ) -> _ConfSpecData:
+        # (Note: if `config_spec` is `self._background_egg` then its
+        # `hatch_out()` is invoked here by `as_config_spec_string()`.
+        # On the other hand, if `config_spec` is `self._foreground_raw`
+        # (a `str`) then its `.format_map()` is invoked here by
+        # `as_config_spec_string()` unless `format_data_mapping` is
+        # `None`. See the definition of `as_config_spec_string()`...)
+        formatted_if_needed = as_config_spec_string(config_spec, format_data_mapping)
+        return _ConfSpecData(formatted_if_needed)
+
+    def _merge_config_specs(self,
+                            bg_prepared: _ConfSpecData,
+                            fg_prepared: _ConfSpecData) -> str:
+        ready_sect_specs = self._iter_ready_sect_specs(bg_prepared, fg_prepared)
+        return ''.join(map(str, ready_sect_specs))
+
+    def _iter_ready_sect_specs(self,
+                               bg_prepared: _ConfSpecData,
+                               fg_prepared: _ConfSpecData) -> Iterator[_SectSpec]:
+        fg_sect_name_to_spec = {sect_spec.name: sect_spec
+                                for sect_spec in fg_prepared.get_all_sect_specs()}
+        for bg_sect_spec in bg_prepared.get_all_sect_specs():
+            fg_sect_spec = fg_sect_name_to_spec.pop(bg_sect_spec.name, None)
+            if fg_sect_spec is not None:
+                yield self._merge_sect_specs(bg_sect_spec, fg_sect_spec)
+            else:
+                yield bg_sect_spec
+        fg_only_sect_specs = fg_sect_name_to_spec.values()
+        yield from fg_only_sect_specs
+
+    def _merge_sect_specs(self,
+                          bg_sect_spec: _SectSpec,
+                          fg_sect_spec: _SectSpec) -> _SectSpec:
+        assert bg_sect_spec.name == fg_sect_spec.name
+        free_opts_in_any = bg_sect_spec.free_opts_allowed or fg_sect_spec.free_opts_allowed
+        free_opts_converter_spec = self._get_free_opts_converter_spec(bg_sect_spec, fg_sect_spec)
+        ready_opt_specs = list(self._iter_ready_opt_specs(bg_sect_spec, fg_sect_spec))
+        return _SectSpec(
+            fg_sect_spec.name,
+            ready_opt_specs,
+            free_opts_in_any,
+            free_opts_converter_spec)
+
+    def _get_free_opts_converter_spec(self,
+                                      bg_sect_spec: _SectSpec,
+                                      fg_sect_spec: _SectSpec) -> Optional[str]:
+        bg_has = bg_sect_spec.free_opts_allowed
+        fg_has = fg_sect_spec.free_opts_allowed
+        bg_converter_spec = bg_sect_spec.free_opts_converter_spec
+        fg_converter_spec = fg_sect_spec.free_opts_converter_spec
+        if bg_has and fg_has and bg_converter_spec != fg_converter_spec:
+            raise ValueError(self._get_error_msg__free_opts_conv_differ(
+                bg_converter_spec,
+                fg_converter_spec,
+                sect_name=fg_sect_spec.name))
+        if fg_has:
+            return fg_converter_spec
+        if bg_has:
+            return bg_converter_spec
+        return None
+
+    def _get_error_msg__free_opts_conv_differ(self,
+                                              bg_converter_spec: str,
+                                              fg_converter_spec: str,
+                                              *,
+                                              sect_name: str) -> str:
+        config_spec_descr = self._get_config_spec_descr() or '...'
+        bg_conv_repr = self._get_conv_repr_for_error_msg(bg_converter_spec)
+        fg_conv_repr = self._get_conv_repr_for_error_msg(fg_converter_spec)
+        return ascii_str(
+            f'[{config_spec_descr}] cannot get the section '
+            f'`{sect_name}` merged because of differing '
+            f'*free options converter specs* '
+            f'({bg_conv_repr} vs. {fg_conv_repr})')
+
+    def _iter_ready_opt_specs(self,
+                              bg_sect_spec: _SectSpec,
+                              fg_sect_spec: _SectSpec) -> Iterator[_OptSpec]:
+        fg_opt_name_to_spec = {opt_spec.name: opt_spec
+                               for opt_spec in fg_sect_spec.opt_specs}
+        for bg_opt_spec in bg_sect_spec.opt_specs:
+            fg_opt_spec = fg_opt_name_to_spec.pop(bg_opt_spec.name, None)
+            if fg_opt_spec is not None:
+                yield self._merge_opt_specs(bg_opt_spec, fg_opt_spec, sect_name=fg_sect_spec.name)
+            else:
+                yield bg_opt_spec
+        fg_only_opt_specs = fg_opt_name_to_spec.values()
+        yield from fg_only_opt_specs
+
+    def _merge_opt_specs(self,
+                         bg_opt_spec: _OptSpec,
+                         fg_opt_spec: _OptSpec,
+                         *,
+                         sect_name: str) -> _OptSpec:
+        assert bg_opt_spec.name == fg_opt_spec.name
+        if bg_opt_spec.converter_spec != fg_opt_spec.converter_spec:
+            raise ValueError(self._get_error_msg__opt_conv_differ(
+                bg_opt_spec.converter_spec,
+                fg_opt_spec.converter_spec,
+                sect_name=sect_name,
+                opt_name=fg_opt_spec.name))
+        return _OptSpec(
+            fg_opt_spec.name,
+            fg_opt_spec.default,
+            fg_opt_spec.converter_spec)
+
+    def _get_error_msg__opt_conv_differ(self,
+                                        bg_converter_spec: str,
+                                        fg_converter_spec: str,
+                                        *,
+                                        sect_name: str,
+                                        opt_name: str) -> str:
+        config_spec_descr = self._get_config_spec_descr() or '...'
+        bg_conv_repr = self._get_conv_repr_for_error_msg(bg_converter_spec)
+        fg_conv_repr = self._get_conv_repr_for_error_msg(fg_converter_spec)
+        return ascii_str(
+            f'[{config_spec_descr}] cannot get the section '
+            f'`{sect_name}` merged because of differing '
+            f'*converter specs* of the option `{opt_name}` '
+            f'({bg_conv_repr} vs. {fg_conv_repr})')
+
+    def _get_conv_repr_for_error_msg(self, converter_spec: str) -> str:
+        return ('a fragment containing unformatted stuff'
+                if self._MISSING_FRAGMENT_BOUNDARY_CHARS.intersection(converter_spec)
+                else repr(converter_spec))
+
+    def _verify_no_missing_fragments(self, rendered_config_spec: str) -> None:
+        if self._MISSING_FRAGMENT_BOUNDARY_CHARS.intersection(rendered_config_spec):
+            msg = self._get_error_msg__missing_fragments(rendered_config_spec)
+            raise self._CombinedConfigSpecEggError(msg)
+
+    def _get_error_msg__missing_fragments(self, rendered_config_spec: str) -> str:
+        config_spec_descr = self._get_config_spec_descr('the rendered config spec')
+        msg = (f'{config_spec_descr} is incorrect because of certain '
+               f'keys missing from the format data mapping')
+        if key_reprs := [match['key_repr']
+                         for match in self._MISSING_FRAGMENT_REGEX.finditer(rendered_config_spec)]:
+            # ("most probably" -- because, in theory, collection of
+            # these missing keys is not 100%-reliable; in practice,
+            # for real-word config specs, it should always be OK;
+            # anyway, it is done only for better error messages)
+            msg += f' (most probably: {", ".join(key_reprs)})'
+        else:
+            # (a very rare condition, should not occur in real-word cases)
+            msg += (f' (or some reserved characters in the config spec?)')
+        return ascii_str(msg)
+
+    def _get_config_spec_descr(self, stem: str = '') -> str:
+        descr = stem
+        if self._foreground_location:
+            descr += f' `{self._foreground_location}`'
+        return descr.strip()
+
+
+
+def _verify_no_config_spec_reserved_chars(config_spec_string: str) -> None:
+    found_reserved = Config.CONFIG_SPEC_RESERVED_CHARS.intersection(config_spec_string)
+    if found_reserved:
+        raise ValueError(ascii_str(
+            f'found config spec\'s character(s) reserved for internal '
+            f'purposes: {", ".join(map(repr, sorted(found_reserved)))}'))
 
 
 

@@ -1,12 +1,12 @@
 import { FC, useEffect } from 'react';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import routeList from 'routes/routeList';
 import useForgotPasswordContext from 'context/ForgotPasswordContext';
 import CustomButton from 'components/shared/CustomButton';
 import { ReactComponent as SuccessIcon } from 'images/check-ico.svg';
 
 const ForgotPasswordSuccess: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { resetForgotPasswordState } = useForgotPasswordContext();
 
   useEffect(() => {

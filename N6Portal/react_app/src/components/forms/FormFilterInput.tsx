@@ -28,13 +28,13 @@ type IProps = {
   showCounter?: boolean;
   isFieldArray?: boolean;
   validate?: Record<string, Validate<string>>;
-  customValueChange?: (value: string) => void;
 };
 
-const parseValue = (value: string) => {
-  const removeWhitespaces = (v: string) => v.replaceAll(/\s+/g, '');
+const parseValue = (value: string, keepWhitespaces = false) => {
+  const removeWhitespaces = (v: string) =>
+    keepWhitespaces ? v.trim().replaceAll(/\s*,\s*/g, ',') : v.replaceAll(/\s+/g, '');
   const removeMultipleCommas = (v: string) => v.replace(/(,+)/g, ',');
-  const removeLastComma = (v: string) => v.replace(/^(.+)(,)$/, (_, p1) => p1);
+  const removeLastComma = (v: string) => v.replace(/^(.*)(,)$/, (_, p1) => p1);
   const removeFirstComma = (v: string) => v.replace(/^(,)(.+)$/, (_, __, p2) => p2);
   return removeFirstComma(removeLastComma(removeMultipleCommas(removeWhitespaces(value))));
 };
@@ -61,9 +61,13 @@ const FormFilterInput: FC<IProps & FormContextProps> = memo(
     setValue,
     getValues
   }) => {
+    // allow whitespaces (e.g. `irc bot`) only for fieldsWithWhitespaces
+    const fieldsWithWhitespaces = ['name'];
+    const keepWhitespaces = fieldsWithWhitespaces.includes(name);
+
     const handleKeyDown = (e?: React.KeyboardEvent<HTMLInputElement>) => {
       const currentFilterValue = getValues(name);
-      e?.key === 'Enter' && setValue(name, parseValue(currentFilterValue));
+      e?.key === 'Enter' && setValue(name, parseValue(currentFilterValue, keepWhitespaces));
     };
 
     return (
@@ -79,7 +83,6 @@ const FormFilterInput: FC<IProps & FormContextProps> = memo(
                 <Form.Control
                   as={as}
                   type={type}
-                  defaultValue={defaultValue}
                   className="input-field"
                   isInvalid={isInvalid}
                   required={required}
@@ -90,13 +93,13 @@ const FormFilterInput: FC<IProps & FormContextProps> = memo(
                   onChange={(e) => {
                     const parsedValue =
                       e.target.value && !e.target.value.endsWith(' ') && !e.target.value.endsWith(',')
-                        ? parseValue(e.target.value)
+                        ? parseValue(e.target.value, keepWhitespaces)
                         : e.target.value;
 
                     onChange(parsedValue);
                   }}
                   onBlur={(e: FocusEvent<HTMLInputElement>) => {
-                    setValue(name, parseValue(e.target.value));
+                    setValue(name, parseValue(e.target.value, keepWhitespaces));
                     onBlur();
                   }}
                 />

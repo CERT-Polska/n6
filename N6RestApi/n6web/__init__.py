@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 # Ensure all monkey-patching provided by `n6lib`
 # and `n6sdk` is applied as early as possible.
@@ -24,12 +24,10 @@ from n6lib.pyramid_commons import (
     APIKeyOrSSLUserAuthenticationPolicy,
     N6ConfigHelper,
     N6DefaultStreamViewBase,
-    SSLUserAuthenticationPolicy,
 )
 from n6sdk.pyramid_commons import (
     HttpResource,
 )
-
 
 
 class RestAPIViewBase(N6DefaultStreamViewBase):
@@ -138,7 +136,6 @@ class RestAPIViewBase(N6DefaultStreamViewBase):
         return "{}?{}".format(self.request.path_url, query_str)
 
 
-
 n6_data_spec = N6DataSpec()
 n6_inside_data_spec = N6InsideDataSpec()
 
@@ -147,7 +144,6 @@ STREAM_RENDERERS = [
     'snort-dns', 'snort-http', 'snort-ip', 'snort-ip-bl',
     'suricata-dns', 'suricata-http', 'suricata-ip', 'suricata-ip-bl',
 ]
-
 
 
 DATA_RESOURCES = [
@@ -184,7 +180,6 @@ DATA_RESOURCES = [
 ]
 
 
-
 def main(global_config, **settings):
     return N6ConfigHelper(
         settings=settings,
@@ -193,7 +188,6 @@ def main(global_config, **settings):
         auth_api_class=AuthAPIWithPrefetching,  # <- XXX: legacy stuff, to be removed in the future
         auth_manage_api=AuthManageAPI(settings),
         authentication_policy=APIKeyOrSSLUserAuthenticationPolicy(settings),
-        # authentication_policy=SSLUserAuthenticationPolicy(settings),
         resources=DATA_RESOURCES,
     ).make_wsgi_app()
 
@@ -205,7 +199,6 @@ def main_test_api(global_config, **settings):
         component_module_name='n6web',
         auth_api_class=AuthAPIWithPrefetching,  # <- XXX: legacy stuff, to be removed in the future
         auth_manage_api=AuthManageAPI(settings),
-        # authentication_policy=SSLUserAuthenticationPolicy(settings),
         authentication_policy=APIKeyOrSSLUserAuthenticationPolicy(settings),
         resources=DATA_RESOURCES,
     ).make_wsgi_app()

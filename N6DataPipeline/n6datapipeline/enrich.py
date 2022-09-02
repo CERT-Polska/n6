@@ -5,11 +5,6 @@ import os
 import urllib.parse
 
 import dns.resolver
-# TODO: After migration to Pyton 3.x: remove the `iptools` dependency,
-#       adjusting our code to use std lib's `ipaddress` (maybe also
-#       adding IPv4/v6/both-dedicated config converters?), and/or our
-#       own existing IP-address-related helpers...
-import iptools
 import maxminddb.const
 from dns.exception import DNSException
 from geoip2 import database, errors
@@ -19,6 +14,7 @@ from n6lib.common_helpers import replace_segment, is_ipv4
 from n6lib.config import ConfigMixin
 from n6lib.log_helpers import get_logger, logging_configured
 from n6lib.record_dict import RecordDict
+from n6sdk.addr_helpers import IPv4Container
 
 
 LOGGER = get_logger(__name__)
@@ -70,7 +66,7 @@ class Enricher(ConfigMixin, LegacyQueuedBase):
 
     def _get_excluded_ips(self):
         if self._enrich_config['excluded_ips']:
-            return iptools.IpRangeList(*self._enrich_config['excluded_ips'])
+            return IPv4Container(*self._enrich_config['excluded_ips'])
         return None
 
     def _setup_dnsresolver(self, dnshost, dnsport):
@@ -292,6 +288,7 @@ def main():
             enricher.run()
         except KeyboardInterrupt:
             enricher.stop()
+            raise
 
 
 if __name__ == "__main__":

@@ -1,11 +1,14 @@
-# Copyright (c) 2019-2021 NASK. All rights reserved.
+# Copyright (c) 2019-2022 NASK. All rights reserved.
 
 from collections.abc import Iterable
 import datetime
 import operator
 import re
 import sys
-from typing import Optional
+from typing import (
+    Optional,
+    TypeVar,
+)
 
 from sqlalchemy import and_
 from sqlalchemy.exc import (
@@ -23,7 +26,6 @@ from n6lib.auth_db import (
     MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
     ORG_REQUEST_STATUS_NEW,
 )
-from n6lib.common_helpers import ascii_str
 from n6lib.auth_db.config import SQLAuthDBConnector
 from n6lib.auth_db.fields import (
     DomainNameCustomizedField,
@@ -31,17 +33,17 @@ from n6lib.auth_db.fields import (
     IPv4NetAlwaysAsStringField,
     IdHexField,
     OrgIdField,
-    RegistrationRequestEmailField,
-    RegistrationRequestEmailLDAPSafeField,
+    RegistrationRequestAnyEmailField,
+    RegistrationRequestEmailBeingCandidateLoginField,
     TimeHourMinuteField,
     UserLoginField,
     UUID4SecretField,
 )
+from n6lib.common_helpers import ascii_str
 from n6lib.data_spec.fields import (
     ASNField,
     CCField,
     UnicodeLimitedField,
-    UnicodeRegexField,
 )
 from n6sdk.data_spec.fields import FlagField
 from n6sdk.data_spec.utils import cleaning_kwargs_as_params_with_data_spec
@@ -184,6 +186,22 @@ class _AuthDatabaseAPI(object):
 
 class AuthManageAPI(_AuthDatabaseAPI):
 
+    _StrOrNone = TypeVar('_StrOrNone', bound=Optional[str])  # noqa
+
+    @staticmethod
+    def adjust_if_is_legacy_user_login(login: _StrOrNone) -> _StrOrNone:
+        # Even though, nowadays, *user logins* (aka *user ids*)
+        # cannot contain any uppercase letters, REST API's legacy
+        # *API keys* and subjects of *legacy client certificates*
+        # can include such characters. That's why a *to-lowercase*
+        # normalization (done by calling this static method) is
+        # needed in the fragments of code that handle those cases.
+        if (login is not None
+              and EmailCustomizedField.regex.search(login)
+              and login != login.lower()):
+            login = login.lower()
+        return login
+
     @cleaning_kwargs_as_params_with_data_spec(
         org_id=OrgIdField(
             single_param=True,
@@ -312,7 +330,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
         user = self._get_user_by_login(login, for_update=True)
         user.mfa_key_base = mfa_key_base
 
-    def is_mfa_code_spent_for_user(self, mfa_code: str, login: str) -> bool:
+    def is_mfa_code_spent_for_user(self, mfa_code: int, login: str) -> bool:
         try:
             self._db_session.query(models.UserSpentMFACode).filter(
                 and_(models.UserSpentMFACode.user_login == login,
@@ -345,7 +363,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
         ),
     )
-    def set_user_api_key_id(self, login, api_key_id):
+    def set_user_api_key_id(self, login: str, api_key_id: str) -> None:
         user = self._get_user_by_login(login, for_update=True)
         user.api_key_id = api_key_id
 
@@ -356,7 +374,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
         ),
     )
-    def get_user_api_key_id(self, login):
+    def get_user_api_key_id_or_none(self, login: str) -> Optional[str]:
         user = self._get_user_by_login(login)
         return user.api_key_id
 
@@ -367,7 +385,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
         ),
     )
-    def delete_user_api_key_id(self, login):
+    def delete_user_api_key_id(self, login: str) -> None:
         user = self._get_user_by_login(login, for_update=True)
         if user.api_key_id is not None:
             user.api_key_id = None
@@ -385,7 +403,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
             max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
         ),
-        email=RegistrationRequestEmailLDAPSafeField(
+        email=RegistrationRequestEmailBeingCandidateLoginField(
             single_param=True,
             in_params='required',
             auto_strip=True,
@@ -402,32 +420,18 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
             max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
         ),
-        csr=UnicodeRegexField(   # TODO later: remove it when getting rid of `N6_PORTAL_AUTH_2021`
-            single_param=True,
-            in_params='optional',
-            auto_strip=True,
-            regex=re.compile(
-                # see: https://tools.ietf.org/html/rfc7468#section-3
-                r'\A'
-                r'-----BEGIN CERTIFICATE REQUEST-----\s*'
-                r'[a-zA-Z0-9+/=\s]+'
-                r'-----END CERTIFICATE REQUEST-----\s*'
-                r'\Z', re.ASCII),
-            error_msg_template=u'"Not a valid PEM-formatted Certificate Signing Request',
-        ),
         terms_version=UnicodeLimitedField(
             single_param=True,
-            in_params='optional',  # TODO later: we'll make it required, see #8013
-                                   #      (when getting rid of `N6_PORTAL_AUTH_2021`)
+            in_params='required',
             auto_strip=True,
             max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
         ),
         terms_lang=CCField(
             single_param=True,
-            in_params='optional',  # TODO later: we'll make it required, see #8013
-                                   #      (when getting rid of `N6_PORTAL_AUTH_2021`)
+            in_params='required',
             auto_strip=True,
         ),
+
         notification_language=CCField(
             single_param=True,
             in_params='optional',
@@ -435,7 +439,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
         ),
 
         # multi-value params:
-        notification_emails=RegistrationRequestEmailField(
+        notification_emails=RegistrationRequestAnyEmailField(
             in_params='optional',
             auto_strip=True,
         ),
@@ -459,11 +463,10 @@ class AuthManageAPI(_AuthDatabaseAPI):
                                     email,
                                     submitter_title,
                                     submitter_firstname_and_surname,
+                                    terms_version,
+                                    terms_lang,
 
                                     # *optional param* arguments:
-                                    csr=None,
-                                    terms_version=None,
-                                    terms_lang=None,
                                     notification_language=None,
                                     notification_emails=(),
                                     asns=(),
@@ -482,7 +485,9 @@ class AuthManageAPI(_AuthDatabaseAPI):
             email=email,
             submitter_title=submitter_title,
             submitter_firstname_and_surname=submitter_firstname_and_surname,
-            csr=csr,
+            terms_version=terms_version,
+            terms_lang=terms_lang,
+
             notification_language=notification_language,
 
             # (Note: we ensure that values of multi-value fields are
@@ -491,9 +496,6 @@ class AuthManageAPI(_AuthDatabaseAPI):
             asns=sorted(set(asns)),
             fqdns=sorted(set(fqdns)),
             ip_networks=sorted(set(ip_networks)),
-
-            terms_version=terms_version,
-            terms_lang=terms_lang,
         )
 
         init_kwargs = new_req_pure_data.copy()

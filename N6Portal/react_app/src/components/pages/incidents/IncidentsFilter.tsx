@@ -1,6 +1,6 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
 import { format } from 'date-fns';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import FormSelect from 'components/forms/FormSelect';
 import { TFilter, TFilterName } from 'components/pages/incidents/utils';
 import DatePicker from 'components/forms/datePicker/DatePicker';
@@ -13,16 +13,8 @@ interface IProps {
   removeFilter: (filterNames: TFilterName[]) => void;
 }
 
-const parseValue = (value: string) => {
-  const removeWhitespaces = (v: string) => v.replaceAll(/\s+/g, '');
-  const removeMultipleCommas = (v: string) => v.replace(/(,+)/g, ',');
-  const removeLastComma = (v: string) => v.replace(/^(.+)(,)$/, (_, p1) => p1);
-  const removeFirstComma = (v: string) => v.replace(/^(,)(.+)$/, (_, __, p2) => p2);
-  return removeFirstComma(removeLastComma(removeMultipleCommas(removeWhitespaces(value))));
-};
-
 const IncidentsFilter: FC<IProps> = ({ filter, removeFilter }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   switch (filter.type) {
     case 'input':
@@ -34,7 +26,6 @@ const IncidentsFilter: FC<IProps> = ({ filter, removeFilter }) => {
             validate={filter.validate}
             className="incidents-form-input"
             helperText="incidents_form_input_helper_text"
-            customValueChange={parseValue}
           />
           <button
             aria-label={`${messages['incidents_remove_filter_ariaLabel']}${messages[filter.label]}`}

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2019-2021 NASK. All rights reserved.
 
 """
 This package provides a REST API implementation intended to cooperate

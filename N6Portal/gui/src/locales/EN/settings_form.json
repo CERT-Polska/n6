@@ -1,6 +1,0 @@
-{
-  "form_disabled_message": "You cannot add or delete any items - user settings changes are pending. The form is disabled",
-  "success_page_heading": "The settings change request has been sent",
-  "success_page_message": "Your settings change request will take effect after the approval of the administrator"
-
-}

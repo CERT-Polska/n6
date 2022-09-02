@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2014-2021 NASK. All rights reserved.
 
 from n6corelib.manage_api._manage_api import (
     AccessForbiddenError,

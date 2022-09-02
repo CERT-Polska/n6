@@ -137,21 +137,21 @@ class JinjaTemplateBasedRenderer(object):
                     loc_parts = loc[1:].split(':', 1)
                     try:
                         package_name, package_subdir_path = loc_parts
-                    except ValueError:
-                        raise ValueError('the colon is missing')
+                    except ValueError as e:
+                        raise ValueError('the colon is missing') from e
                     if isabs(package_subdir_path):
                         raise ValueError('the subdirectory part is not a relative path')
                 except ValueError as exc:
                     raise ValueError(
-                        '{!a} is not a valid package-based template '
-                        'location ({})'.format(loc, ascii_str(exc)))
+                        f'{loc!a} is not a valid package-based '
+                        f'template location ({ascii_str(exc)})') from exc
                 converted_loc = package_name, package_subdir_path
             else:
                 converted_loc = expanduser(loc)
                 if not isabs(converted_loc):
                     raise ValueError(
-                        '{!a} is not a valid absolute-path-based template '
-                        'location (is not an absolute path)'.format(loc))
+                        f'{loc!a} is not a valid absolute-path-based '
+                        f'template location (is not an absolute path)')
             return converted_loc
         return Config.make_list_converter(convert_template_loc,
                                           name='list_of_template_loc')
@@ -228,9 +228,9 @@ class JinjaTemplateBasedRenderer(object):
 
     def _verify_template_name_is_str(self, template_name):
         if not isinstance(template_name, str):
-            raise TypeError('non-`str` template name: {!a} (of type: {!a})'.format(
-                template_name,
-                type(template_name).__qualname__))
+            raise TypeError(
+                f'non-`str` template name: {template_name!a} '
+                f'(of type: {type(template_name).__qualname__!a})')
 
     def _prepare_actual_render_context(self, render_contexts):
         actual_render_context = {}

@@ -1,0 +1,34 @@
+{% macro n6_page_size_form(generator, btn_class='dropdown-toggle') %}
+    {#
+        Copy-pasted from Flask-Admin's `flask_admin/templates/.../layout.html`
+        and extended by adding the `No Limit` option (making it possible to
+        display *all* rows, regardless of their count, without pagination).
+    #}
+    <a class="{{ btn_class }}" data-toggle="dropdown" href="javascript:void(0)">
+        {% if not page_size %} No Limit
+        {% else %} {{ page_size }} {{ _gettext('items') }}
+        {% endif %}
+        <b class="caret"></b>
+    </a>
+    <ul class="dropdown-menu">
+        <li><a href="{{ generator(20) }}">20 {{ _gettext('items') }}</a></li>
+        <li><a href="{{ generator(50) }}">50 {{ _gettext('items') }}</a></li>
+        <li><a href="{{ generator(100) }}">100 {{ _gettext('items') }}</a></li>
+        <li><a href="{{ generator(None) }}">No Limit</a></li>
+    </ul>
+{% endmacro %}
+
+
+{% macro pre_block(model, column) %}
+    {#
+        XXX: It is not used yet. Remove it or use it? (see #6193)
+    #}
+    <pre>{{ model[column] }}</pre>
+{% endmacro %}
+
+
+{% macro in_hidden_div(form) %}
+    <div style="display: none;">
+        {{ caller() }}
+    </div >
+{% endmacro %}

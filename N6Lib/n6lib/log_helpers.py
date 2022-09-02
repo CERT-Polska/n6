@@ -506,6 +506,9 @@ class CutFormatter(logging.Formatter):
 
     >>> cut_formatter.format(record)
     '* erro... [!] *\nValueError: Traceback!!!!!!!!!!!!'
+
+    >>> std_formatter.format(record)
+    '* error: 42 *\nValueError: Traceback!!!!!!!!!!!!'
     """
 
     DEFAULT_MSG_LENGTH_LIMIT = 2000
@@ -541,6 +544,9 @@ class NoTracebackCutFormatter(CutFormatter, NoTracebackFormatter):
 
     >>> ntb_cut_formatter.format(record)
     '* erro... [!] *'
+
+    >>> std_formatter.format(record)
+    '* error: 42 *\nValueError: Traceback!!!!!!!!!!!!'
     """
 
 
@@ -589,6 +595,13 @@ class _LogRecordCuttingProxy(object):
         if hasattr(record, 'message') and not self.__already_cut.pop('thread_safe_flag', True):
             msg_length_limit = self.__msg_length_limit
             if len(record.message) > msg_length_limit:
+                # note: here we overwrite the `message` attribute of the
+                # record with the abbreviated (cut) form of the message
+                # but -- fortunately -- it will not be used by other
+                # formatters, because this attribute is re-set during
+                # each execution of the `Formatter.format()` method
+                # [maybe TODO later: make it more safe and future-proof
+                # by avoiding, somehow, mutation of the actual record]
                 record.message = record.message[:msg_length_limit] + self.__cut_indicator
         if name == '__dict__':
             return record.__dict__

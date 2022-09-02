@@ -1,9 +1,9 @@
 import { FC, useRef, useMemo, useCallback, useState } from 'react';
-import { useIntl } from 'react-intl';
 import { Cell, ColumnInstance, HeaderGroup, Row, TableBodyProps, TableProps } from 'react-table';
 import classnames from 'classnames';
 import VirtualizedList from 'components/shared/VirtualizedList';
 import { getScrollbarWidth } from 'utils/getScrollbarWidth';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import Loader from 'components/loading/Loader';
 import { ReactComponent as ExpandIcon } from 'images/expand-ico.svg';
 import { ReactComponent as CompressIcon } from 'images/compress-ico.svg';
@@ -24,7 +24,7 @@ type CellWithProps = Omit<Cell, 'column'> & {
 };
 
 const Table: FC<IProps> = ({ getTableProps, getTableBodyProps, headerGroups, rows, prepareRow }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const [fullView, setFullView] = useState<boolean>(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const tableHeaderRef = useRef<HTMLDivElement>(null);
@@ -37,7 +37,7 @@ const Table: FC<IProps> = ({ getTableProps, getTableBodyProps, headerGroups, row
     const baseRowHeight = 30;
     const numberOfLines = rows[index].values.ip.split('\n').length - 2;
     const rowHeight = baseRowHeight + numberOfLines * singleLineHeight;
-    return numberOfLines > 1 ? rowHeight : baseRowHeight;
+    return numberOfLines >= 1 ? rowHeight : baseRowHeight;
   };
 
   //DYNAMIC TABLE HEIGHT

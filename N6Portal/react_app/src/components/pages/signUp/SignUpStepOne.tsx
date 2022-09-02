@@ -1,12 +1,12 @@
-import { Dispatch, FC, SetStateAction, useEffect } from 'react';
-import { MessageFormatElement, useIntl } from 'react-intl';
+import { Dispatch, FC, SetStateAction, useEffect, useRef } from 'react';
+import { MessageFormatElement } from 'react-intl';
 import { useForm, FormProvider, SubmitHandler } from 'react-hook-form';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import FormCheckbox from 'components/forms/FormCheckbox';
 import { isRequired } from 'components/forms/validation/validators';
 import SignUpButtons from 'components/pages/signUp/SignUpButtons';
+import { TTosVersions } from 'components/pages/signUp/SignUp';
 import { signup_terms } from 'dictionary';
-
-const tosContent: string = process.env.REACT_APP_TOS || '';
 
 interface ITosJSON {
   header: string;
@@ -22,11 +22,14 @@ interface IStepOneForm {
 
 interface IProps {
   changeStep: Dispatch<SetStateAction<number>>;
-  changeTosVersions: Dispatch<SetStateAction<{ en: string; pl: string }>>;
+  changeTosVersions: Dispatch<SetStateAction<TTosVersions>>;
 }
 
+const tosContent = process.env.REACT_APP_TOS || '';
+
 const SignUpStepOne: FC<IProps> = ({ changeStep, changeTosVersions }) => {
-  const { messages, locale } = useIntl();
+  const { messages, locale } = useTypedIntl();
+  const versions = useRef<TTosVersions | null>(null);
 
   const methods = useForm<IStepOneForm>({ mode: 'onBlur' });
   const { handleSubmit } = methods;
@@ -39,7 +42,6 @@ const SignUpStepOne: FC<IProps> = ({ changeStep, changeTosVersions }) => {
   let header: string | MessageFormatElement[];
   let intro: string | MessageFormatElement[];
   let checkboxLabel: string | MessageFormatElement[];
-  let versions: Record<'pl' | 'en', string> | null = null;
   try {
     const parsedTos = JSON.parse(tosContent);
     const currentLocaleTos: ITosJSON = parsedTos[locale];
@@ -47,8 +49,8 @@ const SignUpStepOne: FC<IProps> = ({ changeStep, changeTosVersions }) => {
     header = currentLocaleTos.header;
     intro = currentLocaleTos.intro;
     checkboxLabel = currentLocaleTos.checkboxLabel;
-    versions = { en: parsedTos.en.version, pl: parsedTos.pl.version };
-  } catch (e) {
+    versions.current = { en: parsedTos.en.version, pl: parsedTos.pl.version };
+  } catch {
     signUpTerms = signup_terms[locale].content;
     header = messages.signup_terms_header;
     intro = messages.signup_intro;
@@ -56,9 +58,8 @@ const SignUpStepOne: FC<IProps> = ({ changeStep, changeTosVersions }) => {
   }
 
   useEffect(() => {
-    if (versions) changeTosVersions(versions);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (versions.current) changeTosVersions(versions.current);
+  }, [changeTosVersions]);
 
   return (
     <>

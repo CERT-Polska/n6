@@ -1,12 +1,13 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 """
 Parser base classes + auxiliary tools.
 """
 
+import dataclasses
 import hashlib
+import io
 import sys
-from collections.abc import Iterator
 from datetime import datetime
 from typing import SupportsBytes
 
@@ -21,7 +22,13 @@ from n6lib.common_helpers import (
     make_exc_ascii_str,
     picklable,
 )
-from n6lib.config import Config, ConfigMixin
+from n6lib.config import (
+    Config,
+    ConfigMixin,
+    ConfigSection,
+    as_config_spec_string,
+    combined_config_spec,
+)
 from n6lib.csv_helpers import csv_string_io
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.log_helpers import get_logger, logging_configured
@@ -30,6 +37,7 @@ from n6lib.record_dict import (
     RecordDict,
     BLRecordDict,
 )
+from n6lib.typing_helpers import KwargsDict
 
 
 LOGGER = get_logger(__name__)
@@ -45,7 +53,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
     """
 
     # these attributes are default base for actual instance attributes
-    # `input_queue` and `output_queue` (see LegacyQueuedBase.__new__()
+    # `input_queue` and `output_queue` (see `LegacyQueuedBase.__new__()`
     # + see below: the comment concerning the `default_binding_key`
     # class attribute)
     input_queue = {
@@ -57,30 +65,39 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         "exchange_type": "topic",
     }
 
-    # a string
-    #    '<source label>.<source channel>'
-    # or '<source label>.<source channel>.<raw format version tag>'
-    # that typically is used as:
-    # * the name of the input queue
-    # * the binding key for the input queue
-    # (it *should* be set in subclasses -- as the standard implementations
-    # of the preinit_hook() and make_binding_keys() methods make use of it)
+    # a string in one of the formats:
+    #    '<source provider>.<source channel>' or
+    #    '<source provider>.<source channel>.<raw format version tag>'
+    # to be, typically, used as the input queue's *binding key* and *name*
+    # (*should* be set in subclasses because the standard implementations
+    # of the `preinit_hook()` and `configure_pipeline()` methods make use
+    # of it)
     default_binding_key = None
 
     # a dict of default items for each resultant record dict
     # (it can be left as None)
     constant_items = None
 
-    # the default config spec pattern for parsers; it can be
-    # overridden in subclasses provided that the new value will
-    # specify the `[{parser_class_name}]` section including the
-    # `prefetch_count` option with the `int` converter [hint:
-    # the attribute can be easily extended using the
-    # n6lib.config.join_config_specs() helper]
-    config_spec_pattern = '''
+    # the default config spec pattern for parsers; it can be overridden
+    # in subclasses, but note that the default implementation of the
+    # `set_configuration()` method expects that the *config spec
+    # pattern* includes the `{parser_class_name}` section -- treated
+    # by that method as the *main section*; also, the `prefetch_count`
+    # option (with the `int` converter) should be declared in the
+    # *main section*; *hint:* values of the attribute declared along
+    # the inheritance hierarchy can be easily *combined* (in a
+    # cooperative-inheritance-friendly way) by using the
+    # `n6lib.config.combined_config_spec()` helper
+    config_spec_pattern = combined_config_spec('''
         [{parser_class_name}]
+
         prefetch_count = 1 :: int
-    '''
+    ''')
+
+    # instance attributes to be set automatically
+    # when `set_configuration()` is called
+    config: ConfigSection   # containing options from the *main section*
+    config_full: Config     # containing *all* declared config sections
 
     # a record dict class -- n6lib.record_dict.RecordDict or its subclass
     # (can be overridden in subclasses)
@@ -92,8 +109,8 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
     record_dict_kwargs = None
 
     # should be one of the three values: 'event', 'bl', 'hifreq'
-    # (note: this is a *subset* of n6lib.const.TYPE_ENUMS;
-    # see also: n6lib.record_dict.RecordDict's 'type' key)
+    # (note: this is a *subset* of n6lib.const.EVENT_TYPE_ENUMS;
+    # see also: the 'type' item of a n6lib.record_dict.RecordDict)
     event_type = 'event'
 
     # whether a parsed file that results in no events should raise an error
@@ -101,30 +118,23 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
     allow_empty_results = False
 
 
-    @attr_required('default_binding_key')
-    def __init__(self, **kwargs):
-        assert self.event_type in ('event', 'bl', 'hifreq')
-        super().__init__(**kwargs)
-        self.set_configuration()
-        # the attribute is overridden in order to supply each parser
-        # with an adjusted value of the prefetch count from its
-        # config
-        self.prefetch_count = self.config['prefetch_count']
+    #
+    # Auxiliary classes
 
-    def set_configuration(self):
-        """Set the configuration-related attributes."""
-        parser_class_name = self.__class__.__name__
-        config_full = self.get_config_full(parser_class_name=parser_class_name)
-        # `config` -- contains the options from
-        # the {parser_class_name} config section
-        self.config = config_full[parser_class_name]
-        # `config_full` -- will be useful when you declare more
-        # config sections in `config_spec_pattern` of a subclass
-        self.config_full = config_full
+    @dataclasses.dataclass
+    class CsvRawRows:
+
+        """A class of an iterable that can be used as a CSV reader's source."""
+
+        raw: bytes
+
+        def __iter__(self) -> io.StringIO:
+            decoded = self.raw.decode('utf-8', 'surrogateescape')
+            return csv_string_io(decoded)
 
 
     #
-    # Other pre-init-related methods
+    # Script running
 
     @classmethod
     def run_script(cls):
@@ -142,6 +152,10 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """
         return {}
 
+
+    #
+    # Instance initialization/configuration
+
     def preinit_hook(self):
         # called after instance creation, before __init__()
         # (see: LegacyQueuedBase.__new__())
@@ -153,6 +167,18 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
             assert 'input_queue' in vars(self)  # ensured by LegacyQueuedBase.__new__()
             self.input_queue['queue_name'] = self.default_binding_key
         super().preinit_hook()
+
+    @attr_required('default_binding_key')
+    def __init__(self, **kwargs):
+        assert self.event_type in ('event', 'bl', 'hifreq')
+        super().__init__(**kwargs)
+        self.set_configuration()
+        # Note that the `prefetch_count` attribute (originally set as
+        # a `LegacyQueuedBase`'s class attribute) is overridden here --
+        # with the value from the parser-specific config.
+        self.prefetch_count = self.config['prefetch_count']
+
+    # * Configurable-pipeline-related hooks:
 
     def configure_pipeline(self):
         """
@@ -170,48 +196,97 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         If the `default_binding_key` attribute is not set in parser's
         subclass, try to obtain binding keys from the pipeline config.
 
-        Args:
+        Args/kwargs:
             `binding_keys`:
                 The list of new binding keys.
+            <any other arguments>:
+                Ignored.
         """
         self.input_queue['binding_keys'] = binding_keys
 
-    #
-    # Utility static method extensions
+    # * AMQP-config-related hook (invoked in `LegacyQueuedBase.__init__()`):
 
     @classmethod
     def get_connection_params_dict(cls):
         params_dict = super().get_connection_params_dict()
-        config = Config(required={cls.rabbitmq_config_section: ('heartbeat_interval_parsers',)})
-        queue_conf = config[cls.rabbitmq_config_section]
-        params_dict['heartbeat_interval'] = int(queue_conf['heartbeat_interval_parsers'])
+        config_spec = as_config_spec_string(
+            cls._aux_rabbitmq_config_spec_pattern,
+            {'rabbitmq_config_section': cls.rabbitmq_config_section})
+        config = Config.section(config_spec)
+        params_dict['heartbeat_interval'] = config['heartbeat_interval_parsers']
         return params_dict
+
+    _aux_rabbitmq_config_spec_pattern = '''
+        [{rabbitmq_config_section}]
+        heartbeat_interval_parsers :: int
+        ...
+    '''
+
+    # * Parser-specific-config-related hooks:
+
+    def set_configuration(self) -> None:
+        """
+        Set the configuration-related attributes.
+
+        This method is called in `BaseParser`'s `__init__()`.
+        """
+        format_kwargs = self.get_config_spec_format_kwargs()
+        parser_class_name = format_kwargs['parser_class_name']
+        assert parser_class_name == self.__class__.__name__
+        self.config_full = self.get_config_full(**format_kwargs)
+        self.config = self.config_full[parser_class_name]
+
+    def get_config_spec_format_kwargs(self) -> KwargsDict:
+        """
+        A hook invoked by `set_configuration()`: get the *format data
+        dict* -- to be used to format the actual *config spec* (based on
+        the value of the `config_spec_pattern` attribute).
+
+        The default implementation of this method returns a dictionary
+        that contains just one key: `'parser_class_name'` -- the value
+        is `__name__` of the parser class.
+
+        This method will need to be extended (typically, using `super()`)
+        in your subclasses if their `config_spec_pattern`s contain also
+        other replacement fields (apart from `{parser_class_name}`).
+        """
+        return {'parser_class_name': self.__class__.__name__}
 
 
     #
-    # Permanent (daemon-like) processing
+    # Main activity
 
-    def run_handling(self):
+    def run_handling(self) -> None:
         """
-        Run the event loop until Ctrl+C is pressed.
+        The main activity of the parser.
+
+        The default implementation of this method -- which should be
+        sufficient in nearly all cases -- performs the following
+        actions:
+
+        * (1) invoke the parser's `run()` method (which, in its default
+          version implemented in `LegacyQueuedBase`, starts the `pika`'s
+          event loop, that will be running until it finishes normally,
+          or *Ctrl+C* is pressed, or some error occurs).
+
+        * (2-a) If `run()` raised a `KeyboardInterrupt` exception
+          (typically, because *Ctrl+C* was pressed), invoke the
+          parser's `stop()` method (which, in its default version
+          implemented in `LegacyQueuedBase`, stops the `pika`'s event
+          loop), then re-raise the exception.
+
+        * (2-b) If `run()` raised any other exception, just propagate
+          it (without invoking `stop()`).
+
+        * (2-c) If no exception occurred, just finish (note that, in
+          this case, `stop()` should not be invoked because the `run()`
+          method has finished its activity normally).
         """
         try:
             self.run()
         except KeyboardInterrupt:
             self.stop()
-
-    ### XXX: shouldn't the above method be rather:
-    # def run_handling(self):
-    #     """
-    #     Run the event loop until Ctrl+C is pressed or other fatal exception.
-    #     """
-    #     try:
-    #         self.run()
-    #     except:
-    #         self.stop()  # XXX: additional checks that all data have been sent???
-    #         raise
-    ### (or maybe somewhere in run_script...)
-    ### (+ also for all other components?)
+            raise
 
 
     #
@@ -224,7 +299,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """
         A callback, typically called in LegacyQueuedBase.on_message().
 
-        Args:
+        Args/kwargs:
             `routing_key`:
                 The routing key used to publish the AMQP message.
             `body`:
@@ -257,7 +332,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """
         Extract basic input data from message, its routing key and properties.
 
-        Args:
+        Args/kwargs:
             `routing_key` (string):
                 The routing key used to publish the AMQP message.
             `body` (bytes):
@@ -271,17 +346,22 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
             * attributes of the `headers` attribute of `properties`;
             * other attributes of `properties` -- each with its key
               prefixed with 'properties.';
-            * the 'source' item which is the source specification string
-              extracted from `routing_key`;
-            * the 'raw_format_version_tag' item which is None or a string
-              being the tag of the raw data format version;
+            * the 'source' item which is the *source specification*
+              string, aka *source id*, aka *source* (in the format:
+              `<source provider>.<source channel>`) extracted from
+              `routing_key`;
+            * the 'raw_format_version_tag' item which is None or a
+              string being a tag denoting the version of the raw data
+              format (aka *raw format version tag*), in the format:
+              `<4-digit year><2-digit month>`, extracted from
+              `routing_key`;
             * the 'raw' item which is simply `body`;
-            * the 'csv_raw_rows' item which is an iterator (lazily
+            * the 'csv_raw_rows' item which is an iterable (lazily
               initialized) that yields str objects being raw CSV rows
               of `body`, decoded using the "utf-8" codec with the
               "surrogateescape" error handler (which means that each
               of non-UTF-8 bytes -- if any -- is replaced with the
-              corresponding surrogate codepoint); the iterator is ready
+              corresponding surrogate codepoint); the iterable is ready
               to be used as the input file/iterable argument to a
               csv.reader or csv.DictReader.
 
@@ -300,36 +380,29 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
                     for key, value in vars(properties).items()
                     if key != 'headers')
 
-        # the source specification string and the format version tag
-        source_label, rest_of_rk = routing_key.split('.', 1)
+        # the *source specification* string (aka *source id*, aka *source*)
+        # and the *raw format version tag*
+        source_provider, rest_of_rk = routing_key.split('.', 1)
         source_channel, _, raw_format_version_tag = rest_of_rk.partition('.')
-        data['source'] = '{}.{}'.format(source_label, source_channel)
+        data['source'] = f'{source_provider}.{source_channel}'
         data['raw_format_version_tag'] = (
             raw_format_version_tag if raw_format_version_tag
             else None)
 
         data['raw'] = body
-        data['csv_raw_rows'] = self._iter_csv_raw_rows(body)
+        data['csv_raw_rows'] = self.CsvRawRows(raw=body)
 
         return data
-
-    # XXX: shouldn't it be a reusable iterable? (instead of an iterator...)
-    @staticmethod
-    def _iter_csv_raw_rows(body: bytes) -> Iterator[str]:
-        # (Note: this is a generator, so the following code will be
-        # executed only if the resultant iterator is used.)
-        decoded = body.decode('utf-8', 'surrogateescape')
-        string_io = csv_string_io(decoded)
-        yield from string_io
 
     def get_output_rk(self, data):
         """
         Get the output routing key.
 
-        Args:
+        Args/kwargs:
             `data` (dict):
                 As returned by prepare_data() (especially, its 'source' item
-                contains the source specification string).
+                contains the *source specification* string, aka *source id*, aka
+                *source* -- in the format: `<source provider>.<source channel>`).
 
         Returns:
             A string being the output routing key.
@@ -343,7 +416,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """
         Process given data and make a list of serialized events.
 
-        Args:
+        Args/kwargs:
             `data` (dict):
                 As returned by prepare_data() (especially, its 'raw' item
                 contains the raw input data body).
@@ -396,6 +469,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         return working_seq
 
     def delete_too_long_address(self, parsed):
+        # XXX: shouldn't this behavior be changed to some less destructive one? See #8525...
         _address = parsed.get('address')
         if _address and len(_address) > MAX_IPS_IN_ADDRESS:
             del parsed['address']
@@ -408,7 +482,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """
         Parse the data, generating parsed data record dicts.
 
-        Args:
+        Args/kwargs:
             `data` (dict):
                 As returned by prepare_data() (especially, its 'raw' item
                 contains the raw input data body).
@@ -421,10 +495,10 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         get_output_bodies().
 
         Note #1: In BaseParser, this is a method placeholder (aka abstract
-        method); you *need* to implement this method in your subclass as
-        a generator (or something that returns generator or other iterator).
-        The RecordDict instance(s) it yields *must* be created, treated and
-        yielded in the following way:
+        method); you *need* to implement this method in your subclass as a
+        generator function (or something else that returns a generator or
+        another kind of iterator). RecordDict instance(s) produced by it
+        should be created, treated and yielded in the following way:
 
             with self.new_record_dict(data) as parsed:
                 ...
@@ -443,8 +517,8 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         there by other parser methods.  That attributes are:
 
         * those placed in the record dict immediately after it is created
-          (so in very rare cases you may want to overwrite some of them
-          in your parse() implementation):
+          by calling self.new_record_dict() (so in very rare cases you may
+          want to overwrite some of them in your parse() implementation):
 
           * all items from <your parser>.constant_items,
           * 'rid',
@@ -478,7 +552,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
             def parse(data):
                 doc = json.loads(data['raw'])
                 with self.new_record_dict(data) as parsed:
-                    parsed['time'] = doc['IsoDateTimeOfDetection']
+                    parsed['time'] = doc['ISODateTimeOfDetection']
                     parsed['fqdn'] = doc['FullyQualifiedDomainName']
                     yield parsed
         """
@@ -488,7 +562,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """
         Make a new record dict instance.
 
-        Args:
+        Args/kwargs:
             `data` (dict):
                 As returned by prepare_data().
 
@@ -521,13 +595,16 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         self.set_basic_items(record_dict, data)
         return record_dict
 
+    # TODO: check whether and which picklability-related requirements
+    #       described in the docstring of the following method are still
+    #       necessary.
     @staticmethod
     @picklable
     def handle_parse_error(context_manager_error):
         """
         Passed into record dict as the `context_manager_error_callback` arg.
 
-        Args:
+        Args/kwargs:
             `context_manager_error` (an exception instance):
                 An exception raised within a record-dict-managed
                 `with` block in the parse() method (see its docs
@@ -582,7 +659,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """
         Populate the given record dict with basic data items.
 
-        Args:
+        Args/kwargs:
             `record_dict` (a RecordDict instance):
                 The record dict to be populated.
             `data` (dict):
@@ -602,7 +679,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """
         Make the id of the output message (aka `id`).
 
-        Args:
+        Args/kwargs:
             `parsed` (dict):
                 As yielded by parse().
 
@@ -675,7 +752,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """
         Generate items to become the base for the output message id.
 
-        Args:
+        Args/kwargs:
             `parsed` (dict):
                 As yielded by parse().
 
@@ -691,7 +768,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         iterator.
 
         Note #2: The default implementation of this method yields all
-        items of `parsed` except those whose keys start with'_'.
+        items of `parsed` except those whose keys start with '_'.
         You may want to extend this method in your subclass --
         e.g. to filter out some items.
         """
@@ -702,7 +779,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """
         Postprocess parsed data.
 
-        Args:
+        Args/kwargs:
             `data` (dict):
                 As returned by prepare_data().
             `parsed` (RecordDict instance):

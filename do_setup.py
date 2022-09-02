@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import ast
 import argparse
@@ -28,8 +28,8 @@ if PY2:
     ]
 else:
     DEFAULT_ADDITIONAL_PACKAGES = [
-        'pytest==4.6.11',
-        'pytest-cov==2.12.1',
+        'pytest==7.1.2',
+        'pytest-cov==3.0.0',
         'coverage',
         'pylint',
         'mkdocs==1.2.3',
@@ -81,16 +81,16 @@ def get_excluded_from_all():
             'N6DataPush',
             'N6DataSources',
             'N6GitLabTools',
-            # TODO gradually: add what becomes Py2-incompatible
+            'N6KscApi',
+            'N6Portal',
+            'N6Push',
+            'N6RestApi',
         })
     else:
         # For Python 3: let's exclude any Python-2-only stuff.
         excluded_from_all.update({
-            # TODO gradually: remove what becomes Py3-compatible
             N6_CORE,
             N6_CORE_LIB,
-            'N6KscApi',
-            'N6Push',
         })
     return excluded_from_all
 

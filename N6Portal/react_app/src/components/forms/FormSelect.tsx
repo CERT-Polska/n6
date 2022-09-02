@@ -1,8 +1,8 @@
 import { FC, memo, useMemo } from 'react';
 import { useFormContext, Controller, Validate } from 'react-hook-form';
-import { useIntl } from 'react-intl';
 import classnames from 'classnames';
 import { Form } from 'react-bootstrap';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { validateField } from 'components/forms/validation/validators';
 import FormRenderErrorMsg from 'components/forms/FormRenderErrorMsg';
 import { compareFieldState, FormContextProps } from 'components/forms/utils';
@@ -69,7 +69,7 @@ const FormSelect: FC<IProps & FormContextProps> = memo(
 );
 
 const FormSelectWrapper: FC<IProps> = (props) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   const methods = useFormContext();
 

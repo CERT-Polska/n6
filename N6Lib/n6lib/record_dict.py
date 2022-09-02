@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 #
 # TODO: more comments + docs
@@ -481,12 +481,6 @@ class RecordDict(collections_abc.MutableMapping):
             raise ValueError('missing keys: ' +
                              ', '.join(sorted(missing_keys)))
         ready_dict = copy.deepcopy(self._dict)
-        ######## provide the legacy item
-        ######## (needed by old version of RecordDict, in not-yet-updated components)
-        used_custom_keys = self.data_spec.custom_field_keys.intersection(ready_dict)
-        if used_custom_keys:
-            ready_dict['__preserved_custom_keys__'] = sorted(used_custom_keys)
-        ######## ^^^ (to be removed later)
         return ready_dict
 
     def get_ready_json(self):
@@ -855,6 +849,8 @@ class RecordDict(collections_abc.MutableMapping):
 
     adjust_facebook_id = make_adjuster_using_data_spec('facebook_id')
 
+    adjust_gca_specific = make_adjuster_using_data_spec('gca_specific')
+
     adjust_iban = make_adjuster_using_data_spec('iban')
 
     adjust_injects = make_adjuster_using_data_spec('injects')
@@ -871,6 +867,30 @@ class RecordDict(collections_abc.MutableMapping):
     adjust_x509subject = make_adjuster_using_data_spec('x509subject')
 
     adjust_action = make_adjuster_using_data_spec('action')
+
+    adjust_vendor = make_adjuster_using_data_spec(
+        'vendor', on_too_long=trim)
+
+    adjust_revision = make_adjuster_using_data_spec(
+        'revision', on_too_long=trim)
+
+    adjust_product_code = make_adjuster_using_data_spec(
+        'product_code', on_too_long=trim)
+
+    adjust_device_vendor = make_adjuster_using_data_spec(
+        'device_vendor', on_too_long=trim)
+
+    adjust_device_type = make_adjuster_using_data_spec(
+        'device_type', on_too_long=trim)
+
+    adjust_device_model = make_adjuster_using_data_spec(
+        'device_model', on_too_long=trim)
+
+    adjust_device_version = make_adjuster_using_data_spec(
+        'device_version', on_too_long=trim)
+
+    adjust_device_id = make_adjuster_using_data_spec(
+        'device_id', on_too_long=trim)
 
     # The attribute and related methods are left for the backward
     # compatibility with older data from the MISP sources.

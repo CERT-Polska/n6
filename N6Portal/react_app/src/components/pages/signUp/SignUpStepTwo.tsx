@@ -1,10 +1,11 @@
 import { Dispatch, FC, SetStateAction, useEffect, useState } from 'react';
-import { useIntl } from 'react-intl';
 import { AxiosError } from 'axios';
 import { useMutation } from 'react-query';
 import { useForm, FormProvider, SubmitHandler } from 'react-hook-form';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import FormInput from 'components/forms/FormInput';
 import FormRadio from 'components/forms/FormRadio';
+import { TTosVersions } from 'components/pages/signUp/SignUp';
 import SignUpFieldArray from 'components/pages/signUp/SignUpFieldArray';
 import SignUpButtons from 'components/pages/signUp/SignUpButtons';
 import { isRequired } from 'components/forms/validation/validators';
@@ -37,11 +38,11 @@ export interface IStepTwoForm {
 
 interface IProps {
   changeStep: Dispatch<SetStateAction<number>>;
-  tosVersions: Record<string, string>;
+  tosVersions: TTosVersions;
 }
 
 const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions }) => {
-  const { messages, locale } = useIntl();
+  const { messages, locale } = useTypedIntl();
   const [hasSubmitError, setHasSubmitError] = useState(false);
 
   useEffect(() => {

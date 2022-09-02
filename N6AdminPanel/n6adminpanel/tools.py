@@ -1,5 +1,6 @@
-# Copyright (c) 2018-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2022 NASK. All rights reserved.
 
+import wtforms.meta
 from flask_admin.tools import (
     CHAR_ESCAPE,
     CHAR_SEPARATOR,
@@ -7,6 +8,9 @@ from flask_admin.tools import (
 
 from n6lib.data_spec import FieldValueError
 
+
+CSRF_FIELD_NAME = 'csrf_token'
+assert CSRF_FIELD_NAME == wtforms.meta.DefaultMeta.csrf_field_name
 
 ESC_TO_ORIG_CHARS = {
     '{0}{0}'.format(CHAR_ESCAPE): CHAR_ESCAPE,

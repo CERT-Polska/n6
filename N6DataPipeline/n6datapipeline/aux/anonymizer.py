@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2015-2021 NASK. All rights reserved.
 
 """
 Anonymizer -- performs validation and anonymization of event data
@@ -9,7 +9,7 @@ import json
 
 from n6datapipeline.base import LegacyQueuedBase
 from n6lib.auth_api import AuthAPI
-from n6lib.const import TYPE_ENUMS
+from n6lib.const import EVENT_TYPE_ENUMS
 from n6lib.context_helpers import force_exit_on_any_remaining_entered_contexts
 from n6lib.data_spec import N6DataSpec
 from n6lib.db_filtering_abstractions import RecordFacadeForPredicates
@@ -43,7 +43,7 @@ class Anonymizer(LegacyQueuedBase):
 
     supports_n6recovery = False
 
-    _VALID_EVENT_TYPES = frozenset(TYPE_ENUMS)
+    _VALID_EVENT_TYPES = frozenset(EVENT_TYPE_ENUMS)
 
     def __init__(self, **kwargs):
         LOGGER.info("Anonymizer Start")
@@ -234,6 +234,7 @@ def main():
             d.run()
         except KeyboardInterrupt:
             d.stop()
+            raise
 
 
 if __name__ == "__main__":

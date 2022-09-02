@@ -34,7 +34,7 @@ from n6lib.const import (
     PROTO_ENUMS,
     RESTRICTION_ENUMS,
     STATUS_ENUMS,
-    TYPE_ENUMS,
+    EVENT_TYPE_ENUMS,
     CATEGORY_TO_NORMALIZED_NAME,
 )
 from n6lib.data_spec import FieldValueTooLongError
@@ -562,7 +562,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         category=CATEGORY_ENUMS,
         proto=PROTO_ENUMS,
         status=STATUS_ENUMS,
-        type=TYPE_ENUMS,
+        type=EVENT_TYPE_ENUMS,
     )
     datetime_field_keys = 'time', 'until', 'expires', '_bl-time'
     flag_field_keys = 'block',
@@ -782,7 +782,6 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             dip=u'127.0.0.3',
             additional_data=u'additional-\udcdd-data',
             ip_network=u'33.144.255.177/25',
-            __preserved_custom_keys__=['additional_data', 'ip_network'],  ### <- LEGACY ITEM (to be removed later)
         ))
 
     def test__get_ready_dict__missing_keys(self):

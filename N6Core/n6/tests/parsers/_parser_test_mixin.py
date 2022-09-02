@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2014-2022 NASK. All rights reserved.
 
 import datetime
 import functools
 import json
 
 import pika
-from mock import patch, sentinel
-from n6.parsers.generic import (
+from mock import patch, sentinel                                                 #3: ->unittest.mock...
+
+from n6.parsers.generic import (                                                 #3: n6.parsers.generic->n6datasources.parsers.base
     BaseParser,
     AggregatedEventParser,
     BlackListParser,
@@ -20,8 +21,8 @@ from n6lib.unit_test_helpers import TestCaseMixin
 
 #
 # Helper mix-ins for parser test cases
-
-class ParserTestMixIn(TestCaseMixin):
+                                                                                 #3: adjust ad types, especially of string-like stuff, and ad interface/internals differences...
+class ParserTestMixin(TestCaseMixin):
 
     # Prevent pytest *from treating* those subclasses of this class that
     # are base/mixin (abstract) classes *as concrete test classes*.
@@ -48,7 +49,7 @@ class ParserTestMixIn(TestCaseMixin):
     PARSER_CONSTANT_ITEMS = sentinel.not_set
 
     # it can be overridden in subclasses
-    # (e.g. with 'assertItemsEqual' -- to disable checking of event ordering)
+    # (e.g. with 'assertItemsEqual' -- to disable checking of event ordering)             #3: 'assertItemsEqual' -> `assertCountEqual`
     ASSERT_RESULTS_EQUAL = 'assertEqual'
 
     def test_basics(self):
@@ -123,11 +124,6 @@ class ParserTestMixIn(TestCaseMixin):
             # (not using RecordDict's methods):
             record_dict._dict.update(record)
             record_dict._dict.setdefault('id', self._compute_id(record_dict))
-            ### ADDING LEGACY ITEM
-            used_custom_keys = record_dict.data_spec.custom_field_keys.intersection(record_dict._dict)
-            if used_custom_keys:
-                record_dict._dict['__preserved_custom_keys__'] = sorted(used_custom_keys)
-            ### ^^^ (to be removed later)
             yield record_dict._dict
 
     def _iter_actual_results(self, publish_output_mock, expected_output_rk):

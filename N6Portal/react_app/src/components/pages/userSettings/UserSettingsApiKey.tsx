@@ -1,5 +1,5 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import useAuthContext from 'context/AuthContext';
 import UserSettingsApiKeyForm from 'components/pages/userSettings/UserSettingsApiKeyForm';
 import { ReactComponent as ApiKeyIcon } from 'images/user-settings-api-key.svg';
@@ -7,7 +7,7 @@ import { useApiKey } from 'api/auth';
 import ApiLoader from 'components/loading/ApiLoader';
 
 const UserSettingsApiKey: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { apiKeyAuthEnabled } = useAuthContext();
   const { data, status, error } = useApiKey();
 

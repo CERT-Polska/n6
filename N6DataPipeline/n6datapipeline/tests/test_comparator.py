@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import unittest
 import json
@@ -36,7 +36,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
 
     def test_message_flow_basic(self):
 
-        routing_key = 'bl-new.compared.source_test1.channel_test1'
+        routing_key = 'bl-new.compared.test-provider1.test-channel1'
 
         input_data_1_1 = {
             '_bl-time': '2017-01-19 12:07:32',
@@ -49,7 +49,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'cc': 'XX',
                 'ip': '1.1.1.1'
             }],
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'id': '111111111119d9ab98f08761e7168ebd',
         }
 
@@ -62,7 +62,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'cc': 'XX',
                 'ip': '1.1.1.1'
             }],
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'id': '111111111119d9ab98f08761e7168ebd',
         }
 
@@ -78,8 +78,8 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
 
         # name pattern: data_type_runNo_srcNo_eventNo
         # first run,
-        routing_key_1_1_1 = 'bl-new.compared.source_test1.channel_test1'
-        routing_key_1_1_2 = 'bl-new.compared.source_test1.channel_test1'
+        routing_key_1_1_1 = 'bl-new.compared.test-provider1.test-channel1'
+        routing_key_1_1_2 = 'bl-new.compared.test-provider1.test-channel1'
 
         input_data_1_1_1 = {
             '_bl-time': '2017-01-19 12:07:32',
@@ -92,7 +92,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'cc': 'XX',
                 'ip': '1.1.1.1'
             }],
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'id': '9104c0ad2339d9ab98f08761e7168ebd',
         }
 
@@ -106,7 +106,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'ip': '1.1.1.1'
             }],
             'id': '9104c0ad2339d9ab98f08761e7168ebd',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
         }
 
         input_data_1_1_2 = {
@@ -116,13 +116,13 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
             '_bl-series-id': '11111111111111111111111111111111',
             'expires': '2017-01-20 19:19:19',
             'time': '2017-01-18 19:19:19',
-            'url': 'http://www.tests.pl',
+            'url': 'http://www.example.info',
             'address': [{
                 'cc': 'XX',
                 'ip': '2.2.2.2',
-                'asn': 3215
+                'asn': 1234,
             }],
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'id': '1c9a2638b51f334da3d2311e01817884',
         }
 
@@ -131,20 +131,20 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
             '_bl-time': '2017-01-19 12:07:32',
             'expires': '2017-01-20 19:19:19',
             'time': '2017-01-18 19:19:19',
-            'url': 'http://www.tests.pl',
+            'url': 'http://www.example.info',
             'address': [{
                 'cc': 'XX',
                 'ip': '2.2.2.2',
-                'asn': 3215
+                'asn': 1234,
             }],
             'id': '1c9a2638b51f334da3d2311e01817884',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
         }
 
         #  Second run,
         #  2. 1. msg bl-update, 2. bl-change
-        routing_key_2_1_1 = 'bl-update.compared.source_test1.channel_test1'
-        routing_key_2_1_2 = 'bl-change.compared.source_test1.channel_test1'
+        routing_key_2_1_1 = 'bl-update.compared.test-provider1.test-channel1'
+        routing_key_2_1_2 = 'bl-change.compared.test-provider1.test-channel1'
 
         input_data_2_1_1 = {
             '_bl-time': '2017-01-19 12:13:36',
@@ -157,7 +157,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'cc': 'XX',
                 'ip': '1.1.1.1'
             }],
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'id': '4273a190e57da23c1dee67a7689e115a',
         }
 
@@ -171,7 +171,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'ip': '1.1.1.1'
             }],
             'id': '9104c0ad2339d9ab98f08761e7168ebd',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
         }
         input_data_2_1_2 = {
             '_bl-time': '2017-01-19 14:14:14',
@@ -180,20 +180,20 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
             '_bl-series-id': '22222222222222222222222222222222',
             'expires': '2017-01-21 18:18:18',
             'time': '2017-01-19 19:19:19',
-            'url': 'http://www.tests.pl',
+            'url': 'http://www.example.info',
             'address': [
                 {
                     'cc': 'XX',
                     'ip': '2.2.2.2',
-                    'asn': 3215
+                    'asn': 1234,
                 },
                 {
                     'cc': 'XX',
                     'ip': '22.22.22.22',
-                    'asn': 3215
+                    'asn': 1234,
                 }
             ],
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'id': '929c840e0dec26e26410aeeac418067d',
         }
 
@@ -202,29 +202,29 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
             '_bl-time': '2017-01-19 14:14:14',
             'expires': '2017-01-21 18:18:18',
             'time': '2017-01-19 19:19:19',
-            'url': 'http://www.tests.pl',
+            'url': 'http://www.example.info',
             'address': [
                 {
                     'cc': 'XX',
                     'ip': '2.2.2.2',
-                    'asn': 3215
+                    'asn': 1234,
                 },
                 {
                     'cc': 'XX',
                     'ip': '22.22.22.22',
-                    'asn': 3215
+                    'asn': 1234,
                 }
             ],
             'id': '929c840e0dec26e26410aeeac418067d',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'replaces': '1c9a2638b51f334da3d2311e01817884',
         }
 
         # third run,
         # one (3.) bl-new and 1., 2. bl-delist (old events)
-        routing_key_3_1_1 = 'bl-delist.compared.source_test1.channel_test1'
-        routing_key_3_1_2 = 'bl-delist.compared.source_test1.channel_test1'
-        routing_key_3_1_3 = 'bl-new.compared.source_test1.channel_test1'
+        routing_key_3_1_1 = 'bl-delist.compared.test-provider1.test-channel1'
+        routing_key_3_1_2 = 'bl-delist.compared.test-provider1.test-channel1'
+        routing_key_3_1_3 = 'bl-new.compared.test-provider1.test-channel1'
 
         input_data_3_1_3 = {
             '_bl-time': '2017-01-20 10:10:10',
@@ -238,7 +238,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'ip': '3.3.3.3'
             }],
             'id': 'ed928c2322422b2a8e419b00426fbcb0',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
         }
 
         expected_event_3_1_1 = {
@@ -251,7 +251,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'ip': '1.1.1.1'
             }],
             'id': '9104c0ad2339d9ab98f08761e7168ebd',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
         }
 
         expected_event_3_1_2 = {
@@ -261,19 +261,19 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 {
                     'cc': 'XX',
                     'ip': '2.2.2.2',
-                    'asn': 3215,
+                    'asn': 1234,
                 },
                 {
                     'cc': 'XX',
                     'ip': '22.22.22.22',
-                    'asn': 3215,
+                    'asn': 1234,
                 }
             ],
             'id': '929c840e0dec26e26410aeeac418067d',
             '_bl-time': '2017-01-19 14:14:14',
             'replaces': '1c9a2638b51f334da3d2311e01817884',
-            'url': 'http://www.tests.pl',
-            'source': 'source_test1.channel_test1',
+            'url': 'http://www.example.info',
+            'source': 'test-provider1.test-channel1',
             'time': '2017-01-19 19:19:19',
         }
 
@@ -287,7 +287,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'ip': '3.3.3.3'
             }],
             'id': 'ed928c2322422b2a8e419b00426fbcb0',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
         }
 
         self.comparator._process_input(input_data_1_1_1)
@@ -312,8 +312,8 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
     def test_message_flow_new_but_expired_msg(self):
 
         # _bl-time > expires -> bl-new, and bl-expires
-        routing_key_1 = 'bl-new.compared.source_test1.channel_test1'
-        routing_key_2 = 'bl-expire.compared.source_test1.channel_test1'
+        routing_key_1 = 'bl-new.compared.test-provider1.test-channel1'
+        routing_key_2 = 'bl-expire.compared.test-provider1.test-channel1'
 
         input_data_1_1 = {
             '_bl-time': '2017-01-24 10:10:10',
@@ -327,7 +327,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'ip': '4.4.4.4'
             }],
             'id': 'ed928c2322422b2a8e419b00426fbcb0',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
         }
 
         expected_event_1_1 = {
@@ -339,7 +339,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
             }],
             'id': 'ed928c2322422b2a8e419b00426fbcb0',
             '_bl-time': '2017-01-24 10:10:10',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'time': '2017-01-20 10:10:10',
         }
 
@@ -352,7 +352,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
             }],
             'id': 'ed928c2322422b2a8e419b00426fbcb0',
             '_bl-time': '2017-01-24 10:10:10',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'time': '2017-01-20 10:10:10',
         }
 
@@ -367,7 +367,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
 
     def test_message_flow_two_msgs_with_the_same_ip(self):
 
-        routing_key = 'bl-new.compared.source_test1.channel_test1'
+        routing_key = 'bl-new.compared.test-provider1.test-channel1'
 
         input_data_1_1 = {
             '_bl-time': '2017-01-19 12:07:32',
@@ -380,7 +380,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'cc': 'XX',
                 'ip': '1.1.1.1'
             }],
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'id': '111111111119d9ab98f08761e7168ebd',
         }
 
@@ -395,7 +395,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'cc': 'XX',
                 'ip': '1.1.1.1'
             }],
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'id': '2222222d2339d9ab98f08761e7168ebd',
         }
 
@@ -409,7 +409,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'ip': '1.1.1.1'
             }],
             'id': '111111111119d9ab98f08761e7168ebd',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
         }
 
         expected_calls_list = [
@@ -424,8 +424,8 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
 
     def test_message_flow_msg_from_different_sources_with_the_same_ip(self):
 
-        routing_key_1 = 'bl-new.compared.source_test1.channel_test1'
-        routing_key_2 = 'bl-new.compared.source_test2.channel_test2'
+        routing_key_1 = 'bl-new.compared.test-provider1.test-channel1'
+        routing_key_2 = 'bl-new.compared.test-provider2.test-channel2'
 
         input_data_1_1 = {
             '_bl-time': '2017-01-19 12:07:32',
@@ -438,7 +438,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'cc': 'XX',
                 'ip': '1.1.1.1'
             }],
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
             'id': '9104c0ad2339d9ab98f08761e7168ebd',
         }
 
@@ -452,7 +452,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'ip': '1.1.1.1'
             }],
             'id': '9104c0ad2339d9ab98f08761e7168ebd',
-            'source': 'source_test1.channel_test1',
+            'source': 'test-provider1.test-channel1',
         }
 
         input_data_2_1 = {
@@ -466,7 +466,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'cc': 'XX',
                 'ip': '1.1.1.1'
             }],
-            'source': 'source_test2.channel_test2',
+            'source': 'test-provider2.test-channel2',
             'id': '23f3b0f7fc3db9ab98f08761e7168ebd',
         }
 
@@ -480,7 +480,7 @@ class TestComparator__message_flow(TestCaseMixin, unittest.TestCase):
                 'ip': '1.1.1.1'
             }],
             'id': '23f3b0f7fc3db9ab98f08761e7168ebd',
-            'source': 'source_test2.channel_test2',
+            'source': 'test-provider2.test-channel2',
         }
 
         expected_calls_list = [

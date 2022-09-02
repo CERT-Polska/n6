@@ -92,7 +92,7 @@ class BaseParser(ConfigMixin, QueuedBase):
     record_dict_kwargs = None
 
     # should be one of the three values: 'event', 'bl', 'hifreq'
-    # (note: this is a *subset* of n6lib.const.TYPE_ENUMS;
+    # (note: this is a *subset* of n6lib.const.EVENT_TYPE_ENUMS;
     # see also: n6lib.record_dict.RecordDict's 'type' key)
     event_type = 'event'
 

@@ -1,9 +1,9 @@
 import { FC, useEffect } from 'react';
 import { AxiosError } from 'axios';
-import { useIntl } from 'react-intl';
 import { Redirect } from 'react-router-dom';
 import { useMutation } from 'react-query';
 import { FormProvider, SubmitHandler, useForm } from 'react-hook-form';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { postMfaLogin } from 'api/auth';
 import useLoginContext from 'context/LoginContext';
 import useAuthContext from 'context/AuthContext';
@@ -18,7 +18,7 @@ type TLoginMfaForm = {
 };
 
 const LoginMfaForm: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const { isAuthenticated, availableResources, getAuthInfo } = useAuthContext();
   const { mfaData, resetLoginState, updateLoginState } = useLoginContext();
 
@@ -52,7 +52,8 @@ const LoginMfaForm: FC = () => {
     };
   }, [setFocus, formState, resetLoginState]);
 
-  const hasOnlyInsideAccess = availableResources.includes('/report/inside') && availableResources.length === 1;
+  const hasOnlyInsideAccess =
+    availableResources.includes('/report/inside') && !availableResources.includes('/search/events');
   if (isAuthenticated && hasOnlyInsideAccess) return <Redirect to={routeList.organization} />;
   if (isAuthenticated) return <Redirect to={routeList.incidents} />;
 

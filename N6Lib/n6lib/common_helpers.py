@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 #
 # For some code in this module:
 # Copyright (c) 2001-2013 Python Software Foundation. All rights reserved.
@@ -6,8 +6,10 @@
 
 import abc
 import collections
-import collections.abc as collections_abc
+import contextlib
 import copy
+import errno
+import io
 import pickle
 import functools
 import hashlib
@@ -25,16 +27,18 @@ import threading
 import time
 import traceback
 import weakref
-from importlib import import_module
-from threading import get_ident as get_current_thread_ident
-from typing import (
+from collections.abc import (
+    Callable,
     Iterable,
     Iterator,
-    List,
+    Mapping,
+    MutableMapping,
+    MutableSequence,
 )
+from importlib import import_module
+from threading import get_ident as get_current_thread_ident
 
 from pkg_resources import cleanup_resources
-from pyramid.decorator import reify
 
 # for backward-compatibility and/or for convenience, the following
 # constants and functions importable from some of the n6sdk.* modules
@@ -60,45 +64,51 @@ from n6sdk.regexes import (
     IPv4_CIDR_NETWORK_REGEX,
     PY_IDENTIFIER_REGEX,
 )
-from n6lib.class_helpers import properly_negate_eq
+from n6lib.class_helpers import (
+    is_seq,
+    properly_negate_eq,
+)
 from n6lib.const import (
     HOSTNAME,
     SCRIPT_BASENAME,
 )
-from n6lib.typing_helpers import (
-    String as Str,
-    T,
-)
+from n6lib.typing_helpers import T
 
+
+_DOMAIN_ASCII_LOWERCASE_STRICT_REGEX_SUBPATTERN = (
+    DOMAIN_ASCII_LOWERCASE_STRICT_REGEX.pattern
+        .lstrip('A\\ \r\n')
+        .rstrip('Z\\ \r\n'))
 
 # more restrictive than actual e-mail address syntax but sensible in most cases
-EMAIL_OVERRESTRICTED_SIMPLE_REGEX = re.compile(r'''
+EMAIL_OVERRESTRICTED_SIMPLE_REGEX = re.compile(
+    rf'''
         \A
         (?P<local>
-            (?!          # local part cannot start with dot
-                \.
+            (?!
+                \.       # local part cannot start with dot
             )
             (
-                         # see: http://en.wikipedia.org/wiki/Email_address#Local_part
+                         # see: http://en.wikipedia.org/wiki/Email_address#Local-part
                 [\-0-9a-zA-Z!#$%&'*+/=?^_`{{|}}~]
             |
                 \.
                 (?!
                     \.   # local part cannot contain two or more non-separated dots
                 )
-            )+
-            (?<!         # local part cannot end with dot
-                \.
+            )+     # (note: according to RFC 5321, maximum length of local part is 64, but here
+                   # we are more liberal -- for historical reasons / backward compatibility...)
+            (?<!
+                \.       # local part cannot end with dot
             )
         )
         @
         (?P<domain>
-            {domain}
+            {_DOMAIN_ASCII_LOWERCASE_STRICT_REGEX_SUBPATTERN}
         )
         \Z
-    '''.format(
-        domain=DOMAIN_ASCII_LOWERCASE_STRICT_REGEX.pattern.lstrip('A\\ \r\n').rstrip('Z\\ \r\n'),
-    ), re.ASCII | re.VERBOSE)
+    ''',
+    re.ASCII | re.VERBOSE)
 
 # search()-only regexes of source code path prefixes that do not include
 # any valuable information (so they can be cut off from debug messages)
@@ -118,7 +128,7 @@ USELESS_SRC_PATH_PREFIX_REGEXES = (
 )
 
 
-class RsyncFileContextManager(object):
+class RsyncFileContextManager:
 
     """
     A context manager that retrieves data using rsync,
@@ -174,7 +184,7 @@ class RsyncFileContextManager(object):
                 self._file = None
 
 
-class PlainNamespace(object):
+class PlainNamespace:
 
     """
     Provides attribute access to its namespace, as well as
@@ -288,7 +298,7 @@ class ThreadLocalNamespace(PlainNamespace, threading.local):
             for name, factory in sorted(attr_factories.items()):
                 value = factory()
                 attrs[name] = value
-        super(ThreadLocalNamespace, self).__init__(**attrs)
+        super().__init__(**attrs)
 
     def __repr__(self):
         namespace = self.__dict__
@@ -300,7 +310,7 @@ class ThreadLocalNamespace(PlainNamespace, threading.local):
             ', '.join(items))
 
 
-class NonBlockingLockWrapper(object):
+class NonBlockingLockWrapper:
 
     """
     A lock wrapper to acquire a lock in non-blocking manner.
@@ -351,7 +361,7 @@ class NonBlockingLockWrapper(object):
         self.lock.release()
 
 
-class FilePagedSequence(collections_abc.MutableSequence):
+class FilePagedSequence(MutableSequence):
 
     """
     A mutable sequence that reduces memory usage by keeping data as files.
@@ -360,31 +370,37 @@ class FilePagedSequence(collections_abc.MutableSequence):
     (consisting of a defined number of items) is kept in memory; other
     pages are pickled and saved as temporary files.
 
-    The interface is similar to the built-in list's one, except that:
+    The interface is similar to the built-in `list`'s one, except that:
 
     * slices are not supported;
-    * del, remove(), insert(), reverse() and sort() are not supported;
-    * pop() supports only popping the last item -- and works only if the
-      argument is specified as -1 or not specified at all;
-    * index() accepts only one argument (does not accept the `start` and
-      `stop` range limiting arguments);
-    * all sequence items must be picklable;
+    * the `remove()`, `insert()`, `reverse()` and `sort()` methods are
+      not supported;
+    * the `+`, `*` and `*=` operators are not supported (though `+=` is
+      supported);
+    * the `del` operation is not supported, and the `pop()` method
+      supports only popping the last item -- and works only if the
+      argument is specified as `-1` or not specified at all; also, note
+      that `clear()` *is* supported (use it instead of `del seq[:]`);
+    * `index()` accepts only one argument (does not accept the `start`
+      and `stop` range limiting arguments);
+    * all sequence items must be picklable (effects of using unpicklable
+      items are undefined; generally, that will cause an exception, but
+      -- typically -- that exception will be deferred until the moment
+      when after adding more items the current data page needs to be
+      saved...);
     * the constructor accepts an additional argument: `page_size` --
       being the number of items each page may consist of (its default
-      value is 1000);
+      value is `1000`);
     * there are additional methods:
-      * clear() -- use it instead of `del seq[:]`;
-      * close() -- you should call it when you no longer use the sequence
-        (it clears the sequence and removes all temporary files);
+      * `close()` -- clears the sequence and removes all temporary files
+        (if any); after that, the instance can be used again, just as if
+        it was a newly created empty instance (new temporary files will
+        be created when needed);
       * a context-manager (`with`-statement) interface:
-        * its __enter__() returns the instance;
-        * its __exit__() calls the close() method.
+        * its `__enter__()` returns the instance;
+        * its `__exit__()` calls the aforementioned `close()` method.
 
-    Unsupported actions raise NotImplementedError.
-
-    Unpicklable items must *not* be used -- consequences of using them are
-    undefined (i.e., apart from an exception being raised, the sequence may
-    be left in a defective, inconsistent state).
+    Unsupported actions raise `NotImplementedError`.
 
     Temporary directory and files are created lazily -- no disk operations
     are performed at all if all data fit on one page.
@@ -401,6 +417,8 @@ class FilePagedSequence(collections_abc.MutableSequence):
     False
 
     >>> seq = FilePagedSequence([1, 'foo', {'a': None}, ['b']], page_size=3)
+    >>> seq
+    FilePagedSequence(<4 items...>, page_size=3)
     >>> len(seq)
     4
     >>> bool(seq)
@@ -417,11 +435,12 @@ class FilePagedSequence(collections_abc.MutableSequence):
     'foo'
     >>> len(seq)
     4
-
     >>> list(seq)
     [1, 'foo', {'a': None}, ['b']]
 
     >>> seq.append(42.0)
+    >>> seq
+    FilePagedSequence(<5 items...>, page_size=3)
     >>> len(seq)
     5
     >>> list(seq)
@@ -429,6 +448,8 @@ class FilePagedSequence(collections_abc.MutableSequence):
 
     >>> seq.pop()
     42.0
+    >>> seq
+    FilePagedSequence(<4 items...>, page_size=3)
     >>> len(seq)
     4
     >>> list(seq)
@@ -635,6 +656,8 @@ class FilePagedSequence(collections_abc.MutableSequence):
     1
     >>> list(seq)
     [1, 'foo', 43, 44, 45]
+    >>> list(iter(seq))
+    [1, 'foo', 43, 44, 45]
     >>> seq[-6]  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
     IndexError
@@ -650,15 +673,132 @@ class FilePagedSequence(collections_abc.MutableSequence):
     Traceback (most recent call last):
     IndexError
 
-    >>> osp.exists(seq._dir)
+    >>> seq == FilePagedSequence([1, 'foo', 43, 44, 45], page_size=3)
     True
-    >>> sorted(os.listdir(seq._dir))
+    >>> seq == FilePagedSequence([1, 'foo', 43, 44, 45], page_size=4)
+    True
+    >>> seq == [1, 'foo', 43, 44, 45]
+    True
+    >>> [1, 'foo', 43, 44, 45] == seq
+    True
+    >>> seq != FilePagedSequence([1, 'foo', 43, 44, 45], page_size=3)
+    False
+    >>> seq != FilePagedSequence([1, 'foo', 43, 44, 45], page_size=4)
+    False
+    >>> seq != [1, 'foo', 43, 44, 45]
+    False
+    >>> [1, 'foo', 43, 44, 45] != seq
+    False
+
+    >>> seq == FilePagedSequence([1, 'foo', 6543, 44, 45], page_size=3)
+    False
+    >>> seq == FilePagedSequence([1, 'foo', 6543, 44, 45], page_size=4)
+    False
+    >>> seq == [1, 'foo', 6543, 44, 45]
+    False
+    >>> [1, 'foo', 6543, 44, 45] == seq
+    False
+    >>> seq != FilePagedSequence([1, 'foo', 6543, 44, 45], page_size=3)
+    True
+    >>> seq != FilePagedSequence([1, 'foo', 6543, 44, 45], page_size=4)
+    True
+    >>> seq != [1, 'foo', 6543, 44, 45]
+    True
+    >>> [1, 'foo', 6543, 44, 45] != seq
+    True
+
+    >>> FilePagedSequence('abcdef', page_size=4) == ('a', 'b', 'c', 'd', 'e', 'f')
+    True
+    >>> FilePagedSequence(b'abcdef', page_size=4) == range(97, 103)
+    True
+
+    >>> FilePagedSequence('abcdef', page_size=4) == 'abcdef'
+    False
+    >>> FilePagedSequence(b'abcdef', page_size=4) == b'abcdef'
+    False
+    >>> FilePagedSequence(b'abcdef', page_size=4) == bytearray(b'abcdef')
+    False
+
+    >>> seq._filesystem_used()   # (it's a *non-public method*, never use it in real code!)
+    True
+    >>> _dir = seq._dir      # (it's a *non-public descriptor*, never use it in real code!)
+    >>> osp.exists(_dir)
+    True
+    >>> sorted(os.listdir(_dir))
     ['0', '1', '2']
+    >>> seq
+    FilePagedSequence(<5 items...>, page_size=3)
     >>> seq.close()
+    >>> seq
+    FilePagedSequence(<0 items...>, page_size=3)
     >>> list(seq)
     []
-    >>> osp.exists(seq._dir)
+    >>> seq._filesystem_used()
     False
+    >>> osp.exists(_dir)
+    False
+
+    >>> with seq as cm_target:       # (note: reusing the same instance)
+    ...     seq is cm_target
+    ...     seq.extend(map(int, '1234567890'))
+    ...     seq
+    ...     list(seq)
+    ...     seq._filesystem_used()
+    ...     _dir2 = seq._dir
+    ...     osp.exists(_dir2)
+    ...     sorted(os.listdir(_dir2))
+    ...     _dir2 != _dir and not osp.exists(_dir)
+    ...
+    True
+    FilePagedSequence(<10 items...>, page_size=3)
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
+    True
+    True
+    ['0', '1', '2', '3']
+    True
+    >>> seq
+    FilePagedSequence(<0 items...>, page_size=3)
+    >>> list(seq)
+    []
+    >>> seq._filesystem_used()
+    False
+    >>> osp.exists(_dir2)
+    False
+    >>> osp.exists(_dir)
+    False
+
+    >>> log_list = []; log = log_list.append
+    >>> for j in range(10):     # (here we test certain edge/corner cases of the implementation...)
+    ...     for i in range(10):
+    ...         n = 10*j + i
+    ...         seq.append(n)
+    ...         seq_last = seq[-1]
+    ...         seq_equal_to_range = (seq == range(n + 1))
+    ...         seq_equal_to_rev_range = (list(reversed(seq)) == list(reversed(range(n + 1))))
+    ...         seq_j = seq[j]      # (<- it's important for this test that the `seq[j]` lookup
+    ...         log({               #     is always done directly before next `seq.append(n)`...)
+    ...             'j_i': (j, i),
+    ...             'n': n,
+    ...             'seq_last': seq_last,
+    ...             'seq_equal_to_range': seq_equal_to_range,
+    ...             'seq_equal_to_rev_range': seq_equal_to_rev_range,
+    ...             'seq[j]': seq_j,
+    ...         })
+    ...
+    >>> seq == range(100)
+    True
+    >>> log_list == [
+    ...     {
+    ...         'j_i': (j, i),
+    ...         'n': 10*j + i,
+    ...         'seq_last': 10*j + i,
+    ...         'seq_equal_to_range': True,
+    ...         'seq_equal_to_rev_range': True,
+    ...         'seq[j]': j,
+    ...     }
+    ...     for j in range(10)
+    ...         for i in range(10)]
+    True
 
     >>> seq2 = FilePagedSequence('abc', page_size=3)
     >>> list(seq2)
@@ -668,31 +808,32 @@ class FilePagedSequence(collections_abc.MutableSequence):
     >>> seq2.extend('d')          # (now page 0 must be saved)
     >>> seq2._filesystem_used()
     True
-    >>> osp.exists(seq2._dir)
+    >>> _dir = seq2._dir
+    >>> osp.exists(_dir)
     True
-    >>> sorted(os.listdir(seq2._dir))
+    >>> sorted(os.listdir(_dir))
     ['0']
     >>> seq2.extend('ef')
-    >>> sorted(os.listdir(seq2._dir))
+    >>> sorted(os.listdir(_dir))
     ['0']
     >>> seq2.extend('g')          # (now page 1 must be saved)
-    >>> sorted(os.listdir(seq2._dir))
+    >>> sorted(os.listdir(_dir))
     ['0', '1']
     >>> seq2[0]                   # (now page 2 must be saved)
     'a'
-    >>> sorted(os.listdir(seq2._dir))
+    >>> sorted(os.listdir(_dir))
     ['0', '1', '2']
     >>> seq2.pop()
     'g'
-    >>> sorted(os.listdir(seq2._dir))
+    >>> sorted(os.listdir(_dir))
     ['0', '1', '2']
     >>> seq2.clear()
-    >>> sorted(os.listdir(seq2._dir))
+    >>> sorted(os.listdir(_dir))
     ['0', '1', '2']
     >>> seq2.close()
     >>> seq2._filesystem_used()
-    True
-    >>> osp.exists(seq2._dir)
+    False
+    >>> osp.exists(_dir)
     False
     >>> list(seq2)
     []
@@ -717,12 +858,13 @@ class FilePagedSequence(collections_abc.MutableSequence):
     ...     not seq4._filesystem_used()
     ...     seq4.append(['d'])
     ...     seq4._filesystem_used()
-    ...     osp.exists(seq4._dir)
-    ...     sorted(os.listdir(seq4._dir)) == ['0']
+    ...     _dir = seq4._dir
+    ...     osp.exists(_dir)
+    ...     sorted(os.listdir(_dir)) == ['0']
     ...     seq4[2] = {'ZZZ': 333}
-    ...     sorted(os.listdir(seq4._dir)) == ['0', '1']
+    ...     sorted(os.listdir(_dir)) == ['0', '1']
     ...     list(seq4) == [('bar', 2), {'x'}, {'ZZZ': 333}, ['d']]
-    ...     osp.exists(seq4._dir)
+    ...     osp.exists(_dir)
     ...
     True
     True
@@ -736,7 +878,9 @@ class FilePagedSequence(collections_abc.MutableSequence):
     True
     True
     True
-    >>> osp.exists(seq4._dir)
+    >>> seq4._filesystem_used()
+    False
+    >>> osp.exists(_dir)
     False
     """
 
@@ -745,8 +889,27 @@ class FilePagedSequence(collections_abc.MutableSequence):
         self._cur_len = 0
         self._cur_page_no = None
         self._cur_page_data = []
-        self._closed = False
         self.extend(iterable)
+
+    def __repr__(self):
+        constructor_args_repr = f'<{len(self)} items...>, page_size={self._page_size}'
+        return f'{self.__class__.__qualname__}({constructor_args_repr})'
+
+    def __eq__(self, other):
+        if is_seq(other):
+            return len(self) == len(other) and all(
+                # This is how items are compared by built-in `list`
+                # (note, however, that there may exist objects -- for
+                # example, `float('nan')` -- which compare unequal to
+                # themselves *and* for whom pickling and unpickling
+                # (involved here and, obviously, not used by built-in
+                # `list`) may not keep their identities; but it is so
+                # rare/insubstantial case that we don't care):
+                my_item is their_item or my_item == their_item
+                for my_item, their_item in zip(self, other))
+        return NotImplemented
+
+    __ne__ = properly_negate_eq
 
     def __len__(self):
         return self._cur_len
@@ -758,10 +921,6 @@ class FilePagedSequence(collections_abc.MutableSequence):
     def __setitem__(self, index, value):
         local_index = self._local_index(index)
         self._cur_page_data[local_index] = value
-
-    def __reversed__(self):
-        for i in range(len(self) - 1, -1, -1):
-            yield self[i]
 
     def append(self, value):
         page_no, local_index = divmod(self._cur_len, self._page_size)
@@ -803,23 +962,25 @@ class FilePagedSequence(collections_abc.MutableSequence):
         self._cur_len = 0
 
     def close(self):
-        if not self._closed:
-            self.clear()
-            if self._filesystem_used():
-                for filename in os.listdir(self._dir):
-                    os.remove(osp.join(self._dir, filename))
-                os.rmdir(self._dir)
-            self._closed = True
+        self.clear()
+        if self._filesystem_used():
+            self._do_filesystem_cleanup()
 
     #
     # Non-public stuff
 
-    @reify
+    @functools.cached_property
     def _dir(self):
         return tempfile.mkdtemp(prefix='n6-FilePagedSequence-tmp')
 
     def _filesystem_used(self):
         return '_dir' in self.__dict__
+
+    def _do_filesystem_cleanup(self):
+        for filename in os.listdir(self._dir):
+            os.remove(osp.join(self._dir, filename))
+        os.rmdir(self._dir)
+        del self._dir  # noqa
 
     def _local_index(self, index):
         if isinstance(index, slice):
@@ -832,161 +993,240 @@ class FilePagedSequence(collections_abc.MutableSequence):
                 self._switch_to(page_no)
             return local_index
         else:
-            raise IndexError
+            raise IndexError(f'{index=!a} is out of range for {self!a}')
 
     def _switch_to(self, page_no, new=False):
         if self._cur_page_no is not None:
-            # save the current page
-            with open(self._get_page_filename(self._cur_page_no), 'wb') as f:
-                pickle.dump(self._cur_page_data, f, -1)
-        if new:
-            # initialize a new page...
-            self._cur_page_data = []
-        else:
-            # load an existing page...
-            with open(self._get_page_filename(page_no), 'rb') as f:
-                self._cur_page_data = pickle.load(f)
-        # ...and set it as the current one
+            self._save_page(self._cur_page_data)
+        self._cur_page_data = [] if new else self._load_page(page_no)
         self._cur_page_no = page_no
+
+    def _save_page(self, page_data):
+        filename = self._get_page_filename(self._cur_page_no)
+        with self._writable_page_file(filename) as f:
+            pickle.dump(page_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def _load_page(self, page_no):
+        filename = self._get_page_filename(page_no)
+        with self._readable_page_file(filename) as f:
+            return pickle.load(f)
 
     def _get_page_filename(self, page_no):
         return osp.join(self._dir, str(page_no))
+
+    @contextlib.contextmanager
+    def _writable_page_file(self, filename):
+        with AtomicallySavedFile(filename, 'wb') as f:
+            yield f
+
+    @contextlib.contextmanager
+    def _readable_page_file(self, filename):
+        with open(filename, 'rb') as f:
+            yield f
 
     #
     # Unittest helper (to test a code that makes use of instances of the class)
 
     @staticmethod
-    def _instance_mock():
-        from unittest.mock import create_autospec
+    def _instance_mock(iterable=(), *, page_size=1000):
+        """
+        Make a mock of a `FilePagedSequence` instance.
 
-        NOT_IMPLEMENTED_METHODS = (
-            '__delitem__', 'remove', 'insert', 'reverse', 'sort')
+        The returned object provides the *public* interface and
+        semantics of a `FilePagedSequence` instance, but it never
+        attempts any filesystem operations.
 
-        GENERIC_LIST_METHODS = (
-            '__iter__', '__len__', '__contains__', '__reversed__',
-            'index', 'count', 'append', 'extend', '__iadd__')
+        At the same time, it is a real *mock* object, i.e., it provides
+        all those fancy goodies specific to `unittest.mock`-made mocks.
 
-        #
-        # implementation of method side effects
+        We can describe it with [the vocabulary used by Martin Fowler
+        ](https://martinfowler.com/articles/mocksArentStubs.html#TheDifferenceBetweenMocksAndStubs)
+        as a hybrid of a *fake* (as it provides a working implementation
+        of the `FilePagedSequence`'s public interface) and *spy* (as it
+        is a `unittest.mock`'s `NonCallableMock` object, with all its
+        post-inspection capabilities, such as `mock_calls` etc.; note
+        that in the Python world such a *spy* object is usually referred
+        to just as *mock*, not to be confused with what is called *mock*
+        according to the vocabulary used by Fowler).
+        """
 
-        li = []
-
-        def make_list_method_side_effect(meth):
-            meth_obj = getattr(li, meth)
-            def side_effect(*args, **kwargs):
-                return meth_obj(*args, **kwargs)
-            side_effect.__name__ = meth
-            side_effect.__qualname__ = '{}.{}'.format(FilePagedSequence.__name__, meth)
-            return side_effect
-
-        def getitem_side_effect(index):
-            if isinstance(index, slice):
-                raise NotImplementedError
-            return li[index]
-
-        def setitem_side_effect(index, value):
-            if isinstance(index, slice):
-                raise NotImplementedError
-            li[index] = value
-
-        def pop_side_effect(index=-1):
-            if index != -1:
-                raise NotImplementedError
-            return li.pop(index)
-
-        def clear_side_effect():
-            del li[:]
-
-        close_side_effect = itertools.chain(
-            [clear_side_effect],
-            itertools.repeat(lambda: None))
-
-        def enter_side_effect():
-            return FilePagedSequence.__enter__(m)
-
-        def exit_side_effect(*args):
-            return FilePagedSequence.__exit__(m, *args)
+        import unittest.mock
 
         #
-        # configuring the actual mock
+        # determining the list of methods
 
-        m = create_autospec(FilePagedSequence)()
+        public_methods_from_mutable_sequence = (
+            # (those invoking `FilePagedSequence`'s real stuff)
+            '__contains__', '__iter__', '__reversed__',
+            'index', 'count', 'extend', '__iadd__',
+            # (the one invoking `FilePagedSequence`'s stuff that
+            # raises `NotImplementedError`)
+            'remove',
+        )
+        public_methods_defined_here = (     # <- except `__init__()` and __repr__
+            # (with real implementations)
+            '__eq__', '__ne__', '__len__', '__getitem__', '__setitem__',
+            '__enter__', '__exit__', 'append', 'pop', 'clear', 'close',
+            # (raising `NotImplementedError`)
+            '__delitem__', 'insert', 'reverse', 'sort',
+        )
+        assert set(public_methods_from_mutable_sequence).issubset(dir(MutableSequence))
+        assert set(public_methods_defined_here).isdisjoint(public_methods_from_mutable_sequence)
+        assert set(public_methods_defined_here) == {
+            name for name, val in vars(FilePagedSequence).items()
+            if (isinstance(val, (Callable, classmethod, staticmethod))
+                and name not in ('__init__', '__repr__')
+                and (name.startswith('__') and name.endswith('__')  # either __dunder__ or
+                     or not name.startswith('_')))}                 # ordinary public name
 
-        # for some mysterious reason (a bug in the mock
-        # library?) __reversed__ must be set explicitly
-        m.__reversed__ = create_autospec(FilePagedSequence.__reversed__)
+        all_public_methods = public_methods_from_mutable_sequence + public_methods_defined_here
 
-        for meth in NOT_IMPLEMENTED_METHODS:
-            getattr(m, meth).side_effect = NotImplementedError
+        #
+        # defining the underlying behavior
 
-        for meth in GENERIC_LIST_METHODS:
-            getattr(m, meth).side_effect = make_list_method_side_effect(meth)
+        class _FakeFilePagedSequence(FilePagedSequence):  # noqa
 
-        m.__getitem__.side_effect = getitem_side_effect
-        m.__setitem__.side_effect = setitem_side_effect
-        m.pop.side_effect = pop_side_effect
-        m.clear.side_effect = clear_side_effect
-        m.close.side_effect = close_side_effect
-        m.__enter__.side_effect = enter_side_effect
-        m.__exit__.side_effect = exit_side_effect
+            def __init__(self, *args, **kwargs):
+                self.__fake_filesystem = {}
+                super().__init__(*args, **kwargs)
 
-        m._list = li  # (for introspection in unit tests)
-        return m
+            @functools.cached_property
+            def _dir(self, __counter=itertools.count()):
+                return f'<temp dir path placeholder no. {next(__counter)}>'
+
+            def _do_filesystem_cleanup(self):
+                self.__fake_filesystem.clear()
+                del self._dir  # noqa
+
+            @contextlib.contextmanager
+            def _writable_page_file(self, filename):
+                with io.BytesIO() as f:
+                    try:
+                        yield f
+                    finally:
+                        pickled_page = f.getvalue()
+                        self.__fake_filesystem[filename] = pickled_page
+
+            @contextlib.contextmanager
+            def _readable_page_file(self, filename):
+                pickled_page = self.__fake_filesystem.get(filename)
+                if pickled_page is None:
+                    raise FileNotFoundError(errno.ENOENT, 'No such file or directory', filename)
+                with io.BytesIO(pickled_page) as f:
+                    yield f
+
+        obj = _FakeFilePagedSequence(iterable, page_size)
+
+        #
+        # making the actual mock
+
+        obj_mock = unittest.mock.NonCallableMock(__class__=FilePagedSequence)
+        for method_name in all_public_methods:
+            method_obj = getattr(obj, method_name)
+            method_mock = unittest.mock.MagicMock(
+                wraps=method_obj,
+                spec=method_obj)
+            setattr(obj_mock, method_name, method_mock)
+
+        # (we want the *as-target* of *with* blocks to be our mock,
+        # not the underlying `_FakeFilePagedSequence` object)
+        obj_mock.__enter__.side_effect = lambda: obj_mock
+
+        # (additional tool to make introspection easier...)
+        obj_mock._as_list = lambda: list(obj)
+
+        unittest.mock.seal(obj_mock)
+        return obj_mock
 
 
 class DictWithSomeHooks(dict):
 
     """
-    A convenient base for some kinds of dict subclasses.
+    A convenient base for some kinds of `dict` subclasses.
 
     * It is a real subclass of the built-in `dict` type (contrary to
       some of the other mapping classes defined in this module).
 
-    * You can extend/override the _custom_key_error() instance method in
-      your subclasses to customize exceptions raised by
-      __getitem__()/__delitem__()/ pop()/popitem() methods.  The
-      _custom_key_error() method should take two positional arguments:
-      the originally raised KeyError instance and the name of the method
-      ('__getitem__' or '__delitem__, or 'pop', or 'popitem'); for
-      details, see the standard implementation of _custom_key_error().
+    * You can extend/override the `_custom_key_error()` instance method
+      in your subclasses to customize exceptions raised by the
+      `__getitem__()`/`__delitem__()`/` pop()` methods, as well as --
+      optionally -- by the `popitem()` method (the latter only if the
+      attribute `_custom_key_error_also_for_popitem` is overridden
+      by setting it to a true value). Your implementation of
+      `_custom_key_error()` should take two positional arguments: the
+      originally raised `KeyError` instance and the name of the method
+      (`'__getitem__'` or `'__delitem__'`, or `'pop'`, or `'popitem'`);
+      the standard implementation just returns the given `KeyError`
+      instance intact.
 
-    * The class provides a ready-to-use and recursion-proof __repr__()
+    * The class provides a ready-to-use and recursion-proof `__repr__()`
       -- you can easily customize it by extending/overriding the
-      _constructor_args_repr() method in your subclasses (see the
+      `_constructor_args_repr()` method in your subclasses (see the
       example below); another option is, of course, to override
-      __repr__() completely.
+      the `__repr__()` method completely.
 
-    * The __ne__ () method (the `!=` operator) is already -- for your
-      convenience -- implemented as negation of __eq__() (`==`) --
-      so if you need, in your subclass, to reimplement/extend the
-      equality/inequality operations, typically, you will need
-      to override/extend only the __eq__() method.
+    * Important: you should *not* replace the `__init__()` method
+      completely in your subclasses -- but only extend it (preferrably,
+      using `super()`).
 
-    * Important: you should not replace the __init__() method completely
-      in your subclasses -- but only extend it (e.g., using super()).
+    * Your extended `__init__()` (provided by a subclass) can take any
+      arguments, i.e., its signature does not need to be compatible with
+      the standard one provided by `dict` (see the example below) --
+      *except that*, in order to get sensible results of `__repr__()`,
+      you may want to customize the `_constructor_args_repr()` method
+      (see the relevant bullet point above...).
 
-    * Your custom __init__() can take any arguments, i.e., its signature
-      does not need to be compatible with standard dict's __init__()
-      (see the example below).
+    * However, if you extend `__init__()` and still want your subclass
+      to support the (rarely used) `fromkeys()` class method, you need
+      to override the `_standard_fromkeys_enabled` class attribute (in
+      your subclass) by setting it to a true value -- **after ensuring**
+      that your extended `__init__()` is able to take a plain `dict`
+      of items as the sole positional argument (note that the default
+      version of `__init__()`, provided by `DictWithSomeHooks`, meets
+      this requirement -- that's why there is no need to set the
+      aforementioned class attribute if `__init__()` is not extended).
+      Alternatively, you can provide your custom implementation of
+      `fromkeys()`.
 
     * Instances of the class support copying: both shallow copying (do
-      it by calling the copy() method or the copy() function from the
-      `copy` module) and deep copying (do it by calling the deepcopy()
-      function from the `copy` module) -- including copying instance
-      attributes and including support for recursive mappings.
+      it by calling the `copy()` method or the `copy()` function from
+      the `copy` module) and deep copying (do it by calling the
+      `deepcopy()` function from the `copy` module) -- including copying
+      instance attributes and including support for recursive mappings.
 
       Please note, however, that those copying operations are supposed
-      to work properly only if the items() and update() methods work
-      as expected for an ordinary dict -- i.e., that items() provides
-      `(<hashable key>, <corresponding value>)` pairs (one for each item
-      of the mapping) and that update() is able to "consume" an input
-      data object being an iterable of such pairs; the order of items
-      is preserved *only if* those two methods preserve it.
+      to work properly **only if** the `items()` and `update()` methods
+      meet the following requirements, if customized in a subclass (their
+      standard implementations meet that requirements out-of-the-box):
+      (1) `items()` should produce `(<hashable key>, <corresponding
+      value>)` pairs (one for each item of the mapping); (2) `update()`
+      should be able to update the content of the mapping with items
+      specified as a plain `dict` passed in as the sole positional
+      argument; note: the order of items is preserved *only if* those
+      two methods preserve it.
 
-    >>> class MyUselessDict(DictWithSomeHooks):
+    * The `|` operator (merging two instances) is supported as well
+      -- **provided that** the `items()` and `update()` methods meet
+      the requirements described above in the context of the copying
+      operations. When it comes to allowed types of the other operand,
+      the `DictWithSomeHooks`'s version of `|` is more liberal than the
+      `dict`'s version: any instance (real or "virtual") of a subclass
+      of `collections.abc.Mapping` is acceptable (not necessarily of
+      `dict`).
+
+    * The behavior of the `|=` operator is analogous to that of the
+      `dict`'s version of it, i.e., is equivalent to the standard
+      `update()` operation -- so, in particular, any mapping-like
+      object, as well as any iterable producing `(<hashable key>,
+      <corresponding value>)` pairs, is acceptable as the right-hand
+      operand.
+
+    ***
+
+    >>> class MyStrangeDict(DictWithSomeHooks):
     ...
     ...     def __init__(self, a, b, c=42):
-    ...         super(MyUselessDict, self).__init__(b=b)
+    ...         super().__init__(b=b)
     ...         self.a = a
     ...         self.c = self['c'] = c
     ...
@@ -996,17 +1236,29 @@ class DictWithSomeHooks(dict):
     ...         return '<' + repr(sorted(self.items(), key=repr)) + '>'
     ...
     ...     def _custom_key_error(self, key_error, method_name):
-    ...         e = super(MyUselessDict, self)._custom_key_error(
-    ...                 key_error, method_name)
+    ...         e = super()._custom_key_error(key_error, method_name)
     ...         return ValueError(*(e.args + (method_name,)))
     ...
-    >>> d = MyUselessDict(['A'], {'B': 'BB'})
-    >>> isinstance(d, dict) and isinstance(d, MyUselessDict)
+    ...     # Note: `__init__()` of this class is extended in such a
+    ...     # way that it is not able to take a dict of items as the
+    ...     # sole argument -- so we must leave the class attribute
+    ...     # `_standard_fromkeys_enabled` as it is (i.e., set to
+    ...     # `False`). A possible alternative could be to provide our
+    ...     # own implementation of the `fromkeys()` class method
+    ...     # (however, in practice `fromkeys()` is rarely needed).
+    ...
+    >>> d = MyStrangeDict(['A'], {'B': 'BB'})
+    >>> (isinstance(d, MyStrangeDict) and
+    ...  isinstance(d, DictWithSomeHooks) and
+    ...  isinstance(d, dict) and
+    ...  isinstance(d, MutableMapping) and
+    ...  isinstance(d, Mapping))
     True
-    >>> d
-    MyUselessDict(<[('b', {'B': 'BB'}), ('c', 42)]>)
     >>> d == {'b': {'B': 'BB'}, 'c': 42}
     True
+
+    >>> d
+    MyStrangeDict(<[('b', {'B': 'BB'}), ('c', 42)]>)
     >>> d.a
     ['A']
     >>> d.c
@@ -1044,19 +1296,25 @@ class DictWithSomeHooks(dict):
     True
 
     >>> d
-    MyUselessDict(<[('a', ['A']), ('b', {'B': 'BB'})]>)
+    MyStrangeDict(<[('a', ['A']), ('b', {'B': 'BB'})]>)
     >>> d.a
     ['A']
     >>> d.c
     42
 
-    >>> d._repr_recur_thread_ids.add('xyz')
-    >>> vars(d) == {'a': ['A'], 'c': 42, '_repr_recur_thread_ids': {'xyz'}}
+    >>> d._repr_recur_thread_ids.add('xyz')  # (in all doctests, this attribute is touched only
+    >>> from unittest.mock import ANY        # to test certain internal behaviors; doing anything
+    >>> vars(d) == {                         # with it in a production code is not a good idea)
+    ...     'a': ['A'],
+    ...     'c': 42,
+    ...     '_repr_recur_thread_ids': {'xyz'},
+    ...     '_repr_recur_thread_ids_rlock': ANY,
+    ... }
     True
 
     >>> d_shallowcopy = d.copy()  # the same as copy.copy(d)
     >>> d_shallowcopy
-    MyUselessDict(<[('a', ['A']), ('b', {'B': 'BB'})]>)
+    MyStrangeDict(<[('a', ['A']), ('b', {'B': 'BB'})]>)
     >>> d_shallowcopy == d
     True
     >>> d_shallowcopy is d
@@ -1077,7 +1335,7 @@ class DictWithSomeHooks(dict):
 
     >>> d_deepcopy = copy.deepcopy(d)
     >>> d_deepcopy
-    MyUselessDict(<[('a', ['A']), ('b', {'B': 'BB'})]>)
+    MyStrangeDict(<[('a', ['A']), ('b', {'B': 'BB'})]>)
     >>> d_deepcopy == d
     True
     >>> d_deepcopy is d
@@ -1106,25 +1364,29 @@ class DictWithSomeHooks(dict):
     ...  d_deepcopy._repr_recur_thread_ids == set())   # note this!
     True
 
-    >>> class RecurKey(object):
+    >>> class RecurKey:
     ...     def __repr__(self): return '$$$'
     ...     def __hash__(self): return 42
     ...     def __eq__(self, other): return isinstance(other, RecurKey)
-    ...     def __ne__(self, other): return not (self == other)
     ...
     >>> recur_key = RecurKey()
     >>> recur_d = copy.deepcopy(d)
-    >>> recur_d._repr_recur_thread_ids.add('xyz')
-    >>> vars(recur_d) == {'a': ['A'], 'c': 42, '_repr_recur_thread_ids': {'xyz'}}
+    >>> recur_d._repr_recur_thread_ids.add('quux')
+    >>> vars(recur_d) == {
+    ...     'a': ['A'],
+    ...     'c': 42,
+    ...     '_repr_recur_thread_ids': {'quux'},
+    ...     '_repr_recur_thread_ids_rlock': ANY,
+    ... }
     True
     >>> recur_d[recur_key] = recur_d
     >>> recur_d['b'] = recur_d.b = recur_d
     >>> recur_d
-    MyUselessDict(<[($$$, MyUselessDict(<...>)), ('a', ['A']), ('b', MyUselessDict(<...>))]>)
+    MyStrangeDict(<[($$$, MyStrangeDict(<...>)), ('a', ['A']), ('b', MyStrangeDict(<...>))]>)
 
     >>> recur_d_deepcopy = copy.deepcopy(recur_d)
     >>> recur_d_deepcopy
-    MyUselessDict(<[($$$, MyUselessDict(<...>)), ('a', ['A']), ('b', MyUselessDict(<...>))]>)
+    MyStrangeDict(<[($$$, MyStrangeDict(<...>)), ('a', ['A']), ('b', MyStrangeDict(<...>))]>)
     >>> recur_d_deepcopy is recur_d
     False
     >>> [dc_recur_key] = [k for k in recur_d_deepcopy if k == recur_key]
@@ -1182,13 +1444,13 @@ class DictWithSomeHooks(dict):
     True
     >>> recur_d_deepcopy['a'] is recur_d_deepcopy.a
     True
-    >>> (recur_d._repr_recur_thread_ids == set({'xyz'}) and
+    >>> (recur_d._repr_recur_thread_ids == set({'quux'}) and
     ...  recur_d_deepcopy._repr_recur_thread_ids == set())
     True
 
     >>> recur_d_shallowcopy = copy.copy(recur_d)
     >>> recur_d_shallowcopy                               # doctest: +ELLIPSIS
-    MyUselessDict(<[($$$, MyUselessDict(<[($$$, MyUselessDict(<...>)), ('a', ...
+    MyStrangeDict(<[($$$, MyStrangeDict(<[($$$, MyStrangeDict(<...>)), ('a', ...
 
     >>> recur_d_shallowcopy == recur_d
     True
@@ -1216,14 +1478,243 @@ class DictWithSomeHooks(dict):
     >>> (recur_d['a'] is recur_d.a is
     ...  recur_d_shallowcopy['a'] is recur_d_shallowcopy.a)
     True
-    >>> (recur_d._repr_recur_thread_ids == set({'xyz'}) and
+    >>> (recur_d._repr_recur_thread_ids == set({'quux'}) and
     ...  recur_d_shallowcopy._repr_recur_thread_ids == set())
+    True
+
+    >>> dd = MyStrangeDict(['A'], {'B': 'BB'})
+    >>> dd._repr_recur_thread_ids.add('SPAM!')
+    >>> dd['dd'] = True
+    >>> dd
+    MyStrangeDict(<[('b', {'B': 'BB'}), ('c', 42), ('dd', True)]>)
+    >>> (dd.a, dd.c)
+    (['A'], 42)
+    >>> another = MyStrangeDict(['Ale-Ale'], {'Be-Be-Be': 12345}, c=997)
+    >>> another._repr_recur_thread_ids.add('fiu fiu')
+    >>> another['an'] = 1.0
+    >>> another
+    MyStrangeDict(<[('an', 1.0), ('b', {'Be-Be-Be': 12345}), ('c', 997)]>)
+    >>> (another.a, another.c)
+    (['Ale-Ale'], 997)
+
+    >>> dd_another_merged = dd | another
+    >>> dd_another_merged
+    MyStrangeDict(<[('an', 1.0), ('b', {'Be-Be-Be': 12345}), ('c', 997), ('dd', True)]>)
+    >>> dd_another_merged == {'an': 1.0, 'b': {'Be-Be-Be': 12345}, 'c': 997, 'dd': True}
+    True
+    >>> dd_another_merged['b'] is another['b']
+    True
+    >>> (dd_another_merged.a, dd_another_merged.c)  # note this
+    (['A'], 42)
+    >>> dd_another_merged.a is dd.a
+    True
+    >>> another_dd_merged = another | dd
+    >>> another_dd_merged
+    MyStrangeDict(<[('an', 1.0), ('b', {'B': 'BB'}), ('c', 42), ('dd', True)]>)
+    >>> another_dd_merged == {'an': 1.0, 'b': {'B': 'BB'}, 'c': 42, 'dd': True}
+    True
+    >>> another_dd_merged['b'] is dd['b']
+    True
+    >>> (another_dd_merged.a, another_dd_merged.c)  # note this
+    (['Ale-Ale'], 997)
+    >>> another_dd_merged.a is another.a
+    True
+    >>> (dd._repr_recur_thread_ids == set({'SPAM!'}) and
+    ...  another._repr_recur_thread_ids == set({'fiu fiu'}) and
+    ...  dd_another_merged._repr_recur_thread_ids == set() and
+    ...  another_dd_merged._repr_recur_thread_ids == set())
+    True
+
+    >>> empty = MyStrangeDict(['A'], {'B': 'BB'})
+    >>> empty._repr_recur_thread_ids.add('Eee!')
+    >>> empty.clear()
+    >>> empty
+    MyStrangeDict(<[]>)
+    >>> (empty.a, empty.c)
+    (['A'], 42)
+    >>> another
+    MyStrangeDict(<[('an', 1.0), ('b', {'Be-Be-Be': 12345}), ('c', 997)]>)
+    >>> (another.a, another.c)
+    (['Ale-Ale'], 997)
+
+    >>> empty_another_merged = empty | another
+    >>> empty_another_merged
+    MyStrangeDict(<[('an', 1.0), ('b', {'Be-Be-Be': 12345}), ('c', 997)]>)
+    >>> another == empty_another_merged == {'an': 1.0, 'b': {'Be-Be-Be': 12345}, 'c': 997}
+    True
+    >>> empty_another_merged['b'] is another['b']
+    True
+    >>> (empty_another_merged.a, empty_another_merged.c)  # note this
+    (['A'], 42)
+    >>> empty_another_merged.a is empty.a
+    True
+    >>> another_empty_merged = another | empty
+    >>> another_empty_merged
+    MyStrangeDict(<[('an', 1.0), ('b', {'Be-Be-Be': 12345}), ('c', 997)]>)
+    >>> another == another_empty_merged == {'an': 1.0, 'b': {'Be-Be-Be': 12345}, 'c': 997}
+    True
+    >>> another_empty_merged['b'] is another['b']
+    True
+    >>> (another_empty_merged.a, another_empty_merged.c)  # note this
+    (['Ale-Ale'], 997)
+    >>> another_empty_merged.a is another.a
+    True
+    >>> (empty._repr_recur_thread_ids == set({'Eee!'}) and
+    ...  another._repr_recur_thread_ids == set({'fiu fiu'}) and
+    ...  empty_another_merged._repr_recur_thread_ids == set() and
+    ...  another_empty_merged._repr_recur_thread_ids == set())
+    True
+
+    >>> plain_dict = {'an': 1.0, 'b': {'Be-Be-Be': 12345}, 'c': 997}
+    >>> dd
+    MyStrangeDict(<[('b', {'B': 'BB'}), ('c', 42), ('dd', True)]>)
+    >>> (dd.a, dd.c)
+    (['A'], 42)
+    >>> dd_dict_merged = dd | plain_dict
+    >>> dd_dict_merged
+    MyStrangeDict(<[('an', 1.0), ('b', {'Be-Be-Be': 12345}), ('c', 997), ('dd', True)]>)
+    >>> dd_dict_merged == {'an': 1.0, 'b': {'Be-Be-Be': 12345}, 'c': 997, 'dd': True}
+    True
+    >>> dd_dict_merged['b'] is plain_dict['b']
+    True
+    >>> (dd_dict_merged.a, dd_dict_merged.c)
+    (['A'], 42)
+    >>> dict_dd_merged = plain_dict | dd
+    >>> dict_dd_merged
+    MyStrangeDict(<[('an', 1.0), ('b', {'B': 'BB'}), ('c', 42), ('dd', True)]>)
+    >>> dict_dd_merged == {'an': 1.0, 'b': {'B': 'BB'}, 'c': 42, 'dd': True}
+    True
+    >>> dict_dd_merged['b'] is dd['b']
+    True
+    >>> (dict_dd_merged.a, dict_dd_merged.c)
+    (['A'], 42)
+    >>> (dd._repr_recur_thread_ids == set({'SPAM!'}) and
+    ...  dd_dict_merged._repr_recur_thread_ids == set() and
+    ...  dict_dd_merged._repr_recur_thread_ids == set())
+    True
+
+    >>> class NonDictMapping(Mapping):
+    ...     def __init__(self, d): self._d = d
+    ...     def __getitem__(self, key): return self._d[key]
+    ...     def __iter__(self): return iter(self._d)
+    ...     def __len__(self): return len(self._d)
+    ...
+    >>> nondict_mapping = NonDictMapping({'an': 1.0, 'b': {'Be-Be-Be': 12345}, 'c': 997})
+    >>> dd
+    MyStrangeDict(<[('b', {'B': 'BB'}), ('c', 42), ('dd', True)]>)
+    >>> (dd.a, dd.c)
+    (['A'], 42)
+    >>> dd_mapping_merged = dd | nondict_mapping
+    >>> dd_mapping_merged
+    MyStrangeDict(<[('an', 1.0), ('b', {'Be-Be-Be': 12345}), ('c', 997), ('dd', True)]>)
+    >>> dd_mapping_merged == {'an': 1.0, 'b': {'Be-Be-Be': 12345}, 'c': 997, 'dd': True}
+    True
+    >>> dd_mapping_merged['b'] is nondict_mapping['b']
+    True
+    >>> (dd_mapping_merged.a, dd_mapping_merged.c)
+    (['A'], 42)
+    >>> mapping_dd_merged = nondict_mapping | dd
+    >>> mapping_dd_merged
+    MyStrangeDict(<[('an', 1.0), ('b', {'B': 'BB'}), ('c', 42), ('dd', True)]>)
+    >>> mapping_dd_merged == {'an': 1.0, 'b': {'B': 'BB'}, 'c': 42, 'dd': True}
+    True
+    >>> mapping_dd_merged['b'] is dd['b']
+    True
+    >>> (mapping_dd_merged.a, mapping_dd_merged.c)
+    (['A'], 42)
+    >>> (dd._repr_recur_thread_ids == set({'SPAM!'}) and
+    ...  dd_mapping_merged._repr_recur_thread_ids == set() and
+    ...  mapping_dd_merged._repr_recur_thread_ids == set())
+    True
+
+    >>> class SubclassWithOwnOr(MyStrangeDict):
+    ...     def __or__(self, _): return 'a ku ku'
+    ...     def __ror__(self, _): return 'tra-la-la'
+    ...
+    >>> subclass_with_own_or = SubclassWithOwnOr('Aaa', 'Bbb', 'Ccc')
+    >>> dd | subclass_with_own_or  # note this
+    'tra-la-la'
+    >>> subclass_with_own_or | dd  # note this
+    'a ku ku'
+
+    >>> class NonDictMappingWithOwnOr(NonDictMapping):
+    ...     def __or__(self, _): return 'a ku ku'
+    ...     def __ror__(self, _): return 'tra-la-la'
+    ...
+    >>> mapping_with_own_or = NonDictMappingWithOwnOr({'an': 1.0, 'b': {'Ha-Ha': -1}, 'c': -2})
+    >>> dd | mapping_with_own_or
+    MyStrangeDict(<[('an', 1.0), ('b', {'Ha-Ha': -1}), ('c', -2), ('dd', True)]>)
+    >>> mapping_with_own_or | dd  # note this
+    'a ku ku'
+
+    >>> class NonMappingWithOwnOr:
+    ...     def __or__(self, _): return 'a ku ku'
+    ...     def __ror__(self, _): return 'tra-la-la'
+    ...
+    >>> nonmapping_with_own_or = NonMappingWithOwnOr()
+    >>> dd | nonmapping_with_own_or
+    'tra-la-la'
+    >>> nonmapping_with_own_or | dd
+    'a ku ku'
+
+    >>> nonmapping_iterable = [('b', []), ('x', 3)]
+    >>> dd | nonmapping_iterable        # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> dd
+    MyStrangeDict(<[('b', {'B': 'BB'}), ('c', 42), ('dd', True)]>)
+    >>> another
+    MyStrangeDict(<[('an', 1.0), ('b', {'Be-Be-Be': 12345}), ('c', 997)]>)
+    >>> (dd.a, dd.c)
+    (['A'], 42)
+    >>> (another.a, another.c)
+    (['Ale-Ale'], 997)
+    >>> dd |= another
+    >>> dd
+    MyStrangeDict(<[('an', 1.0), ('b', {'Be-Be-Be': 12345}), ('c', 997), ('dd', True)]>)
+    >>> dd == {'an': 1.0, 'b': {'Be-Be-Be': 12345}, 'c': 997, 'dd': True}
+    True
+    >>> dd['b'] is another['b']
+    True
+    >>> (dd.a, dd.c)
+    (['A'], 42)
+    >>> another_plain_dict = {'b': {'IBU': 90}, 'q': 4}
+    >>> dd |= another_plain_dict
+    >>> dd
+    MyStrangeDict(<[('an', 1.0), ('b', {'IBU': 90}), ('c', 997), ('dd', True), ('q', 4)]>)
+    >>> dd == {'an': 1.0, 'b': {'IBU': 90}, 'c': 997, 'dd': True, 'q': 4}
+    True
+    >>> dd['b'] is another_plain_dict['b']
+    True
+    >>> another_nondict_mapping = NonDictMapping({'b': {}, 'dd': 1, 'y': 2})
+    >>> dd |= another_nondict_mapping
+    >>> dd
+    MyStrangeDict(<[('an', 1.0), ('b', {}), ('c', 997), ('dd', 1), ('q', 4), ('y', 2)]>)
+    >>> dd == {'an': 1.0, 'b': {}, 'c': 997, 'dd': True, 'q': 4, 'y': 2}
+    True
+    >>> dd['b'] is another_nondict_mapping['b']
+    True
+    >>> nonmapping_iterable
+    [('b', []), ('x', 3)]
+    >>> dd |= nonmapping_iterable  # possible with `|=`, not with `|` (like in the case of `dict`)
+    >>> dd
+    MyStrangeDict(<[('an', 1.0), ('b', []), ('c', 997), ('dd', 1), ('q', 4), ('x', 3), ('y', 2)]>)
+    >>> dd == {'an': 1.0, 'b': [], 'c': 997, 'dd': True, 'q': 4, 'x': 3, 'y': 2}
+    True
+    >>> dd['b'] is nonmapping_iterable[0][1]
+    True
+    >>> (dd.a, dd.c)
+    (['A'], 42)
+    >>> (dd._repr_recur_thread_ids == set({'SPAM!'}) and
+    ...  another._repr_recur_thread_ids == set({'fiu fiu'}))
     True
 
     >>> sorted([d.popitem(), d.popitem()])
     [('a', ['A']), ('b', {'B': 'BB'})]
     >>> d
-    MyUselessDict(<[]>)
+    MyStrangeDict(<[]>)
     >>> d == {}
     True
     >>> bool(d)
@@ -1234,109 +1725,219 @@ class DictWithSomeHooks(dict):
       ...
     KeyError: 'popitem(): dictionary is empty'
 
-    >>> class AnotherWeirdSubclass(DictWithSomeHooks):
+    >>> MyStrangeDict._custom_key_error_also_for_popitem = True
+    >>> d.popitem()
+    Traceback (most recent call last):
+      ...
+    ValueError: ('popitem(): dictionary is empty', 'popitem')
+
+    >>> class MyBoringDict(DictWithSomeHooks):
+    ...     pass
+    ...
+    >>> MyBoringDict({'a': 1, False: ['b']}, x=b'xyz')
+    MyBoringDict({'a': 1, False: ['b'], 'x': b'xyz'})
+    >>> d2 = MyBoringDict.fromkeys(['a', 'b', 42])
+    >>> d2
+    MyBoringDict({'a': None, 'b': None, 42: None})
+    >>> d3 = MyBoringDict.fromkeys(['a', 'b', 42], {'la'})
+    >>> d3
+    MyBoringDict({'a': {'la'}, 'b': {'la'}, 42: {'la'}})
+    >>> d3['a'] is d3['b'] is d3[42]
+    True
+
+    >>> class WorseBoringDict(DictWithSomeHooks):
+    ...
+    ...     def __init__(self, /, *args, **kwargs):
+    ...         super().__init__(*args, **kwargs)
+    ...         self.my_attr_set_in_init = 'foo-bar'
+    ...
+    >>> WorseBoringDict({'a': 1, False: ['b']}, x=b'xyz')
+    WorseBoringDict({'a': 1, False: ['b'], 'x': b'xyz'})
+    >>> WorseBoringDict.fromkeys(['a', 'b', 42])  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: ...
+
+    >>> class BetterBoringDict(DictWithSomeHooks):
+    ...
+    ...     # Let's re-enable the default implementation of `fromkeys()`
+    ...     # (by setting this flag to `True` we explicitly promise
+    ...     # that our extended `__init__()` is able to take a plain
+    ...     # `dict` of items as the sole argument).
+    ...     _standard_fromkeys_enabled = True
+    ...
+    ...     def __init__(self, /, *args, **kwargs):
+    ...         super().__init__(*args, **kwargs)
+    ...         self.my_attr_set_in_init = 'foo-bar'
+    ...
+    >>> d4 = BetterBoringDict.fromkeys(['a', 'b', 42])
+    >>> d4
+    BetterBoringDict({'a': None, 'b': None, 42: None})
+    >>> d4.my_attr_set_in_init
+    'foo-bar'
+
+    >>> class TotallyWeirdDict(DictWithSomeHooks):
+    ...
     ...     def __eq__(self, other):
     ...         return 'equal' in other
     ...
-    >>> d2 = AnotherWeirdSubclass()
-    >>> d2 == {}
+    >>> d5 = TotallyWeirdDict()
+    >>> d5 == {}
     False
-    >>> d2 != {}
+    >>> d5 != {}
     True
-    >>> d2 == ['equal']
+    >>> d5 == ['equal']
     True
-    >>> d2 != ['equal']
+    >>> d5 != ['equal']
     False
     """
 
     def __init__(self, /, *args, **kwargs):
-        super(DictWithSomeHooks, self).__init__(*args, **kwargs)
-        self._repr_recur_thread_ids = set()
+        self.__init_internals()
+        super().__init__(*args, **kwargs)
 
     @classmethod
-    def fromkeys(cls, *args, **kwargs):
-        raise NotImplementedError(
-            'the fromkeys() class method is not implemented '
-            'for the {.__qualname__} class', cls)
+    def fromkeys(cls, iterable, value=None, /):
+        if (cls.__init__ is not DictWithSomeHooks.__init__) and not cls._standard_fromkeys_enabled:
+            raise NotImplementedError(
+                'the class method `fromkeys()` is not enabled (to enable '
+                'it in a subclass that extends `__init__()`, you need '
+                'to: *either* set the `_standard_fromkeys_enabled` class '
+                'attribute to `True` -- after ensuring that `__init__()` '
+                'accepts a plain dict of items as the sole argument; *or* '
+                'provide your own implementation of `fromkeys()`)')
+        items = zip(iterable, itertools.repeat(value))
+        # (below we apply `dict()` to `items`, as we prefer to minimize
+        # the requirements imposed on the `__init__()` method's interface
+        # if extended in a subclass)
+        return cls(dict(items))
 
     def __repr__(self):
         repr_recur_thread_ids = self._repr_recur_thread_ids
         cur_thread_id = get_current_thread_ident()
-        if cur_thread_id in self._repr_recur_thread_ids:
-            # recursion detected
-            constructor_args_repr = '<...>'
-        else:
-            try:
-                repr_recur_thread_ids.add(cur_thread_id)
-                constructor_args_repr = self._constructor_args_repr()
-            finally:
-                repr_recur_thread_ids.discard(cur_thread_id)
-        return '{.__class__.__qualname__}({})'.format(self, constructor_args_repr)
+        with self._repr_recur_thread_ids_rlock:
+            if cur_thread_id in self._repr_recur_thread_ids:
+                # recursion detected
+                constructor_args_repr = '<...>'
+            else:
+                try:
+                    repr_recur_thread_ids.add(cur_thread_id)
+                    constructor_args_repr = self._constructor_args_repr()
+                finally:
+                    repr_recur_thread_ids.discard(cur_thread_id)
+        return f'{self.__class__.__qualname__}({constructor_args_repr})'
 
     __ne__ = properly_negate_eq
 
     def __getitem__(self, key):
         try:
-            return super(DictWithSomeHooks, self).__getitem__(key)
+            return super().__getitem__(key)
         except KeyError as key_error:
-            raise self._custom_key_error(key_error, '__getitem__') from key_error
+            raise self.__get_only_custom_key_error(key_error, '__getitem__') from key_error
 
     def __delitem__(self, key):
         try:
-            super(DictWithSomeHooks, self).__delitem__(key)
+            super().__delitem__(key)
         except KeyError as key_error:
-            raise self._custom_key_error(key_error, '__delitem__') from key_error
+            raise self.__get_only_custom_key_error(key_error, '__delitem__') from key_error
 
     def pop(self, *args):
         try:
-            return super(DictWithSomeHooks, self).pop(*args)
+            return super().pop(*args)
         except KeyError as key_error:
-            raise self._custom_key_error(key_error, 'pop') from key_error
+            raise self.__get_only_custom_key_error(key_error, 'pop') from key_error
 
     def popitem(self):
         try:
-            return super(DictWithSomeHooks, self).popitem()
+            return super().popitem()
         except KeyError as key_error:
-            raise self._custom_key_error(key_error, 'popitem') from key_error
+            if self._custom_key_error_also_for_popitem:
+                raise self.__get_only_custom_key_error(key_error, 'popitem') from key_error
+            raise
+
+    def __get_only_custom_key_error(self, key_error, method_name):
+        custom_key_error = self._custom_key_error(key_error, method_name)
+        if custom_key_error is key_error:
+            raise
+        return custom_key_error
 
     def copy(self):
-        return copy.copy(self)
+        return self.__copy__()
 
     def __copy__(self):
-        cls = type(self)
-        new = cls.__new__(cls)
-        new._repr_recur_thread_ids = set()
-        new.update(self.items())
-        vars(new).update((k, v) for k, v in vars(self).items()
-                         if k != '_repr_recur_thread_ids')
-        return new
+        return self.__new_with_given_items_and_our_attrs(self.items())
 
     def __deepcopy__(self, memo):
         cls = type(self)
         new = cls.__new__(cls)
-        new._repr_recur_thread_ids = set()
+        new.__init_internals()
         memo[id(self)] = new  # <- needed in case of a recursive mapping
-        copied_items = copy.deepcopy(list(self.items()), memo)
-        copied_attrs = copy.deepcopy(list(vars(self).items()), memo)
+        # (below we apply `dict()` to `items`, as we prefer to minimize
+        # the requirements imposed on the `update()` method's interface
+        # if customized in a subclass)
+        copied_items = copy.deepcopy(dict(self.items()), memo)
+        copied_attrs = copy.deepcopy(list(self.__iter_copyable_attrs()), memo)
         new.update(copied_items)
-        vars(new).update((k, v) for k, v in copied_attrs
-                         if k != '_repr_recur_thread_ids')
+        vars(new).update(copied_attrs)
         return new
 
-    # the overridable/extendable hooks:
+    def __or__(self, other):
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        # (the following `dict()` and both `.items()` calls may seem
+        # redundant, but they are here for a reason -- to impose modest
+        # yet well-defined requirements on the engaged types' interfaces)
+        other_as_plain_dict = dict(other.items())
+        merged_items = super().__or__(other_as_plain_dict).items()
+        return self.__new_with_given_items_and_our_attrs(merged_items)
+
+    def __ror__(self, other):
+        if not isinstance(other, Mapping):
+            return NotImplemented
+        # (the following `dict()` and both `.items()` calls may seem
+        # redundant, but they are here for a reason -- to impose modest
+        # yet well-defined requirements on the engaged types' interfaces)
+        other_as_plain_dict = dict(other.items())
+        merged_items = super().__ror__(other_as_plain_dict).items()
+        return self.__new_with_given_items_and_our_attrs(merged_items)
+
+    def __new_with_given_items_and_our_attrs(self, items):
+        cls = type(self)
+        new = cls.__new__(cls)
+        new.__init_internals()
+        # (below we apply `dict()` to `items`, as we prefer to minimize
+        # the requirements imposed on the `update()` method's interface
+        # if customized in a subclass)
+        new.update(dict(items))
+        vars(new).update(self.__iter_copyable_attrs())
+        return new
+
+    def __init_internals(self):
+        self._repr_recur_thread_ids = set()
+        self._repr_recur_thread_ids_rlock = threading.RLock()
+
+    def __iter_copyable_attrs(self):
+        return (
+            (k, v) for k, v in vars(self).items()
+            if k not in (
+                '_repr_recur_thread_ids',
+                '_repr_recur_thread_ids_rlock',
+            ))
+
+    # overridable hooks and attributes:
 
     def _constructor_args_repr(self):
         return repr(dict(self.items()))
 
     def _custom_key_error(self, key_error, method_name):
-        if method_name == 'popitem':
-            # for popitem() the standard behaviour is mostly the desired one
-            raise
         return key_error
+
+    _custom_key_error_also_for_popitem = False
+    _standard_fromkeys_enabled = False  # <- relevant in a subclass if `__init__()` is extended
 
 
 ## TODO: doc + maybe more tests (now only the CIDict subclass is doc-tested...)
-class NormalizedDict(collections_abc.MutableMapping):
+class NormalizedDict(MutableMapping):
 
     def __init__(self, /, *args, **kwargs):
         self._mapping = {}
@@ -1368,7 +1969,7 @@ class NormalizedDict(collections_abc.MutableMapping):
         if isinstance(other, NormalizedDict):
             return (dict(self.iter_normalized_items()) ==
                     dict(other.iter_normalized_items()))
-        return super(NormalizedDict, self).__eq__(other)
+        return super().__eq__(other)
 
     __ne__ = properly_negate_eq
 
@@ -1486,7 +2087,7 @@ class CIDict(NormalizedDict):
     """
 
     def normalize_key(self, key):
-        key = super(CIDict, self).normalize_key(key)
+        key = super().normalize_key(key)
         return key.lower()
 
 
@@ -1542,7 +2143,7 @@ class LimitedDict(collections.OrderedDict):
 
     def __init__(self, /, *args, maxlen, **kwargs):
         self._maxlen = maxlen
-        super(LimitedDict, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def __repr__(self):
         """
@@ -1561,7 +2162,7 @@ class LimitedDict(collections.OrderedDict):
         >>> StrangeSubclass({1: 2}, maxlen=3)  # doctest: +ELLIPSIS
         <...StrangeSubclass object at 0x...>
         """
-        s = super(LimitedDict, self).__repr__()
+        s = super().__repr__()
         if s.endswith(')'):
             ending = 'maxlen={})'
             if not s.endswith('()'):
@@ -1573,7 +2174,7 @@ class LimitedDict(collections.OrderedDict):
             return object.__repr__(self)
 
     def __setitem__(self, key, value):
-        super(LimitedDict, self).__setitem__(key, value)
+        super().__setitem__(key, value)
         if len(self) > self._maxlen:
             self.popitem(last=False)
 
@@ -1610,7 +2211,7 @@ class LimitedDict(collections.OrderedDict):
         return cls(items, maxlen=maxlen)
 
 
-class _CacheKey(object):
+class _CacheKey:
 
     def __init__(self, *args):
         self.args = args
@@ -1622,9 +2223,7 @@ class _CacheKey(object):
     def __hash__(self):
         return self.args_hash
 
-    def __eq__(self, other,
-               _type=type):
-        assert _type(other) == _type(self)
+    def __eq__(self, other):
         return self.args == other.args
 
 
@@ -1632,13 +2231,13 @@ def memoized(func=None,
              expires_after=None,
              max_size=None,
              max_extra_time=30,
-             time_func=time.time):
+             time_func=time.monotonic):
     """
     A simple in-memory-LRU-cache-providing call memoizing decorator.
 
     Args:
         `func`:
-            The decorated function. Typically it is ommited to
+            The decorated function. Typically, it is ommited to
             be bound later with the decorator syntax (see the
             examples below).
 
@@ -1657,11 +2256,16 @@ def memoized(func=None,
         `max_extra_time` (default: 30):
             Maximum for a random number of seconds to be added to
             `expires_after` for a particular cached result. None
-            means the same as 0: no extra time.
-        `time_func` (default time.time()):
-            A function used to determine current time: it should
-            return a timestamp as an int or float number (one second
-            is assumed to be the unit).
+            means the same as 0: no extra time. Non-zero values
+            help in "desynchronization" of `@memoized`-based caches,
+            i.e., in avoiding unwanted regularity in coincidences of
+            cache expirations (in particular, when `expires_after`
+            of one cache is, by accident, equal to `expires_after`
+            of another cache, or to a multiplicity of it).
+        `time_func` (default: `time.monotonic()`):
+            A function used to determine the *current time*: it should
+            return an `int` or `float` number (one second is assumed to
+            be the unit, fractional part is welcome).
 
     Note: recursion is not supported (the decorated function raises
     RuntimeError when a recursive call occurs).
@@ -1699,8 +2303,8 @@ def memoized(func=None,
     4
 
     >>> t = 0
-    >>> pseudo_time = lambda: t
-    >>> @memoized(expires_after=4, max_extra_time=None, time_func=pseudo_time)
+    >>> fake_time = lambda: t
+    >>> @memoized(expires_after=4, max_extra_time=None, time_func=fake_time)
     ... def sub(a, b):
     ...     print('calculating: {} - {} = ...'.format(a, b))
     ...     return a - b
@@ -1875,11 +2479,11 @@ class DictDeltaKey(collections.namedtuple('DictDeltaKey', ('op', 'key_obj'))):
     def __new__(cls, op, key_obj):
         if op not in ('+', '-'):
             raise ValueError("`op` must be one of: '+', '-'")
-        return super(DictDeltaKey, cls).__new__(cls, op, key_obj)
+        return super().__new__(cls, op, key_obj)
 
     def __eq__(self, other):
         if isinstance(other, DictDeltaKey):
-            return super(DictDeltaKey, self).__eq__(other)
+            return super().__eq__(other)
         # We don't want to be equal to anything else,
         # in particular, not to any other tuples...
         return False
@@ -2169,11 +2773,11 @@ def update_mapping_recursively(*args, **kwargs):
     for src_mapping in source_mappings:
         src_items = (
             src_mapping.items()
-            if isinstance(src_mapping, collections_abc.Mapping)
+            if isinstance(src_mapping, Mapping)
             else src_mapping)
         for key, src_val in src_items:
             target_val = target_mapping.get(key)
-            if isinstance(target_val, collections_abc.MutableMapping):
+            if isinstance(target_val, MutableMapping):
                 update_mapping_recursively(target_val, src_val)
             else:
                 target_mapping[key] = copy.deepcopy(src_val)
@@ -2378,7 +2982,7 @@ def picklable(func_or_class):
     ...     func_b = lambda: None
     ...     func_b2 = lambda: None
     ...     func_b3 = lambda: None
-    ...     class class_C(object): z = 3
+    ...     class class_C: z = 3
     ...     return func_a, func_b, func_b2, func_b3, class_C
     ...
     >>> a, b, b2, b3, C = _make_nontoplevel()
@@ -2689,8 +3293,9 @@ def replace_segment(s, segment_index, new_content, sep='.'):
     Args:
         `s` (str or bytes/bytearray):
             The input string or bytes sequence.
-        `segment_index` (int)
-            The number (0-indexed) of the segment to be replaced.
+        `segment_index` (int or slice)
+            The number (0-indexed) of the segment to be replaced,
+            or a slice object specifying that segment.
         `new_content` (str or bytes/bytearray, auto-coerced to type of `s`):
             The string (or bytes sequence) to be placed as the segment.
 
@@ -2706,6 +3311,22 @@ def replace_segment(s, segment_index, new_content, sep='.'):
     'a.ZZZ.c.d'
     >>> replace_segment('a.b.c.d', 1, b'ZZZ')
     'a.ZZZ.c.d'
+    >>> replace_segment(b'a.b.c.d', 1, b'ZZZ')
+    b'a.ZZZ.c.d'
+    >>> replace_segment(b'a.b.c.d', 1, 'ZZZ')
+    b'a.ZZZ.c.d'
+    >>> replace_segment('a.b.c.d', slice(1, 3), 'AAA.ZZZ')
+    'a.AAA.ZZZ.d'
+    >>> replace_segment('a.b.c.d', slice(1, 3), 'AAA')
+    'a.AAA.d'
+    >>> replace_segment('a.b.c.d', slice(1, 3), 'q.w.e.r.t.y')
+    'a.q.w.e.r.t.y.d'
+    >>> replace_segment('a.b.c.d', slice(1, 3), b'AAA.ZZZ', sep=b'.')
+    'a.AAA.ZZZ.d'
+    >>> replace_segment(b'a.b.c.d', slice(1, 3), 'AAA.ZZZ', sep='.')
+    b'a.AAA.ZZZ.d'
+    >>> replace_segment(b'a;b;c;d', slice(1, 3), 'AAA;ZZZ', sep=b';')
+    b'a;AAA;ZZZ;d'
     >>> replace_segment(bytearray(b'a::b::c::d'), 2, 'ZZZ', sep=b'::')
     bytearray(b'a::b::ZZZ::d')
     >>> replace_segment('a::b::c::d', 2, b'ZZZ', sep=bytearray(b'::'))
@@ -2725,7 +3346,10 @@ def replace_segment(s, segment_index, new_content, sep='.'):
     new_content = tp(new_content)
     sep = tp(sep)
     segments = s.split(sep)
-    segments[segment_index] = new_content
+    if isinstance(segment_index, slice):
+        segments[segment_index] = new_content.split(sep)
+    else:
+        segments[segment_index] = new_content
     return sep.join(segments)
 
 
@@ -3013,7 +3637,7 @@ def as_bytes(obj, encode_error_handling='surrogatepass'):
     >>> b4 = as_bytes(memoryview(b))
     >>> b4 == b and type(b4) is bytes
     True
-    >>> class WithDunderBytes(object):
+    >>> class WithDunderBytes:
     ...     def __bytes__(self):
     ...         return b
     ...
@@ -3357,16 +3981,15 @@ def with_flipped_args(func):
     return flipped_func
 
 
-def iter_grouped_by_attr(collection_of_objects,   # type: Iterable[T]
-                         attr_name,               # type: Str
-                         presort=False,           # type: bool
+def iter_grouped_by_attr(collection_of_objects: Iterable[T],
+                         attr_name: str,
+                         presort: bool = False,
 
                          # not real parameters, just quasi-constants for faster access:
                          _attrgetter=operator.attrgetter,
                          _groupby=itertools.groupby,
                          _list=list,
-                         _sorted=sorted):
-    # type: (...) -> Iterator[List[T]]
+                         _sorted=sorted) -> Iterator[list[T]]:
     """
     For the given collection of objects (`collection_of_objects`) and
     attribute name (`attr_name`), return an iterator which yields lists
@@ -3377,7 +4000,7 @@ def iter_grouped_by_attr(collection_of_objects,   # type: Iterable[T]
     designated attribute. `AttributeError` will be raised if an object
     without that attribute is encountered.
 
-    By default the collection is processed in a "lazy" manner (it may be
+    By default, the collection is processed in a "lazy" manner (it may be
     especially important if it is, for example, a generator that yields
     a huge number of objects).
 
@@ -3911,7 +4534,7 @@ def _try_to_release_dump_condensed_debug_msg_lock(
     try:
         _release_lock()
     except RuntimeError:
-        # already unlocked
+        # *either* already unlocked *or* owned+locked by another thread
         pass
 
 def dump_condensed_debug_msg(header=None, stream=None, debug_msg=None,
@@ -3977,19 +4600,18 @@ def dump_condensed_debug_msg(header=None, stream=None, debug_msg=None,
     except:
         # The purpose of the following call is to reduce probability of
         # deadlocks in a rare case when the normal lock release (above)
-        # has been omitted (because of some asynchronous exception,
-        # such as a KeyboardInterrupt raised by a signal handler, in an
-        # unfortunate moment...).  Note that, even if -- in a very rare
-        # case -- this additional lock release attempt was redundant
-        # (and therefore premature), the only risk of executing
-        # simultaneously this function's code by more than one thread
-        # seems to be printing intermixed debug messages (not a big
-        # deal, especially compared with a possibility of a deadlock).
+        # has been omitted (because of some asynchronous exception, such
+        # as a KeyboardInterrupt raised by a signal handler, in an
+        # unfortunate moment...). (Note that an attempt to release
+        # an `RLock` which is not owned by the current thread causes
+        # `RuntimeError` without releasing the lock, so there is no fear
+        # that we could prematurely unlock the lock when it is owned by
+        # another thread.)
         _try_to_release_lock()
         raise
 
 
-class AtomicallySavedFile(object):
+class AtomicallySavedFile:
 
     """
     A context manager that saves a file atomically (the file will

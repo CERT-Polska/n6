@@ -1,3 +1,5 @@
+# Copyright (c) 2013-2022 NASK. All rights reserved.
+
 """
 Component archive_raw -- adds raw data to the archive database (MongoDB).
 A new source is added as a new collection.
@@ -19,10 +21,20 @@ import pymongo
 from bson.json_util import loads
 from bson.json_util import dumps
 
-from n6lib.common_helpers import open_file
+from n6datapipeline.base import (
+    LegacyQueuedBase,
+    n6QueueProcessingException,
+)
+from n6lib.common_helpers import (
+    open_file,
+    read_file,
+)
 from n6lib.config import Config
-from n6datapipeline.base import LegacyQueuedBase, n6QueueProcessingException
-from n6lib.log_helpers import get_logger, logging_configured
+from n6lib.const import RAW_TYPE_ENUMS
+from n6lib.log_helpers import (
+    get_logger,
+    logging_configured,
+)
 
 
 LOGGER = get_logger(__name__)
@@ -36,16 +48,17 @@ first_letter_collection_name = re.compile("^(?!system)[a-z_].*", re.UNICODE)
 
 def backup_msg(fname, collection, msg, header):
     with open_file(fname, 'wb') as f:
+        collection = collection.encode('utf-8') if isinstance(collection, str) else collection
+
+        hdr = ascii(header).encode('ascii')
+
         if isinstance(msg, (bytes, str)):
-            payload = (msg.encode('utf-8') if isinstance(msg, str)
+            payload = (msg.encode('utf-8', 'surrogatepass') if isinstance(msg, str)
                        else msg)
         else:
-            payload = (ascii(msg).encode('utf-8') if isinstance(ascii(msg), str)
-                       else ascii(msg))
+            payload = ascii(msg).encode('ascii')
 
-        hdr = (ascii(header).encode('utf-8') if isinstance(ascii(header), str)
-               else ascii(header))
-        f.write('\n'.join(( collection, hdr, payload )))
+        f.write(b'\n'.join((collection, hdr, payload)))
 
 
 def timeit(method):
@@ -568,23 +581,25 @@ class DBarchiver(LegacyQueuedBase):
 
         # Add to archive
         if writing:
-            type_ = properties.type
+            raw_type = properties.type
             payload = (body.encode('utf-8') if isinstance(body, str)
                        else body)
 
-            if type_ == 'stream':
+            if raw_type == 'stream':
                 s = JsonStream(dbmanager=self.manager, properties=properties)
                 s.preparations_data(payload)
-            elif type_ == 'file':
+            elif raw_type == 'file':
                 s = FileGridfs(dbmanager=self.manager, properties=properties)
                 s.preparations_data(payload)
-            elif type_ == 'blacklist':
+            elif raw_type == 'blacklist':
                 s = BlackListCompacter(dbmanager=self.manager, properties=properties)
                 s.preparations_data(payload)
                 s.start()
             else:
                 raise n6QueueProcessingException(
-                    "Unknown message type: {0}, source: {1}".format(type_, routing_key))
+                    f'Unknown message type (aka *raw type*): '
+                    f'{raw_type!a}, routing key: {routing_key!a}')
+            assert raw_type in RAW_TYPE_ENUMS
       #finally:
       #  self.__tf.append(time.time() - t0)
       #  if next(self.__count) % 5000 == 0:  #spr.
@@ -767,7 +782,7 @@ class BlackListCompacter(MongoConnection):
         Return: None
         """
         file1, file2 = files
-        f_sout = open_file(self.tempfile_patch_u, "w")
+        f_sout = open_file(self.tempfile_patch_u, "wb")
         if BlackListCompacter.init:
             BlackListCompacter.init = 0
             subprocess.call("diff -u " + file1 + " " + file2,
@@ -775,7 +790,7 @@ class BlackListCompacter(MongoConnection):
             f_sout.close()
 
             self.save_file_in_db(self.marker_db_init,
-                                 open_file(self.tempfile_patch_u, 'rb').read())
+                                 read_file(self.tempfile_patch_u, 'rb'))
             LOGGER.debug(' marker init in db:%s ', self.marker_db_init)
         else:
             subprocess.call("diff -u " + file1 + " " +
@@ -783,7 +798,7 @@ class BlackListCompacter(MongoConnection):
             f_sout.close()
 
             self.save_file_in_db(self.marker_db_diff,
-                                 open_file(self.tempfile_patch_u, 'rb').read())
+                                 read_file(self.tempfile_patch_u, 'rb'))
             LOGGER.debug('marker in period in db :%s ', self.marker_db_diff)
 
     def generate_orig_file(self, cursor, file_id):
@@ -801,7 +816,7 @@ class BlackListCompacter(MongoConnection):
         # generate first file
         files_count = 1
         # stdout in file
-        f_sout = open_file(self.tempfile_patch_u, "w")
+        f_sout = open_file(self.tempfile_patch_u, "wb")
         # first diff file post init in GENERATE_ALL_FILE mode
         if cursor.count() > 0 and BlackListCompacter.generate_all_file:
             out = subprocess.call("patch  " + self.tempfile_file + " -i  " +
@@ -927,6 +942,7 @@ def main():
         except KeyboardInterrupt:
             LOGGER.debug('SIGINT. waiting for ...')
             t.stop()
+            raise
         except socket.timeout as exc:
             # at the moment need to capture sys.exit tool for monitoring
             LOGGER.critical('socket.timeout: %a', exc)

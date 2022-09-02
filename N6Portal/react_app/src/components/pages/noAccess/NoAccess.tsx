@@ -1,11 +1,11 @@
 import { FC } from 'react';
 import { useHistory } from 'react-router';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import ErrorPage from 'components/errors/ErrorPage';
 import routelist from 'routes/routeList';
 
 const NoAccess: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const history = useHistory();
   return (
     <ErrorPage

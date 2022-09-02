@@ -1,6 +1,6 @@
 import { FC } from 'react';
 import { Modal } from 'react-bootstrap';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import CustomButton from 'components/shared/CustomButton';
 
 interface IProps {
@@ -11,7 +11,7 @@ interface IProps {
 }
 
 const UserSettingsConfirmationModal: FC<IProps> = ({ show, loadingCta = false, onHide, onConfirm }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   return (
     <Modal show={show} className="user-settings-confirmation-modal" onHide={onHide} centered>

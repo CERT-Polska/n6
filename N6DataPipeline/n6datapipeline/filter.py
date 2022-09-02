@@ -93,6 +93,7 @@ def main():
             d.run()
         except KeyboardInterrupt:
             d.stop()
+            raise
 
 
 if __name__ == "__main__":

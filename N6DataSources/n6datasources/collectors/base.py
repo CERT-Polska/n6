@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 """
 Collector base classes + auxiliary tools.
@@ -9,30 +9,43 @@ import datetime
 import pickle
 import hashlib
 import os
+import os.path as osp
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import (
+    Iterator,
+    Set,
+)
 from math import trunc
 from typing import (
+    Any,
+    ClassVar,
     Optional,
     Union,
 )
 
 import requests
 
+from n6datapipeline.base import LegacyQueuedBase
+from n6lib.class_helpers import CombinedWithSuper
 from n6lib.config import (
+    Config,
     ConfigError,
     ConfigMixin,
     ConfigSection,
+    combined_config_spec,
 )
-from n6datapipeline.base import LegacyQueuedBase
-from n6lib.class_helpers import attr_required
 from n6lib.common_helpers import (
     AtomicallySavedFile,
     as_bytes,
+    ascii_str,
     make_exc_ascii_str,
 )
 from n6lib.const import RAW_TYPE_ENUMS
+from n6lib.data_spec.fields import (
+    FieldValueError,
+    SourceField,
+)
 from n6lib.http_helpers import RequestPerformer
 from n6lib.log_helpers import (
     get_logger,
@@ -46,54 +59,113 @@ LOGGER = get_logger(__name__)
 
 #
 # Mixin classes
+#
 
 class CollectorConfigMixin(ConfigMixin):
 
-    # Instance attribute to be set automatically
-    # when `set_configuration()` is called
-    config: ConfigSection
+    """
+    A mixin that provides the configuration-options-related stuff
+    (`n6lib.config.ConfigMixin`-based).
 
-    # Supposed to be called by a subclass code...
+    Note: unlike other mixin classes defined in this module, this class
+    is already one of the `BaseCollector`'s superclasses (as well as of
+    the `StatefulCollectorMixin`'s and `DownloadingCollectorMixin`'s
+    superclasses) -- so in most cases you do not need to explicitly
+    derive your collector class from this mixin (one case when you may
+    want to do that is the rare case when you derive your class directly
+    from `AbstractBaseCollector` and not from `BaseCollector`).
+    """
+
+    # The default *config spec pattern* for collectors. It can be
+    # overridden in subclasses, but note that the default implementation
+    # of the `set_configuration()` method expects that the *config spec
+    # pattern* includes the `{collector_class_name}` section (treated
+    # by it as the *main section*). *Hint:* values of the attribute
+    # declared along the inheritance hierarchy can be easily *combined*
+    # (in a cooperative-inheritance-friendly way) by using the
+    # `n6lib.config.combined_config_spec()` helper.
+    config_spec_pattern: str = combined_config_spec('''
+        [{collector_class_name}]
+    ''')
+
+    # Instance attributes to be set automatically
+    # when `set_configuration()` is called:
+    config: ConfigSection   # containing options from the *main section*
+    config_full: Config     # containing *all* declared config sections
+
     def set_configuration(self) -> None:
-        if self.is_config_spec_or_group_declared():
-            self.config = self.get_config_section(**self.get_config_spec_format_kwargs())
-        else:
-            # backward-compatible behavior needed by a few collectors
-            # that have `config_group = None` and -- at the same
-            # time -- no `config_spec`/`config_spec_pattern`
-            self.config = ConfigSection('<no section declared>')
+        """
+        Set the configuration-related attributes.
 
-    # A hook method (can be extended in subclasses...)
+        This method is supposed to be called in the `__init__()` method
+        (note: in particular, `BaseCollector`'s `__init__()` does that).
+        """
+        format_kwargs = self.get_config_spec_format_kwargs()
+        collector_class_name = format_kwargs['collector_class_name']
+        assert collector_class_name == self.__class__.__name__
+        self.config_full = self.get_config_full(**format_kwargs)
+        self.config = self.config_full[collector_class_name]
+
     def get_config_spec_format_kwargs(self) -> KwargsDict:
-        return {}
+        """
+        A hook invoked by `set_configuration()`: get the *format data
+        dict* -- to be used to format the actual *config spec* (based on
+        the value of the `config_spec_pattern` attribute).
+
+        The default implementation of this method returns a dictionary
+        that contains just one key: `'collector_class_name'` -- the
+        value is `__name__` of the collector class.
+
+        This method will need to be extended (typically, using `super()`)
+        in your subclasses if their `config_spec_pattern`s contain also
+        other replacement fields (apart from `{collector_class_name}`).
+        """
+        return {'collector_class_name': self.__class__.__name__}
 
 
-class CollectorWithStateMixin:
+class StatefulCollectorMixin(CollectorConfigMixin):
 
     """
-    Mixin for tracking state of an inheriting collector.
+    A mixin that provides tools to persist some state (whatever it is
+    for a particular subclass) between collector script runs.
 
     Any picklable object can be saved as a state and then be retrieved
     as an object of the same type.
     """
 
-    pickle_protocol = pickle.HIGHEST_PROTOCOL
+    config_spec_pattern = combined_config_spec('''
+        [{collector_class_name}]
 
-    def __init__(self, *args, **kwargs):
+        state_dir = ~/.n6state :: str
+    ''')
+
+    unsupported_class_attributes: ClassVar[Set[str]] = CombinedWithSuper(frozenset({
+        # (replaced with the constructor argument `state_pickle_protocol`)
+        'pickle_protocol',
+    }))
+
+    def __init__(self, /, *args,
+                 state_pickle_protocol: int = pickle.HIGHEST_PROTOCOL,
+                 **kwargs):
         super().__init__(*args, **kwargs)
-        self._cache_file_path = os.path.join(os.path.expanduser(
-            self.config['cache_dir']), self.get_cache_file_name())
+        self._state_pickle_protocol = state_pickle_protocol
+        self._state_file_path = osp.join(
+            osp.expanduser(self.config['state_dir']),
+            self.get_state_file_name())
 
-    def load_state(self):
+    #
+    # Helper methods (can be used in your collector class)
+
+    def load_state(self) -> Any:
         """
-        Load collector's state from cache.
+        Load collector's state from the state file.
 
         Returns:
             Unpickled object of its original type.
         """
         try:
-            with open(self._cache_file_path, 'rb') as cache_file:
-                state = pickle.load(cache_file)
+            with open(self._state_file_path, 'rb') as state_file:
+                state = pickle.load(state_file)
         except (OSError, ValueError, EOFError) as exc:
             state = self.make_default_state()
             LOGGER.warning(
@@ -104,50 +176,155 @@ class CollectorWithStateMixin:
             LOGGER.info("Loaded state: %a", state)
         return state
 
-    def save_state(self, state):
+    def save_state(self, state: Any) -> None:
         """
         Save any picklable object as a collector's state.
 
-        Args:
+        Args/kwargs:
             `state`: a picklable object.
         """
-        cache_dir = os.path.dirname(self._cache_file_path)
+        state_dir = osp.dirname(self._state_file_path)
         try:
-            os.makedirs(cache_dir, 0o700)
+            os.makedirs(state_dir, 0o700)
         except OSError:
             pass
 
-        with AtomicallySavedFile(self._cache_file_path, 'wb') as f:
-             pickle.dump(state, f, self.pickle_protocol)
+        with AtomicallySavedFile(self._state_file_path, 'wb') as f:
+             pickle.dump(state, f, self._state_pickle_protocol)
         LOGGER.info("Saved state: %a", state)
 
-    def get_cache_file_name(self):
-        source_channel = self.get_source_channel()
-        source = self.get_source(source_channel=source_channel)
-        return '{}.{}.pickle'.format(source, self.__class__.__name__)
+    #
+    # Overridable methods (can be overridden/extended in your collector class)
 
-    def make_default_state(self):
+    def make_default_state(self) -> Any:
         return None
+
+    def get_state_file_name(self) -> str:
+        module_name = self.__class__.__module__
+        class_qualname = self.__class__.__qualname__
+        self._verify_module_is_not_main(module_name, class_qualname)
+        return f'{module_name}.{class_qualname}.pickle'
+
+    #
+    # Private helpers
+
+    def _verify_module_is_not_main(self, module_name: str, class_qualname: str) -> None:
+        if module_name == '__main__':
+            raise ValueError(
+                f'{module_name!a} is not the proper name of '
+                f'the module containing {class_qualname}')
+
+
+class DownloadingCollectorMixin(CollectorConfigMixin):
+
+    config_spec_pattern = combined_config_spec('''
+        [{collector_class_name}]
+
+        download_retries = 10 :: int
+        base_request_headers = {{}} :: py_namespaces_dict
+    ''')   # (`{{}}` is just escaped `{}` -- to avoid treating it as a pattern's replacement field)
+
+    def __init__(self, /, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._http_response = None          # to be set in request_performer()
+        self._http_last_modified = None     # to be set in request_performer()
+
+    #
+    # Helper properties and methods (can be used in your collector class)
+
+    @property
+    def http_response(self) -> Optional[requests.Response]:
+        return self._http_response
+
+    @property
+    def http_last_modified(self) -> Optional[datetime.datetime]:
+        return self._http_last_modified
+
+    def download(self, *args, stream=False, **kwargs) -> bytes:
+        with self.request_performer(*args, stream=stream, **kwargs) as perf:
+            return perf.response.content
+
+    def download_text(self, *args, stream=False, **kwargs) -> str:
+        with self.request_performer(*args, stream=stream, **kwargs) as perf:
+            return perf.response.text
+
+    @contextlib.contextmanager
+    def request_performer(self,
+                          url: str,
+                          *,
+                          method: str = 'GET',
+                          retries: Optional[int] = None,
+                          custom_request_headers: Optional[dict] = None,
+                          **rest_performer_constructor_kwargs):
+        retries = self._get_request_retries(retries)
+        headers = self._get_request_headers(custom_request_headers)
+        with RequestPerformer(method=method,
+                              url=url,
+                              retries=retries,
+                              headers=headers,
+                              **rest_performer_constructor_kwargs) as perf:
+            self._http_response = perf.response
+            self._http_last_modified = perf.get_dt_header('Last-Modified')
+            yield perf
+
+    #
+    # Private helpers
+
+    def _get_request_retries(self, retries: Optional[int]) -> int:
+        if retries is None:
+            retries = self.config['download_retries']
+            if retries < 0:
+                raise ConfigError(f'config option `download_retries` is '
+                                  f'a negative number: {retries!a}')
+        return retries
+
+    def _get_request_headers(self, custom_request_headers: Optional[dict]) -> dict:
+        headers = self.config['base_request_headers'].copy()
+        if custom_request_headers:
+            headers.update(custom_request_headers)
+        return headers
+
+    #
+    # Extension of `BaseCollector`-specific method
+
+    # The superclass version of this method (referred to in the following
+    # definition in the `super().get_output_prop_kwargs(...)` expression)
+    # will be, typically, provided by the `BaseCollector` class (together
+    # with a bunch of related methods...).
+    def get_output_prop_kwargs(self, **processed_data) -> KwargsDict:
+        prop_kwargs = super().get_output_prop_kwargs(**processed_data)  # noqa
+        if self.http_last_modified:
+            prop_kwargs['headers'].setdefault('meta', dict())
+            prop_kwargs['headers']['meta']['http_last_modified'] = str(self.http_last_modified)
+        return prop_kwargs
 
 
 #
-# Base classes
+# Base collector classes
+#
 
 class AbstractBaseCollector:
 
     """
-    Abstract base class for a collector script implementations.
+    A base class that defines a minimum set of methods that a collector
+    script class should have. A few of them (including: `run_script()`,
+    `get_script_init_kwargs()` and `run_collection()`) have sensible
+    default implementations; a few others (`run()`, `stop()`) are
+    *abstract* ones (i.e., need to be overridden in subclasses).
     """
 
+    #
+    # Script running
+
     @classmethod
-    def run_script(cls):
+    def run_script(cls) -> None:
         with logging_configured():
             init_kwargs = cls.get_script_init_kwargs()
             collector = cls(**init_kwargs)  # noqa
-            collector.run_handling()
+            collector.run_collection()
 
     @classmethod
-    def get_script_init_kwargs(cls):
+    def get_script_init_kwargs(cls) -> KwargsDict:
         """
         A class method: get a dict of kwargs for instantiation in a script.
 
@@ -156,31 +333,97 @@ class AbstractBaseCollector:
         return {}
 
     #
-    # Permanent (daemon-like) processing
+    # Main activity
 
-    def run_handling(self):
+    def run_collection(self) -> None:
         """
-        Run the event loop until Ctrl+C is pressed.
+        This method is expected to implement the main activity of the
+        collector.
+
+        The default implementation of this method performs the following
+        actions:
+
+        * (1) invoke the collector's `run()` method (which, in its
+          typical version implemented in `LegacyQueuedBase`, starts the
+          `pika`'s event loop, that will be running until it finishes
+          normally, or *Ctrl+C* is pressed, or some error occurs).
+
+        * (2-a) If `run()` raised a `KeyboardInterrupt` exception
+          (typically, because *Ctrl+C* was pressed), invoke the
+          collector's `stop()` method (which, in its typical version
+          implemented in `LegacyQueuedBase`, stops the `pika`'s event
+          loop), then re-raise the exception.
+
+        * (2-b) If `run()` raised any other exception, just propagate
+          it (without invoking `stop()`).
+
+        * (2-c) If no exception occurred, invoke the collector's method
+          `after_completed_publishing()` (note that, in this case,
+          `stop()` should not be invoked because the `run()` method
+          has finished its activity normally).
+
+        In subclasses, you may want to precede the above actions with
+        some preparatory activities, typically focused on obtaining and
+        preparation of the input data. You can do that by extending this
+        method and placing those preparatory activities before the
+        `super().run_collection()` statement (for a good example, see
+        the `BaseTwoPhaseCollector`'s implementation of this method...).
         """
         try:
             self.run()
         except KeyboardInterrupt:
             self.stop()
+            raise
+        else:
+            self.after_completed_publishing()
 
-    #
-    # Abstract methods (must be overridden)
+    # * Abstract methods (must be overridden in subclasses):
 
-    def run(self):
+    def run(self) -> None:
+        """
+        Perform the process of *publishing* output data.
+
+        [Terminological note: in the context of the *n6* pipeline,
+        by *publishing* some data we mean putting the data into the
+        component's output queue(s), using the AMQP operation named
+        *basic.publish*. Obviously, it has nothing to do with making
+        any data public.]
+
+        This is an abstract method. Typically, it will be overridden
+        (shadowed) with the implementation of `run()` provided by the
+        `n6datapipeline.base.LegacyQueuedBase` class.
+        """
         raise NotImplementedError
 
-    def stop(self):
+    def stop(self) -> None:
+        """
+        Perform any actions/cleanups needed after `run()` was interrupted
+        (typically, by pressing *Ctrl+C*).
+
+        This is an abstract method. Typically, it will be overridden
+        (shadowed) with the implementation of `stop()` provided by the
+        `n6datapipeline.base.LegacyQueuedBase` class.
+        """
         raise NotImplementedError
 
+    # * Additional hooks (can be overridden in subclasses if needed):
 
-class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollector):
+    def after_completed_publishing(self) -> None:
+        """
+        A hook invoked by `AbstractBaseCollector`'s version of
+        `run_collection()` when `run()` finished its job without
+        propagating any exception.
+
+        The default implementation of this method does nothing. In your
+        implementations in subclasses you can perform any actions that
+        are supposed to be performed if everything went well.
+        """
+
+
+class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollector):  # noqa
 
     """
-    The standard "root" base class for collectors.
+    The main base class for collectors.
     """
 
     output_queue: Optional[Union[dict, list[dict]]] = {
@@ -188,89 +431,88 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         'exchange_type': 'topic',
     }
 
-    # None or a string being the tag of the raw data format version
-    # (can be set in a subclass)
+    # `None` or a string being a tag denoting the version of the
+    # raw data format (aka *raw format version tag*), in the format:
+    # `<4-digit year><2-digit month>` (needed only if the raw data
+    # format has ever changed, so that a new parser had to be added)
     raw_format_version_tag: Optional[str] = None
-
-    # at most *one* of the following two attributes can
-    # be set in a subclass to a non-None value (see:
-    # `n6lib.config.ConfigMixin`...)
-    config_spec: Optional[str]
-    config_spec_pattern: Optional[str]
-
-    # the config section name, to be set in concrete subclasses
-    # (it does not have to be provided if `config_spec`
-    # or `config_spec_pattern` is provided in a subclass and
-    # contains a declaration of exactly *one* config section;
-    # see: `n6lib.config.ConfigMixin`...)
-    config_group: Optional[str] = None
-
-    # a sequence of required config options (can be extended in
-    # subclasses; typically, 'source' should be included there!)
-    # [TODO: let's get rid of this legacy attribute; note that
-    # `config_spec`/`config_spec_pattern` should be sufficient;
-    # see: `n6lib.config.ConfigMixin`...]
-    config_required: Sequence[str] = ('source',)
-    # (NOTE: the `source` setting value in the config is only
-    # the first part -- the `label` part -- of the actual
-    # source specification string '<label>.<channel>')
 
     # must be set in concrete subclasses to one of the values
     # the `n6lib.const.RAW_TYPE_ENUMS` constant contains:
     # 'stream', 'file' or 'blacklist'
-    # (note that this is something completely *different* than
-    # <parser class>.event_type and <RecordDict instance>['type'])
-    type: str = None
+    raw_type: str = None
 
     # must be set in concrete subclasses *if*
-    # `type` is 'file' or 'blacklist'
-    content_type: str
+    # `raw_type` is 'file' or 'blacklist'
+    content_type: Optional[str] = None
 
     # the attribute has to be overridden, if a component should
     # accept the "--n6recovery" argument option and inherits from
     # the `BaseCollector` class or its subclass
     supports_n6recovery: bool = False
 
+    # the `UnsupportedClassAttributesMixin`-related stuff
+    unsupported_class_attributes: ClassVar[Set[str]] = CombinedWithSuper(frozenset({
+        # (these methods/attributes are no longer supported, and we do
+        # not want to let them remain unnoticed in any subclasses)
+        'config_spec',            # nowadays, only `config_spec_pattern` should be used
+        'source_config_section',  # nowadays, the main config section name is just the class name
+        'type',                   # has been renamed to `raw_type`
+        'run_handling',           # has been replaced with `run_collection()`
+        'get_source_channel',     # nowadays, `get_source()` should be implemented in subclasses
+    }))
 
-    def __init_subclass__(cls, **kwargs):
+
+    #
+    # Subclass initialization
+
+    def __init_subclass__(cls, /, **kwargs):
         super().__init_subclass__(**kwargs)
-        ## TODO later?...
-        #for unsupported in ['config_spec', 'config_group', 'config_required']:
-        #    if getattr(cls, unsupported, None) is not None:
-        #        raise TypeError(
-        #            f"collectors's attribute `{unsupported}` is no longer
-        #            f"supported (`config_spec_pattern` should be set instead)")
-        if cls._is_abstract_base():
-            return
-        if cls.type is None:
-            raise NotImplementedError(
-                "`type` (collector's raw event type) is not set")
-        if cls.type not in RAW_TYPE_ENUMS:
-            raise ValueError(
-                f"`type` (collector's raw event type) should be "
-                f"one of: {', '.join(map(ascii, RAW_TYPE_ENUMS))} "
-                f"(found: {cls.type!a})")
-        if (cls.type in ('file', 'blacklist')
-              and getattr(cls, 'content_type', None) is None):
-            raise NotImplementedError(
-                f"`type` is set to {cls.type} so `content_type` "
-                f"should be set to a non-None value but it is not")
+        if not cls._is_abstract_base():
+            # To catch certain types of bugs early:
+            cls._validate_source_type_related_attributes(
+                ascii_str(cls.__qualname__),
+                raw_type=cls.raw_type,
+                content_type=cls.content_type)
 
     @classmethod
     def _is_abstract_base(cls):
         return (cls.__module__.endswith('.base')
-                or cls.__qualname__.startswith('_'))
+                or cls.__name__.startswith('_'))
+
+    @staticmethod
+    def _validate_source_type_related_attributes(owner_repr,
+                                                 *,
+                                                 raw_type,
+                                                 content_type):
+        if raw_type is None:
+            raise NotImplementedError(
+                f"{owner_repr}'s attribute `raw_type` is not set")
+        if raw_type not in RAW_TYPE_ENUMS:
+            raise ValueError(
+                f"{owner_repr}'s attribute `raw_type` should be "
+                f"one of: {', '.join(map(ascii, RAW_TYPE_ENUMS))} "
+                f"(found: {raw_type!a})")
+        if raw_type in ('file', 'blacklist') and content_type is None:
+            raise NotImplementedError(
+                f"{owner_repr}'s attribute `raw_type` is set to "
+                f"{raw_type!a} so `content_type` should be set to "
+                f"a non-None value")
 
 
-    def __init__(self, **kwargs):
+    #
+    # Instance initialization/configuration
+
+    def __init__(self, /, **kwargs):
         super().__init__(**kwargs)
         self.set_configuration()
-        self._validate_type()
+
+    # * Configurable-pipeline-related hooks:
 
     def get_component_group_and_id(self):
         return 'collectors', self.__class__.__name__
 
-    def make_binding_keys(self, binding_keys, *args):
+    def make_binding_keys(self, binding_keys, *args, **kwargs):
         """
         Make binding keys for the collector using values from
         the pipeline config, if the collector accepts input messages
@@ -285,8 +527,11 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         Use the lowercase collector's class' name as associated option
         in the pipeline config, or its group's name - 'collectors'.
 
-        Args:
-            New binding keys as a list.
+        Args/kwargs:
+            `binding_keys`:
+                The list of new binding keys.
+            <any other arguments>:
+                Ignored.
         """
         self.input_queue['binding_keys'] = binding_keys
         self.set_queue_name()
@@ -303,183 +548,145 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         if 'queue_name' not in self.input_queue or not self.input_queue['queue_name']:
             self.input_queue['queue_name'] = self.__class__.__name__.lower()
 
-    # FIXME: this method seems redundant [but, before removing it,
-    # check the similar (related?) `n6datapipeline.intelmq...` stuff]
-    def _validate_type(self):
-        """Validate type of message, should be one of: 'stream', 'file', 'blacklist."""
-        if self.type not in RAW_TYPE_ENUMS:
-            raise Exception('Wrong type of archived data in mongo: {0},'
-                            ' should be one of: {1}'.format(self.type, RAW_TYPE_ENUMS))
+
+    #
+    # AMQP-config-related hook (invoked in `LegacyQueuedBase.run()`)
 
     def update_connection_params_dict_before_run(self, params_dict):
         """
         For some collectors there may be a need to override the standard
         AMQP heartbeat interval (e.g., when collecting large files...).
+        If this is the case for your collector class, just declare the
+        `heartbeat_interval` option (with the `:: int` converter spec
+        declaration) in the *main section* (which almost always is the
+        `{collector_class_name}` section) of your collector class's
+        `config_spec_pattern`; then the `BaseCollector`'s version of
+        this hook will take care of the rest automatically.
         """
         super().update_connection_params_dict_before_run(params_dict)
         if 'heartbeat_interval' in self.config:
             params_dict['heartbeat_interval'] = self.config['heartbeat_interval']
 
-    #
-    # Permanent (daemon-like) processing
-
-    def run_handling(self):
-        """
-        Run the event loop until Ctrl+C is pressed.
-        """
-        try:
-            self.run()
-        except KeyboardInterrupt:
-            self.stop()
-
-    ### XXX: shouldn't the above method be rather:
-    # def run_handling(self):
-    #     """
-    #     Run the event loop until Ctrl+C is pressed or other fatal exception.
-    #     """
-    #     try:
-    #         self.run()
-    #     except:
-    #         self.stop()  # XXX: additional checks that all data have been sent???
-    #         raise
-    ### (or maybe somewhere in run_script...)
-    ### (+ also for all other components?)
 
     #
     # Input data processing -- preparing output data
 
     def get_output_components(self, **input_data):
         """
-        Get source specification string, AMQP message body and AMQP headers.
+        Prepare the AMQP routing key, raw message body and AMQP headers
+        -- to be used to make an AMQP output message.
 
         Kwargs:
             Some keyword-only arguments suitable
-            for the process_input_data() method.
+            for the `process_input_data()` method.
 
         Returns:
-            A tuple of positional arguments for the publish_output() method:
-            (<routing key (string)>,
-             <actual data body (bytes)>,
-             <custom keyword arguments for pika.BasicProperties (dict)>).
+            A tuple of positional arguments for the `publish_output()`
+            method: `(<routing key (str)>, <actual data body (bytes)>,
+            <custom keyword arguments for pika.BasicProperties (dict)>)`.
 
         This is a "template method" -- calling the following overridable
-        methods:
+        methods (in this order):
 
-        * process_input_data(),
-        * get_source_channel(),
-        * get_source(),
-        * get_output_rk(),
-        * get_output_data_body(),
-        * get_output_prop_kwargs().
+        * `process_input_data()`,
+        * `get_source()` and then `validate_source()`,
+        * `get_output_rk()` and then `validate_output_rk()`,
+        * `get_output_data_body()` and then validate_output_data_body`()`,
+        * `get_output_prop_kwargs()` and then `validate_output_prop_kwargs()`.
 
-        NOTE: get_source_channel() and get_output_data_body() are abstract
-        methods. You need to implement them in a subclass to be able to call
-        this method.
+        NOTE: if -- in the case of your concrete collector class -- this
+        method is used, the `get_source()` and `get_output_data_body()`
+        methods should be considered *abstract* ones, i.e., they *must*
+        be *overridden* (shadowed by concrete implementations) in your
+        class.
+
+        The rest of the aforementioned methods have reasonable default
+        implementations which, if necessary, *can* be *extended* (i.e.,
+        overridden with such an implementation that also invokes the
+        superclass version, preferably using `super()`) in your class.
         """
         processed_data = self.process_input_data(**input_data)
-        source_channel = self.get_source_channel(**processed_data)
-        source = self.get_source(
-                source_channel=source_channel,
-                **processed_data)
+        source = self.get_source(**processed_data)
+        self.validate_source(source)
         output_rk = self.get_output_rk(
                 source=source,
                 **processed_data)
+        self.validate_output_rk(output_rk)
         output_data_body = self.get_output_data_body(
                 source=source,
                 **processed_data)
+        self.validate_output_data_body(output_data_body)
         output_prop_kwargs = self.get_output_prop_kwargs(
                 source=source,
                 output_data_body=output_data_body,
                 **processed_data)
+        self.validate_output_prop_kwargs(output_prop_kwargs)
         return output_rk, output_data_body, output_prop_kwargs
 
     def process_input_data(self, **input_data):
         """
-        Preproccess input data.
+        Process the given *input data*.
 
         Kwargs:
-            Input data as some keyword arguments.
+            The *input data* as some (subclass-specific) keyword arguments.
 
         Returns:
-            A dict of additional keyword arguments for the following methods:
+            A dict of (additional) keyword arguments to be passed the
+            following methods:
 
-            * get_source_channel(),
-            * get_source(),
-            * get_output_rk(),
-            * get_output_data_body(),
-            * get_output_prop_kwargs().
+            * `get_source()`,
+            * `get_output_rk()`,
+            * `get_output_data_body()`,
+            * `get_output_prop_kwargs()`.
 
         Typically, this method is used indirectly -- being called in
-        get_output_components().
+        `get_output_components()`.
 
         The default implementation of this method does nothing and returns
-        the given input data unchanged.
+        the given *input data* unchanged (as a dict).
         """
         return input_data
 
     # NOTE: typically, this method must be implemented in concrete subclasses
-    def get_source_channel(self, **processed_data):
+    def get_source(self, **processed_data):
         """
-        Get the "channel" part of source specification.
+        Get the *source specification* string (aka *source id*, aka *source*).
 
         Kwargs:
-            Processed data (as returned by the process_input_data() method)
-            passed as keyword arguments (to be specified in subclasses).
+            Processed data (as returned by the `process_input_data()`
+            method, here passed in as keyword arguments).
 
         Returns:
-            The "channel" part of source specification as a string.
+            A string based on the pattern: '<source provider>.<source channel>'.
 
         Typically, this method is used indirectly -- being called in
         get_output_components().
 
-        In BaseCollector, this is a method placeholder; if you want to call
-        the get_output_components() method you *need* to implement this
-        method in your subclass.
+        In `BaseCollector` **this is a method placeholder**. Without a
+        concrete implementation of this method provided by a subclass,
+        the `get_output_components()` method cannot be used (as it would
+        raise `NotImplementedError`).
         """
         raise NotImplementedError
 
-    def get_source(self, source_channel, **processed_data):
-        """
-        Get the source specification string.
-
-        Kwargs:
-            `source_channel` (a string):
-                The "channel" part of the source specification.
-            <some keyword arguments>:
-                Processed data (as returned by the process_input_data()
-                method) passed as keyword arguments (the default
-                implementation ignores them).
-
-        Returns:
-            A string based on pattern: '<source label>.<source channel>'.
-
-        Typically, this method is used indirectly -- being called in
-        get_output_components().
-
-        The default implementation of this method should be sufficient in
-        most cases.
-        """
-        return '{0}.{1}'.format(self.config['source'],
-                                source_channel)
-
-    def get_output_rk(self, source, **processed_data):
+    def get_output_rk(self, *, source, **processed_data):
         """
         Get the output AMQP routing key.
 
         Kwargs:
             `source`:
-                The source specification string (based on pattern:
-                '<source label>.<source channel>').
+                The *source specification* string, aka *source id*, aka *source*
+                (based on the pattern: '<source provider>.<source channel>').
             <some keyword arguments>:
-                Processed data (as returned by the process_input_data()
-                method) passed as keyword arguments (the default
+                Processed data (as returned by the `process_input_data()`
+                method), here passed in as keyword arguments (the default
                 implementation ignores them).
 
         Returns:
             The output AMQP routing key (a string).
 
         Typically, this method is used indirectly -- being called in
-        get_output_components().
+        `get_output_components()`.
 
         The default implementation of this method should be sufficient in
         most cases.
@@ -487,62 +694,77 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         if self.raw_format_version_tag is None:
             return source
         else:
-            return '{0}.{1}'.format(source, self.raw_format_version_tag)
+            return f'{source}.{self.raw_format_version_tag}'
 
     # NOTE: typically, this method must be implemented in concrete subclasses
-    def get_output_data_body(self, source, **processed_data):
+    def get_output_data_body(self, *, source, **processed_data):
         """
         Get the output AMQP message data.
 
         Kwargs:
             `source`:
-                The source specification string (based on pattern:
-                '<source label>.<source channel>').
+                The *source specification* string, aka *source id*, aka *source*
+                (based on the pattern: '<source provider>.<source channel>').
             <some keyword arguments>:
-                Processed data (as returned by the process_input_data()
-                method) passed as keyword arguments (to be specified in
-                subclasses).
+                Processed data (as returned by the `process_input_data()`
+                method, here passed in as keyword arguments).
 
         Returns:
             The output AMQP message body (a bytes object).
 
         Typically, this method is used indirectly -- being called in
-        get_output_components().
+        `get_output_components()`.
 
-        In BaseCollector, this is a method placeholder; if you want to call
-        the get_output_components() method you *need* to implement this
-        method in your subclass.
+        In `BaseCollector` **this is a method placeholder**. Without a
+        concrete implementation of this method provided by a subclass,
+        the `get_output_components()` method cannot be used (as it would
+        raise `NotImplementedError`).
         """
         raise NotImplementedError
 
-    def get_output_prop_kwargs(self, source, output_data_body,
+    def get_output_prop_kwargs(self, *, source, output_data_body,
                                **processed_data):
         """
-        Get a dict of custom keyword arguments for pika.BasicProperties.
+        Get a dict of custom keyword arguments for `pika.BasicProperties`.
 
         Kwargs:
             `source`:
-                The source specification string (based on pattern:
-                '<source label>.<source channel>').
+                The *source specification* string, aka *source id*, aka *source*
+                (as returned by the `get_source()` method; based on the
+                pattern: '<source provider>.<source channel>').
             `output_data_body` (bytes):
                 The output AMQP message data (as returned by the
-                get_output_data_body() method).
+                `get_output_data_body()` method).
             <some keyword arguments>:
-                Processed data (as returned by the process_input_data()
-                method) passed as keyword arguments (the default
+                Processed data (as returned by the `process_input_data()`
+                method), here passed in as keyword arguments (the default
                 implementation ignores them).
 
         Returns:
-            Custom keyword arguments for pika.BasicProperties (a dict).
+            Custom keyword arguments for `pika.BasicProperties` (a dict).
 
         Typically, this method is used indirectly -- being called in
-        get_output_components().
+        `get_output_components()`.
 
         The default implementation of this method provides the following
-        properties: 'message_id', 'type', 'headers'. The method can be
-        *extended* in subclasses (with cooperative super()).
-
+        keys: `'message_id'`, `'type'` (corresponding to the collector's
+        `raw_type`), `'timestamp'`, `'headers'`, and -- only if the
+        collector's `raw_type` is `'file'` or `'blacklist'` -- also
+        `'content_type'` (corresponding to the collector's `content_type`).
+        This method can be *extended* in subclasses (using `super()`).
         """
+
+        # Note: even though the validation provided by the following
+        # call is very similar to the validation already done at the
+        # class level (in `__init_subclass__()`), it is still useful
+        # here -- because `raw_type` and/or `content_type` may also
+        # be set on instances (shadowing the corresponding class
+        # attributes).
+        self._validate_source_type_related_attributes(
+                    ascii(self),
+                    raw_type=self.raw_type,
+                    content_type=self.content_type)
+
         created_timestamp = trunc(time.time())
         message_id = self.get_output_message_id(
                     source=source,
@@ -552,42 +774,42 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
 
         properties = {
             'message_id': message_id,
-            'type': self.type,
+            # (note: the following item is something completely *different*
+            # than the 'type' item of a n6lib.record_dict.RecordDict)
+            'type': self.raw_type,
             'timestamp': created_timestamp,
             'headers': {},
         }
-
-        if self.type in ('file', 'blacklist'):
-            # (see the actual check in `__init_subclass__()`...)
-            assert getattr(self, 'content_type', None) is not None
+        if self.raw_type in ('file', 'blacklist'):
             properties['content_type'] = self.content_type
-
         return properties
 
-    def get_output_message_id(self, source, created_timestamp,
+    def get_output_message_id(self, *, source, created_timestamp,
                               output_data_body, **processed_data):
         """
         Get the output message id (aka `rid`).
 
         Kwargs:
             `source`:
-                The source specification string (based on pattern:
-                '<source label>.<source channel>').
+                The *source specification* string, aka *source id*, aka *source*
+                (as returned by the `get_source()` method; based on the
+                pattern: '<source provider>.<source channel>').
             `output_data_body`:
                 The output AMQP message body (bytes) as returned by the
-                get_output_data_body() method.
+                `get_output_data_body()` method.
             `created_timestamp`:
-                Message creation timestamp as an int number.
+                Message creation timestamp as an `int` number.
             <some keyword arguments>:
-                Processed data (as returned by the process_input_data()
-                method) passed as keyword arguments (the default
+                Processed data (as returned by the `process_input_data()`
+                method), here passed in as keyword arguments (the default
                 implementation ignores them).
 
         Returns:
             The output message id (a string).
 
         Typically, this method is used indirectly -- being called in
-        get_output_prop_kwargs() (which is called in get_output_components()).
+        `get_output_prop_kwargs()` (which is called in
+        `get_output_components()`).
 
         The default implementation of this method should be sufficient in
         most cases.
@@ -600,50 +822,302 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         hashed_bytes = b'\0'.join(components)
         return hashlib.md5(hashed_bytes, usedforsecurity=False).hexdigest()
 
+    _source_value_validation_field = SourceField()
 
-class BaseOneShotCollector(BaseCollector):
+    def validate_source(self, source):
+        # (checking type and value)
+        if not isinstance(source, str):
+            raise TypeError(ascii_str(
+                f'{self.__class__.__qualname__}: {source=!a} '
+                f'(an instance of `{type(source).__qualname__}`)'))
+        try:
+            cleaned = self._source_value_validation_field.clean_result_value(source)
+        except FieldValueError as exc:
+            raise ValueError(ascii_str(
+                f'{self.__class__.__qualname__}: {source=!a} ({exc})'))
+        assert cleaned == source, f'{cleaned!a} vs. {source!a}'
+
+    def validate_output_rk(self, output_rk):
+        # (checking *only type*)
+        if not isinstance(output_rk, str):
+            raise TypeError(ascii_str(
+                f'{self.__class__.__qualname__}: {output_rk=!a} '
+                f'(an instance of `{type(output_rk).__qualname__}`)'))
+
+    def validate_output_data_body(self, output_data_body):
+        # (checking *only type*)
+        if not isinstance(output_data_body, bytes):
+            raise TypeError(ascii_str(
+                f'{self.__class__.__qualname__}: {output_data_body=!a} '
+                f'(an instance of `{type(output_data_body).__qualname__}`)'))
+
+    def validate_output_prop_kwargs(self, output_prop_kwargs):
+        # (checking *only type*)
+        if not isinstance(output_prop_kwargs, dict):
+            raise TypeError(ascii_str(
+                f'{self.__class__.__qualname__}: {output_prop_kwargs=!a} '
+                f'(an instance of `{type(output_prop_kwargs).__qualname__}`)'))
+
+
+class BaseTwoPhaseCollector(BaseCollector):                                    # noqa
 
     """
-    The main base class for one-shot collectors (e.g. cron-triggered ones).
+    The main base class for such collectors whose activities can be
+    divided into two separate phases:
+
+    * (I: *obtaining phase*) obtain the *input pile*, that is, any data
+      that needs to be obtained from the outside;
+
+    * (II: *publishing phase*) output the obtained data as a series of
+      AMQP messages.
+
+    In fact, this two-phase scheme of action is expected to match the
+    needs of most collectors.
+
+    ***
+
+    Note: the following methods must be implemented in subclasses (i.e.,
+    they should be considered *abstract methods*):
+
+    * `obtain_input_pile()` and `generate_input_data_dicts()`
+      -- see their descriptions in this class;
+
+    * `get_source()` and `get_output_data_body()`
+      -- see `BaseCollector`, in particular the descriptions of those
+      two methods as well as of the `get_output_components()` template
+      method that invokes them (among others); note, also, that the
+      items of each of the consecutive dicts expected to be produced by
+      `generate_input_data_dicts()` will be used as keyword arguments
+      passed to consecutive invocations of `get_output_components()`
+      (see the descriptions of the methods `publish_iteratively()` and
+      generate_input_data_dicts()`...).
     """
 
-    def __init__(self, input_data=None, **kwargs):
-        """
-        Kwargs:
-            `input_data` (optional):
-                A dict of keyword arguments for the get_output_components()
-                method.
-        """
+    def __init__(self, /, **kwargs):
         super().__init__(**kwargs)
-        self.input_data = (input_data if input_data is not None
-                           else {})
-        self._output_components = None
+        self._input_pile: Any = None   # to be set in `run_collection()`
 
-    def run_handling(self):
+    def run_collection(self):
         """
-        For one-shot collectors: handle an event and return immediately.
+        The two-phase collectors' version of this method performs the
+        following actions:
+
+        * (1) Obtain the *input pile* (whatever it is for a particular
+          subclass) by invoking the `obtain_input_pile()` method and
+          storing the return value as a non-public instance attribute
+          (you should never have to deal with that attribute by yourself)
+          -- so that it can be retrieved later, during the activity of
+          the `pika`'s event loop (in `publish_iteratively()`).
+
+        * (2-a) If the *input pile* (i.e., the object returned by
+          `obtain_input_pile()`) is anything but `None` then go to
+          the *publishing phase* by invoking the superclass version of
+          `run_collection()` (which, typically, will start by invoking
+          this collector's `run()` method as it is defined in the base
+          class `LegacyQueuedBase`, running the `pika`'s event loop...).
+          Finally, if no exception occurs, the hook method
+          `after_completed_publishing()` will be invoked.
+
+        * (2-b) If the *input pile* is `None` then do nothing more (the
+          *publishing phase* will *not* be carried out). Note that the
+          `after_completed_publishing()` method will *not* be invoked
+          in such a case.
+
+        This version of `run_collection()` should be sufficient in most
+        cases.
         """
-        self._output_components = self.get_output_components(**self.input_data)
-        self.run()
-        LOGGER.info('Stopped')
+        self._input_pile = self.obtain_input_pile()
+        if self._input_pile is None:
+            LOGGER.info('%a: nothing to publish.', self)
+        else:
+            super().run_collection()
 
-    def start_publishing(self):
-        # TODO: docstring or comment what is being done here...
-        self.publish_output(*self._output_components)
-        self._output_components = None
-        LOGGER.debug('Stopping')
-        self.inner_stop()
+    def obtain_input_pile(self) -> Any:
+        """
+        This is an abstract method; its implementation in a subclass is
+        supposed to obtain and return the *input pile*, i.e., any data
+        that needs to be obtained from the outside (and maybe prepared
+        somehow, if necessary), whatever form it takes.
+
+        If there is *no data* to be published, this method should return
+        `None`; then the *publishing phase* (including invocations of
+        `generate_input_data_dicts()`, `get_output_components()`, etc.)
+        *will not* be carried out at all (so, in particular, the hook
+        method `after_completed_publishing()` *will not* be invoked).
+
+        ***
+
+        The `obtain_input_pile()` method is invoked once, during the
+        *obtaining phase*, from within `run_collection()`.
+        """
+        raise NotImplementedError
+
+    def start_publishing(self) -> None:
+        self.start_iterative_publishing()
+
+    def publish_iteratively(self) -> None:
+        """
+        The two-phase collectors' version of this generator method
+        performs the following actions:
+
+        * (1) Invoke the `generate_input_data_dicts()` method with the
+          *input pile* (i.e., the object being the result of the earlier
+          invocation of `obtain_input_pile()`) as the sole argument, to
+          obtain an iterator.
+
+        * (2) Perform the following actions *for each* of the *input
+          data* dicts yielded by the aforementioned iterator:
+
+          * (a) invoke the `get_output_components()` method with the
+            items of the *input data* dict as the keyword arguments
+            -- to obtain the *output components* tuple;
+
+          * (b) invoke the `publish_output()` method with the items of
+            the *output components* tuple as the *positional arguments*
+            -- to trigger publication of the corresponding AMQP message;
+
+          * (c) yield `None` to let the `LegacyQueuedBase`'s *iterative
+            publishing* machinery take care of all necessary technical
+            details related to AMQP message publication.
+
+        (Note: when the activity of this method finishes, the `pika`'s
+        event loop regains control again -- then it should stop soon,
+        just after sending any data remaining in the outbound data
+        buffer and then closing the AMQP connection.)
+
+        This version of `publish_iteratively()` should be sufficient in
+        most cases.
+        """
+        assert self._input_pile is not None  # (otherwise this code would not be executed...)
+
+        published_anything = False
+        for input_data in self.generate_input_data_dicts(self._input_pile):
+            output_components = self.get_output_components(**input_data)
+            self.publish_output(*output_components)
+            published_anything = True
+            yield
+
+        if not published_anything:
+            LOGGER.warning(
+                f'%a: nothing published because no items got from the '
+                f'`generate_input_data_dicts()` method', self)
+
+    def generate_input_data_dicts(self, input_pile: Any, /) -> Iterator[KwargsDict]:
+        """
+        **This is an abstract method**. Its implementation in a subclass
+        is supposed to accept the *input pile* (i.e., the object being
+        the result of the earlier invocation of `obtain_input_pile()`)
+        as the sole positional argument, and return an iterator that
+        yields one or more *input data* dicts (typically, you will want
+        to implement this method as a generator function, using `yield`
+        statements to yield those dicts).
+
+        The items of each of those (consecutive) yielded dicts will
+        become the keyword arguments passed to the corresponding
+        (consecutive) invocations of `get_output_components()` (to be
+        done in `publish_iteratively()`). The set of keys those dicts
+        contain, and the types and meaning of values they point to, are
+        subclass-specific; they are supposed to match what is expected
+        by `get_output_components()` and, mostly, by the methods invoked
+        by it (see the descriptions of that method and of the methods
+        invoked by it, provided by `BaseCollector`).
+
+        Note that the number of *input data* dicts yielded by this
+        method determines the number of *output messages* being
+        published (because it determines, one-to-one, the number of
+        invocations of `get_output_components()` and `publish_output()`).
+
+        If this method yields *no* input data dicts, then a warning will
+        be logged and, obviously, nothing will be published. However,
+        still, the hook method `after_completed_publishing()` *will be*
+        invoked (because of observing no real errors).
+
+        ***
+
+        During the *publishing phase* (if it is carried out at all), the
+        `generate_input_data_dicts()` method is invoked once, from within
+        `publish_iteratively()`.
+        """
+        raise NotImplementedError
 
 
-class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
+class BaseSimpleCollector(BaseTwoPhaseCollector):                                     # noqa
 
     """
-    The base class for "row-like" data collectors.
+    The main base class for simple "one-shot" collectors, i.e., such ones
+    that are supposed to publish at most one AMQP message during the whole
+    collector run.
 
+    When implementing a collector based on this class, the only methods
+    that need to be overridden (i.e., *abstract methods*) are:
+
+    * `obtain_data_body()` -- see its description in this class;
+    * `get_source()` (as always; see its description in `BaseCollector`).
+    """
+
+    def obtain_data_body(self) -> Optional[bytes]:
+        """
+        This is an abstract method; its implementation in a subclass
+        is supposed to obtain and return a `bytes` instance that will
+        become the body of the published AMQP message (aka *output data
+        body*).
+
+        If there is *no data* to be published, this method should return
+        `None`; then the *publishing phase* (including invocations of
+        `generate_input_data_dicts()`, `get_output_components()`, etc.)
+        *will not* be carried out at all (so, in particular, the hook
+        method `after_completed_publishing()` *will not* be invoked).
+
+        ***
+
+        The `obtain_data_body()` method is invoked once, from within
+        `obtain_input_pile()` (in its `BaseSimpleCollector`'s version).
+        """
+        raise NotImplementedError
+
+    def obtain_input_pile(self):
+        data_body = self.obtain_data_body()
+        if data_body is not None:
+            return {'data_body': data_body}
+        return None
+
+    def generate_input_data_dicts(self, input_data, /):
+        # Note: in the case of this particular implementation of this
+        # method, the *input pile* originating from `obtain_input_pile()`
+        # becomes just the *input data* dict that will be passed, as
+        # keyword arguments, to `get_output_components()` (and,
+        # consequently, to `get_output_data_body()` defined below).
+        assert isinstance(input_data, dict)
+        assert 'data_body' in input_data
+        yield input_data
+
+    def get_output_data_body(self, *, data_body, **kwargs):
+        return data_body
+
+
+class BaseTimeOrderedRowsCollector(StatefulCollectorMixin, BaseTwoPhaseCollector):  # noqa
+
+    """
+    The base class for collectors obtaining "row-like" data, i.e., data
+    consisting of individual *rows* (in any sense that can be expressed
+    by implementing the appropriate methods the machinery of this class
+    consists of). Each *row* should include its *time/order* marker (such
+    as date, timestamp or ordinal number...). New rows (with increasing
+    or at least non-decreasing values of that marker) are expected, over
+    time, to be *added* by the data source provider to the file/resource
+    accessed by our collector.
+
+    For more information -- in particular, some examples of input data
+    with references to `BaseTimeOrderedRowsCollector`-specific methods
+    -- see the further parts of this description...
+
+    ***
 
     Implementation/overriding of methods and attributes:
 
     * required:
+        * `get_source()`
+          -- see `BaseCollector.get_source()`
         * `obtain_orig_data()`
           -- see its docs,
         * `pick_raw_row_time()`
@@ -654,9 +1128,10 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
     * optional: see the attributes and methods defined within the body
       of this class below the "Stuff that can be overridden..." comment.
 
+    ***
 
     Original data (as returned by `obtain_orig_data()`) should consist
-    of rows that can be decoded from bytes and singled out (see:
+    of *rows* that can be decoded from bytes and then singled out (see:
     `all_rows_from_orig_data()` and the methods it calls), then selected
     (see: `get_fresh_rows_only()` and the methods it calls), and finally
     joined and encoded to bytes (see: `output_data_from_fresh_rows()`
@@ -686,32 +1161,27 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
     by the `get_oldest_possible_row_time()` method **must always** sort
     as **less than** any value returned by `clean_row_time()`.
 
-    It is important to highlight that the original data (rows) are
-    expected to be already sorted **descendingly** (from newest to oldest)
-    by the time/order field (as extracted with `extract_row_time()`,
-    described above). If not, that must be enforced by your
-    implementation, e.g., in the following way:
-
-        def all_rows_from_orig_data(self, orig_data):
-            all_rows = super().all_rows_from_orig_data(orig_data)
-            return sorted(all_rows, key=self._row_sort_key, reverse=True)
-
-        def _row_sort_key(self, row):
-            sort_key = self.extract_row_time(row)
-            if sort_key is None:
-                sort_key = self.get_oldest_possible_row_time()
-            return sort_key
-
     ***
 
-    Even a more important requirement, concerning the data source itself,
+    A very important requirement, concerning the data source itself,
     is that values of the *time/order* field of any **new** (fresh) rows
     encountered by the collector **must** be **greater than or equal to**
-    the *time/order* field's values of all rows collected during any
-    previous runs of the collector.
+    the *time/order* field's values of all rows collected during any past
+    runs of the collector (when we say that values are *greater than or
+    equal to* we refer to comparing values already prepared with
+    `clean_row_time()`).
 
-    If the **data source does not satisfy** this requirement then **some
-    rows will be lost** (i.e., will **not** be collected at all).
+    When it is detected that *the data source does not satisfy* the
+    requirement described above:
+
+    * if the value of the `row_count_mismatch_is_fatal` option is
+      false then a warning signalling row counts mismatch is logged
+      and the collector continues its work (**beware:** some rows may
+      be lost, i.e., *never* collected);
+
+    * if the value of the `row_count_mismatch_is_fatal` option is
+      true then a `ValueError` is raised (the collector's activity
+      is aborted; no rows are collected).
 
     For example, let's assume that a certain data source provided
     the following data:
@@ -720,8 +1190,8 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         '"2", "2019-07-18 01:00:00", "sample_data", "data"\n'
         '"1", "2019-07-17 00:00:00", "other_data", "data"\n'
 
-    Assuming that our imaginary collector threats the second column
-    as the *time/order* field and that we just ran our collector,
+    Assuming that our imaginary collector treats the second column
+    as the *time/order* field and that we just ran that collector,
     all those rows have been collected by it and the collector's saved
     state points on the `3`-rd row as the recent one.
 
@@ -735,73 +1205,63 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         '"2", "2019-07-18 01:00:00", "sample_data", "data"\n'
         '"1", "2019-07-17 00:00:00", "other_data", "data"\n'
 
-    If we run our collector now, it will collect the `6`-th row, but it
-    will **not** collect the `4`-th and `5`-th rows, because of treating
-    the `5`-th one as a row *from the past* (because its *time/order*
-    value is less (older) than the, previously-saved-as-the-recent-one,
-    `3`-rd's one).
-
-    Note that, in such a case, making our collector sort these rows
-    by the *time/order* field would **not** help much:
-
-        '"4", "2019-07-21 02:00:00", "sample_3", "data"\n'
-        '"6", "2019-07-20 02:00:00", "sample_2", "data"\n'
-        '"5", "2019-07-18 02:00:00", "sample_1", "data"\n'
-        '"3", "2019-07-19 02:00:00", "sample", "data"\n'
-        '"2", "2019-07-18 01:00:00", "sample_data", "data"\n'
-        '"1", "2019-07-17 00:00:00", "other_data", "data"\n'
-
-    Even though the `4`-th and `6`-th rows would be collected, the
-    `5`-th one **would not** -- as it would be (still) considered a row
-    *from the past*. Indeed, the main problem is with the data source
-    itself: it does not satisfy the requirement described above.
+    Even though the `4`-th and `6`-th rows could be collected, the
+    `5`-th one **could not** -- as it would be considered a row *from
+    the past* (as being older that the aforementioned `3`-rd row).
+    Indeed, the problem is with the data source itself: it does not
+    satisfy the requirement described above.
 
     ***
 
-    One more thing concerning the original input data: while it is OK
-    to have several rows with exact same values of the time/order field,
-    whole rows should not be the same (unless you do not care that such
-    duplicates may be detected as already seen and, consequently,
-    omitted).
-
+    One more thing concerning the original data from the data source:
+    while it is OK to have several rows with exact same values of the
+    time/order field, whole rows should be *unique* (if duplicates are
+    detected, a warning is logged or, if the `row_count_mismatch_is_fatal`
+    option is true, a `ValueError` is raised; in any case, there is *no
+    guarantee* that such surplus rows will be collected).
     """
 
-    config_required = ('source', 'cache_dir')
+    config_spec_pattern = combined_config_spec('''
+        [{collector_class_name}]
+
+        row_count_mismatch_is_fatal = no :: bool
+    ''')
+
 
     _NEWEST_ROW_TIME_STATE_KEY = 'newest_row_time'
     _NEWEST_ROWS_STATE_KEY = 'newest_rows'
+    _ROWS_COUNT_KEY = 'rows_count'
 
-    def __init__(self, **kwargs):
+
+    def __init__(self, /, **kwargs):
         super().__init__(**kwargs)
-        self._state: Optional[dict] = None          # to be set in `run_handling()`
-        self._output_data: Optional[bytes] = None   # to be set in `run_handling()` if needed
+        self._state: Optional[dict] = None   # to be set in `obtain_input_pile()`
 
-    def run_handling(self):
+    def obtain_input_pile(self, **_kwargs):
         self._state = self.load_state()
         orig_data = self.obtain_orig_data()
         all_rows = self.all_rows_from_orig_data(orig_data)
         fresh_rows = self.get_fresh_rows_only(all_rows)
         if fresh_rows:
-            self._output_data = self.output_data_from_fresh_rows(fresh_rows)
-            super().run_handling()
+            return fresh_rows
+        return None
 
     def make_default_state(self):
         return {
             self._NEWEST_ROW_TIME_STATE_KEY: self.get_oldest_possible_row_time(),
             self._NEWEST_ROWS_STATE_KEY: set(),
+            self._ROWS_COUNT_KEY: 0,
         }
 
-    def start_publishing(self):
-        self.start_iterative_publishing()
+    def generate_input_data_dicts(self, fresh_rows, /):
+        yield {'fresh_rows': fresh_rows}
 
-    def publish_iteratively(self):
-        rk, body, prop_kwargs = self.get_output_components(output_data=self._output_data)
-        self.publish_output(rk, body, prop_kwargs)
-        yield self.FLUSH_OUT
+    def get_output_data_body(self, *, fresh_rows, **kwargs):
+        return self.output_data_from_fresh_rows(fresh_rows)
+
+    def after_completed_publishing(self):
+        super().after_completed_publishing()
         self.save_state(self._state)
-
-    def get_output_data_body(self, output_data, **kwargs):
-        return output_data
 
 
     #
@@ -812,7 +1272,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
 
     # * basic raw event attributes:
 
-    type = 'file'
+    raw_type = 'file'
     content_type = 'text/csv'
 
     # * stuff related to writable state management:
@@ -831,7 +1291,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         of `clean_row_time()` that produce ISO-8601-formatted strings.
         Note that for other implementations of `clean_row_time()` the
         appropriate value may be, for example, `datetime.datetime.min`
-        or `0`...
+        or the `0` integer...
 
         See also: the docs of the method `clean_row_time()` and the
         description of the return value of the method `extract_row_time()`
@@ -843,20 +1303,19 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
 
     def obtain_orig_data(self) -> bytes:
         """
-        Abstract method: obtain the original raw data and return it.
+        An abstract method: obtain the original raw data and return it.
 
         Example implementation:
 
             return RequestPerformer.fetch(method='GET',
-                                          url=self.config['url'],
-                                          retries=self.config['download_retries'])
+                                          url=self.config['...some-option...'],
+                                          retries=self.config['...another-option...'])
 
-        (Though, in practice -- when it comes to obtaining original
-        data with the `RequestPerformer` stuff -- you will more likely
-        want to use the `BaseDownloadingTimeOrderedRowsCollector` class
-        rather than to implement `RequestPerformer`-based `obtain_orig_data()`
-        by your own.)
-
+        (Though, in practice -- when it comes to obtaining the original
+        data with the `RequestPerformer` stuff -- you should use the
+        `BaseDownloadingTimeOrderedRowsCollector` class, rather than
+        implement `RequestPerformer`-based `obtain_orig_data()` by your
+        own.)
         """
         raise NotImplementedError
 
@@ -889,57 +1348,57 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
     def get_fresh_rows_only(self, all_rows):
         prev_newest_row_time = self._state[self._NEWEST_ROW_TIME_STATE_KEY]
         prev_newest_rows = self._state[self._NEWEST_ROWS_STATE_KEY]
+        # (a legacy state may not include `rows_count`)
+        prev_rows_count = self._state.get(self._ROWS_COUNT_KEY)
 
         newest_row_time = None
         newest_rows = set()
+        rows_count = 0
 
         fresh_rows = []
-
-        preceding_row_time = None
 
         for row in all_rows:
             row_time = self.extract_row_time(row)
             if row_time is None:
                 continue
 
-            # it is required that time values in consecutive rows are
-            # non-increasing and monotonic (but can be repeating)
-            if preceding_row_time is not None and row_time > preceding_row_time:
-                raise ValueError(
-                    'encountered row time {!a} > preceding row time {!a}'.format(
-                        row_time,
-                        preceding_row_time))
-            preceding_row_time = row_time
+            rows_count += 1
 
             if row_time < prev_newest_row_time:
-                # stop collecting when reached rows which are old enough
-                # that we are sure they must have already been collected
-                break
+                # this row is old enough to assume it must have already
+                # been collected (within a past collector run)
+                continue
 
-            if newest_row_time is None:
-                # this is the first (newest) actual (not blank/commented)
-                # row in the downloaded file -- so here we have the *newest*
-                # row time
+            if newest_row_time is None or row_time > newest_row_time:
+                # this row time is *newer* than any of the rows already
+                # processed within this run
                 newest_row_time = row_time
+                newest_rows.clear()
 
+            assert row_time <= newest_row_time
             if row_time == newest_row_time:
                 # this row is amongst those with the *newest* row time
+                # (at least so far within this run)
                 newest_rows.add(row)
 
             if row in prev_newest_rows:
-                # this row is amongst those with the *previously newest*
-                # row time, *and* we know that it has already been
-                # collected -> so we *skip* it
+                # this row is amongst those which had the *newest*
+                # row time within the previous collector run (so,
+                # in particular, must have already been collected)
                 assert row_time == prev_newest_row_time
                 continue
 
-            # this row have *not* been collected yet -> let's collect it
-            # now (in its original form, i.e., without any modifications)
+            # this row has *not* been collected yet -> let's collect it
             fresh_rows.append(row)
 
+        self._check_counts(prev_rows_count, rows_count, fresh_rows)
+
         if fresh_rows:
-            self._state[self._NEWEST_ROW_TIME_STATE_KEY] = newest_row_time
-            self._state[self._NEWEST_ROWS_STATE_KEY] = newest_rows
+            self._state.update({
+                self._NEWEST_ROW_TIME_STATE_KEY: newest_row_time,
+                self._NEWEST_ROWS_STATE_KEY: newest_rows,
+                self._ROWS_COUNT_KEY: rows_count,
+            })
 
             # sanity assertions
             fresh_newest_rows = newest_rows - prev_newest_rows
@@ -957,7 +1416,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         """
         Extract the row time indicator from the given row.
 
-        Args:
+        Args/kwargs:
             `row`:
                 An item yielded by an iterable returned by
                 `all_rows_from_orig_data()`.
@@ -1023,7 +1482,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
 
     def pick_raw_row_time(self, row):
         """
-        Abstract method; see the docs of `extract_row_time()`.
+        An abstract method. See also the docs of `extract_row_time()`.
 
         Below we present an implementation for a case when data rows
         are expected to be formatted according to the following pattern:
@@ -1054,7 +1513,7 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
 
     def clean_row_time(self, raw_row_time):
         """
-        Abstract method; see the docs of `extract_row_time()`.
+        An abstract method. See also the docs of `extract_row_time()`.
 
         An example implementation for a case when `raw_row_time` is
         expected to be an ISO-8601-formatted date+time indicator --
@@ -1089,94 +1548,50 @@ class BaseTimeOrderedRowsCollector(CollectorWithStateMixin, BaseCollector):
         """
         raise NotImplementedError
 
+    def _check_counts(self, prev_rows_count, rows_count, fresh_rows):
+        problems = []
 
-class BaseDownloadingCollector(BaseCollector):
+        if len(fresh_rows) != len(set(fresh_rows)):
+            problems.append('Found duplicates among the fresh rows.')
 
-    # This constant is used only if neither config files nor
-    # defaults in the config spec (if any) provide the value
-    # of the `download_retries` option.
-    DEFAULT_DOWNLOAD_RETRIES_IF_NOT_SPECIFIED = 10
+        if prev_rows_count is not None:
+            expected_rows_count = prev_rows_count + len(fresh_rows)
+            if rows_count != expected_rows_count:
+                problems.append(
+                    f'The currently stated count of all rows ({rows_count}) '
+                    f'is not equal to the sum of the count stated by the '
+                    f'previous run of the collector ({prev_rows_count}) '
+                    f'and the count of the currently collected fresh rows '
+                    f'({len(fresh_rows)}). It means that we are faced with '
+                    f'at least one of the following cases:'
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._http_response = None          # to be set in request_performer()
-        self._http_last_modified = None     # to be set in request_performer()
+                    f'\n* the data provided by the external source has '
+                    f'changed in such a way that the expected count of '
+                    f'the rows which should have already been collected '
+                    f'(according to the current data from the external '
+                    f'source) is different than the actual count of the '
+                    f'already collected rows (by the previous runs of '
+                    f'the collector), or'
 
-    @property
-    def http_response(self) -> Optional[requests.Response]:
-        return self._http_response
+                    f'\n* some of the fresh rows duplicate some of the '
+                    f'rows collected earlier.')
 
-    @property
-    def http_last_modified(self) -> Optional[datetime.datetime]:
-        return self._http_last_modified
-
-    def download(self, *args, stream=False, **kwargs) -> bytes:
-        with self.request_performer(*args, stream=stream, **kwargs) as perf:
-            return perf.response.content
-
-    def download_text(self, *args, stream=False, **kwargs) -> str:
-        with self.request_performer(*args, stream=stream, **kwargs) as perf:
-            return perf.response.text
-
-    @contextlib.contextmanager
-    def request_performer(self,
-                          url: str,
-                          method: str = 'GET',
-                          retries: Optional[int] = None,
-                          custom_request_headers: Optional[dict] = None,
-                          **rest_performer_constructor_kwargs):
-        retries = self._get_request_retries(retries)
-        headers = self._get_request_headers(custom_request_headers)
-        with RequestPerformer(method=method,
-                              url=url,
-                              retries=retries,
-                              headers=headers,
-                              **rest_performer_constructor_kwargs) as perf:
-            self._http_response = perf.response
-            self._http_last_modified = perf.get_dt_header('Last-Modified')
-            yield perf
-
-    def _get_request_retries(self, retries: Optional[int]) -> int:
-        if retries is None:
-            retries = int(self.config.get('download_retries',
-                                          self.DEFAULT_DOWNLOAD_RETRIES_IF_NOT_SPECIFIED))
-        return retries
-
-    def _get_request_headers(self, custom_request_headers: Optional[dict]) -> dict:
-        base_request_headers = self.config.get('base_request_headers', {})
-        if not isinstance(base_request_headers, dict):
-            raise ConfigError('config option `base_request_headers` '
-                              'is not a dict: {!a}'.format(base_request_headers))
-        headers = base_request_headers.copy()
-        if custom_request_headers:
-            headers.update(custom_request_headers)
-        return headers
-
-    def get_output_prop_kwargs(self, **processed_data) -> KwargsDict:
-        prop_kwargs = super().get_output_prop_kwargs(**processed_data)
-        if self.http_last_modified:
-            prop_kwargs['headers'].setdefault('meta', dict())
-            prop_kwargs['headers']['meta']['http_last_modified'] = str(self.http_last_modified)
-        return prop_kwargs
+        if problems:
+            separator = '\n\nThe following problem also occurred:\n\n'
+            msg = separator.join(problems)
+            if self.config['row_count_mismatch_is_fatal']:
+                raise ValueError(msg)
+            LOGGER.warning(msg)
 
 
-class BaseDownloadingTimeOrderedRowsCollector(BaseDownloadingCollector,
+class BaseDownloadingTimeOrderedRowsCollector(DownloadingCollectorMixin,       # noqa
                                               BaseTimeOrderedRowsCollector):
 
-    source_config_section = None
+    config_spec_pattern = combined_config_spec('''
+        [{collector_class_name}]
 
-    config_spec_pattern = '''
-        [{source_config_section}]
-        source :: str
-        cache_dir :: str
         url :: str
-        download_retries = 10 :: int
-        base_request_headers = {{}} :: py
-    '''
-
-    @attr_required('source_config_section')
-    def get_config_spec_format_kwargs(self) -> KwargsDict:
-        return {'source_config_section': self.source_config_section}
+    ''')
 
     def obtain_orig_data(self) -> bytes:
         return self.download(self.config['url'])

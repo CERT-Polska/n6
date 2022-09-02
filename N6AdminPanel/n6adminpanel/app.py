@@ -1,14 +1,22 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2022 NASK. All rights reserved.
 
 import ast
+import json
 import os
+import re
+import secrets
 import uuid
+from collections.abc import Sequence
+from typing import Optional
 
+import flask.signals as signals
 from flask import (
     Flask,
+    Response,
+    abort,
     flash,
-    request,
     g,
+    request,
 )
 from flask_admin import (
     Admin,
@@ -21,6 +29,7 @@ from flask_admin.contrib.sqla import (
     form as fa_sqla_form,
 )
 from flask_admin.form import (
+    SecureForm,
     TimeField,
     rules,
 )
@@ -29,27 +38,46 @@ from flask_admin.model.form import (
     InlineFormAdmin,
     converts,
 )
+from requests import (
+    ConnectionError,
+    HTTPError,
+)
 from sqlalchemy import inspect
 from sqlalchemy.orm import (
     scoped_session,
     sessionmaker,
 )
+from werkzeug.exceptions import (
+    BadRequest,
+    NotFound,
+)
 from wtforms import (
     BooleanField,
     PasswordField,
+)
+from wtforms.fields import (
+    Field,
     StringField,
 )
-from wtforms.fields import Field
 from wtforms.widgets import PasswordInput
 
 from n6adminpanel import org_request_helpers
+from n6adminpanel.api_lookup_helpers import (
+    FQDN_FIELD_ARGS,
+    ASNInlineFormAdmin,
+    EmailInlineFormAdmin,
+    FQDNInlineFormAdmin,
+    IPNetworkInlineFormAdmin,
+)
 from n6adminpanel.mail_notices_helpers import MailNoticesMixin
 from n6adminpanel.patches import (
     PatchedInlineModelConverter,
     get_patched_get_form,
     get_patched_init_actions,
     patched_populate_obj,
+    patched_validate,
 )
+from n6adminpanel.tools import CSRF_FIELD_NAME
 from n6lib.auth_db.api import AuthManageAPI
 from n6lib.auth_db.audit_log import AuditLog
 from n6lib.auth_db.config import SQLAuthDBConfigMixin
@@ -98,7 +126,17 @@ from n6lib.auth_db.models import (
     SystemGroup,
     User,
 )
-from n6lib.class_helpers import attr_required
+from n6lib.baddomains_api_client import (
+    AuthTokenError,
+    BaddomainsApiClient,
+    BaseBaddomainsRequestError,
+    ClientDetailsFetchError,
+    ContactUidFetchError,
+)
+from n6lib.class_helpers import (
+    attr_required,
+    is_seq,
+)
 from n6lib.common_helpers import ThreadLocalNamespace
 from n6lib.config import ConfigMixin
 from n6lib.const import (
@@ -110,6 +148,7 @@ from n6lib.log_helpers import (
     logging_configured,
 )
 from n6lib.mail_notices_api import MailNoticesAPI
+from n6lib.ripe_api_client import RIPEApiClient
 
 
 LOGGER = get_logger(__name__)
@@ -128,44 +167,92 @@ class N6ModelView(ModelView):
     Used to define global parameters in all views.
     """
 
+    def __init_subclass__(cls, /, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        if not cls.__name__.endswith('InlineFormAdmin'):
+            cls._ensure_custom_form_rules_include_csrf_token()
+
+    @classmethod
+    def _ensure_custom_form_rules_include_csrf_token(cls):
+        for form_rules_list in [cls.form_rules, cls.form_edit_rules, cls.form_create_rules]:
+            if form_rules_list is not None:
+                assert isinstance(form_rules_list, list)
+                cls._ensure_includes_csrf_token_rule(form_rules_list)
+
+    @classmethod
+    def _ensure_includes_csrf_token_rule(cls, form_rules_list):
+        already_includes = any(cls._is_csrf_token_rule(rule) for rule in form_rules_list)
+        if not already_includes:
+            csrf_token_rule = rules.Container('lib_n6.in_hidden_div',
+                                              child_rule=rules.Field(CSRF_FIELD_NAME))
+            assert cls._is_csrf_token_rule(csrf_token_rule)
+            form_rules_list.append(csrf_token_rule)
+
+    @staticmethod
+    def _is_csrf_token_rule(rule):
+        field_names = rule.visible_fields
+        assert (is_seq(field_names)
+                and all(isinstance(name, str) for name in field_names))
+        return CSRF_FIELD_NAME in field_names
+
+
+    # This attribute is derived from flask-admin's `BaseModelView` which
+    # sets it to `BaseForm`. Here we set it to flask-admin's `SecureForm`
+    # which makes use of the WTForm's CSRF protection mechanism.
+    form_base_class = SecureForm
+
+
+    # This attribute is derived from flask-admin's `ModelView` which
+    # sets the default value to `False`. So this assignment (here, in
+    # `N6ModelView`) is redundant; we do it here just to be explicit
+    # about the desired value of this option (we really do *not* want to
+    # use bulk operations -- for various reasons, among others: we want
+    # all benefits the SQLAlchemy's relationship-cleaning machinery
+    # gives us; but also because of some AuditLog-related stuff...).
     fast_mass_delete = False
-    """
-        This property is derived from flask-admin's ModelView which
-        sets the default value to `False`. So this assignment (here, in
-        `N6ModelView`) is redundant; we do it here just to be explicit
-        about the desired value of this option (we really do *not* want
-        to use bulk operations -- for various reasons, among others: we
-        want all benefits the SQLAlchemy's relationship-cleaning
-        machinery gives us; but also because of some AuditLog-related
-        stuff...).
-    """
 
+
+    # This attribute is derived from flask-admin's `BaseModelView`.
+    #
+    # Here it is set to `False` because we make use of our customized
+    # version of it (`can_set_n6_page_size`). If this attribute was set
+    # to true, a redundant dropdown with the standard flask-admin's
+    # `page_size` options would be displayed in the *list* view.
+    #
+    # See also: the `can_set_n6_page_size` and `page_size` attributes.
     can_set_page_size = False
-    """
-        This property is derived from flask-admin. This property has been
-        disabled to use our customized version. If `true` then at `list` view
-        will be displayed dropdown with page_size options definied by flask
-    """
 
+
+    # Our custom attribute.
+    #
+    # See: the `can_set_page_size` and `page_size` attributes as well as
+    # the `templates/list.html` and `templates/lib_n6.html` templates.
     can_set_n6_page_size = True
-    """
-        Custom page size property.
-    """
 
+
+    # This attribute is derived from flask-admin's `BaseModelView`.
+    #
+    # It defines the default page size; thanks to our custom templates,
+    # the `None` value denotes the `No Limit` option. See: the attribute
+    # `can_set_n6_page_size` as well as the `templates/list.html` and
+    # `templates/lib_n6.html` templates.
+    #
+    # Note that it can be somewhat tricky to *make it possible* for
+    # users to choose our custom option `No Limit` from the dropdown:
+    #
+    # * if this attribute was set to an integer number and a user chose
+    #   the `No Limit` option (trying to set the underlying variable
+    #   to `None`) then flask-admin would switch `page_size` to that
+    #   integer number (instead of `None`);
+    #
+    # * on the other hand, when `page_size` is `None` from the start,
+    #   the `No Limit` option can be chosen without any problem.
     page_size = None
-    """
-        Default page size.
-        Its tricky to set `no limit` on page size.
 
-        * when `page_size` is class defined number and from dropdown you set
-          `page_size = None` or literally option `No limit` then flask
-          will switch `page_size` to your here defined number - instead of `None`.
-
-        * when `page_size` is `None` from the start, then option `No Limit` on
-          dropdown works as expected.
-    """
 
     list_template = 'list.html'
+    edit_template = 'edit.html'
+    create_template = 'create.html'
 
     @property
     def _template_args(self):
@@ -290,12 +377,91 @@ class _MFAKeyBaseFieldHandlerMixin(MailNoticesMixin):
         super(_MFAKeyBaseFieldHandlerMixin, self).after_model_change(form, model, is_created)
 
 
-class _ExtraCSSMixin(object):
+class _ExtendStaticFilesMixinBase:
+
+    """
+    Subclasses of the base class should be mixed with a subclass of
+    'flask_admin.base.BaseView' class. It allows to easily add extra
+    CSS and JavaScript files to the view classes that the mixin
+    subclass is being mixed with.
+
+    Define the filename of a CSS or JS file, or both, through
+    the `extra_css_filename` and `extra_js_filename` attributes
+    of the subclass. Files have to be placed in a directory that
+    the static files are served from ('static' directory).
+    """
+
+    __extra_css_attr_name: str = 'extra_css'
+    __extra_js_attr_name: str = 'extra_js'
+
+    extra_css_filename: Optional[str] = None
+    extra_js_filename: Optional[str] = None
 
     def render(self, *args, **kwargs):
-        custom_css_url = self.get_url('static', filename='custom.css')
-        self.extra_css = [custom_css_url]
-        return super(_ExtraCSSMixin, self).render(*args, **kwargs)
+        """
+        Extend the method of the `flask_admin.base.BaseView` class
+        to add URLs to extra CSS and JS files to template arguments.
+
+        Normally, the arguments of a rendered template should be set
+        through the `_template_args` property. However, the `extra_css`
+        and `extra_js` arguments are attributes of the `admin_view`
+        object in the template, and the object is an instance of
+        the `BaseView` subclass.
+
+        This instance attributes usually can be defined in the class
+        constructor, but in this case, the `get_url()` method is being
+        used, which relies on application's context.
+        """
+        if self.extra_css_filename is not None:
+            self.__add_extra_css_file(self.extra_css_filename)
+        if self.extra_js_filename is not None:
+            self.__add_extra_js_file(self.extra_js_filename)
+        # noinspection PyUnresolvedReferences
+        return super().render(*args, **kwargs)
+
+    def __add_extra_css_file(self, filename):
+        self.__append_url_to_list(self.__extra_css_attr_name, self.__get_static_url(filename))
+
+    def __add_extra_js_file(self, filename):
+        self.__append_url_to_list(self.__extra_js_attr_name, self.__get_static_url(filename))
+
+    def __get_static_url(self, filename):
+        # noinspection PyUnresolvedReferences
+        return self.get_url('static', filename=filename)
+
+    def __append_url_to_list(self, attr_name, url):
+        extra_files_list = getattr(self, attr_name, None)
+        if (extra_files_list is not None
+                and isinstance(extra_files_list, Sequence)
+                and url not in extra_files_list):
+            if isinstance(extra_files_list, list):
+                extra_files_list.append(url)
+            elif isinstance(extra_files_list, tuple):
+                setattr(self, attr_name, extra_files_list + (url,))
+            else:
+                raise TypeError(f"The `{attr_name}` attribute of the `flask_admin.base.BaseView` "
+                                f"subclasses should be a list or a tuple")
+        else:
+            setattr(self, attr_name, [url])
+
+
+class _ExtraCSSMixin(_ExtendStaticFilesMixinBase):
+
+    extra_css_filename = 'cert.css'
+
+
+class ApiLookupExtraFilesMixin(_ExtendStaticFilesMixinBase):
+
+    """
+    The class should be mixed with a subclass of
+    `flask_admin.base.BaseView` class. It extends
+    the `admin_view.extra_js` and `admin_view.extra_css` template
+    arguments with URLs to the JS script that handles requests to
+    the lookup API clients, and to related CSS file.
+    """
+
+    extra_js_filename = 'lookup_api_handler.js'
+    extra_css_filename = 'lookup_api.css'
 
 
 class UserInlineFormAdmin(_PasswordFieldHandlerMixin,
@@ -305,7 +471,7 @@ class UserInlineFormAdmin(_PasswordFieldHandlerMixin,
 
     column_display_pk = False
     column_descriptions = {
-        'login': 'User\'s login (e-mail address).',
+        'login': 'User\'s login (and e-mail address).',
     }
     form_columns = [
         'id',
@@ -416,7 +582,7 @@ class ModelWithShortTimeFieldConverter(fa_sqla_form.AdminModelConverter):
         return ShortTimeField(**field_args)
 
 
-class OrgView(CustomWithInlineFormsModelView):
+class OrgView(ApiLookupExtraFilesMixin, CustomWithInlineFormsModelView):
 
     # create_modal = True
     # edit_modal = True
@@ -529,10 +695,10 @@ class OrgView(CustomWithInlineFormsModelView):
         UserInlineFormAdmin(User),
         EMailNotificationAddress,
         NotificationTimeInlineFormAdmin(EMailNotificationTime),
-        InsideFilterASN,
+        ASNInlineFormAdmin(InsideFilterASN),
         InsideFilterCC,
         InsideFilterFQDN,
-        InsideFilterIPNetwork,
+        IPNetworkInlineFormAdmin(InsideFilterIPNetwork),
         InsideFilterURL,
     ]
 
@@ -565,7 +731,9 @@ class OrgRequestViewMixin(object):
         return super(OrgRequestViewMixin, self).after_model_change(form, model, is_created)
 
 
-class RegistrationRequestView(OrgRequestViewMixin, CustomWithInlineFormsModelView):
+class RegistrationRequestView(ApiLookupExtraFilesMixin,
+                              OrgRequestViewMixin,
+                              CustomWithInlineFormsModelView):
 
     column_searchable_list = ['status', 'ticket_id', 'org_id', 'actual_name', 'email']
     column_list = [
@@ -618,6 +786,9 @@ class RegistrationRequestView(OrgRequestViewMixin, CustomWithInlineFormsModelVie
         'terms_version',
         'terms_lang',
     ]
+    form_args = {
+        'org_id': FQDN_FIELD_ARGS,
+    }
     form_widget_args = {
         # Let it be visible but inactive. (State changes
         # can be made only with the custom buttons which
@@ -660,14 +831,16 @@ class RegistrationRequestView(OrgRequestViewMixin, CustomWithInlineFormsModelVie
     ]
     org_request_handler_kit = org_request_helpers.registration_request_handler_kit
     inline_models = [
-        RegistrationRequestEMailNotificationAddress,
-        RegistrationRequestASN,
-        RegistrationRequestFQDN,
-        RegistrationRequestIPNetwork,
+        EmailInlineFormAdmin(RegistrationRequestEMailNotificationAddress),
+        ASNInlineFormAdmin(RegistrationRequestASN),
+        FQDNInlineFormAdmin(RegistrationRequestFQDN),
+        IPNetworkInlineFormAdmin(RegistrationRequestIPNetwork),
     ]
 
 
-class OrgConfigUpdateRequestView(OrgRequestViewMixin, CustomWithInlineFormsModelView):
+class OrgConfigUpdateRequestView(ApiLookupExtraFilesMixin,
+                                 OrgRequestViewMixin,
+                                 CustomWithInlineFormsModelView):
 
     column_searchable_list = ['status', 'ticket_id', 'org_id']
     column_list = [
@@ -767,9 +940,9 @@ class OrgConfigUpdateRequestView(OrgRequestViewMixin, CustomWithInlineFormsModel
     inline_models = [
         OrgConfigUpdateRequestEMailNotificationAddress,
         OrgConfigUpdateRequestEMailNotificationTime,
-        OrgConfigUpdateRequestASN,
+        ASNInlineFormAdmin(OrgConfigUpdateRequestASN),
         OrgConfigUpdateRequestFQDN,
-        OrgConfigUpdateRequestIPNetwork,
+        IPNetworkInlineFormAdmin(OrgConfigUpdateRequestIPNetwork),
     ]
 
 
@@ -779,7 +952,7 @@ class UserView(_PasswordFieldHandlerMixin,
                N6ModelView):
 
     column_descriptions = {
-        'login': 'User\'s login (e-mail address).',
+        'login': 'User\'s login (and e-mail address).',
     }
     column_list = ['login', 'org', 'system_groups']
     form_columns = [
@@ -1021,9 +1194,87 @@ class EntityView(CustomWithInlineFormsModelView):
 
 class CustomIndexView(AdminIndexView):
 
+    def __init__(self, *args, config=None, **kwargs):
+        self.config = config
+        super().__init__(*args, **kwargs)
+
     @expose('/')
     def index(self):
         return self.render('home.html')
+
+    @expose('/ripe/asn')
+    def ripe_api_asn(self):
+        return self._make_ripe_api_request('asn_seq')
+
+    @expose('/ripe/ip_network')
+    def ripe_api_ip_network(self):
+        return self._make_ripe_api_request('ip_network_seq')
+
+    @expose('/baddomains/domain')
+    def baddomains_api_domain(self):
+        if not self.config['is_baddomains_client_active']:
+            raise NotFound
+        param = request.args.get('value')
+        if not param:
+            raise BadRequest
+        try:
+            return BaddomainsApiClient(param,
+                                       base_api_url=self.config['baddomains_api_base_url'],
+                                       username=self.config['baddomains_username'],
+                                       password=self.config['baddomains_password'],
+                                       auth_token_audience=self.config[
+                                           'baddomains_auth_token_audience'],
+                                       auth_token_cache_dir=self.config[
+                                           'baddomains_auth_token_cache_dir'])()
+        except BaseBaddomainsRequestError as e:
+            original_exc = e.exc
+            LOGGER.exception(original_exc)
+            if isinstance(original_exc, HTTPError):
+                resp = self._get_json_response_from_original_exc(e, msg=str(e.exc))
+                status = original_exc.response.status_code
+            elif isinstance(original_exc, json.JSONDecodeError):
+                resp = self._get_json_response_from_original_exc(e, msg='Invalid JSON response')
+                status = 500
+            elif isinstance(original_exc, ConnectionError):
+                resp = self._get_json_response_from_original_exc(e, msg='Could not connect '
+                                                                        'to Baddomains API')
+                status = 503
+            else:
+                resp = self._get_json_response_from_original_exc(e, msg='Failed to get a proper '
+                                                                        'network response')
+                status = 500
+            return Response(resp,
+                            status=status,
+                            content_type='application/json')
+        except ValueError:
+            raise BadRequest
+
+    @staticmethod
+    def _make_ripe_api_request(kwarg_name):
+        param = request.args.get('value')
+        if not param:
+            raise BadRequest
+        try:
+            return RIPEApiClient(**{kwarg_name: [param]})()
+        except ValueError:
+            raise BadRequest
+
+    @staticmethod
+    def _get_json_response_from_original_exc(exception, msg=None):
+        if isinstance(exception, AuthTokenError):
+            stage = 'auth'
+        elif isinstance(exception, ContactUidFetchError):
+            stage = 'contact_uid'
+        elif isinstance(exception, ClientDetailsFetchError):
+            stage = 'client_details'
+        else:
+            stage = None
+        resp = {
+            'stage': stage,
+        }
+        if msg is not None:
+            resp['msg'] = msg
+        return json.dumps(resp)
 
 
 class _AuthManageAPIAdapter(AuthManageAPI):
@@ -1051,11 +1302,78 @@ class AdminPanel(ConfigMixin):
 
     config_spec = '''
         [admin_panel]
-        app_secret_key
+
+        # The value of the `app_secret_key` option should be set in your
+        # configuration to some unpredictable secret; you can generate
+        # it with the command:
+        #   python -c 'import secrets; print(secrets.token_urlsafe())'
+        # (note: *if this option is left blank* then a new app secret
+        # will be generated automatically *each time* the Admin Panel
+        # app is started; then the validity of CSRF tokens and of any
+        # other client-session-based stuff will *never* survive a
+        # restart of the app).
+
+        app_secret_key = :: str
+
+
+        # You may also want to customize (in your configuration file)
+        # the following security-related options (please, do it
+        # carefully; note that the defaults are quite reasonable).
+
+        require_secure_communication = yes :: bool  ; yes => err if no SSL, *Secure* session cookie
+
+        # (Note that, when it comes to security, even though currently
+        # there is no authentication/authorization mechanism in the *n6*
+        # Admin Panel application, client sessions are still important
+        # -- because the CSRF protection mechanism depends on them.)
+        session_cookie_name = n6_admin_panel_session
+        session_cookie_path = :: str  ; empty => use Flask's APPLICATION_ROOT (it defaults to '/')
+        session_cookie_samesite_strict = no :: bool  ; no => SameSite=Lax | yes => SameSite=Strict
+
+
+        # In most cases, the following options should *not* be
+        # customized in your configuration file.
+
         app_name = n6 Admin Panel
         template_mode = bootstrap3
+
+
+        # Baddomains API client options
+        # Make the client active and fill the other options only if you have
+        # an access to the Baddomains API.
+
+        is_baddomains_client_active = no :: bool
+        baddomains_api_base_url =
+        baddomains_username =
+        baddomains_password =
+        baddomains_auth_token_audience = ; from auth token `aud` value
+        baddomains_auth_token_cache_dir =
     '''
+
+    config_filename_regex = re.compile(
+        # Explaining it roughly: the filename must include the "admin"
+        # and "panel" words, and must end with ".conf".
+
+        # Explaining it precisely: the "admin" and "panel" words -- in
+        # this order -- must be present in the filename, *and*:
+        r'(?:'          # the "admin" word must be *either* at the
+        r'\A'           # beginning of the filename, *or* preceded by
+        r'|'            # any characters provided that the last of them
+        r'[\W\d_]'      # is not a letter;
+        r')'
+        r'(?ai:'        # the "admin" and "panel" words are matched
+        r'admin'        # using the `re.ASCII|re.IGNORECASE` mode;
+        r')'
+        r'[\W\d_]*'     # the words *may* be separated with a series
+        r'(?ai:'        # of non-letter characters;
+        r'panel'
+        r')'            # the "panel" word may be followed by any characters
+        r'(?=[\W\d_])'  # provided that the first of them is not a letter;
+        r'.*'
+        r'\.conf\Z')    # the filename must end with ".conf" (lowercase).
+
     engine_config_prefix = ''
+
     table_views = [
         (Org, OrgView),
         (OrgConfigUpdateRequest, OrgConfigUpdateRequestView),
@@ -1076,13 +1394,12 @@ class AdminPanel(ConfigMixin):
     ]
 
     def __init__(self, engine):
+        # Auxiliary stuff:
+        self.config = self.get_config_section()
         self._mail_notices_api = MailNoticesAPI()
         self._auth_manage_api_adapter = _AuthManageAPIAdapter()
-        self.app_config = self.get_config_section()
-        self.app = Flask(__name__)
-        self.app.secret_key = self.app_config['app_secret_key']
-        self.app.before_request(self._before_request)
-        self.app.teardown_request(self._teardown_request)
+
+        # Auth-DB-related stuff:
         db_session.configure(bind=engine)
         self._thread_local = thread_local = ThreadLocalNamespace(attr_factories={
             'audit_log_external_meta_items': dict,
@@ -1090,33 +1407,127 @@ class AdminPanel(ConfigMixin):
         self._audit_log = AuditLog(
             session_factory=db_session,
             external_meta_items_getter=lambda: thread_local.audit_log_external_meta_items)
+
+        # Actual *Flask*/*Flask Admin*-related stuff:
+        self.app = self._prepare_flask_app()
         self.admin = Admin(self.app,
-                           name=self.app_config['app_name'],
-                           template_mode=self.app_config['template_mode'],
+                           name=self.config['app_name'],
+                           template_mode=self.config['template_mode'],
                            index_view=CustomIndexView(
                                name='Home',
                                template='home.html',
-                               url='/'))
+                               url='/',
+                               config=self.config))
         self._populate_views()
 
     def run_app(self):
         self.app.run()
 
+    def _prepare_flask_app(self):
+        app = Flask(__name__)
+        app.config.update(
+            # Note: all these items are somewhat related to security,
+            # in particular to the CSRF protection mechanism.
+
+            SECRET_KEY=(
+                self.config['app_secret_key'] if self.config['app_secret_key'].strip()
+                else secrets.token_urlsafe()),
+
+            SESSION_COOKIE_SECURE=self.config['require_secure_communication'],
+            SESSION_COOKIE_NAME=self.config['session_cookie_name'],
+            SESSION_COOKIE_PATH=(
+                # Note: "the Path attribute cannot be relied upon for security"
+                # (https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.2.4).
+                self.config['session_cookie_path'] if self.config['session_cookie_path'].strip()
+                else None),  # (note: None means using APPLICATION_ROOT which defaults to '/')
+            SESSION_COOKIE_SAMESITE=(
+                'Strict' if self.config['session_cookie_samesite_strict']
+                else 'Lax'),
+
+            # Let's make client scripts unable to access the cookie
+            # value (note that XHRs, i.e. requests triggered by scripts,
+            # will still include the cookie, just like other requests):
+            SESSION_COOKIE_HTTPONLY=True,
+
+            # See: https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#introduction   # noqa
+            # (the fragment: "but be careful to NOT set a cookie
+            # specifically for a domain as that would introduce a
+            # security vulnerability that all subdomains of that
+            # domain share the cookie").
+            SESSION_COOKIE_DOMAIN=False,
+        )
+        app.before_request(self._before_request)
+        signals.message_flashed.connect(self._note_flashing_csrf_error, app)
+        signals.before_render_template.connect(self._flash_csrf_errors_if_needed, app)
+        app.teardown_request(self._teardown_request)
+        return app
+
     def _before_request(self):
+        self._do_preliminary_validation_of_request()
+        self._do_audit_log_related_preparations()
+        self._initialize_custom_g_attributes()
+
+    def _do_preliminary_validation_of_request(self):
+        if (self.config['require_secure_communication']
+              and not request.is_secure):
+            abort(400, 'Secure communication is required.')
+        # We perform the following check primarily to guard against an
+        # unnoticed bug: the lack of CSRF protection for any of the
+        # Admin Panel's forms (that would be, most probably, a severe
+        # security hole).
+        if (request.method not in ('GET', 'HEAD', 'OPTIONS')
+              and not request.form.get(CSRF_FIELD_NAME, '').strip()):
+            abort(400, 'No CSRF token submitted.')
+
+    def _do_audit_log_related_preparations(self):
         self._thread_local.audit_log_external_meta_items = {
             key: value for key, value in [
                 ('n6_module', __name__),
                 ('request_environ_remote_addr', request.environ.get("REMOTE_ADDR")),
                 ('request_org_id', request.environ.get(WSGI_SSL_ORG_ID_FIELD)),
-                ('request_user_id', request.environ.get(WSGI_SSL_USER_ID_FIELD)),
+                ('request_user_id', self._get_request_user_id_or_none()),
             ]
             if value is not None}
-        # Attributes used by the `org_request_helpers` and/or `mail_notices_helpers` stuff:
+
+    def _initialize_custom_g_attributes(self):
+        # Attributes used by the `_note_flashing_csrf_error()`
+        # and `_flash_csrf_errors_if_needed()` hooks (see below)
+        # as well as the patched variant of `Field.validate()`
+        # (see: `n6adminpanel.patches.patched_validate()`) to
+        # work around the problem with missing CSRF-related
+        # error messages in *create* and *edit* forms, avoiding
+        # redundant messages in the *delete* forms.
+        g.n6_csrf_error_already_flashed = False
+        g.n6_csrf_deferred_error_messages = []
+
+        # Attributes used by the `org_request_helpers` and/or
+        # `mail_notices_helpers` stuff:
         g.n6_mail_notices_api = self._mail_notices_api
         g.n6_auth_manage_api_adapter = self._auth_manage_api_adapter
         g.n6_org_config_info = None
-        # Attributes used by the `_MFAKeyBaseFieldHandlerMixin` stuff:
+
+        # Attribute used by the `_MFAKeyBaseFieldHandlerMixin` stuff:
         g.n6_user_mfa_key_base_erased = False
+
+        # Attribute used to indicate whether the Baddomains API client
+        # should be active and should the AdminPanel's view elements
+        # used for handling the API's requests be rendered.
+        g.is_baddomains_client_active = self.config['is_baddomains_client_active']
+
+    @staticmethod
+    def _note_flashing_csrf_error(sender, message, category, **_):      # noqa
+        if category == 'error' and re.search(r'\bCSRF\b', message):
+            # (*delete* forms: CSRF errors *are* displayed properly)
+            g.n6_csrf_error_already_flashed = True
+
+    @staticmethod
+    def _flash_csrf_errors_if_needed(sender, template, context):        # noqa
+        if not g.n6_csrf_error_already_flashed:
+            # (*create* and *edit* forms: without this workaround
+            # CSRF errors would not be displayed; see also:
+            # `n6adminpanel.patches.patched_validate()`)
+            for msg in g.n6_csrf_deferred_error_messages:
+                flash(msg, 'error')
 
     @staticmethod
     def _teardown_request(exception=None):
@@ -1126,10 +1537,17 @@ class AdminPanel(ConfigMixin):
         for model, view in self.table_views:
             self.admin.add_view(view(model, db_session))
 
+    def _get_request_user_id_or_none(self):
+        user_id = self._auth_manage_api_adapter.adjust_if_is_legacy_user_login(
+            request.environ.get(WSGI_SSL_USER_ID_FIELD))
+        assert user_id is None or isinstance(user_id, str)
+        return user_id
+
 
 def monkey_patch_flask_admin():
     setattr(fa_sqla_form, 'get_form', get_patched_get_form(fa_sqla_form.get_form))
     setattr(Field, 'populate_obj', patched_populate_obj)
+    setattr(Field, 'validate', patched_validate)
     setattr(ActionsMixin, 'init_actions', get_patched_init_actions(ActionsMixin.init_actions))
 
 

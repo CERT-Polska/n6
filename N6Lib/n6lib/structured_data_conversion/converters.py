@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2021 NASK. All rights reserved.
+# Copyright (c) 2020-2022 NASK. All rights reserved.
 
 import contextlib
 import itertools
@@ -47,7 +47,7 @@ from n6lib.structured_data_conversion.namespace_conversion_helpers import (
     StandardNamespaceConversionStateBookkeeper,
 )
 from n6lib.typing_helpers import (
-    ExcFactory,
+    BaseExcFactory,
     KwargsDict,
     String,
     TypeSpec,
@@ -1192,7 +1192,7 @@ class ErrorRaisingConverter(BaseConverter):
 
     def __init__(self,
                  *,
-                 error_factory=None,  # type: Optional[ExcFactory]
+                 error_factory=None,  # type: Optional[BaseExcFactory]
                  **kwargs):
         super(ErrorRaisingConverter, self).__init__(**kwargs)
         self._error_factory = (error_factory if error_factory is not None

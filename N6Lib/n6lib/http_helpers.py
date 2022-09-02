@@ -9,7 +9,7 @@ from requests.packages.urllib3.util.retry import Retry
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 
 
-class RequestPerformer(object):
+class RequestPerformer:
 
     """
     A simple yet flexible tool to download data with HTTP/HTTPS (able to deal
@@ -329,13 +329,13 @@ class RequestPerformer(object):
     def _get_valid_method(self, method):
         method = method.upper()
         if method not in self.SUPPORTED_HTTP_METHODS:
-            raise ValueError('HTTP method {!a} not supported'.format(method))
+            raise ValueError(f'HTTP method {method!a} not supported')
         return method
 
     def _get_valid_url(self, url):
         url = self._get_url_with_lowercased_proto(url)
         if not url.startswith(self.SUPPORTED_URL_PREFIXES):
-            raise ValueError('URL prefix {!a} not supported'.format(url))
+            raise ValueError(f'URL prefix {url!a} not supported')
         return url
 
     @staticmethod

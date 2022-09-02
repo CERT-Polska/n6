@@ -1,9 +1,9 @@
 import { FC, useEffect, useRef } from 'react';
-import { useIntl } from 'react-intl';
 import { format, startOfMonth, endOfMonth, getMonth, getYear, eachYearOfInterval } from 'date-fns';
 import { Month, Returns } from 'use-lilius';
 import classNames from 'classnames';
 import { Dropdown } from 'react-bootstrap';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as Chevron } from 'images/chevron.svg';
 
 interface IMonthOption {
@@ -28,7 +28,7 @@ const DatePickerCalendar: FC<IProps> = ({
   viewYear,
   onDayClick
 }) => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
   const selectMonthRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {

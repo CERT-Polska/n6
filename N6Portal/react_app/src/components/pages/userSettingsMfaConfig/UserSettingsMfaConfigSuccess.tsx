@@ -1,11 +1,11 @@
 import { FC } from 'react';
-import { useIntl } from 'react-intl';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as SuccessIcon } from 'images/check-ico.svg';
 import CustomButton from 'components/shared/CustomButton';
 import routeList from 'routes/routeList';
 
 const UserSettingsMfaConfigSuccess: FC = () => {
-  const { messages } = useIntl();
+  const { messages } = useTypedIntl();
 
   return (
     <div className="user-settings-config-content">

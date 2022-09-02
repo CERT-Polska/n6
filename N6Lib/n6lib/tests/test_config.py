@@ -1,11 +1,16 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import collections
 import configparser
 import datetime
 import io
+import re
 import sys
 import unittest
+from collections.abc import (
+    Mapping,
+    MutableMapping,
+)
 from unittest.mock import (
     DEFAULT,
     call,
@@ -36,9 +41,11 @@ from n6lib.unit_test_helpers import TestCaseMixin
 
 
 
-# NOTE: most important stuff of: ConfigError, NoConfigSectionError,
-# NoConfigOptionError, ConfigSection and ConfigString, as well as
-# Config.make() -- are already covered by their doctests
+# NOTE: most important stuff of: `ConfigError`, `NoConfigSectionError`,
+# `NoConfigOptionError`, `ConfigSection`, `ConfigMixin`, `ConfigString`,
+# `as_config_spec_string()`, `parse_config_spec()`, `join_config_specs()`,
+# `combined_config_spec()` as well as `Config.make()` -- is already
+# covered by their doctests.
 
 
 
@@ -61,7 +68,7 @@ class _ConfigExampleDataAndMocksMixin(object):
                 zz = {1: 2}
                 QQ = ""
             ''')),
-        ('a/b/xYZ.conf', reduce_indent('''
+        ('a/b/99_-xYZ.conf', reduce_indent('''
                 [first]
                 b = 1
                 Bcd : 4 , 5 , 6
@@ -73,7 +80,7 @@ class _ConfigExampleDataAndMocksMixin(object):
                 B = 4.2
                 c = 5.2 ; yet another comment
             '''.strip())),
-        ('/x/y/abc.conf', reduce_indent('''
+        ('/x/y/54_u_x.conf', reduce_indent('''
                 [first]
                 hij = 43
                       44 \u015b \t
@@ -139,7 +146,7 @@ class _ConfigExampleDataAndMocksMixin(object):
         ... :: float
 
         [THIRD]
-        XX :: unicode
+        XX :: bytes
         YY = {"a": 42} :: json  ; another comment
         zz :: py
         ...
@@ -193,7 +200,7 @@ class _ConfigExampleDataAndMocksMixin(object):
             'd': 46.2,
         },
         'THIRD': {
-            'xx': 'Zażółć Gęślą Jaźń',
+            'xx': 'Zażółć Gęślą Jaźń'.encode('utf-8'),
             'yy': {'a': 42},
             'zz': {1: 2},
             'qq': '',
@@ -254,6 +261,14 @@ class _ConfigExampleDataAndMocksMixin(object):
     #
     # Several test helpers
 
+    class SpecEgg:
+        def __init__(self, s):
+            self._s = s
+        def hatch_out(self, format_data_mapping=None):
+            if format_data_mapping is None:
+                return self._s
+            return self._s.format_map(format_data_mapping)
+
     def adjust_expected_open_calls(self, expected_open_calls):
         if expected_open_calls is DEFAULT:
             expected_open_calls = [
@@ -281,24 +296,25 @@ class _ConfigExampleDataAndMocksMixin(object):
             # (see: CONFIG_FILE_PATH_TO_DEFAULT_CONTENT above)
             if top == ETC_DIR:
                 yield 'a/b', sen.irrelevant, [
-                    'xYZ.conf',          # to be *kept* (as 2nd) in Config._get_config_file_paths()
-                    'foo_bar_baz.spam',  # to be skipped in Config._get_config_file_paths()
+                    '99_-xYZ.conf',      # to be *kept* (as 2nd) in Config._get_config_file_paths()
+                    '123_spam.conf',     # to be skipped in Config._get_config_file_paths()
+                    '00_foo_bar.SPAM',   # to be skipped in Config._get_config_file_paths()
                     'logging.conf',      # to be skipped in Config._get_config_file_paths()
                 ]
                 yield 'a/b/', sen.irrelevant, [
                     'logging-01.conf',   # to be skipped in Config._get_config_file_paths()
                     '00_global.conf',    # to be *kept* (as 1st) in Config._get_config_file_paths()
                 ]
-            else:                                           # to be *kept* in
-                yield '/x/y', sen.irrelevant, ['abc.conf']  # Config._get_config_file_paths()
+            else:                                              # to be *kept* in
+                yield '/x/y', sen.irrelevant, ['54_u_x.conf']  # Config._get_config_file_paths()
         patcher = patch('os.walk', side_effect=side_effect)
         self.os_walk_mock = patcher.start()
         self.addCleanup(patcher.stop)
 
     def _patch__configparser_open(self, config_files_content):
         def side_effect(path, *args, **kwargs):
-            assert path in self.CONFIG_FILE_PATH_TO_DEFAULT_CONTENT, 'bug in test'
             if config_files_content is DEFAULT:
+                assert path in self.CONFIG_FILE_PATH_TO_DEFAULT_CONTENT, 'bug in test'
                 content = self.CONFIG_FILE_PATH_TO_DEFAULT_CONTENT[path]
             else:
                 content = config_files_content
@@ -323,6 +339,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
     def test_basic_class_features(self):
         self.assertTrue(issubclass(Config, DictWithSomeHooks))
         self.assertTrue(issubclass(Config, dict))
+        self.assertTrue(issubclass(Config, MutableMapping))
+        self.assertTrue(issubclass(Config, Mapping))
 
 
     @foreach(
@@ -374,10 +392,10 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
     def test__BASIC_CONVERTERS__general_features(self):
         self.assertIsInstance(Config.BASIC_CONVERTERS, dict)
         self.assertEqualIncludingTypes(set(Config.BASIC_CONVERTERS), {
-            'str', 'bytes', 'unicode',
+            'str', 'bytes',
             'bool', 'int', 'float',
             'date', 'datetime',
-            'list_of_str', 'list_of_bytes', 'list_of_unicode',
+            'list_of_str', 'list_of_bytes',
             'list_of_bool', 'list_of_int', 'list_of_float',
             'list_of_date', 'list_of_datetime',
             'importable_dotted_name',
@@ -390,7 +408,6 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
     @foreach(
         ('str', 'abc', 'abc'),
         ('str', '\u015b', '\u015b'),
-        ('unicode', 'abc', 'abc'),
         ('bytes', 'abc', b'abc'),
         ('bytes', '\u015b', b'\xc5\x9b'),
         ('bool', 'Yes', True),
@@ -399,10 +416,9 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         ('date', '1410-07-15', datetime.date(1410, 7, 15)),
         ('datetime', '2016-02-29T23:24:25.1234+02:00',
             datetime.datetime(2016, 2, 29, 21, 24, 25, 123400)),
-        ('py', b"{'\xc5\x9b': [False,]}", {'\u015b': [False]}),
-        ('py', b"{'\\u015b': [False,]}", {'\u015b': [False]}),
-        ('py', "{'\u015b': [False,]}", {'\u015b': [False]}),
-        ('py', "{'\\u015b': [False,]}", {'\u015b': [False]}),
+        ('py', "{'\u015b': [{False: 'x'},]}", {'\u015b': [{False: 'x'}]}),
+        ('py', "{'\\u015b': [{False: 'x'},]}", {'\u015b': [{False: 'x'}]}),
+        ('py_namespaces_dict', "{'\u015b': [{'\\u015b': 42}]}", {'\u015b': [{'\u015b': 42}]}),
         ('json', '{"\\u015b": [false]}', {'\u015b': [False]}),
     )
     def test__BASIC_CONVERTERS__most_of_single_value_converters(self, name, arg, expected_result):
@@ -430,7 +446,6 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
     @foreach(
         ('str', 'abc , def ,ghi,jkl ', ['abc', 'def', 'ghi', 'jkl']),
         ('str', '', []),
-        ('unicode', ' abc,def, ghi ,jkl', ['abc', 'def', 'ghi', 'jkl']),
         ('bytes', 'abc , def ,ghi,jkl ', [b'abc', b'def', b'ghi', b'jkl']),
         ('bool', ' Yes,no \t  , OFF', [True, False, False]),
         ('int', '42, 43', [42, 43]),
@@ -453,6 +468,25 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         self.assertEqual(converter.__name__, name)
         self.assertEqual(converter.delimiter, ',')
         self.assertIs(converter.item_converter, Config.BASIC_CONVERTERS[base_name])
+
+
+    def test_init_with_no_arguments_causes_error(self):
+        self._test_init(
+            args=(),
+            kwargs={},
+            config_files_content='',
+            expected_outcome=(TypeError, 'missing.*argument'),
+            expected_open_calls=[])
+
+
+    @paramseq
+    def config_spec_type_case_params(cls):
+        yield param(
+                config_spec_prep=lambda config_spec: config_spec
+            ).label('[spec type: unchanged]')
+        yield param(
+                config_spec_prep=cls.SpecEgg
+            ).label('[spec type: ConfigSpecEgg]')
 
 
     @paramseq
@@ -479,24 +513,22 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 config_spec='',
                 optional_kwargs=dict(
                     custom_converters=dict(weird='-*- {0} -*-'.format),
-                    default_converter="| {0!a} |".format,
                 ),
                 config_files_content='',
                 expected_open_calls=DEFAULT,
                 expected_outcome=Config.make(),
-            ).label('empty spec, empty config, some kwargs')
+            ).label('empty spec, empty config, kwargs: `custom_converters`')
 
         yield param(
                 config_spec='',
                 optional_kwargs=dict(
                     settings={},
                     custom_converters=dict(weird='-*- {0} -*-'.format),
-                    default_converter="| {0!a} |".format,
                 ),
                 config_files_content=sen.irrelevant,
                 expected_open_calls=[],
                 expected_outcome=Config.make(),
-            ).label('empty spec, empty settings, some other kwargs')
+            ).label('empty spec, empty settings, other kwargs: `custom_converters`')
 
         yield param(
                 config_spec='',
@@ -584,97 +616,15 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             ).label('settings, other kwargs: `custom_converters`')
 
         yield param(
-                config_spec=cls.DEFAULT_CONFIG_SPEC,
-                optional_kwargs=dict(
-                    default_converter="| {0!a} |".format,
-                ),
-                config_files_content=DEFAULT,
-                expected_open_calls=DEFAULT,
-                expected_outcome=Config.make(
-                    cls.EXPECTED_CONFIG_BASE,
-                    first=dict(
-                        cls.EXPECTED_CONFIG_BASE['first'],
-                        a="| 'xyz' |",
-                        bcd="| '4 , 5 , 6' |",
-                    ),
-                    THIRD=dict(
-                        cls.EXPECTED_CONFIG_BASE['THIRD'],
-                        qq="| '' |",
-                    ),
-                    fourth=dict(
-                        cls.EXPECTED_CONFIG_BASE['fourth'],
-                        zzz="| 'ZZZ' |",
-                    ),
-                ),
-            ).label('config, kwargs: `default_converter` [here: callable]')
-
-        yield param(
-                config_spec=cls.DEFAULT_CONFIG_SPEC,
-                optional_kwargs=dict(
-                    settings=dict(cls.DEFAULT_SETTINGS),
-                    default_converter="list_of_unicode",
-                ),
-                config_files_content=sen.irrelevant,
-                expected_open_calls=[],
-                expected_outcome=Config.make(
-                    cls.EXPECTED_CONFIG_BASE,
-                    first=dict(
-                        cls.EXPECTED_CONFIG_BASE['first'],
-                        a=['xyz'],
-                        bcd=['4', '5', '6'],
-                    ),
-                    THIRD=dict(
-                        cls.EXPECTED_CONFIG_BASE['THIRD'],
-                        qq=[],
-                    ),
-                    fourth=dict(
-                        cls.EXPECTED_CONFIG_BASE['fourth'],
-                        zzz=['ZZZ'],
-                    ),
-                ),
-            ).label('settings, other kwargs: `default_converter` [here: str]')
-
-        yield param(
-                config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
-                optional_kwargs=dict(
-                    custom_converters=dict(weird='-*- {0} -*-'.format),
-                    default_converter="| {0!a} |".format,
-                ),
-                config_files_content=DEFAULT,
-                expected_open_calls=DEFAULT,
-                expected_outcome=Config.make(
-                    cls.EXPECTED_CONFIG_BASE, **{
-                        'first': dict(
-                            cls.EXPECTED_CONFIG_BASE['first'],
-                            a="| 'xyz' |",
-                            bcd="| '4 , 5 , 6' |",
-                            efg='-*- 42 -*-',
-                        ),
-                        'second\u015b': dict(
-                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
-                            a='-*- 3.2 -*-',
-                            b='-*- 44.2 -*-',
-                            c='-*- 45.2 -*-',
-                            d='-*- 46.2 -*-',
-                        ),
-                        'THIRD': dict(
-                            cls.EXPECTED_CONFIG_BASE['THIRD'],
-                            qq="| '' |",
-                        ),
-                        'fourth': dict(
-                            cls.EXPECTED_CONFIG_BASE['fourth'],
-                            zzz="| 'ZZZ' |",
-                        ),
-                    }
-                ),
-            ).label('config; kwargs: `custom_converters`, `default_converter`')
-
-        yield param(
                 config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
                 optional_kwargs=dict(
                     settings=dict(cls.DEFAULT_SETTINGS),
                     custom_converters=dict(weird='-*- {0} -*-'.format),
-                    default_converter="| {0!a} |".format,
+                    # Note: the following 2 kwargs are irrelevant when
+                    # the `settings` argument is given, so all expected
+                    # stuff is the same as in the previous case.
+                    config_filename_regex=r'\A[\w.]+\Z',
+                    config_filename_excluding_regex=re.compile(r'global'),
                 ),
                 config_files_content=sen.irrelevant,
                 expected_open_calls=[],
@@ -682,8 +632,6 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     cls.EXPECTED_CONFIG_BASE, **{
                         'first': dict(
                             cls.EXPECTED_CONFIG_BASE['first'],
-                            a="| 'xyz' |",
-                            bcd="| '4 , 5 , 6' |",
                             efg='-*- 42.0 -*-',
                         ),
                         'second\u015b': dict(
@@ -693,17 +641,115 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                             c='-*-     45.200  -*-',
                             d='-*- 000046.2000 -*-',
                         ),
-                        'THIRD': dict(
-                            cls.EXPECTED_CONFIG_BASE['THIRD'],
-                            qq="| '' |",
-                        ),
-                        'fourth': dict(
-                            cls.EXPECTED_CONFIG_BASE['fourth'],
-                            zzz="| 'ZZZ' |",
-                        ),
                     }
                 ),
-            ).label('settings; other kwargs: `custom_converters`, `default_converter`')
+            ).label('settings; other kwargs: `custom_converters`, `config_filename_regex`, '
+                    '`config_filename_excluding_regex`')
+
+        yield param(
+                config_spec='''
+                    [THIRD]
+                    yY = {"a": 42} :: json
+                    ...
+                ''',
+                optional_kwargs=dict(
+                    # (when the `settings` argument is not given or
+                    # `None`, the following kwarg *is* important)
+                    config_filename_regex=r'\A.*\.conf\Z',
+                ),
+                config_files_content=(
+                    reduce_indent('''
+                        [THIRD]
+                        Qq = Ryq
+                    ''')),
+                expected_open_calls=[
+                    call('a/b/00_global.conf', encoding='utf-8'),
+                    call('a/b/123_spam.conf', encoding='utf-8'),
+                    call('a/b/99_-xYZ.conf', encoding='utf-8'),
+                    call('/x/y/54_u_x.conf', encoding='utf-8'),
+                ],
+                expected_outcome=Config.make({
+                    'THIRD': {
+                        'yy': {'a': 42},
+                        'qq': 'Ryq',
+                    },
+                }),
+            ).label('config, kwargs: `config_filename_regex`')
+
+        yield param(
+                config_spec='''
+                    [THIRD]
+                    yY = {"a": 42} :: json
+                    ...
+                ''',
+                optional_kwargs=dict(
+                    # (when the `settings` argument is not given or
+                    # `None`, the following kwarg *is* important)
+                    config_filename_excluding_regex=re.compile(r'^54'),
+                ),
+                config_files_content=(
+                    reduce_indent('''
+                        [THIRD]
+                        Qq = Ryq
+                    ''')),
+                expected_open_calls=[
+                    call('a/b/00_global.conf', encoding='utf-8'),
+                    call('a/b/99_-xYZ.conf', encoding='utf-8'),
+                ],
+                expected_outcome=Config.make({
+                    'THIRD': {
+                        'yy': {'a': 42},
+                        'qq': 'Ryq',
+                    },
+                }),
+            ).label('config, kwargs: `config_filename_excluding_regex`')
+
+        yield param(
+                config_spec='''
+                    [THIRD]
+                    yY = {"a": 42} :: json
+                    ...
+                ''',
+                optional_kwargs=dict(
+                    settings=None,
+                    custom_converters=None,
+                    # (when the `settings` argument is not given or
+                    # `None, the following 2 kwargs *are* important)
+                    config_filename_regex=re.compile(r'\A[\w.]+\Z'),
+                    config_filename_excluding_regex=r'global',
+                ),
+                config_files_content=(
+                    reduce_indent('''
+                        [THIRD]
+                        Qq = Ryq
+                    ''')),
+                expected_open_calls=[
+                    call('a/b/00_foo_bar.SPAM', encoding='utf-8'),
+                    call('a/b/123_spam.conf', encoding='utf-8'),
+                    call('a/b/logging.conf', encoding='utf-8'),
+                    call('/x/y/54_u_x.conf', encoding='utf-8'),
+                ],
+                expected_outcome=Config.make({
+                    'THIRD': {
+                        'yy': {'a': 42},
+                        'qq': 'Ryq',
+                    },
+                }),
+            ).label('config; kwargs: `config_filename_regex`, `config_filename_excluding_regex`; '
+                    'rest kwargs: `settings` and `custom_converters` - set to None')
+
+        yield param(
+                config_spec=cls.DEFAULT_CONFIG_SPEC,
+                optional_kwargs=dict(
+                    settings=None,
+                    custom_converters=None,
+                    config_filename_regex=None,
+                    config_filename_excluding_regex=None,
+                ),
+                config_files_content=DEFAULT,
+                expected_open_calls=DEFAULT,
+                expected_outcome=Config.make(cls.EXPECTED_CONFIG_BASE),
+            ).label('config, all kwargs set to None')
 
         yield param(
                 config_spec=cls.DEFAULT_CONFIG_SPEC,
@@ -832,7 +878,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     },
                     'second\u015b': {},
                     'THIRD': {
-                        'xx': '',
+                        'xx': b'',
                         'yy': {'a': 42},
                         'zz': None,
                     },
@@ -852,9 +898,9 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     settings={
                         'first.a': '42',
                         'first.b': '43',
-                        'first.hij': 44,  # (the non-str value will be coerced to str)
+                        'first.hij': 44,  # (non-str values will be at first coerced to str)
                         'first.klm.rst': '1',
-                        'THIRD.xx': b'',  # (the non-str values will be coerced to str)
+                        'THIRD.xx': b'',  # (non-str values will be at first coerced to str)
                         'THIRD.zz': ' None ',
                     },
                 ),
@@ -875,7 +921,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     },
                     'second\u015b': {},
                     'THIRD': {
-                        'xx': '',
+                        'xx': b'',  # (encoded to bytes again, because of the `bytes` converter)
                         'yy': {'a': 42},
                         'zz': None,
                     },
@@ -894,7 +940,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 optional_kwargs=dict(),
                 config_files_content=DEFAULT,
                 expected_open_calls=[],
-                expected_outcome=(ConfigError, r'ValueError:'),
+                expected_outcome=(ValueError, r"config line 'a b c = foo' is not valid"),
             ).label('error: wrong spec [using config]')
 
         yield param(
@@ -904,7 +950,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 ),
                 config_files_content=sen.irrelevant,
                 expected_open_calls=[],
-                expected_outcome=(ConfigError, r'ValueError:'),
+                expected_outcome=(ValueError, r"config line 'a b c = foo' is not valid"),
             ).label('error: wrong spec [using settings]')
 
         yield param(
@@ -912,7 +958,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 optional_kwargs=dict(),
                 config_files_content=DEFAULT,
                 expected_open_calls=[],
-                expected_outcome=(TypeError, r'config_spec must be str'),
+                expected_outcome=(TypeError, r'`config_spec` is expected to be a `str` or'),
             ).label('error: wrong type of spec [using config]')
 
         yield param(
@@ -922,31 +968,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 ),
                 config_files_content=sen.irrelevant,
                 expected_open_calls=[],
-                expected_outcome=(TypeError, r'config_spec must be str'),
+                expected_outcome=(TypeError, r'`config_spec` is expected to be a `str` or'),
             ).label('error: wrong type of spec [using settings]')
-
-        yield param(
-                config_spec=cls.DEFAULT_CONFIG_SPEC,
-                optional_kwargs=dict(
-                    default_converter='some_undefined_key',
-                ),
-                config_files_content=DEFAULT,
-                expected_open_calls=[],
-                expected_outcome=(KeyError, r"'some_undefined_key'"),
-            ).label('error: undefined `default_converter` '
-                    'when specified as string [using config]')
-
-        yield param(
-                config_spec=cls.DEFAULT_CONFIG_SPEC,
-                optional_kwargs=dict(
-                    default_converter='some_undefined_key',
-                    settings=dict(cls.DEFAULT_SETTINGS),
-                ),
-                config_files_content=sen.irrelevant,
-                expected_open_calls=[],
-                expected_outcome=(KeyError, r"'some_undefined_key'"),
-            ).label('error: undefined `default_converter` '
-                    'when specified as string [using settings]')
 
         yield param(
                 config_spec='',
@@ -1149,12 +1172,15 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     'THIRD.yy={"a": 321}'])
 
     @foreach(modern_init_case_params)
+    @foreach(config_spec_type_case_params)
     def test_modern_init(self,
                          config_spec,
+                         config_spec_prep,
                          optional_kwargs,
                          config_files_content,
                          expected_open_calls,
                          expected_outcome):
+        config_spec = config_spec_prep(config_spec)
         self._test_init(
             [config_spec],
             optional_kwargs,
@@ -1166,18 +1192,32 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
     @paramseq
     def legacy_init_case_params(cls):
         yield param(
-                args=[],
+                args=[{}],
                 kwargs=dict(),
                 config_files_content='',
                 expected_outcome=Config.make(),
-            ).label('empty config, no arguments')
+            ).label('empty config, empty `required` as positional arg')
 
         yield param(
                 args=[],
+                kwargs=dict(required={}),
+                config_files_content='',
+                expected_outcome=Config.make(),
+            ).label('empty config, empty `required` as kwarg')
+
+        yield param(
+                args=[{}],
                 kwargs=dict(),
                 config_files_content=DEFAULT,
                 expected_outcome=Config.make(cls.EXPECTED_LEGACY_INIT_CONFIG_BASE),
-            ).label('config, no arguments')
+            ).label('config, empty `required` as positional arg')
+
+        yield param(
+                args=[],
+                kwargs=dict(required={}),
+                config_files_content=DEFAULT,
+                expected_outcome=Config.make(cls.EXPECTED_LEGACY_INIT_CONFIG_BASE),
+            ).label('config, empty `required` as kwarg')
 
         yield param(
                 args=[cls.DEFAULT_LEGACY_REQUIRED],
@@ -1287,7 +1327,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     'zz': '({}, [])',
                 },
             }),
-        ).label('One config value overridden with --ngconfig-override commandline argument'
+        ).label('One config value overridden with --n6config-override commandline argument'
             ).context(patch, 'sys.argv', sys.argv + [
                 '--foo',
                 '--n6config-override',
@@ -1321,7 +1361,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     'zz': '({}, [])',
                 },
             }),
-        ).label('Two config values overridden with --ngconfig-override commandline argument'
+        ).label('Two config values overridden with --n6config-override commandline argument'
             ).context(patch, 'sys.argv', sys.argv + [
                 '--n6recovery',
                 '--n6config-override',
@@ -1604,15 +1644,18 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                         msg_regex=cls.PATTERN_FOR_OPT_TYPO_VULNERABLE_SECT_NAMES,
                     ),
                 ],
-            ).label('Warning and error are logged because of the missing nonrequired section '
+            ).label('Warning and error are logged because of the missing non-required section '
                     'and a possibility of a typo in option names.')
 
     @foreach(config_sections_logging_case_params)
+    @foreach(config_spec_type_case_params)
     def test_modern_init_logging_uncertainties(self,
                                                config_spec,
+                                               config_spec_prep,
                                                config_files_content,
                                                expected_outcome,
                                                expected_log_invocations):
+        config_spec = config_spec_prep(config_spec)
         with patch('n6lib.config.LOGGER') as logger_mock:
             self._test_init(args=[config_spec],
                             kwargs=dict(),
@@ -1659,6 +1702,11 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             # expected outcome is a Config instance returned
             result = Config(*args, **kwargs)
             self.assertEqualIncludingTypes(result, expected_outcome)
+            self.assertIsInstance(result, Config)
+            self.assertIsInstance(result, DictWithSomeHooks)
+            self.assertIsInstance(result, dict)
+            self.assertIsInstance(result, MutableMapping)
+            self.assertIsInstance(result, Mapping)
         else:
             # expected outcome is an exception raised
             expected_exc_class, expected_exc_regex = expected_outcome

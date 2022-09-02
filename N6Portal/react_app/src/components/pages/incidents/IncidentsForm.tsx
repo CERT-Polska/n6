@@ -1,12 +1,12 @@
 import { FC, useState, useEffect } from 'react';
 import { AxiosError } from 'axios';
-import { useIntl } from 'react-intl';
 import { ToastContainer, toast } from 'react-toastify';
 import { UseMutateAsyncFunction } from 'react-query';
 import { useForm, FormProvider, SubmitHandler } from 'react-hook-form';
 import { Dropdown } from 'react-bootstrap';
 import classNames from 'classnames';
 import { subDays } from 'date-fns';
+import { useTypedIntl } from 'utils/useTypedIntl';
 import { IFilterResponse } from 'api/services/search';
 import { IRequestParams } from 'api/services/globalTypes';
 import DatePicker from 'components/forms/datePicker/DatePicker';
@@ -20,35 +20,76 @@ import {
   TFilter,
   TFilterName,
   optLimit,
-  parseIncidentsFormData
+  parseIncidentsFormData,
+  TStoredFilter
 } from 'components/pages/incidents/utils';
 import IncidentsFilter from 'components/pages/incidents/IncidentsFilter';
+import { storageAvailable } from 'utils/storageAvailable';
 
 interface IProps {
   dataLength: number;
   refetchData: UseMutateAsyncFunction<IFilterResponse, AxiosError, IRequestParams, unknown>;
 }
 
+const FILTERS_STORAGE = 'userFilters';
+
 const IncidentsForm: FC<IProps> = ({ dataLength, refetchData }) => {
-  const { messages, formatMessage } = useIntl();
+  const { messages, formatMessage } = useTypedIntl();
   const [selectedFilters, setSelectedFilters] = useState<TFilter[]>([]);
 
   const methods = useForm<IIncidentsForm>({ mode: 'onBlur', reValidateMode: 'onBlur' });
-  const { handleSubmit, unregister } = methods;
+  const { handleSubmit, unregister, setValue, getValues } = methods;
 
   const onSubmit: SubmitHandler<IIncidentsForm> = (data) => {
     const parsedData = parseIncidentsFormData(data);
     refetchData(parsedData);
+
+    if (!storageAvailable('localStorage')) return;
+    const storedFilters: TStoredFilter = JSON.parse(localStorage.getItem(FILTERS_STORAGE) ?? '{}');
+
+    const storedKeys = Object.keys(storedFilters) as Array<keyof IIncidentsForm>;
+    const assignedFilters: Partial<TStoredFilter> = {};
+
+    storedKeys.forEach((filterKey) => {
+      assignedFilters[filterKey] = {
+        ...storedFilters[filterKey],
+        value: data[filterKey]
+      };
+    });
+
+    const { startDate, startTime } = getValues();
+    !storedKeys.includes('startDate') && (assignedFilters.startDate = { isDate: true, value: startDate });
+    !storedKeys.includes('startTime') && (assignedFilters.startTime = { isDate: true, value: startTime });
+
+    localStorage.setItem(FILTERS_STORAGE, JSON.stringify(assignedFilters));
   };
 
   const selectFilter = (filter: TFilter) => {
     setSelectedFilters([...selectedFilters, filter]);
+
+    if (!storageAvailable('localStorage')) return;
+
+    const storedFilters: TStoredFilter = JSON.parse(localStorage.getItem(FILTERS_STORAGE) ?? '{}');
+    storedFilters[filter.name] = {
+      ...filter,
+      value: filter.name === 'category' || filter.name === 'proto' ? [] : ''
+    };
+
+    localStorage.setItem(FILTERS_STORAGE, JSON.stringify(storedFilters));
   };
 
   const removeFilter = (filterNames: TFilterName[]) => {
     const newList = selectedFilters.filter((listElem) => listElem.name !== filterNames[0]);
     setSelectedFilters(newList);
     unregister(filterNames);
+
+    if (!storageAvailable('localStorage')) return;
+
+    const storedFilters: TStoredFilter = JSON.parse(localStorage.getItem(FILTERS_STORAGE) ?? '{}');
+    if (Object.keys(storedFilters).length === 0) return;
+
+    delete storedFilters[filterNames[0]];
+    localStorage.setItem(FILTERS_STORAGE, JSON.stringify(storedFilters));
   };
 
   const filtersToAdd = allFilters.filter((filter) => !selectedFilters.find((elem) => elem.name === filter.name));
@@ -68,6 +109,26 @@ const IncidentsForm: FC<IProps> = ({ dataLength, refetchData }) => {
       );
     }
   }, [dataLength, formatMessage]);
+
+  useEffect(() => {
+    if (!storageAvailable('localStorage')) return;
+    try {
+      const storedFilters: TStoredFilter = JSON.parse(localStorage.getItem(FILTERS_STORAGE) ?? '{}');
+      const customFiltersKeys = Object.keys(storedFilters) as Array<keyof IIncidentsForm>;
+
+      const allCustomFilters: TFilter[] = [];
+
+      customFiltersKeys.forEach((key) => {
+        const { value, ...filter } = storedFilters[key];
+        value && setValue(key, value);
+        !('isDate' in filter) && allCustomFilters.push(filter);
+      });
+
+      setSelectedFilters(allCustomFilters);
+    } catch {
+      localStorage.removeItem(FILTERS_STORAGE);
+    }
+  }, [setValue]);
 
   return (
     <div className="w-100">

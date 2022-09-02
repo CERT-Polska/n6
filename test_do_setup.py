@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import argparse
 try:
@@ -695,10 +695,10 @@ class Test__main(unittest.TestCase):
                     Call('do_setup.command', "pip install 'waitress<2.0'"),
                     Call('do_setup.LOGGER.info', "%r installed", 'waitress<2.0'),
                 ] if do_setup.PY2 else [
-                    Call('do_setup.command', "pip install 'pytest==4.6.11'"),
-                    Call('do_setup.LOGGER.info', "%r installed", 'pytest==4.6.11'),
-                    Call('do_setup.command', "pip install 'pytest-cov==2.12.1'"),
-                    Call('do_setup.LOGGER.info', "%r installed", 'pytest-cov==2.12.1'),
+                    Call('do_setup.command', "pip install 'pytest==7.1.2'"),
+                    Call('do_setup.LOGGER.info', "%r installed", 'pytest==7.1.2'),
+                    Call('do_setup.command', "pip install 'pytest-cov==3.0.0'"),
+                    Call('do_setup.LOGGER.info', "%r installed", 'pytest-cov==3.0.0'),
                     Call('do_setup.command', "pip install 'coverage'"),
                     Call('do_setup.LOGGER.info', "%r installed", 'coverage'),
                     Call('do_setup.command', "pip install 'pylint'"),
@@ -725,8 +725,8 @@ class Test__main(unittest.TestCase):
                         "\n* <mocked memo: \"pip install 'pylint==1.9.5'\">"
                         "\n* <mocked memo: \"pip install 'waitress<2.0'\">"
                         if do_setup.PY2 else
-                        "\n* <mocked memo: \"pip install 'pytest==4.6.11'\">"
-                        "\n* <mocked memo: \"pip install 'pytest-cov==2.12.1'\">"
+                        "\n* <mocked memo: \"pip install 'pytest==7.1.2'\">"
+                        "\n* <mocked memo: \"pip install 'pytest-cov==3.0.0'\">"
                         "\n* <mocked memo: \"pip install 'coverage'\">"
                         "\n* <mocked memo: \"pip install 'pylint'\">"
                         "\n* <mocked memo: \"pip install 'mkdocs==1.2.3'\">"

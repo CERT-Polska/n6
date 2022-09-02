@@ -21,3 +21,5 @@ export const countryCodeRegex = /^[a-zA-Z][a-zA-Z12]$/;
 export const md5Regex = /^[a-fA-F0-9]{32}$/;
 
 export const sha1Regex = /^[a-fA-F0-9]{40}$/;
+
+export const searchRegex = /^.{3,100}$/;

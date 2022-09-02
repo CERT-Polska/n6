@@ -13,7 +13,7 @@ const getOrgConfig = async (): Promise<IOrgConfig> => {
 };
 
 export const useOrgConfig = (
-  options?: UseQueryOptions<IOrgConfig, AxiosError>
+  options?: Omit<UseQueryOptions<IOrgConfig, AxiosError>, 'queryKey' | 'queryFn'>
 ): UseQueryResult<IOrgConfig, AxiosError> => {
   return useQuery('orgConfig', (): Promise<IOrgConfig> => getOrgConfig(), options);
 };

@@ -1,0 +1,85 @@
+# Copyright (c) 2021 NASK. All rights reserved.
+
+import pika
+import intelmq
+import ssl
+from intelmq.lib.pipeline import (
+    Amqp,
+    PipelineFactory,
+)
+
+
+INTELMQ_MAJOR_VERSION = intelmq.__version_info__[0]
+PIKA_MAJOR_VERSION = int(pika.__version__.split('.')[0])
+
+orig__Amqp_load_configurations__meth = Amqp.load_configurations
+orig__PipelineFactory_create__meth = PipelineFactory.create
+
+
+def create_patch(parameters, logger, direction):
+    """
+    Adjust arguments used by 'intelmq-webinput-csv' when calling
+    the `intelmq.lib.pipeline.PipelineFactory.create()` method
+    to method's signature in 'intelmq' version 3.0.2.
+
+    First positional argument is now a keyword 'pipeline_args'
+    argument and it accepts `dict` objects instead of instances
+    of `intelmq_webinput_csv.bin.backend.PipelineParameters`.
+    """
+    parameters_dict = parameters.__dict__
+    return orig__PipelineFactory_create__meth(logger,
+                                              direction=direction,
+                                              pipeline_args=parameters_dict)
+
+
+def load_configurations_patch(self, queues_type):
+    """
+    The patch of `intelmq.lib.pipeline.Amqp.load_configurations()`
+    implements a proper configuration of SSL connection, using
+    certificates and RabbitMQ's 'EXTERNAL` authentication mechanism.
+
+    Configuration of 'intelmq-webinput-csv' in webinput_csv.conf file
+    now accepts SSL-related options in 'intelmq' section:
+      * 'destination_pipeline_ssl' (bool) - enable or disable SSL.
+      * 'ssl_certfile' (str) - path to certificate file.
+      * 'ssl_certfile' (str) - path to private key file.
+      * 'ssl_certfile' (str) - path to CA certificate (chain
+                               of certificates) file.
+    """
+    if INTELMQ_MAJOR_VERSION < 3:
+        # in 'intelmq' version 2.x the attribute containing
+        # configuration is of a different type and different name
+        self.pipeline_args = self.parameters.__dict__
+    local_ssl_flag = self.pipeline_args.get("{}_pipeline_ssl".format(queues_type), False)
+    # if SSL is enabled, turn the parameter to False, so the original
+    # method will not try to create SSL options (original
+    # implementation causes exception to be raised)
+    if local_ssl_flag:
+        self.pipeline_args["{}_pipeline_ssl".format(queues_type)] = False
+    orig__Amqp_load_configurations__meth(self, queues_type)
+    if local_ssl_flag:
+        self.ssl_certfile = self.pipeline_args.get("ssl_certfile", None)
+        self.ssl_keyfile = self.pipeline_args.get("ssl_keyfile", None)
+        self.ssl_cafile = self.pipeline_args.get("ssl_cafile", None)
+        self.kwargs['ssl_options'] = _get_ssl_options(self)
+        self.kwargs['credentials'] = pika.credentials.ExternalCredentials()
+
+
+def _get_ssl_options(self):
+    if PIKA_MAJOR_VERSION == 0:
+        self.kwargs['ssl'] = True
+        return dict(ca_certs=self.ssl_cafile,
+                    certfile=self.ssl_certfile,
+                    keyfile=self.ssl_keyfile)
+    elif PIKA_MAJOR_VERSION == 1:
+        # 'pika' version 1.x requires `pika.SSLOptions` instance
+        context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH, cafile=self.ssl_cafile)
+        context.load_cert_chain(self.ssl_certfile, self.ssl_keyfile)
+        return pika.SSLOptions(context, self.host)
+    else:
+        raise RuntimeError("Unsupported version of 'pika' library")
+
+
+if INTELMQ_MAJOR_VERSION > 2:
+    setattr(PipelineFactory, 'create', create_patch)
+setattr(Amqp, 'load_configurations', load_configurations_patch)

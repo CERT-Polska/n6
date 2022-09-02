@@ -286,7 +286,7 @@ class MailSendingAPI(ConfigMixin, _MessageHelpersMixin):
 
 
     def _get_config(self, settings):
-        config = self.get_config_section(settings=settings)
+        config = self.get_config_section(settings)
         if config['smtp_login'] or config['smtp_password']:
             if not config['smtp_login']:
                 raise ConfigError(

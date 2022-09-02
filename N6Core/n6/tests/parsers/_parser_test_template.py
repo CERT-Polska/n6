@@ -15,7 +15,7 @@ from n6.parsers.generic import (
     TabDataParser,
     BlackListTabDataParser,
 )
-from n6.tests.parsers._parser_test_mixin import ParserTestMixIn
+from n6.tests.parsers._parser_test_mixin import ParserTestMixin
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 
 from n6.parsers.xxxxxxxx import (
@@ -26,7 +26,7 @@ from n6.parsers.xxxxxxxx import (
 )
 
 
-class TestMyEventParser(ParserTestMixIn, unittest.TestCase):
+class TestMyEventParser(ParserTestMixin, unittest.TestCase):
 
     """
     The template for testing parsers for event-based sources.
@@ -64,7 +64,7 @@ class TestMyEventParser(ParserTestMixIn, unittest.TestCase):
         #)
 
 
-class TestMyBLParser(ParserTestMixIn, unittest.TestCase):
+class TestMyBLParser(ParserTestMixin, unittest.TestCase):
 
     """
     The template for testing blacklist parsers.
@@ -92,7 +92,7 @@ class TestMyBLParser(ParserTestMixIn, unittest.TestCase):
     MESSAGE_EXTRA_HEADERS = {
         'meta': {'http_last_modified': '2017-01-12 12:02:04'}
     }
-    message_expires = (parse_iso_datetime_to_utc(ParserTestMixIn.message_created) +
+    message_expires = (parse_iso_datetime_to_utc(ParserTestMixin.message_created) +
                        datetime.timedelta(days=2))
 
     def cases(self):
@@ -150,7 +150,7 @@ class TestMyBLParser(ParserTestMixIn, unittest.TestCase):
         #)
 
 
-class TestMyMailBLParser(ParserTestMixIn, unittest.TestCase):
+class TestMyMailBLParser(ParserTestMixin, unittest.TestCase):
 
     """
     The template for testing e-mail sourced blacklist parsers.
@@ -175,7 +175,7 @@ class TestMyMailBLParser(ParserTestMixIn, unittest.TestCase):
     MESSAGE_EXTRA_HEADERS = {
         'meta': {'mail_time': '2017-01-12 12:02:04'}
     }
-    message_expires = (parse_iso_datetime_to_utc(ParserTestMixIn.message_created) +
+    message_expires = (parse_iso_datetime_to_utc(ParserTestMixin.message_created) +
                        datetime.timedelta(days=2))
 
     def cases(self):

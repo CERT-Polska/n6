@@ -3,7 +3,7 @@ default_ca = n6-CA
 
 [ n6-CA ]
 dir = n6-CA
-ca_dir = generated_certs/n6-CA
+ca_dir = n6-CA
 certificate = $ca_dir/cacert.pem
 database = $dir/index.txt
 new_certs_dir = $dir/certs

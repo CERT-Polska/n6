@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import glob
 import os
@@ -88,7 +88,7 @@ setup(
     include_package_data=True,
     python_requires='==3.9.*',
     zip_safe=False,
-    tests_require=['unittest_expander==0.3.1'],
+    tests_require=['unittest_expander==0.3.1', 'pytest==7.1.2'],
     test_suite="n6lib.tests",
     dependency_links=dep_links,
     install_requires=requirements,

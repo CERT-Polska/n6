@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 import datetime
 import hashlib
+import shutil
+import tempfile
 import unittest
 
-from mock import (
+from mock import (                                                               #3: ->unittest.mock...
     ANY,
     call,
     Mock,
@@ -20,26 +22,27 @@ from unittest_expander import (
     paramseq,
 )
 
-from n6corelib.email_message import ReceivedEmailMessage
+from n6corelib.email_message import ReceivedEmailMessage                         #3-- (at least for now)...
 from n6lib.common_helpers import PlainNamespace
 from n6lib.config import (
     ConfigError,
     ConfigSection,
 )
 from n6lib.csv_helpers import extract_field_from_csv_row
-from n6lib.unit_test_helpers import patch_always
-from n6.base.queue import QueuedBase
-from n6.collectors.generic import (
+from n6lib.unit_test_helpers import patch_always                                 #3--
+from n6.base.queue import QueuedBase                                             #3: n6.base.queue->n6datapipeline.base, QueuedBase->LegacyQueuedBase
+from n6.collectors.generic import (                                              #3: **everywhere** n6.collectors.generic -> n6datasources.collectors.base
     BaseCollector,
-    BaseEmailSourceCollector,
+    BaseEmailSourceCollector,                                                    #3-- (at least for now)...
     BaseOneShotCollector,
     BaseTimeOrderedRowsCollector,
-    BaseUrlDownloaderCollector,
+    BaseUrlDownloaderCollector,                                                  #3--
+    CollectorWithStateMixin,                                                     #3: ->StatefulCollectorMixin...
 )
-from n6.tests.collectors._collectors_test_helpers import _BaseCollectorTestCase
+from n6.tests.collectors._collector_test_helpers import _BaseCollectorTestCase
 
 
-SAMPLE_ARG_A = sentinel.a
+SAMPLE_ARG_A = sentinel.a                                                        #3: check whether all those constants are in use
 SAMPLE_ARG_B = sentinel.b
 SAMPLE_CONFIG_SECTION = "some_section"
 SAMPLE_OTHER_CONFIG_SECTION = "other_section"
@@ -79,14 +82,14 @@ STDERR_PATCHER = patch('sys.stderr')
 class TestBaseCollector(unittest.TestCase):
 
     def test_basics(self):
-        self.assertTrue(issubclass(BaseCollector, QueuedBase))
-        self.assertTrue(hasattr(BaseCollector, 'output_queue'))
+        self.assertTrue(issubclass(BaseCollector, QueuedBase))                   #3: QueuedBase->LegacyQueuedBase
+        self.assertTrue(hasattr(BaseCollector, 'output_queue'))                  #3: revise the attributes to check...
         self.assertTrue(hasattr(BaseCollector, 'raw_format_version_tag'))
         self.assertTrue(hasattr(BaseCollector, 'config_required'))
         self.assertTrue(hasattr(BaseCollector, 'config_group'))
         self.assertTrue(hasattr(BaseCollector, 'type'))
 
-    def test_class_attr_values(self):
+    def test_class_attr_values(self):                                             #3: revise the attributes and types to check...
         self.assertEqual(BaseCollector.output_queue,
                          {'exchange': 'raw', 'exchange_type': 'topic'})
         self.assertIsNone(BaseCollector.raw_format_version_tag)
@@ -95,7 +98,7 @@ class TestBaseCollector(unittest.TestCase):
         self.assertIsNone(BaseCollector.config_group)
         self.assertIsNone(BaseCollector.type)
 
-    @foreach(
+    @foreach(                  #3: in all this test class: revise the attributes/methods/args/results/etc. to check (and their features/states/etc.)...
         param(
             custom_config_group=SAMPLE_CONFIG_SECTION,
             expected_config=ConfigSection(SAMPLE_CONFIG_SECTION,
@@ -145,7 +148,7 @@ class TestBaseCollector(unittest.TestCase):
             custom_config_required=('some_opt',),
             custom_config_spec='''
                 [some_section]
-                required_opt :: unicode
+                required_opt :: unicode                                           ; #3: replace `unicode` with something else...
             ''',
             expected_config=ConfigSection(SAMPLE_CONFIG_SECTION,
                                           {'required_opt': u'some option which is required',
@@ -159,7 +162,7 @@ class TestBaseCollector(unittest.TestCase):
             custom_config_group=SAMPLE_OTHER_CONFIG_SECTION,
             custom_config_spec='''
                 [some_section]
-                required_opt :: unicode
+                required_opt :: unicode                                           ; #3: replace `unicode` with something else...
                 ...
                 [other_section]
                 some_opt
@@ -180,7 +183,7 @@ class TestBaseCollector(unittest.TestCase):
         param(
             custom_config_spec='''
                 [some_section]
-                required_opt :: unicode
+                required_opt :: unicode                                           ; #3: replace `unicode` with something else...
                 ...
                 [other_section]
                 some_opt
@@ -449,7 +452,7 @@ class TestBaseCollector(unittest.TestCase):
                                                          output_data_body)
 
         ### XXX CR: rather hardcode a few specific md5s instead of:
-        expected_message_id = hashlib.md5(source + '\0' +
+        expected_message_id = hashlib.md5(source + '\0' +                            #3: usedforsecurity=False...??? , adjust ad string types...
                                           created_timestamp_str + '\0' +
                                           output_data_body).hexdigest()
         self.assertEqual(message_id, expected_message_id)
@@ -462,7 +465,7 @@ class TestBaseOneShotCollector(unittest.TestCase):
 
     def test__init(self):
         super_cls_mock = PlainNamespace(__init__=Mock())
-        with patch_always('n6.collectors.generic.super',
+        with patch_always('n6.collectors.generic.super',                            #3: `patch_always`->`patch`...
                           return_value=super_cls_mock) as super_mock:
             # instantiation
             instance = BaseOneShotCollector(input_data=SAMPLE_INPUT_DATA,
@@ -470,7 +473,7 @@ class TestBaseOneShotCollector(unittest.TestCase):
                                             bb=SAMPLE_ARG_B)
             # assertions
             self.assertIsInstance(instance, BaseOneShotCollector)
-            super_mock.assert_called_once_with(BaseOneShotCollector, instance)
+            super_mock.assert_called_once_with(BaseOneShotCollector, instance)      #3: `BaseOneShotCollector, instance`--
             super_cls_mock.__init__.assert_called_once_with(a=SAMPLE_ARG_A,
                                                             bb=SAMPLE_ARG_B)
             self.assertIs(instance.input_data, SAMPLE_INPUT_DATA)
@@ -509,7 +512,7 @@ class TestBaseOneShotCollector(unittest.TestCase):
         self.assertIs(mock._output_components, None)
 
 
-class TestBaseEmailSourceCollector(unittest.TestCase):
+class TestBaseEmailSourceCollector(unittest.TestCase):                           #3-- (at least for now)
 
     def test_basics(self):
         self.assertTrue(issubclass(BaseEmailSourceCollector,
@@ -551,7 +554,7 @@ class TestBaseEmailSourceCollector(unittest.TestCase):
         email_msg_mock.get_utc_datetime.return_value = (
             datetime.datetime(2013, 5, 29, 14, 5, 19, 0))
         email_msg_mock.get_subject.return_value = 'Subject z polskimi znaćżkąmi'
-        with patch_always('n6.collectors.generic.super',
+        with patch_always('n6.collectors.generic.super',                            #3: `patch_always`->`patch`...
                           return_value=super_cls_mock) as super_mock:
             output_prop_kw = BaseEmailSourceCollector.get_output_prop_kwargs(
                     mock,
@@ -565,7 +568,7 @@ class TestBaseEmailSourceCollector(unittest.TestCase):
 
 
 @expand
-class TestBaseUrlDownloaderCollector___try_to_set_http_last_modified(unittest.TestCase):
+class TestBaseUrlDownloaderCollector___try_to_set_http_last_modified(unittest.TestCase):             #3--
 
     def setUp(self):
         self.instance = object.__new__(BaseUrlDownloaderCollector)
@@ -605,14 +608,32 @@ class TestBaseUrlDownloaderCollector___try_to_set_http_last_modified(unittest.Te
 
 
 @expand
-class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
+class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):    #3: adjust ad types, especially of string-like stuff...
+                                                                   #3: adjust ad interface/internals differences between the Py2 and Py3 variants of the tested class...
+    DEFAULT_CONFIG = '''
+        [xyz_my_channel]
+        source = xyz
+        cache_dir = /who/cares
+        row_count_mismatch_is_fatal = False
+    '''
+
+    DEFAULT_PROP_KWARGS = {
+        'timestamp': ANY,
+        'message_id': ANY,
+        'type': 'file',
+        'content_type': 'text/csv',
+        'headers': {},
+    }
+
 
     class ExampleTimeOrderedRowsCollector(BaseTimeOrderedRowsCollector):
 
-        config_spec = '''
-            [xyz_my_channel]
+        source_config_section = 'xyz_my_channel'
+        config_spec_pattern = '''
+            [{source_config_section}]
             source :: str
             cache_dir :: str
+            row_count_mismatch_is_fatal = False :: bool
         '''
 
         example_orig_data = None  # to be set on instance by test code
@@ -630,18 +651,15 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
             return 'my-channel'
 
     @paramseq
-    def cases():
+    def cases(cls):
         yield param(
             # Initial state (one row)
             # and expected saved state (one row)
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state={
                 'newest_row_time': '2019-07-10',
                 'newest_rows': {'"zzz","2019-07-10"'},
+                'rows_count': 5,
             },
             orig_data=(
                 '# halo,mówię...\n'
@@ -667,18 +685,62 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
                 'newest_row_time': '2019-07-13',
                 'newest_rows': {'"ham","2019-07-13"'},
+                'rows_count': 7,
+            }
+        )
+
+        yield param(
+            # Same as above but this time we check if the results
+            # are the same with `row_count_mismatch_is_fatal` flag
+            # set to `True` (in `config_content`).
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+                row_count_mismatch_is_fatal = True
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-10',
+                'newest_rows': {'"zzz","2019-07-10"'},
+                'rows_count': 5,
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"ham","2019-07-13"\n'
+                '\t\n'
+                '"spam","2019-07-11"\n'
+                '"zzz","2019-07-10"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"ham","2019-07-13"\n'
+                        '"spam","2019-07-11"'
+                    ),
+
+                    # prop_kwargs
+                    cls.DEFAULT_PROP_KWARGS,
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-13',
+                'newest_rows': {'"ham","2019-07-13"'},
+                'rows_count': 7,
             }
         )
 
@@ -690,14 +752,11 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
             # ---
             # Initial state (one row)
             # and expected saved state (one row)
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state={
                 'newest_row_time': '5',
                 'newest_rows': {'"zzz","5"'},
+                'rows_count': 5,
             },
             orig_data=(
                 '# halo,mówię...\n'
@@ -723,32 +782,24 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
                 'newest_row_time': '7',
                 'newest_rows': {'"ham","7"'},
+                'rows_count': 7,
             }
         )
 
         yield param(
             # Initial state (one row) and
             # expected saved state (two rows)
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state={
                 'newest_row_time': '2019-07-02',
                 'newest_rows': {'"sss","2019-07-02"'},
+                'rows_count': 3,
             },
             orig_data=(
                 '# halo,mówię...\n'
@@ -776,13 +827,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
@@ -791,20 +836,18 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     '"ham","2019-07-11"',
                     '"spam","2019-07-11"'
                 },
+                'rows_count': 7,
             }
         )
 
         yield param(
             # Initial state (one row) but without expected saved state
             # (no new data)
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state={
                 'newest_row_time': '2019-07-10',
                 'newest_rows': {'"zzz","2019-07-10"'},
+                'rows_count': 5,
             },
             orig_data=(
                 '"zzz","2019-07-10"\n'
@@ -820,17 +863,14 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
         yield param(
             # Initial state (two rows)
             # and expected saved state (one row)
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state={
                 'newest_row_time': '2019-07-10',
                 'newest_rows': {
                     '"spam","2019-07-10"',
                     '"zzz","2019-07-10"'
                 },
+                'rows_count': 6,
             },
             orig_data=(
                 '"ham","2019-07-11"\n'
@@ -854,13 +894,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
@@ -868,23 +902,21 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                 'newest_rows': {
                     '"ham","2019-07-11"'
                 },
+                'rows_count': 7,
             }
         )
 
         yield param(
             # Initial state (two rows) and
             # expected saved state (also two rows)
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state={
                 'newest_row_time': '2019-07-02',
                 'newest_rows': {
                     '"sss","2019-07-02"',
                     '"egg","2019-07-02"'
                 },
+                'rows_count': 4,
             },
             orig_data=(
                 '# halo,mówię...\n'
@@ -911,13 +943,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
@@ -926,6 +952,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     '"ham","2019-07-11"',
                     '"spam","2019-07-11"'
                 },
+                'rows_count': 7,
             }
         )
 
@@ -933,17 +960,14 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
             # Initial state (two rows)
             # but without expected saved state
             # (no new data)
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state={
                 'newest_row_time': '2019-07-02',
                 'newest_rows': {
                     '"sss","2019-07-02"',
                     '"egg","2019-07-02"'
                 },
+                'rows_count': 4,
             },
             orig_data=(
                 '"egg","2019-07-02"\n'
@@ -953,16 +977,13 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                 '"foo","2019-06-30"\n'
             ),
             expected_publish_output_calls=[],
-            expected_saved_state=sentinel.NO_STATE)
+            expected_saved_state=sentinel.NO_STATE,
+        )
 
         yield param(
             # Without initial state but with expected saved state
             # (e.g.first run) - one row
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state=sentinel.NO_STATE,
             orig_data=(
                 '"zzz","2019-07-10"\n'
@@ -986,29 +1007,20 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
                 'newest_row_time': '2019-07-10',
                 'newest_rows': {'"zzz","2019-07-10"'},
+                'rows_count': 5,
             }
         )
 
         yield param(
             # Without initial state but with expected saved state
             # (e.g.first run) - two rows
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state=sentinel.NO_STATE,
             orig_data=(
                 '"zzz","2019-07-10"\n'
@@ -1032,13 +1044,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
@@ -1047,26 +1053,26 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     '"zzz","2019-07-10"',
                     '"egg","2019-07-10"'
                 },
+                'rows_count': 5,
             }
         )
 
         yield param(
             # Without initial state (e.g. first run) and without
             # expected saved state (no data at all - just empty string)
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state=sentinel.NO_STATE,
             orig_data='',
             expected_publish_output_calls=[],
-            expected_saved_state=sentinel.NO_STATE)
+            expected_saved_state=sentinel.NO_STATE,
+        )
 
         yield param(
             # Initial state one row, another row with the same date
             # in orig data - we expect to get this row
-            # Expected saved state - old row + new row
+            # Expected saved state:
+            #   - old row (counted in rows_count)
+            #   - new row
             config_content='''
                 [xyz_my_channel]
                 source = xyz
@@ -1075,6 +1081,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
             initial_state={
                 'newest_row_time': '2019-07-02',
                 'newest_rows': {'"sss","2019-07-02"'},
+                'rows_count': 3,
             },
             orig_data=(
                 '# halo,mówię...\n'
@@ -1095,13 +1102,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
@@ -1110,6 +1111,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     '"egg","2019-07-02"',
                     '"sss","2019-07-02"'
                 },
+                'rows_count': 4,
             }
         )
 
@@ -1117,15 +1119,12 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
             # Initial state one row, orig data consists of two
             # additional (new) rows with the same date as "state row"
             # - we expect to get only these two new rows
-            # Expected saved state - old row + new row
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            # Expected saved state - old row + two new rows
+            config_content=cls.DEFAULT_CONFIG,
             initial_state={
                 'newest_row_time': '2019-07-02',
                 'newest_rows': {'"sss","2019-07-02"'},
+                'rows_count': 3,
             },
             orig_data=(
                 '# halo,mówię...\n'
@@ -1148,13 +1147,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
@@ -1164,6 +1157,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     '"sss","2019-07-02"',
                     '"ham","2019-07-02"'
                 },
+                'rows_count': 5,
             }
         )
 
@@ -1172,17 +1166,14 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
             # additional (new) row with the same date as "state row"
             # - we expect to get only this new row
             # Expected saved state - old rows + new row
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            config_content=cls.DEFAULT_CONFIG,
             initial_state={
                 'newest_row_time': '2019-07-02',
                 'newest_rows': {
                     '"egg","2019-07-02"',
                     '"sss","2019-07-02"'
                 },
+                'rows_count': 4,
             },
             orig_data=(
                 '# halo,mówię...\n'
@@ -1204,13 +1195,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
@@ -1220,18 +1205,57 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     '"sss","2019-07-02"',
                     '"ham","2019-07-02"'
                 },
+                'rows_count': 5,
             }
         )
 
         yield param(
             # Initial state one row, another row with the same date
             # in orig data - we expect to get this row
-            # Expected state: new row (different, later date)
-            config_content='''
-                [xyz_my_channel]
-                source = xyz
-                cache_dir = /who/cares
-            ''',
+            # Expected state: new row (different, latest date)
+            config_content=cls.DEFAULT_CONFIG,
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+                'rows_count': 3,
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"zzz","2019-07-10"\n'
+                '"egg","2019-07-02"\n'
+                '"sss","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"zzz","2019-07-10"\n'
+                        '"egg","2019-07-02"'
+                    ),
+
+                    # prop_kwargs
+                    cls.DEFAULT_PROP_KWARGS,
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-10',
+                'newest_rows': {'"zzz","2019-07-10"'},
+                'rows_count': 5,
+            }
+        )
+
+        yield param(
+            # Same as above but now we are testing `initial_state`
+            # **without** `rows_count` key (legacy state).
+            # We expect that we'll have `rows_count` key
+            # in `expected_saved_state`.
+            config_content=cls.DEFAULT_CONFIG,
             initial_state={
                 'newest_row_time': '2019-07-02',
                 'newest_rows': {'"sss","2019-07-02"'},
@@ -1257,27 +1281,274 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                     ),
 
                     # prop_kwargs
-                    {
-                        'timestamp': ANY,
-                        'message_id': ANY,
-                        'type': 'file',
-                        'content_type': 'text/csv',
-                        'headers': ANY,
-                    },
+                    cls.DEFAULT_PROP_KWARGS,
                 ),
             ],
             expected_saved_state={
                 'newest_row_time': '2019-07-10',
                 'newest_rows': {'"zzz","2019-07-10"'},
+                'rows_count': 5,
             }
         )
 
         yield param(
-            # Order of rows does not satisfy our requirements (data
-            # from source is not sorted, `older` rows are mixed with
-            # newer -- see `BaseTimeOrderedRowsCollector`'s
-            # documentation, for more details.
-            # We expect to obtain ValueError.
+            # Same as two above but now we are testing `initial_state`
+            # **with** `rows_count` key set to incorrect rows count
+            # values. We assume here, that this situation might happen
+            # when the source does not meet our requirements (see docs)
+            # and we have `row_count_mismatch_is_fatal` flag
+            # set to `False` (in `config_content`).
+
+            # We expect correct `expected_saved_state` (len() of all rows)
+            # and a warning in logs.
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+                row_count_mismatch_is_fatal = False
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+                'rows_count': 2,
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"zzz","2019-07-10"\n'
+                '"sss","2019-07-01"\n'
+                '"egg","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_warning_count=1,
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"zzz","2019-07-10"\n'
+                        '"egg","2019-07-02"'
+                    ),
+
+                    # prop_kwargs
+                    cls.DEFAULT_PROP_KWARGS,
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-10',
+                'newest_rows': {'"zzz","2019-07-10"'},
+                'rows_count': 5,
+            }
+        )
+
+        yield param(
+            # Same as above but now we are testing
+            # `row_count_mismatch_is_fatal` flag set to True.
+            # We expect ValueError (+ an error in logs).
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+                row_count_mismatch_is_fatal = True
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+                'rows_count': 2,
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"zzz","2019-07-10"\n'
+                '"sss","2019-07-01"\n'
+                '"egg","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_error=ValueError,
+            expected_publish_output_calls=[],
+            expected_saved_state=sentinel.NO_STATE,
+        )
+
+        yield param(
+            # Similar to the ones above but now we are testing
+            # reaction to duplicates in the `fresh_rows` when the
+            # `row_count_mismatch_is_fatal` flag is set to True.
+            # We expect ValueError (+ an error in logs).
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+                row_count_mismatch_is_fatal = True
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+                'rows_count': 2,
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"zzz","2019-07-10"\n'
+                '"zzz","2019-07-10"\n'
+                '"sss","2019-07-01"\n'
+                '"egg","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_error=ValueError,
+            expected_publish_output_calls=[],
+            expected_saved_state=sentinel.NO_STATE,
+        )
+        yield param(
+            # Same as the one above but now we are testing
+            # reaction to duplicates in the `fresh_rows` when the
+            # `row_count_mismatch_is_fatal` flag is set to False.
+            #
+            # We expect correct `expected_saved_state` (len of all rows)
+            # and a warning in logs.
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+                row_count_mismatch_is_fatal = False
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+                'rows_count': 3,
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"www","2019-07-11"\n'
+                '"zzz","2019-07-10"\n'
+                '"zzz","2019-07-10"\n'
+                '"sss","2019-07-01"\n'
+                '"egg","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_warning_count=1,
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"www","2019-07-11"\n'
+                        '"zzz","2019-07-10"\n'
+                        '"zzz","2019-07-10"\n'
+                        '"egg","2019-07-02"'
+                    ),
+
+                    # prop_kwargs
+                    cls.DEFAULT_PROP_KWARGS,
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-11',
+                'newest_rows': {'"www","2019-07-11"'},
+                'rows_count': 7,
+            }
+        )
+
+        yield param(
+            # Now we are focusing on:
+            #  * mismatch in counted rows
+            #  * duplicates in fresh_rows
+            # while `row_count_mismatch_is_fatal` flag is set to False.
+            #
+            # We expect correct `expected_saved_state` (len of all rows)
+            # and a warning in logs.
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+                row_count_mismatch_is_fatal = False
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+                'rows_count': 2,
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"www","2019-07-11"\n'
+                '"zzz","2019-07-10"\n'
+                '"zzz","2019-07-10"\n'
+                '"sss","2019-07-01"\n'
+                '"egg","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_warning_count=1,
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"www","2019-07-11"\n'
+                        '"zzz","2019-07-10"\n'
+                        '"zzz","2019-07-10"\n'
+                        '"egg","2019-07-02"'
+                    ),
+
+                    # prop_kwargs
+                    cls.DEFAULT_PROP_KWARGS,
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-11',
+                'newest_rows': {'"www","2019-07-11"'},
+                'rows_count': 7,
+            }
+        )
+
+        yield param(
+            # Now we are focusing on:
+            #  * mismatch in counted rows
+            #  * duplicates in fresh_rows
+            # while `row_count_mismatch_is_fatal` flag is set to `True`.
+            #
+            # We expect ValueError.
+            config_content='''
+                [xyz_my_channel]
+                source = xyz
+                cache_dir = /who/cares
+                row_count_mismatch_is_fatal = True
+            ''',
+            initial_state={
+                'newest_row_time': '2019-07-02',
+                'newest_rows': {'"sss","2019-07-02"'},
+                'rows_count': 2,
+            },
+            orig_data=(
+                '# halo,mówię...\n'
+                '"www","2019-07-11"\n'
+                '"zzz","2019-07-10"\n'
+                '"zzz","2019-07-10"\n'
+                '"sss","2019-07-01"\n'
+                '"egg","2019-07-02"\n'
+                '\n'
+                '"bar","2019-07-01"\n'
+                '"foo","2019-06-30"\n'
+            ),
+            expected_error=ValueError,
+            expected_publish_output_calls=[],
+            expected_saved_state=sentinel.NO_STATE,
+        )
+
+        yield param(
+            # Data from source is not sorted,
+            # `older` rows are mixed with newer ones.
             config_content='''
                 [xyz_my_channel]
                 source = xyz
@@ -1286,6 +1557,7 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
             initial_state={
                 'newest_row_time': '2019-07-10',
                 'newest_rows': {'"zzz","2019-07-10"'},
+                'rows_count': 5
             },
             orig_data=(
                 '# halo,mówię...\n'
@@ -1293,16 +1565,34 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                 '"ham","2019-07-13"\n'
                 '\t\n'
                 '"zzz","2019-07-10"\n'
-                '"egg","2019-07-02"\n'
                 '"sss","2019-07-02"\n'
+                '"egg","2019-07-02"\n'
                 '\n'
                 '"bar","2019-07-01"\n'
                 '"foo","2019-06-30"\n'
             ),
-            expected_publish_output_calls=None,
-            expected_saved_state=None,
-            expected_error=ValueError
+            expected_publish_output_calls=[
+                call(
+                    # routing_key
+                    'xyz.my-channel',
+
+                    # body
+                    (
+                        '"spam","2019-07-11"\n'
+                        '"ham","2019-07-13"'
+                    ),
+
+                    # prop_kwargs
+                    cls.DEFAULT_PROP_KWARGS,
+                ),
+            ],
+            expected_saved_state={
+                'newest_row_time': '2019-07-13',
+                'newest_rows': {'"ham","2019-07-13"'},
+                'rows_count': 7,
+            }
         )
+
 
     @foreach(cases)
     def test(self,
@@ -1311,7 +1601,12 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
              orig_data,
              expected_publish_output_calls,
              expected_saved_state,
+             expected_warning_count=None,
              expected_error=None):
+
+        LOGGER_warning_mock = self.patch(
+            'n6.collectors.generic.LOGGER.warning'
+        )
         collector = self.prepare_collector(self.ExampleTimeOrderedRowsCollector,
                                            config_content=config_content,
                                            initial_state=initial_state)
@@ -1321,5 +1616,99 @@ class TestBaseTimeOrderedRowsCollector(_BaseCollectorTestCase):
                 collector.run_handling()
         else:
             collector.run_handling()
-            self.assertEqual(self.publish_output_mock.mock_calls, expected_publish_output_calls)
-            self.assertEqual(self.saved_state, expected_saved_state)
+
+        if expected_warning_count:
+            self.assertEqual(LOGGER_warning_mock.call_count, expected_warning_count)
+        self.assertEqual(self.publish_output_mock.mock_calls,
+                         expected_publish_output_calls)
+        self.assertEqual(self.saved_state, expected_saved_state)
+
+
+@expand
+class TestCollectorWithStateMixin(_BaseCollectorTestCase):    #3: ->StatefulCollectorMixin...
+                                                              #3: adjust ad interface/internals differences between the Py2 and Py3 variants of the tested class...
+    patch_CollectorWithStateMixin = False
+
+    def setUp(self):
+        self.cache_dir = tempfile.mkdtemp(prefix='n6-TestCollectorWithStateMixin')
+
+    class ExampleCollectorWithState(CollectorWithStateMixin,
+                                    BaseCollector):
+
+        config_spec = '''
+            [stateful_collector_example_config]
+            source :: str
+            cache_dir :: str
+        '''
+
+        def get_source_channel(self, **kwargs):
+            return 'test_channel'
+
+        def make_default_state(self):
+            return 'This is default state - test'
+
+    @paramseq
+    def cases():
+        yield param(
+            source_opt='source_1',
+            source_type='blacklist',
+            state='1 2 3 abc',
+            expected_cache_file_name='source_1.test_channel.ExampleCollectorWithState.pickle',
+        )
+
+        yield param(
+            source_opt='source_2',
+            source_type='file',
+            state='file content',
+            expected_cache_file_name='source_2.test_channel.ExampleCollectorWithState.pickle',
+        )
+        yield param(
+            source_opt='source_3',
+            source_type='stream',
+            state=None,
+            expected_cache_file_name='source_3.test_channel.ExampleCollectorWithState.pickle',
+        )
+        yield param(
+            source_opt='source_4',
+            source_type='file',
+            state='żółte kąty',
+            expected_cache_file_name='source_4.test_channel.ExampleCollectorWithState.pickle',
+        )
+        yield param(
+            source_opt='source_5',
+            source_type='file',
+            state=b'\xc5\xbc\xc3\xb3\xc5\x82te k\xc4\x85ty',
+            expected_cache_file_name='source_5.test_channel.ExampleCollectorWithState.pickle',
+        )
+        yield param(
+            source_opt='source_6',
+            source_type='file',
+            state=datetime.date(2022, 1, 3),
+            expected_cache_file_name='source_6.test_channel.ExampleCollectorWithState.pickle',
+        )
+
+    @foreach(cases)
+    def test(self,
+             source_opt,
+             source_type,
+             state,
+             expected_cache_file_name):
+        config_content = '''
+            [stateful_collector_example_config]
+            source = {}
+            cache_dir = {}
+        '''.format(source_opt, self.cache_dir)
+        self.ExampleCollectorWithState.type = source_type
+        collector = self.prepare_collector(self.ExampleCollectorWithState,
+                                           config_content=config_content)
+        state_before_save = collector.load_state()
+        collector.save_state(state)
+        loaded_state = collector.load_state()
+        default_state = collector.make_default_state()
+        cache_file_name = collector.get_cache_file_name()
+        self.assertEqual(loaded_state, state)
+        self.assertEqual(default_state, state_before_save)
+        self.assertEqual(cache_file_name, expected_cache_file_name)
+
+    def tearDown(self):
+        shutil.rmtree(self.cache_dir)

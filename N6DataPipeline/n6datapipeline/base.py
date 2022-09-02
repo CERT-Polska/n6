@@ -1,9 +1,10 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 # Note, however, that some parts of the LegacyQueuedBase class are patterned
 # after some examples from the docs of a 3rd-party library: `pika`; and
-# some of the docstrings are taken from or contain fragments of the
-# docs of the `pika` library.
+# some docstrings were taken from or contain fragments of the docs of `pika`.
+# Copyright (c) 2009-2017, Tony Garnock-Jones, Gavin M. Roy, Pivotal Software
+# Inc., and contributors. All rights reserved. See https://pika.readthedocs.io/
 
 import argparse
 import collections
@@ -31,6 +32,7 @@ from n6lib.amqp_helpers import (
 )
 from n6lib.argument_parser import N6ArgumentParser
 from n6lib.auth_api import AuthAPICommunicationError
+from n6lib.class_helpers import call_new_of_super
 from n6lib.common_helpers import (
     as_bytes,
     ascii_str,
@@ -92,12 +94,13 @@ class LegacyQueuedBase(object):
     **kwargs and call super().__init__(**kwargs)
     """
 
-    #
-    # Basic attributes
-
     SOCKET_TIMEOUT = 3.0
     STOP_TIMEOUT = 180
     AMQP_SETUP_TIMEOUT = 60
+
+
+    #
+    # Basic attributes
 
     # the name of the config section the RabbitMQ settings shall be taken from
     rabbitmq_config_section: str = 'rabbitmq'
@@ -133,21 +136,24 @@ class LegacyQueuedBase(object):
 
 
     #
-    # Pre-init methods
+    # Instance initialization/configuration
+
+    # * Custom constructor and pre-init hooks:
 
     # (for historical reasons we do not want to place these operations
     # in __init__() -- mainly because __init__() is skipped in several
     # unit tests...)
 
-    def __new__(cls, **kwargs):
+    def __new__(cls, /, **kwargs):
         """
         Create and pre-configure an instance.
 
         Normally, this special method should not be overridden in
-        subclasses. (If you really need that please *extend* it by
-        overriding and calling with super()).
+        subclasses. (If you really need to do that, please *extend* it,
+        i.e., override with an implementation that also invokes the
+        superclass version of the method...).
 
-        The method causes that immediately after creating of a
+        This method causes that immediately after creating of a
         LegacyQueuedBase-derived class instance -- before calling __init__()
         -- the following operations are performed on the instance:
 
@@ -175,26 +181,26 @@ class LegacyQueuedBase(object):
         # some unit tests are over-zealous about patching super()
         from builtins import super
 
-        self = super().__new__(cls, **kwargs)
+        new = call_new_of_super(super(), cls, **kwargs)
 
-        if cls.input_queue is not None and not isinstance(self.input_queue, dict):
+        if cls.input_queue is not None and not isinstance(new.input_queue, dict):
             raise TypeError('The `input_queue` class attribute must be a dict or None')
-        self.input_queue = copy.deepcopy(cls.input_queue)
+        new.input_queue = copy.deepcopy(cls.input_queue)
 
         if cls.output_queue is not None and not (
-                isinstance(self.output_queue, dict) or
-                isinstance(self.output_queue, list) and all(
-                    isinstance(item, dict) for item in self.output_queue)):
+                isinstance(new.output_queue, dict) or
+                isinstance(new.output_queue, list) and all(
+                    isinstance(item, dict) for item in new.output_queue)):
             raise TypeError('The `output_queue` class attribute must be '
                             'a dict or a list of dicts, or None')
         output_queue = copy.deepcopy(cls.output_queue)
         if isinstance(output_queue, dict):
             output_queue = [output_queue]
-        self.output_queue = output_queue
+        new.output_queue = output_queue
 
-        self.cmdline_args = self.parse_cmdline_args()
-        self.preinit_hook()
-        return self
+        new.cmdline_args = new.parse_cmdline_args()
+        new.preinit_hook()
+        return new
 
     def parse_cmdline_args(self):
         """
@@ -350,10 +356,9 @@ class LegacyQueuedBase(object):
         add_suffix_to_queue_conf(queue_conf_dicts, suffix='_recovery')
 
 
-    #
-    # Actual initialization
+    # * Actual initialization/configuration:
 
-    def __init__(self, **kwargs):
+    def __init__(self, /, **kwargs):
         super().__init__(**kwargs)
 
         LOGGER.debug('input_queue: %a', self.input_queue)
@@ -364,6 +369,20 @@ class LegacyQueuedBase(object):
         self._conn_params_dict = self.get_connection_params_dict()
         self._amqp_setup_timeout_callback_manager = \
             self._make_timeout_callback_manager('AMQP_SETUP_TIMEOUT')
+
+    def clear_amqp_communication_state_attributes(self):
+        self._connection = None
+        self._channel_in = None
+        self._channel_out = None
+        self._num_queues_bound = 0
+        self._declared_output_exchanges = set()
+        self.output_ready = False
+        self._closing = False
+        self._consumer_tag = None
+        LOGGER.debug('AMQP communication state attributes cleared')
+
+
+    # * Configurable-pipeline-related hooks:
 
     def configure_pipeline(self):
         """
@@ -383,8 +402,8 @@ class LegacyQueuedBase(object):
         where the first section defines accepted types of
         events, second section is the "state", and the last two
         contain wildcards, matching all events originally routed
-        with keys consisting of `source` and `channel` part,
-        separated by dot.
+        with keys consisting of the *source provider* and *source
+        channel* parts, separated by dot.
 
         Previously, the `input_queue` dict - a class attribute
         (which has been transformed to an instance attribute) of
@@ -432,7 +451,7 @@ class LegacyQueuedBase(object):
         received by the component, that identify the component
         which sent them. E.g., parsers send their messages with
         routing keys using the format:
-        <event type>.parsed.<source label>.<source channel>
+        <event type>.parsed.<source provider>.<source channel>
         The second part of the routing key - "parsed" is
         characteristic for parsers, being their "binding state".
         If you want other component to receive messages from parsers,
@@ -518,23 +537,10 @@ class LegacyQueuedBase(object):
         self.input_queue['binding_keys'] = []
         for state in binding_states:
             for event_type in accepted_event_types:
-                self.input_queue['binding_keys'].append(
-                    '{type}.{state}.*.*'.format(type=event_type, state=state))
-
-    def clear_amqp_communication_state_attributes(self):
-        self._connection = None
-        self._channel_in = None
-        self._channel_out = None
-        self._num_queues_bound = 0
-        self._declared_output_exchanges = set()
-        self.output_ready = False
-        self._closing = False
-        self._consumer_tag = None
-        LOGGER.debug('AMQP communication state attributes cleared')
+                self.input_queue['binding_keys'].append(f'{event_type}.{state}.*.*')
 
 
-    #
-    # Utility static methods
+    # * AMQP-config-related hook:
 
     @classmethod
     def get_connection_params_dict(cls):
@@ -554,9 +560,9 @@ class LegacyQueuedBase(object):
 
 
     #
-    # Regular instance methods
+    # AMQP communication
 
-    # Start/stop-related stuff:
+    # * Start/stop-related stuff:
 
     def run(self):
         """Connecting to RabbitMQ and start the IOLoop (blocking on it)."""
@@ -638,7 +644,7 @@ class LegacyQueuedBase(object):
                 self.output_queue is None)
 
 
-    # Connection-related stuff:
+    # * Connection-related stuff:
 
     def connect(self):
         """
@@ -720,7 +726,7 @@ class LegacyQueuedBase(object):
             sys.exit(1)
 
 
-    # Channel-related stuff:
+    # * Channels-related stuff:
 
     def open_channels(self):
         """
@@ -814,7 +820,8 @@ class LegacyQueuedBase(object):
             reply_text='Because channel {0} has been closed: "{1}"'
                        .format(channel_str, reply_text))
 
-    # Input-exchange/queue-related stuff:
+
+    # * Input-exchange/queue-related stuff:
 
     def setup_dead_exchange(self):
         """Setup exchange for dead letter messages (e.g., rejected messages)."""
@@ -1206,7 +1213,8 @@ class LegacyQueuedBase(object):
             msg_parts.append('event id: {0}'.format(event_id))
         return ', '.join(msg_parts)
 
-    # Output-exchanges-related stuff:
+
+    # * Output-exchanges-related stuff:
 
     def setup_output_exchanges(self):
         """
@@ -1415,12 +1423,15 @@ class LegacyQueuedBase(object):
           about yielding `self.FLUSH_OUT` and flushing the outbound
           buffer...).
 
+        ***
 
         Note: the *iterative publishing* mechanism cannot be used with
-        `LegacyQueuedBase` classes that have `input_queue` set to anything
-        but `None` -- therefore it can be used mostly with collectors
-        (at least for now; this limitation may be lifted in the future).
+        such `LegacyQueuedBase` subclasses that have `input_queue` set
+        to anything but `None`. Therefore, it can be used mostly with
+        collectors (at least for now; this limitation may be lifted in
+        the future).
 
+        ***
 
         To use the *iterative publishing* mechanism you need to:
 
@@ -1530,7 +1541,7 @@ class LegacyQueuedBase(object):
         flushed but some data have *not* been actually sent via the
         connection's output socket -- because `KeyboardInterrupt` (or
         some other asynchronously raised exception) interfered...
-        Therefore, in case of IO loop interruption caused by
+        Therefore, in case of any IO loop interruption caused by
         `KeyboardInterrupt` (or by another invasive asynchronous event)
         you should *not* ack or tick off your data as handled properly.
 

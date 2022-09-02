@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2022 NASK. All rights reserved.
 
 
 # Terminology: some definitions and synonyms
@@ -151,7 +151,7 @@ from n6lib.const import (
     PROTO_ENUMS,
     RESTRICTION_ENUMS,
     STATUS_ENUMS,
-    TYPE_ENUMS,
+    EVENT_TYPE_ENUMS,
 )
 from n6lib.data_spec.fields import (
     FieldForN6,
@@ -621,9 +621,15 @@ class N6DataSpec(DataSpec):
     channel = SomeFieldForN6(in_result='optional')
     dataset = SomeFieldForN6(in_result='optional')
     detected_since = SomeFieldForN6(in_result='optional')
+    device_id = SomeFieldForN6(in_result='optional')
+    device_model = SomeFieldForN6(in_result='optional')
+    device_type = SomeFieldForN6(in_result='optional')
+    device_vendor = SomeFieldForN6(in_result='optional')
+    device_version = SomeFieldForN6(in_result='optional')
     dns_version = SomeFieldForN6(in_result='optional')
     facebook_id = SomeFieldForN6(in_result='optional')
     first_seen = SomeFieldForN6(in_result='optional')
+    gca_specific = SomeFieldForN6(in_result='optional')
     handshake = SomeFieldForN6(in_result='optional')
     header = SomeFieldForN6(in_result='optional')
     intelmq = SomeFieldForN6(in_result='optional')
@@ -635,20 +641,23 @@ class N6DataSpec(DataSpec):
     misp_attr_uuid = SomeFieldForN6(in_result='optional')
     misp_event_uuid = SomeFieldForN6(in_result='optional')
     product = SomeFieldForN6(in_result=('optional', 'unrestricted'))
+    product_code = SomeFieldForN6(in_result='optional')
     proxy_type = SomeFieldForN6(in_result='optional')
     # note: yes it's "referer" (single 'r', not a mistake!) - see: https://tools.ietf.org/html/rfc7231#section-5.5.2
     referer = SomeFieldForN6(in_result='optional')
     request = SomeFieldForN6(in_result='optional')
+    revision = SomeFieldForN6(in_result='optional')
     sender = SomeFieldForN6(in_result='optional')
     subject_common_name = SomeFieldForN6(in_result='optional')
     sysdesc = SomeFieldForN6(in_result='optional')
     user_agent = SomeFieldForN6(in_result='optional')
+    vendor = SomeFieldForN6(in_result='optional')
     version = SomeFieldForN6(in_result='optional')
     visible_databases = SomeFieldForN6(in_result='optional')
 
     # dummy fields (only for RecordDict's adjusters specification)
 
-    _type = UnicodeEnumFieldForN6(enum_values=TYPE_ENUMS)
+    _type = UnicodeEnumFieldForN6(enum_values=EVENT_TYPE_ENUMS)
     _first_time = DateTimeFieldForN6()
     _blseriesno = IntegerFieldForN6()
     _blseriestotal = IntegerFieldForN6()
@@ -674,12 +683,18 @@ class N6DataSpec(DataSpec):
         'dataset',
         'description',
         'detected_since',
+        'device_id',
+        'device_model',
+        'device_type',
+        'device_vendor',
+        'device_version',
         'dns_version',
         'email',
         'enriched',
         'facebook_id',
         'filename',
         'first_seen',
+        'gca_specific',
         'handshake',
         'header',
         'iban',
@@ -696,10 +711,12 @@ class N6DataSpec(DataSpec):
         'misp_event_uuid',
         'phone',
         'product',
+        'product_code',
         'proxy_type',
         'referer',
         'registrar',
         'request',
+        'revision',
         'rt',
         'sender',
         'subject_common_name',
@@ -709,6 +726,7 @@ class N6DataSpec(DataSpec):
         'urls_matched',
         'user_agent',
         'username',
+        'vendor',
         'version',
         'visible_databases',
         'x509fp_sha1',

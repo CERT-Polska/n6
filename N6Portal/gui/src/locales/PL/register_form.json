@@ -1,9 +1,0 @@
-{
-  "form_title": "Formularz rejestracji",
-  "terms_not_agreed": "Należy zaakceptować regulamin",
-  "form_has_errors": "Formularz zawiera błędy",
-  "unknown_error": "Wystąpił błąd. Nie udało się wysłać zgłoszenia. Spróbuj ponownie za chwilę",
-  "submit": "Wyślij",
-  "success_page_heading": "Formularz rejestracji został przesłany",
-  "success_page_message": "Dziękujemy za zgłoszenie. Zespół CERT Polska skontaktuje się z Tobą poprzez adres e-mail podany w formularzu"
-}
