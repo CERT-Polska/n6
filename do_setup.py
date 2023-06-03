@@ -36,7 +36,7 @@ else:
         'pytest-cov==3.0.0',
         'coverage',
         'pylint',
-        'mkdocs==1.2.3',
+        'mkdocs==1.2.4',
         'mkdocs-material==8.0.3',
         'waitress',
     ]

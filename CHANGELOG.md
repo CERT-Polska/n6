@@ -8,6 +8,11 @@ Some features of this document's format are based on
 [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [4.0.1] - 2023-06-03
+
+Fixed generation of the docs by upgrading `mkdocs` to the version `1.2.4`.
+
+
 ## [4.0.0] - 2023-06-03
 
 **This release is a big milestone.**

@@ -709,8 +709,8 @@ class Test__main(unittest.TestCase):
                     Call('do_setup.LOGGER.info', "%r installed", 'coverage'),
                     Call('do_setup.command', "pip install 'pylint'"),
                     Call('do_setup.LOGGER.info', "%r installed", 'pylint'),
-                    Call('do_setup.command', "pip install 'mkdocs==1.2.3'"),
-                    Call('do_setup.LOGGER.info', "%r installed", 'mkdocs==1.2.3'),
+                    Call('do_setup.command', "pip install 'mkdocs==1.2.4'"),
+                    Call('do_setup.LOGGER.info', "%r installed", 'mkdocs==1.2.4'),
                     Call('do_setup.command', "pip install 'mkdocs-material==8.0.3'"),
                     Call('do_setup.LOGGER.info', "%r installed", 'mkdocs-material==8.0.3'),
 
@@ -737,7 +737,7 @@ class Test__main(unittest.TestCase):
                         "\n* <mocked memo: \"pip install 'pytest-cov==3.0.0'\">"
                         "\n* <mocked memo: \"pip install 'coverage'\">"
                         "\n* <mocked memo: \"pip install 'pylint'\">"
-                        "\n* <mocked memo: \"pip install 'mkdocs==1.2.3'\">"
+                        "\n* <mocked memo: \"pip install 'mkdocs==1.2.4'\">"
                         "\n* <mocked memo: \"pip install 'mkdocs-material==8.0.3'\">"
                         "\n* <mocked memo: \"pip install 'waitress'\">")),
                 ]
