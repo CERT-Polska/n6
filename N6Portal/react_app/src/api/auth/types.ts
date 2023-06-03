@@ -9,6 +9,10 @@ export interface ILogin extends IMfaConfig {
   token: string;
 }
 
+export interface ILoginKeycloak {
+  status: string | null;
+}
+
 export interface IForgottenPasswordData {
   login: string;
 }

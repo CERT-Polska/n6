@@ -19,7 +19,7 @@ Contact us via e-mail: [n6@cert.pl](mailto:n6@cert.pl).
 
 ## Copyright and License
 
-Copyright (c) 2013-2022
+Copyright (c) 2013-2023
 [Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network)](https://en.nask.pl/).
 All rights reserved.
 
@@ -39,4 +39,4 @@ file in the root directory of the source code repository). If not, see
 [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
 
 
-![Co-financed by the Connecting Europe Facility of the European Union](cef_logo.png)
+![Co-financed by the Connecting Europe Facility of the European Union](.cef_logo.png)

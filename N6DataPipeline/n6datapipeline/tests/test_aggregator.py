@@ -1,8 +1,9 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import datetime
 import json
 import os
+import pickle
 import tempfile
 import unittest
 from collections import namedtuple
@@ -10,6 +11,7 @@ from collections import namedtuple
 from unittest.mock import (
     MagicMock,
     patch,
+    sentinel,
 )
 from unittest_expander import (
     expand,
@@ -33,7 +35,6 @@ from n6lib.unit_test_helpers import TestCaseMixin
 @expand
 class TestAggregator(TestCaseMixin, unittest.TestCase):
 
-    sample_routing_key = "testprovider.testchannel"
     sample_dbpath = "/tmp/sample_dbfile"
     sample_time_tolerance = 600
     sample_time_tolerance_per_source = {
@@ -42,25 +43,25 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
     starting_datetime = datetime.datetime(2017, 6, 1, 10)
     mocked_utcnow = datetime.datetime(2017, 7, 1, 7, 0, 0)
     input_callback_proper_msg = (
-        '{'
-        '"source": "testprovider.testchannel",'
-        '"_group": "group1",'
-        '"id": "d41d8cd98f00b204e9800998ecf8427b",'
-        '"time": "2017-06-01 10:00:00"'
-        '}'
+        b'{'
+        b'"source": "testprovider.testchannel",'
+        b'"_group": "group1",'
+        b'"id": "d41d8cd98f00b204e9800998ecf8427b",'
+        b'"time": "2017-06-01 10:00:00"'
+        b'}'
     )
     input_callback_msg_no__group = (
-        '{'
-        '"source": "testprovider.testchannel",'
-        '"id": "d41d8cd98f00b204e9800998ecf8427b",'
-        '"time": "2017-06-01 10:00:00"'
-        '}'
+        b'{'
+        b'"source": "testprovider.testchannel",'
+        b'"id": "d41d8cd98f00b204e9800998ecf8427b",'
+        b'"time": "2017-06-01 10:00:00"'
+        b'}'
     )
     mocked_config = {
         "aggregator": {
             "dbpath": sample_dbpath,
             "time_tolerance": str(sample_time_tolerance),
-            "time_tolerance_per_source": json.dumps(sample_time_tolerance_per_source),
+            "time_tolerance_per_source": repr(sample_time_tolerance_per_source),
         }
     }
 
@@ -440,7 +441,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                     "until": "2017-06-01 12:00:00",
                 },
             },
-            expected_last_event_dt_updates=3,
+            expected_last_active_dt_updates=3,
         )
 
         # The second event is older than the current time, but it is
@@ -651,10 +652,10 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             expected_ids_to_single_events=[
                 "d41d8cd98f00b204e9800998ecf8427b",
             ],
-            # Number of times the `SourceData` instance's `last_event`
+            # Number of times the `SourceData` instance's `last_active`
             # datetime is expected to be updated. It should not be
             # updated, if the event is out of order.
-            expected_last_event_dt_updates=2,
+            expected_last_active_dt_updates=2,
         )
 
         # The first event is published. The second is ignored,
@@ -692,7 +693,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             expected_ids_to_single_events=[
                 "d41d8cd98f00b204e9800998ecf8427b",
             ],
-            expected_last_event_dt_updates=2,
+            expected_last_active_dt_updates=2,
         )
 
     @paramseq
@@ -736,7 +737,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                 "d41d8cd98f00b204e9800998hg352",
                 "d41d8cd98f00b204e9800998hg353",
             ],
-            expected_last_event_dt_updates=3,
+            expected_last_active_dt_updates=3,
         )
 
     @paramseq
@@ -779,7 +780,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                 "d41d8cd98f00b204e9800998hg351",
                 "d41d8cd98f00b204e9800998hg353",
             ],
-            expected_last_event_dt_updates=3,
+            expected_last_active_dt_updates=3,
         )
 
     @paramseq
@@ -828,7 +829,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                 "d41d8cd98f00b204e9800998hg353",
                 "d41d8cd98f00b204e9800998hg354",
             ],
-            expected_last_event_dt_updates=4,
+            expected_last_active_dt_updates=4,
         )
 
     def setUp(self):
@@ -836,8 +837,10 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         self._aggregator = Aggregator.__new__(Aggregator)
         aggr_data_wrapper = AggregatorDataWrapper.__new__(AggregatorDataWrapper)
         aggr_data_wrapper.aggr_data = AggregatorData()
-        aggr_data_wrapper.time_tolerance = self.sample_time_tolerance
-        aggr_data_wrapper.time_tolerance_per_source = self.sample_time_tolerance_per_source
+        aggr_data_wrapper.time_tolerance = datetime.timedelta(seconds=self.sample_time_tolerance)
+        aggr_data_wrapper.time_tolerance_per_source = {
+            source: datetime.timedelta(seconds=time_tolerance)
+            for source, time_tolerance in self.sample_time_tolerance_per_source.items()}
         self._mocked_datetime_counter = 0
         self._aggregator.db = aggr_data_wrapper
 
@@ -850,15 +853,15 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                                input_data,
                                expected_ids_to_single_events=None,
                                expected_ids_to_suppressed_events=None,
-                               expected_last_event_dt_updates=None):
+                               expected_last_active_dt_updates=None):
 
-        if expected_last_event_dt_updates is None:
-            expected_last_event_dt_updates = len(input_data)
+        if expected_last_active_dt_updates is None:
+            expected_last_active_dt_updates = len(input_data)
 
         self._test_process_event(input_data,
                                  expected_ids_to_single_events,
                                  expected_ids_to_suppressed_events,
-                                 expected_last_event_dt_updates)
+                                 expected_last_active_dt_updates)
 
 
     @foreach(_unordered_data_to_process)
@@ -866,16 +869,16 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                                          input_data,
                                          expected_ids_to_single_events=None,
                                          expected_ids_to_suppressed_events=None,
-                                         expected_last_event_dt_updates=None):
+                                         expected_last_active_dt_updates=None):
 
-        if expected_last_event_dt_updates is None:
-            expected_last_event_dt_updates = len(input_data)
+        if expected_last_active_dt_updates is None:
+            expected_last_active_dt_updates = len(input_data)
 
         with self.assertRaisesRegex(n6QueueProcessingException, r"\bEvent out of order\b"):
             self._test_process_event(input_data,
                                      expected_ids_to_single_events,
                                      expected_ids_to_suppressed_events,
-                                     expected_last_event_dt_updates)
+                                     expected_last_active_dt_updates)
 
     @foreach([
         param(
@@ -920,7 +923,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         with patch.object(Aggregator, "process_event") as process_event_mock:
             self._aggregator.input_callback("testprovider.testchannel",
                                             self.input_callback_proper_msg,
-                                            self.sample_routing_key)
+                                            sentinel.Properties)
         process_event_mock.assert_called_with(json.loads(self.input_callback_proper_msg))
 
 
@@ -929,14 +932,20 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             with patch.object(Aggregator, "process_event"):
                 self._aggregator.input_callback("testprovider.testchannel",
                                                 self.input_callback_msg_no__group,
-                                                self.sample_routing_key)
+                                                sentinel.Properties)
 
     @patch("n6datapipeline.base.LegacyQueuedBase.__init__", autospec=True)
     @patch("n6lib.config.Config._load_n6_config_files", return_value=mocked_config)
     def test_init_class(self, config_mock, init_mock):
-        with tempfile.NamedTemporaryFile() as fp:
+        fp = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False) as fp:
+                pickle.dump('whatever', fp)
             config_mock.return_value["aggregator"]["dbpath"] = fp.name
             self._aggregator.__init__()
+        finally:
+            if fp is not None:
+                os.remove(fp.name)
 
         # state dir does not exist
         with tempfile.NamedTemporaryFile() as fp, \
@@ -967,7 +976,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                             input_data,
                             expected_ids_to_single_events,
                             expected_ids_to_suppressed_events,
-                            expected_last_event_dt_updates):
+                            expected_last_active_dt_updates):
         """
         Use input data to call Aggregator's `process_event()` method;
         use it to create expected events and compare it with events
@@ -1002,10 +1011,10 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         self.assertCountEqual(expected_events, events_from_calls)
         # Check how many times datetime.datetime.utcnow() was called,
         # meaning how many times the `SourceData` instance's
-        # `last_event` attribute was updated. It should not be updated
+        # `last_active` attribute was updated. It should not be updated
         # when the event is out of order (we assume the source was not
         # active if it published an old event).
-        self.assertEqual(self._mocked_datetime_counter, expected_last_event_dt_updates)
+        self.assertEqual(self._mocked_datetime_counter, expected_last_active_dt_updates)
 
 
     @staticmethod
@@ -1497,8 +1506,10 @@ class TestAggregatorDataWrapper(unittest.TestCase):
 
     def setUp(self):
         self._adw = AggregatorDataWrapper.__new__(AggregatorDataWrapper)
-        self._adw.time_tolerance = self.sample_time_tolerance
-        self._adw.time_tolerance_per_source = self.sample_time_tolerance_per_source
+        self._adw.time_tolerance = datetime.timedelta(seconds=self.sample_time_tolerance)
+        self._adw.time_tolerance_per_source = {
+            source: datetime.timedelta(seconds=time_tolerance)
+            for source, time_tolerance in self.sample_time_tolerance_per_source.items()}
         self._adw.dbpath = self.sample_db_path
         self._adw.aggr_data = AggregatorData()
 
@@ -1532,7 +1543,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             self._adw.restore_state()
             self.assertDictEqual(
                 self._adw.aggr_data.sources[self.tested_source].groups[
-                    message["_group"]].payload,
+                    message["_group"]]._initial_payload,
                 expected_stored_message)
             # assert given path exist
             self.assertTrue(self._adw.dbpath)
@@ -1547,8 +1558,12 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         self._adw.dbpath = tmp_db_path
         with self.assertLogs(level='ERROR') as patched_logger:
             self._adw.store_state()
-        self.assertEqual(patched_logger.output, ["ERROR:n6datapipeline.aggregator:Error saving "
-                                                 "state to: '/root/example.pickle'"])
+        self.assertEqual(patched_logger.output, ["ERROR:n6datapipeline.aggregator:Failed to save "
+                                                 "the aggregator state to '/root/example.pickle' "
+                                                 "(PermissionError: [Errno 13] Permission denied: "
+                                                 "'/root/example.pickle'). Proceeding without "
+                                                 "having it saved, but the component may "
+                                                 "not work correctly anymore!"])
         # assert the exception is being raised when trying to restore
         # the state from nonexistent file; first, safely create
         # a temporary file, then close and remove it, so the path
@@ -1559,8 +1574,13 @@ class TestAggregatorDataWrapper(unittest.TestCase):
                                                  '{!a} still exists, so the test cannot '
                                                  'be correctly performed'.format(tmp_db_path))
         with patch.object(self._adw, "dbpath", tmp_db_path), \
-                self.assertRaisesRegex(IOError, r"No such file or directory"):
+             self.assertLogs(level='WARNING') as patched_logger:
             self._adw.restore_state()
+        self.assertEqual(patched_logger.output, ["WARNING:n6datapipeline.aggregator:Could not "
+                                                 "load the aggregator state (FileNotFoundError: "
+                                                 "[Errno 2] No such file or directory: {!a}). "
+                                                 "Initializing a new empty state..."
+                                                 .format(tmp_db_path)])
 
     @foreach(_test_process_new_message_data)
     def test_process_new_message(self, messages, expected_source_time,
@@ -1589,7 +1609,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             for test_source in test_sources:
                 # assertions for the source
                 created_source = self._adw.aggr_data.sources[test_source]
-                self.assertEqual(created_source.last_event, self.mocked_utcnow)
+                self.assertEqual(created_source.last_active, self.mocked_utcnow)
                 self.assertEqual(created_source.time, expected_source_time)
                 self.assertEqual(len(expected_groups), len(created_source.groups))
 
@@ -1603,7 +1623,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
                     self.assertEqual(expected_group.count, created_group.count)
                     self.assertEqual(
                         messages[expected_group.msg_index_to_payload],
-                        created_group.payload)
+                        created_group._initial_payload)
                     # assertions for potential buffers
                     if expected_buffers:
                         for expected_buffer in expected_buffers:
@@ -1613,7 +1633,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
                             self.assertEqual(expected_buffer.count, created_buffer.count)
                             self.assertEqual(
                                 messages[expected_buffer.msg_index_to_payload],
-                                created_buffer.payload)
+                                created_buffer._initial_payload)
 
 
     @foreach(_test_generate_suppressed_events_for_source_data)
@@ -1634,13 +1654,13 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         tested_source_data.time = datetime.datetime.strptime(
             new_message["time"], "%Y-%m-%d %H:%M:%S")
         another_source_data.time = datetime.datetime(2017, 6, 1, 10)
-        # `last_event` attribute is not relevant for the test
-        tested_source_data.last_event = datetime.datetime(2017, 6, 2, 20)
-        another_source_data.last_event = datetime.datetime(2017, 6, 2, 20)
+        # `last_active` attribute is not relevant for the test
+        tested_source_data.last_active = datetime.datetime(2017, 6, 2, 20)
+        another_source_data.last_active = datetime.datetime(2017, 6, 2, 20)
         self._adw.aggr_data.sources[self.tested_source] = tested_source_data
         self._adw.aggr_data.sources[self.other_source] = another_source_data
 
-        generated_events = list(self._adw.generate_suppresed_events_for_source(new_message))
+        generated_events = list(self._adw.generate_suppressed_events_for_source(new_message))
         self.assertCountEqual(expected_results, generated_events)
         # new `HiFreqEventData` object of the "group1" should be
         # in `groups` attribute, but not in `buffer` - suppressed
@@ -1682,8 +1702,8 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         # `time` attribute should be equal to last message's
         tested_source_data.time = datetime.datetime(2017, 6, 1, 10)
         another_source_data.time = datetime.datetime(2017, 6, 1, 10)
-        tested_source_data.last_event = datetime.datetime(2017, 6, 1, 14)
-        another_source_data.last_event = datetime.datetime(2017, 6, 1, 20)
+        tested_source_data.last_active = datetime.datetime(2017, 6, 1, 14)
+        another_source_data.last_active = datetime.datetime(2017, 6, 1, 20)
         self._adw.aggr_data.sources[self.tested_source] = tested_source_data
         self._adw.aggr_data.sources[self.other_source] = another_source_data
 
@@ -1698,7 +1718,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             datetime_mock.timedelta.side_effect = (lambda *args, **kw:
                                                    datetime.timedelta(*args, **kw))
             # actual call
-            generated_events = list(self._adw.generate_suppresed_events_after_timeout())
+            generated_events = list(self._adw.generate_suppressed_events_after_timeout())
             expected_events = [event for source, vals in source_to_expected_events.items()
                                if source in expected_inactive_sources for event in vals]
             self.assertEqual(expected_events, generated_events)
@@ -1720,27 +1740,29 @@ class TestAggregatorDataWrapper(unittest.TestCase):
     def _get_source_data_for_suppressed_events_tests(self, source_name):
         source_data = SourceData(self._get_time_tolerance_from_source(source_name))
 
-        group1_hifreq_buffered_data = HiFreqEventData.__new__(HiFreqEventData)
-        group1_hifreq_buffered_data.payload = {
+        group1_hifreq_buffered_data_payload = {
             "id": "c4ca4238a0b923820dcc509a6f75849b",
             "source": source_name,
             "_group": "group1",
             "time": "2017-06-01 07:00:00",
         }
-        group1_hifreq_buffered_data.first = datetime.datetime(2017, 6, 1, 7)
+        group1_hifreq_buffered_data = HiFreqEventData(group1_hifreq_buffered_data_payload)
+        assert group1_hifreq_buffered_data._initial_payload == group1_hifreq_buffered_data_payload
+        assert group1_hifreq_buffered_data.first == datetime.datetime(2017, 6, 1, 7)
         group1_hifreq_buffered_data.until = datetime.datetime(2017, 6, 1, 9)
         group1_hifreq_buffered_data.count = 5
         source_data.buffer["group1"] = group1_hifreq_buffered_data
 
-        group2_hifreq_data = HiFreqEventData.__new__(HiFreqEventData)
-        group2_hifreq_data.payload = {
+        group2_hifreq_data_payload = {
             "id": "c4ca4238a0b923820dcc509a6f75849c",
             "source": source_name,
             "_group": "group2",
             "time": "2017-06-01 08:00:00",
         }
+        group2_hifreq_data = HiFreqEventData(group2_hifreq_data_payload)
+        assert group2_hifreq_data._initial_payload == group2_hifreq_data_payload
+        assert group2_hifreq_data.first == datetime.datetime(2017, 6, 1, 8)
         group2_hifreq_data.until = datetime.datetime(2017, 6, 1, 10)
-        group2_hifreq_data.first = datetime.datetime(2017, 6, 1, 8)
         group2_hifreq_data.count = 4
         source_data.groups["group2"] = group2_hifreq_data
 
@@ -1777,7 +1799,8 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         }
 
     def _get_time_tolerance_from_source(self, source):
-        return self.sample_time_tolerance_per_source.get(source) or self.sample_time_tolerance
+        return datetime.timedelta(seconds=(
+            self.sample_time_tolerance_per_source.get(source) or self.sample_time_tolerance))
 
 
 class TestAggregatorData(unittest.TestCase):
@@ -1810,9 +1833,10 @@ class TestAggregatorData(unittest.TestCase):
 
     def setUp(self):
         self._aggregator_data = AggregatorData()
-        self._sample_source_data = SourceData(self.sample_time_tolerance)
+        self._sample_source_data = SourceData(
+            datetime.timedelta(seconds=self.sample_time_tolerance))
         self._sample_source_data.time = datetime.datetime(2017, 6, 2, 12)
-        self._sample_source_data.last_event = datetime.datetime(2017, 6, 2, 13)
+        self._sample_source_data.last_active = datetime.datetime(2017, 6, 2, 13)
         self._sample_source_data.groups[self.sample_group] = self.groups_hifreq_data
         self._sample_source_data.buffer[self.sample_group] = self.buffer_hifreq_data
         self._aggregator_data.sources[self.sample_source] = self._sample_source_data
@@ -1828,13 +1852,12 @@ class TestAggregatorData(unittest.TestCase):
             self._get_time_tolerance_from_source(self.sample_other_source))
         self.assertIsInstance(source_data, SourceData)
         self.assertEqual(source_data.time, None)
-        self.assertEqual(source_data.last_event, None)
+        self.assertEqual(source_data.last_active, None)
         self.assertFalse(source_data.groups)
         self.assertFalse(source_data.buffer)
         self.assertEqual(
             source_data.time_tolerance,
-            datetime.timedelta(seconds=self._get_time_tolerance_from_source(
-                self.sample_other_source)))
+            self._get_time_tolerance_from_source(self.sample_other_source))
         self.assertIs(source_data, self._aggregator_data.sources[self.sample_other_source])
 
     def test_get_existing_source_data(self):
@@ -1848,10 +1871,10 @@ class TestAggregatorData(unittest.TestCase):
             self._get_time_tolerance_from_source(self.sample_other_source))
         self.assertIsInstance(source_data, SourceData)
         self.assertEqual(source_data.time, self._sample_source_data.time)
-        self.assertEqual(source_data.last_event, self._sample_source_data.last_event)
+        self.assertEqual(source_data.last_active, self._sample_source_data.last_active)
         self.assertEqual(
             source_data.time_tolerance,
-            datetime.timedelta(seconds=self._get_time_tolerance_from_source(self.sample_source)))
+            self._get_time_tolerance_from_source(self.sample_source))
         self.assertIn(self.sample_group, source_data.groups)
         self.assertIn(self.sample_group, source_data.buffer)
         self.assertEqual(1, len(source_data.groups))
@@ -1861,4 +1884,5 @@ class TestAggregatorData(unittest.TestCase):
         self.assertIs(source_data, self._aggregator_data.sources[self.sample_source])
 
     def _get_time_tolerance_from_source(self, source):
-        return self.sample_time_tolerance_per_source.get(source) or self.sample_time_tolerance
+        return datetime.timedelta(seconds=(
+            self.sample_time_tolerance_per_source.get(source) or self.sample_time_tolerance))

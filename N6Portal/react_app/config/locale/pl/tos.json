@@ -1,11 +1,5 @@
 {
-  "terms": [
-    "Platforma n6 udostępnia uczestnikom informacje o zdarzeniach bezpieczeństwa dotyczących sieci, których są właścicielami.",
-    "Źródłem danych dla platformy n6 są zewnętrzne systemy i organizacje dostarczające informacji o zdarzeniach bezpieczeństwa.",
-    "Administrator Systemu nie odpowiada za jakość danych. Dane są przekazywane w postaci nieprzetworzonej i mogą zawierać fałszywe alarmy. Weryfikacja danych zależy od odbiorcy."
-  ],
+  "terms": "# Regulamin\n\n**Dostęp i prawo do korzystania z Systemu wymaga zaakceptowania Regulaminu. Regulamin obowiązuje wszystkich odwiedzających i użytkowników Systemu.**\n\n* Platforma n6 udostępnia uczestnikom informacje o zdarzeniach bezpieczeństwa dotyczących sieci, których są właścicielami.\n* Źródłem danych dla platformy n6 są zewnętrzne systemy i organizacje dostarczające informacji o zdarzeniach bezpieczeństwa.\n* Administrator Systemu nie odpowiada za jakość danych. Dane są przekazywane w postaci nieprzetworzonej i mogą zawierać fałszywe alarmy. Weryfikacja danych zależy od odbiorcy.",
   "checkboxLabel": "Akceptuję warunki regulaminu",
-  "header": "Regulamin",
-  "intro": "Dostęp i prawo do korzystania z Systemu wymaga zaakceptowania Regulaminu. Regulamin obowiązuje wszystkich odwiedzających i użytkowników Systemu.",
-  "version": "20210903.1010.PL.0f840560c6c0c093acb91c6990ca3d53d2035872"
+  "version": "20230313.1707.PL.3581065509b232282af1eb54056138b0b0f7890c"
 }

@@ -1,5 +1,7 @@
 const routeList = {
   login: '/',
+  loginKeycloak: '/login-keycloak',
+  loginKeycloakSummary: '/login-keycloak-summary',
   forgotPassword: '/password-reset',
   signUp: '/sign-up',
   account: '/account',

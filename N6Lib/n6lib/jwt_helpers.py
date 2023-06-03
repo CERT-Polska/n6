@@ -4,12 +4,14 @@ import re
 from collections.abc import Iterable
 from typing import (
     Any,
+    Optional,
     Union,
 )
 
 # TODO: upgrade PyJWT to the newest stable version (checking all relevant
 #       PyJWT's change notes, and adjusting our code if necessary...).
 import jwt
+from jwt.algorithms import RSAPublicKey
 
 from n6lib.class_helpers import attr_required
 from n6lib.common_helpers import (
@@ -26,6 +28,7 @@ from n6lib.typing_helpers import (
 # Public constants
 
 JWT_ALGO_HMAC_SHA256 = 'HS256'
+JWT_ALGO_RSA_SHA256 = 'RS256'
 JWT_ALGO_DEFAULT = JWT_ALGO_HMAC_SHA256
 
 JWT_ROUGH_REGEX = re.compile(r'\A[a-zA-Z0-9\-_.]+\Z', re.ASCII)
@@ -68,17 +71,20 @@ class JWTEncodeError(AbstractJWTError):
 # Public utility functions
 
 def jwt_decode(token: StrOrBinary,
-               secret_key: StrOrBinary,
+               crypto_key: Union[StrOrBinary, RSAPublicKey],
                accepted_algorithms: Iterable[str] = (JWT_ALGO_DEFAULT,),
                required_claims: Union[Iterable[str], dict[str, type]] = (),
+               required_audience: Optional[str] = None,
                ) -> dict[str, Any]:
     try:
         token = as_unicode(token)
-        secret_key = as_unicode(secret_key)
+        if not isinstance(crypto_key, RSAPublicKey):
+            crypto_key = as_unicode(crypto_key)
         payload = jwt.decode(
             token,
-            secret_key,
-            algorithms=sorted(accepted_algorithms))
+            crypto_key,
+            algorithms=sorted(accepted_algorithms),
+            audience=required_audience)
     except Exception as exc:
         raise JWTDecodeError(exc) from None   # (Because we don't want to reveal too much...)
     assert JWT_ROUGH_REGEX.search(token)
@@ -88,16 +94,16 @@ def jwt_decode(token: StrOrBinary,
 
 
 def jwt_encode(payload: dict[str, Any],
-               secret_key: StrOrBinary,
+               crypto_key: StrOrBinary,
                algorithm: str = JWT_ALGO_DEFAULT,
                required_claims: Union[Iterable[str], dict[str, type]] = (),
                ) -> str:
     _verify_required_claims(payload, required_claims, JWTEncodeError)
     try:
-        secret_key = as_unicode(secret_key)
+        crypto_key = as_unicode(crypto_key)
         token = jwt.encode(
             payload,
-            secret_key,
+            crypto_key,
             algorithm=algorithm)
         token = as_unicode(token)  # <- TODO later: can be removed after upgrade of PyJWT...
     except Exception as exc:

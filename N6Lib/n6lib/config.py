@@ -1,14 +1,17 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import ast
+import collections
 import configparser
 import contextlib
 import functools
 import json
 import os
 import os.path as osp
+import pathlib
 import re
 import sys
+import threading
 from collections.abc import (
     Iterator,
     Mapping,
@@ -700,6 +703,14 @@ class Config(DictWithSomeHooks):
         (note: normalizing timezone to UTC; implementation:
         `n6lib.datetime_helpers.parse_iso_datetime_to_utc()`)
 
+    `path`:
+        `"spam"` -> `pathlib.Path("spam")`
+        `"spam/"` -> `pathlib.Path("spam")`
+        `"/spam/pram"` -> `pathlib.Path("/spam/pram")`
+        `"~/foo/bar" -> `pathlib.Path("/home/currentuser/foo/bar")`
+        `"~someuser/foo/bar" -> `pathlib.Path("/home/someuser/foo/bar")`
+        (implementation uses `pathlib.Path` + its method `expanduser()`)
+
     `list_of_str`:
         `"a, b, c, d, e,"`  -> `["a", "b", "c", "d", "e"]`
         `"a,b,c,d,e"`       -> `["a", "b", "c", "d", "e"]`
@@ -725,6 +736,14 @@ class Config(DictWithSomeHooks):
         `"2010-07-19 12:39:45+02:00,2011-08-20T23:23,"`
         -> `[datetime.datetime(2010, 7, 19, 10, 39, 45),
              datetime.datetime(2010, 7, 20, 23, 23)]`
+
+    `list_of_path`:
+        `"spam, pram/,/spam/pram,~/foo/bar , "~someuser/foo/bar"`
+        -> `[pathlib.Path("spam"),
+             pathlib.Path("pram"),
+             pathlib.Path("/spam/pram"),
+             pathlib.Path("/home/currentuser/foo/bar"),
+             pathlib.Path("/home/someuser/foo/bar")]`
 
     `importable_dotted_name`:
         `"sqlalchemy.orm.properties.ColumnProperty"`
@@ -809,6 +828,17 @@ class Config(DictWithSomeHooks):
 
     # internal sentinel object
     __NOT_CONVERTED = object()
+
+    # noinspection PyMethodParameters
+    def __path_with_expanded_user_converter(s):
+        assert isinstance(s, str)
+        if not s.strip():
+            raise ValueError('path is not allowed to be empty or whitespace-only')
+        p = pathlib.Path(s)
+        p = p.expanduser()
+        if not os.fspath(p).strip():  # (should not happen, but just in case...)
+            raise ValueError('path is not allowed to be empty or whitespace-only')
+        return p
 
     # noinspection PyMethodParameters
     def __make_list_converter(item_converter, name=None, delimiter=','):
@@ -899,6 +929,7 @@ class Config(DictWithSomeHooks):
         'float': float,
         'date': parse_iso_date,
         'datetime': parse_iso_datetime_to_utc,
+        'path': __path_with_expanded_user_converter,
         'list_of_str': __make_list_converter(str, 'list_of_str'),
         'list_of_bytes': __make_list_converter(as_bytes, 'list_of_bytes'),
         'list_of_bool': __make_list_converter(str_to_bool, 'list_of_bool'),
@@ -906,6 +937,7 @@ class Config(DictWithSomeHooks):
         'list_of_float': __make_list_converter(float, 'list_of_float'),
         'list_of_date': __make_list_converter(parse_iso_date, 'list_of_date'),
         'list_of_datetime': __make_list_converter(parse_iso_datetime_to_utc, 'list_of_datetime'),
+        'list_of_path': __make_list_converter(__path_with_expanded_user_converter, 'list_of_path'),
         'importable_dotted_name': import_by_dotted_name,
         'json': json.loads,
     }, **__py_literal_converters())
@@ -1150,6 +1182,128 @@ class Config(DictWithSomeHooks):
         return new
 
 
+    @classmethod
+    @contextlib.contextmanager
+    def overriden_init_defaults(cls, **new_defaults):
+        r"""
+        A class method which returns a context manager that makes it
+        possible to temporarily override (globally, for all threads!)
+        the default values of `Config`'s/`Config.section()`'s optional
+        arguments (regarding *only* the *modern way of instantiation*).
+
+        Kwargs (each optional):
+            Same as those you can pass to the `Config` constructor
+            (regarding the *modern way of instantiation*).
+
+        The resultant context manager's `__enter__()` method returns
+        a dictionary those content reflects the current overrides of
+        `Config`'s/`Config.section()`'s optional arguments (see the
+        examples below...). The dictionary is intended to be used for
+        informational purposes only; mutating it will have no effect on
+        the state of the overrides; mutating the objects it contains may
+        have such an effect, but is discouraged.
+
+        ***
+
+        A few examples:
+
+            >>> config_spec = '''
+            ... [foo]
+            ... abc = 42 :: int
+            ... spam = BAR :: bytes
+            ... '''
+            >>> with Config.overriden_init_defaults(
+            ...        settings={'foo.abc': '123'}) as override_info:
+            ...     # (here we can place any operations that may make
+            ...     # `Config()`/`Config.section()` be invoked, possibly
+            ...     # indirectly, including `ConfigMixin`-derived stuff)
+            ...     config_full = Config(config_spec)
+            ...     config_section = Config.section(config_spec)
+            ...
+            >>> config_full
+            Config(<{'foo': ConfigSection('foo', {'abc': 123, 'spam': b'BAR'})}>)
+            >>> config_section
+            ConfigSection('foo', {'abc': 123, 'spam': b'BAR'})
+            >>> override_info
+            {'settings': {'foo.abc': '123'}}
+
+            >>> class _ContrivedConverter:
+            ...     def __call__(self, s): return f'contrived {s}'.encode('utf-8')
+            ...     def __repr__(self): return f'{type(self).__qualname__}()'
+            ...
+            >>> with Config.overriden_init_defaults(
+            ...        settings={'foo.abc': '123'},
+            ...        custom_converters={'bytes': _ContrivedConverter()}) as override_info_1, \
+            ...      Config.overriden_init_defaults(    # Note: here we have a few nested contexts.
+            ...        settings={'foo.abc': '-1'}) as override_info_2:
+            ...     config_full = Config(config_spec)
+            ...     config_section = Config.section(config_spec)
+            ...
+            >>> config_full
+            Config(<{'foo': ConfigSection('foo', {'abc': -1, 'spam': b'contrived BAR'})}>)
+            >>> config_section
+            ConfigSection('foo', {'abc': -1, 'spam': b'contrived BAR'})
+            >>> override_info_1
+            {'settings': {'foo.abc': '123'}, 'custom_converters': {'bytes': _ContrivedConverter()}}
+            >>> override_info_2
+            {'settings': {'foo.abc': '-1'}, 'custom_converters': {'bytes': _ContrivedConverter()}}
+
+            >>> with Config.overriden_init_defaults(
+            ...        settings={'foo.abc': '123'},
+            ...        custom_converters={'bytes': _ContrivedConverter()}) as override_info_1, \
+            ...      Config.overriden_init_defaults(    # Note: here we have a few nested contexts.
+            ...        custom_converters=None) as override_info_2:
+            ...     config_full = Config(config_spec)
+            ...     config_section = Config.section(config_spec)
+            ...
+            >>> config_full
+            Config(<{'foo': ConfigSection('foo', {'abc': 123, 'spam': b'BAR'})}>)
+            >>> config_section
+            ConfigSection('foo', {'abc': 123, 'spam': b'BAR'})
+            >>> override_info_1
+            {'settings': {'foo.abc': '123'}, 'custom_converters': {'bytes': _ContrivedConverter()}}
+            >>> override_info_2
+            {'settings': {'foo.abc': '123'}, 'custom_converters': None}
+
+            >>> with Config.overriden_init_defaults() as override_info:
+            ...     pass
+            ...
+            >>> override_info
+            {}
+
+        The only supported argument names are the names of
+        `Config`-*modern-instantiation*-specific optional
+        arguments. Any others cause a `TypeError`:
+
+            >>> with Config.overriden_init_defaults(                    # doctest: +ELLIPSIS
+            ...        settings={'foo.abc': '123'},
+            ...        unknown_arg='BAZ',
+            ...        custom_converters={'bytes': _ContrivedConverter()},
+            ...        ilegal_arg='spam'):
+            ...     pass
+            ...
+            Traceback (most recent call last):
+              ...
+            TypeError: Config.overriden_init_defaults() got ... 'ilegal_arg', 'unknown_arg'
+        """
+        illegal_argument_names = new_defaults.keys() - cls._MODERN_INIT_OPTIONAL_ARGUMENT_NAMES
+        if illegal_argument_names:
+            listing = ', '.join(map(ascii, sorted(illegal_argument_names)))
+            raise TypeError(
+                f'{cls.overriden_init_defaults.__qualname__}() '
+                f'got unexpected keyword arguments: {listing}')
+
+        rlock = cls._overrides_of_init_defaults_rlock
+        overrides = cls._overrides_of_init_defaults
+        with rlock:
+            new_overrides = cls._overrides_of_init_defaults = overrides.new_child(new_defaults)
+        try:
+            yield dict(new_overrides)
+        finally:
+            with rlock:
+                cls._overrides_of_init_defaults = cls._overrides_of_init_defaults.parents
+
+
     #
     # Non-public implementation details
     #
@@ -1186,6 +1340,17 @@ class Config(DictWithSomeHooks):
                      custom_converters=None,
                      config_filename_regex=None,
                      config_filename_excluding_regex=None):
+
+        opt_arguments = self._get_eventual_init_optional_arguments(
+            settings=settings,
+            custom_converters=custom_converters,
+            config_filename_regex=config_filename_regex,
+            config_filename_excluding_regex=config_filename_excluding_regex)
+        settings = opt_arguments['settings']
+        custom_converters = opt_arguments['custom_converters']
+        config_filename_regex = opt_arguments['config_filename_regex']
+        config_filename_excluding_regex = opt_arguments['config_filename_excluding_regex']
+
         conf_spec_data = parse_config_spec(config_spec)
         converters = {
             **self.BASIC_CONVERTERS,
@@ -1220,6 +1385,25 @@ class Config(DictWithSomeHooks):
                 print(_N6DATAPIPELINE_CONFIG_ERROR_MSG_PATTERN.format(ascii_str(err)),
                       file=sys.stderr)
             raise
+
+    _MODERN_INIT_OPTIONAL_ARGUMENT_NAMES = frozenset({
+        'settings',
+        'custom_converters',
+        'config_filename_regex',
+        'config_filename_excluding_regex',
+    })
+
+    _overrides_of_init_defaults_rlock = threading.RLock()
+    _overrides_of_init_defaults = collections.ChainMap()
+
+    def _get_eventual_init_optional_arguments(self, **init_optional_arguments):
+        assert init_optional_arguments.keys() == self._MODERN_INIT_OPTIONAL_ARGUMENT_NAMES
+        with self._overrides_of_init_defaults_rlock:
+            for arg_name, arg_value in self._overrides_of_init_defaults.items():
+                if arg_value is None or init_optional_arguments.get(arg_name) is not None:
+                    continue
+                init_optional_arguments[arg_name] = arg_value
+        return init_optional_arguments
 
     def _convert_settings_mapping(self, settings):
         sect_name_to_opt_dict = {}
@@ -4080,7 +4264,7 @@ def combined_config_spec(config_spec, /):
     >>> class FooBarBazSub(FooBarBaz):
     ...     x = combined_config_spec('spam = {glam}')
     ...
-    >>> as_config_spec_string(FooBarBazSub.x, {'glam': 'ram-pam-pam'})
+    >>> as_config_spec_string(FooBarBazSub.x, {'glam': 'ram-pam-pam'})  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     n6lib...nfigSpecEggError: ...keys missing...(or some reserved characters in the config spec?)
@@ -4097,11 +4281,12 @@ def combined_config_spec(config_spec, /):
     >>> class InnocentSubclass(SomeWithUnparseable):
     ...     x = combined_config_spec('jaki_pan = taki_kran')
     ...
-    >>> as_config_spec_string(SomeWithUnparseable.x)
+    >>> as_config_spec_string(SomeWithUnparseable.x)                    # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     n6lib...nfigSpecEggError: ... - ValueError: ...
-    >>> as_config_spec_string(InnocentSubclass.x)
+
+    >>> as_config_spec_string(InnocentSubclass.x)                       # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     n6lib...nfigSpecEggError: ... - ValueError: ...
@@ -4135,7 +4320,7 @@ def combined_config_spec(config_spec, /):
     >>> class SomeErroneous(Some):
     ...     x = combined_config_spec('qwerty = 42 :: int')
     ...
-    >>> SomeErroneous.x
+    >>> SomeErroneous.x                                       # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     TypeError: ...

@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-export const customAxios = axios.create({ withCredentials: true });
+export const customAxios = axios.create({
+  withCredentials: true
+});
 
 export const controllers = {
   dataController: process.env.REACT_APP_API_URL || '/api',
@@ -8,6 +10,7 @@ export const controllers = {
     apiKey: '/api_key',
     logout: '/logout',
     login: '/login',
+    loginKeycloak: '/login/oidc',
     mfaLogin: '/login/mfa',
     mfaConfig: '/mfa_config',
     mfaConfigConfirm: '/login/mfa_config/confirm',

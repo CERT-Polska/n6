@@ -7,8 +7,20 @@ sections).
 
 ## Transport layer
 
-The stream API is based on STOMP (Simple Text Oriented Message Protocol) and
-connections are authenticated via X.509 client certificates.
+The stream API is based on STOMP (Simple Text Oriented Message Protocol).
+
+Connections are authenticated by the following credentials:
+
+* `username` -- the *n6* user's **login** (being an e-mail address);
+* `password` -- the *n6* user's **API key** (the same which can be used
+  to authenticate to the *n6* REST API; a user can generate their *n6*
+  API key by their own via the *n6* Portal).
+
+!!! warning "TODO note"
+
+    Here more technical details on the authentication at the level of STOMP
+    need to be described...
+
 Address of the STOMP server: **n6stream.cert.pl:61614**
 
 Supported STOMP versions: 1.0, 1.1, 1.2. TLS is mandatory. We recommend to
@@ -27,7 +39,8 @@ category "." source-provider "." source-channel
 
 Meaning of the variables:
 
-- **id**: n6 client identifier (equals to the Organization field in the X.509 certificate)
+- **id**: n6 client organization identifier (the user organization's domain name
+  registered in the n6 system)
 - **resource**: analogous to the REST API resource, can take one of the following
   values
 - **inside**: events that occurred within the client’s network
@@ -57,6 +70,13 @@ Additionally, there is a **type** attribute that can take following values:
 - bl-delist: removal of a blacklist entry
 
 ## Examples
+
+!!! warning "TODO note"
+
+    The following examples need to be updated regarding the
+    authentication-related stuff, as client-certificate-based authentication
+    is no longer supported; instead of it, authentication based on user API
+    keys is available.
 
 ### Example 1
 

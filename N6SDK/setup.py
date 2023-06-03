@@ -68,7 +68,7 @@ setup(
             'n6sdk_api_test = n6sdk._api_test_tool.api_test_tool:main',
         ],
     },
-    tests_require=(requirements + ['unittest_expander==0.3.1', 'pytest==7.1.2']),
+    tests_require=(requirements + ['unittest_expander==0.4.4', 'pytest==7.1.2']),
     test_suite="n6sdk.tests",
 
     description='An *n6*-like REST API server framework.',

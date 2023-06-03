@@ -2,8 +2,8 @@
 
 !!! warning "TODO note"
 
-    **This guide may need an update regarding the recent migration of
-    *n6* from Python 2.7 to 3.9.**
+    **This guide may need updates regarding the migration of *n6* from
+    Python 2.7 to 3.9.**
 
 ## Opening remarks
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2021 NASK. All rights reserved.
+# Copyright (c) 2020-2023 NASK. All rights reserved.
 
 import copy
 import datetime
@@ -312,15 +312,15 @@ class MailSendingAPI(ConfigMixin, _MessageHelpersMixin):
         client.quit()
 
     def _from_addr_items(self, message):
-        addr_header_values = (message.get_all('Sender') if 'Sender' in message
-                              else message.get_all('From'))
+        addr_header_values = (message.get_all('Sender', [])
+                              or message.get_all('From', []))
         addr_items = self._addr_items_from_header_values(addr_header_values)
         if not addr_items:
             raise ValueError('no `Sender`/`From` address(es) specified')
         return addr_items
 
     def _to_addr_items(self, message):
-        addr_header_values = message.get_all('To')
+        addr_header_values = message.get_all('To', [])
         addr_items = self._addr_items_from_header_values(addr_header_values)
         if not addr_items:
             raise ValueError('no `To` address(es) specified')

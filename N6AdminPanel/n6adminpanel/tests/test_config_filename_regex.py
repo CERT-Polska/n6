@@ -1,4 +1,4 @@
-# Copyright (c) 2022 NASK. All rights reserved.
+# Copyright (c) 2022-2023 NASK. All rights reserved.
 
 import unittest
 
@@ -27,7 +27,7 @@ class TestAdminPanel_config_filename_regex(unittest.TestCase):                  
         '1Admin2paneL3.conf',
     )
     def test_config_filename_regex_matches(self, filename):
-        assert AdminPanel.config_filename_regex.search(filename)
+        assert AdminPanel._admin_panel_specific_config_filename_regex.search(filename)
 
     @foreach(
         'panel_admin.conf',
@@ -48,4 +48,4 @@ class TestAdminPanel_config_filename_regex(unittest.TestCase):                  
         'admin_panel.spam',
     )
     def test_config_filename_regex_does_not_match(self, filename):
-        assert not AdminPanel.config_filename_regex.search(filename)
+        assert not AdminPanel._admin_panel_specific_config_filename_regex.search(filename)

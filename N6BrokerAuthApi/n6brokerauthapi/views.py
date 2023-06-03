@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2022 NASK. All rights reserved.
+# Copyright (c) 2019-2023 NASK. All rights reserved.
 
 import logging
 from collections.abc import (
@@ -15,7 +15,10 @@ from n6brokerauthapi.auth_base import (
     BaseBrokerAuthManagerMaker,
 )
 from n6lib.auth_db.api import AuthManageAPI
-from n6lib.class_helpers import attr_required
+from n6lib.class_helpers import (
+    CombinedWithSuper,
+    attr_required,
+)
 from n6lib.common_helpers import ascii_str
 from n6lib.log_helpers import get_logger
 from n6sdk.exceptions import ParamCleaningError
@@ -177,14 +180,16 @@ class N6BrokerAuthUserView(_N6BrokerAuthViewBase):
 
     param_name_to_required_flag: Mapping[str, bool] = {
         'username': True,
-        'password': False,
+        'password': True,
     }
 
     def make_auth_response(self) -> Response:
-        with self.auth_manager_maker(self.params) as auth_manager:
+        with self.auth_manager_maker(
+                self.params,
+                need_authentication=True) as auth_manager:
             assert isinstance(auth_manager, BaseBrokerAuthManager)
-            if auth_manager.client_verified:
-                if auth_manager.client_type == 'user' and auth_manager.client_is_admin_user:
+            if auth_manager.user_verified:
+                if auth_manager.user_is_admin:
                     return self.allow_administrator_response()
                 return self.allow_response()
         return self.deny_response()
@@ -230,9 +235,7 @@ class N6BrokerAuthResourceView(_N6BrokerAuthResourceViewBase):
 # the *topic_path* view (in rabbitmq-auth-backend-http's parlance)
 class N6BrokerAuthTopicView(_N6BrokerAuthResourceViewBase):
 
-    param_name_to_required_flag: Mapping[str, bool] = dict(
-        _N6BrokerAuthResourceViewBase.param_name_to_required_flag,
-        **{'routing_key': True})
+    param_name_to_required_flag: Mapping[str, bool] = CombinedWithSuper({'routing_key': True})
 
     valid_resources: Container[str] = ('topic',)
     valid_permissions: Container[str] = ('write', 'read')

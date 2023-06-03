@@ -30,6 +30,7 @@ from n6lib.config import Config
 from n6lib.data_backend_api import N6DataBackendAPI
 from n6lib.log_helpers import get_logger
 from n6lib.mail_notices_api import MailNoticesAPI
+from n6lib.oidc_provider_api import OIDCProviderAPI
 from n6lib.rt_client_api import RTClientAPI
 from n6lib.typing_helpers import (
     AccessInfo,
@@ -82,6 +83,7 @@ class EssentialAPIsViewMixin(object):
 
     auth_manage_api: AuthManageAPI = _api_property('auth_manage_api')
     mail_notices_api: MailNoticesAPI = _api_property('mail_notices_api')
+    oidc_provider_api: OIDCProviderAPI = _api_property('oidc_provider_api')
     rt_client_api: RTClientAPI = _api_property('rt_client_api')
 
     # (to be removed when we will get gid of AuthAPI)

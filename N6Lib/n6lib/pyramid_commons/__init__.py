@@ -14,6 +14,7 @@ from n6lib.pyramid_commons._pyramid_commons import (
     N6KnowledgeBaseContentsView,
     N6KnowledgeBaseSearchView,
     N6LimitedStreamView,
+    N6LoginOIDCView,
     N6LoginView,
     N6LoginMFAConfigConfirmView,
     N6LoginMFAView,
@@ -34,6 +35,7 @@ from n6lib.pyramid_commons._pyramid_commons import (
     DevFakeUserAuthenticationPolicy,
     AuthTktUserAuthenticationPolicy,
     SSLUserAuthenticationPolicy,
+    OIDCUserAuthenticationPolicy,
     APIKeyOrSSLUserAuthenticationPolicy,
 
     get_certificate_credentials,
@@ -42,6 +44,7 @@ from n6lib.pyramid_commons._tween_factories import (
     auth_api_context_tween_factory,
     auth_db_apis_maintenance_tween_factory,
     event_db_session_maintenance_tween_factory,
+    preflight_requests_handler_tween_factory,
 )
 
 
@@ -55,6 +58,7 @@ __all__ = [
     'N6KnowledgeBaseContentsView',
     'N6KnowledgeBaseSearchView',
     'N6LimitedStreamView',
+    'N6LoginOIDCView',
     'N6LoginView',
     'N6LoginMFAConfigConfirmView',
     'N6LoginMFAView',
@@ -75,6 +79,7 @@ __all__ = [
     'DevFakeUserAuthenticationPolicy',
     'AuthTktUserAuthenticationPolicy',
     'SSLUserAuthenticationPolicy',
+    'OIDCUserAuthenticationPolicy',
     'APIKeyOrSSLUserAuthenticationPolicy',
 
     'get_certificate_credentials',
@@ -82,4 +87,5 @@ __all__ = [
     'auth_api_context_tween_factory',
     'auth_db_apis_maintenance_tween_factory',
     'event_db_session_maintenance_tween_factory',
+    'preflight_requests_handler_tween_factory',
 ]

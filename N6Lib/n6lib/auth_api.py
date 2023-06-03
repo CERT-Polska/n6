@@ -1,10 +1,11 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import collections
 import bisect
 import datetime
 import fnmatch
 import functools
+import os
 import re
 import time
 import traceback
@@ -12,7 +13,10 @@ import threading
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from n6lib.auth_db.api import AuthManageAPI
+from n6lib.api_key_auth_helper import (
+    APIKeyAuthError,
+    APIKeyAuthHelper,
+)
 from n6lib.common_helpers import (
     LimitedDict,
     ascii_str,
@@ -26,17 +30,30 @@ from n6lib.common_helpers import (
 from n6lib.config import Config
 from n6lib.const import CLIENT_ORGANIZATION_MAX_LENGTH
 from n6lib.context_helpers import ThreadLocalContextDeposit
+from n6lib.data_selection_tools import (
+    Cond,
+    CondBuilder,
+    CondDeMorganTransformer,
+    CondEqualityMergingTransformer,
+    CondFactoringTransformer,
+    ## XXX: uncomment when predicates stuff in `_DataPreparer` supports new `Cond` et consortes.
+    #CondPredicateMaker,
+    CondVisitor,
+    EqualCond,
+    InCond,
+    IsNullCond,
+    RecItemCond,
+)
 from n6lib.db_events import n6NormalizedData
 from n6lib.db_filtering_abstractions import (
-    BaseCond,
-    PredicateConditionBuilder,
-    SQLAlchemyConditionBuilder,
+    BaseCond as LegacyBaseCond,
+    PredicateConditionBuilder as LegacyPredicateConditionBuilder,
+    SQLAlchemyConditionBuilder as LegacySQLAlchemyConditionBuilder,
 )
 from n6lib.jwt_helpers import (
-    JWT_ALGO_HMAC_SHA256,
+    JWT_ALGO_RSA_SHA256,
     JWTDecodeError,
     jwt_decode,
-    jwt_encode,
 )
 from n6lib.log_helpers import get_logger
 from n6lib.ldap_api_replacement import (
@@ -186,6 +203,9 @@ class AuthAPI(object):
         self._ldap_api = LdapAPI(settings)
         self._data_preparer = _DataPreparer()
         self._config_full = Config(self.config_spec, settings=settings)
+        self._api_key_auth_helper = APIKeyAuthHelper(
+            self._config_full['api_key_based_auth']['server_secret'],
+            self._authenticate_with_user_id_and_api_key_id)
 
 
     #
@@ -210,52 +230,43 @@ class AuthAPI(object):
         return root_node
 
     def is_api_key_authentication_enabled(self):
-        return bool(self._get_api_key_server_secret_or_none())
+        return self._api_key_auth_helper.is_api_key_authentication_enabled()
 
     def get_api_key_as_jwt_or_none(self, user_id, api_key_id):
-        server_secret = self._get_api_key_server_secret_or_none()
-        if server_secret is None:
-            return None
-        api_key = jwt_encode({'login': user_id, 'api_key_id': api_key_id},
-                             server_secret,
-                             algorithm=JWT_ALGO_HMAC_SHA256,
-                             required_claims={'login': str, 'api_key_id': str})
-        return api_key
+        return self._api_key_auth_helper.get_api_key_as_jwt_or_none(user_id, api_key_id)
 
     def authenticate_with_api_key(self, api_key):
-        server_secret = self._get_api_key_server_secret_or_none()
-        if server_secret is None:
-            raise AuthAPIUnauthenticatedError
-        api_key_payload = self._verify_and_decode_api_key(api_key, server_secret)
-        auth_data = self._authenticate_with_user_id_and_api_key_id(
-            user_id=AuthManageAPI.adjust_if_is_legacy_user_login(api_key_payload['login']),
-            api_key_id=api_key_payload['api_key_id'])
+        try:
+            auth_data = self._api_key_auth_helper.authenticate_with_api_key(api_key)
+        except APIKeyAuthError as exc:
+            raise AuthAPIUnauthenticatedError from exc
         return auth_data
 
-    def _verify_and_decode_api_key(self, api_key, server_secret):
+    # noinspection PyMethodMayBeStatic
+    def authenticate_with_oidc_access_token(self,
+                                            access_token,
+                                            json_web_key,
+                                            required_claims,
+                                            audience):
         try:
-            payload = jwt_decode(api_key,
-                                 server_secret,
-                                 accepted_algorithms=[JWT_ALGO_HMAC_SHA256],
-                                 required_claims={'login': str, 'api_key_id': str})
-        except JWTDecodeError:
+            return jwt_decode(access_token,
+                              json_web_key,
+                              accepted_algorithms=(JWT_ALGO_RSA_SHA256,),
+                              required_claims=required_claims,
+                              required_audience=audience)
+        except JWTDecodeError as exc:
+            LOGGER.warning(exc)
             raise AuthAPIUnauthenticatedError
-        assert 'login' in payload and isinstance(payload['login'], str)
-        assert 'api_key_id' in payload and isinstance(payload['api_key_id'], str)
-        return payload
 
-    def _get_api_key_server_secret_or_none(self):
-        server_secret = self._config_full['api_key_based_auth']['server_secret']
-        return (server_secret if server_secret.strip() else None)
-
+    # (see `self._api_key_auth_helper` initialized in `__init__()`)
     def _authenticate_with_user_id_and_api_key_id(self, user_id, api_key_id):
         auth_data = self._get_auth_data_for_user_id(user_id)
         org_id = auth_data['org_id']
         assert auth_data == {'user_id': user_id, 'org_id': org_id}
         try:
             self._ldap_api.authenticate_with_api_key_id(org_id, user_id, api_key_id)
-        except LdapAPIReplacementWrongOrgUserAPIKeyIdError:
-            raise AuthAPIUnauthenticatedError
+        except LdapAPIReplacementWrongOrgUserAPIKeyIdError as exc:
+            raise AuthAPIUnauthenticatedError from exc
         return auth_data
 
     def _get_auth_data_for_user_id(self, user_id):
@@ -596,7 +607,9 @@ class AuthAPI(object):
         return self._data_preparer.get_stream_api_disabled_org_ids(
             self.get_ldap_root_node())
 
-    @deep_copying_result  # <- just defensive programming
+    #@deep_copying_result <- we do not want it here -- per analogiam to
+    #                        `get_source_ids_to_notification_access_info_mappings()` [see below]
+    #                        (instead, you need to be careful: to *never* modify resulting objects)
     @cached_basing_on_ldap_root_node
     def get_source_ids_to_subs_to_stream_api_access_infos(self):
         """
@@ -646,7 +659,9 @@ class AuthAPI(object):
         return self._data_preparer.get_source_ids_to_subs_to_stream_api_access_infos(
             self.get_ldap_root_node())
 
-    @deep_copying_result  # <- just defensive programming
+    #@deep_copying_result <- we do not want it here -- because profiling of *n6counter* revealed
+    #                        an unacceptable performance penalty
+    #                        (instead, you need to be careful: to *never* modify resulting objects)
     @cached_basing_on_ldap_root_node
     def get_source_ids_to_notification_access_info_mappings(self):
         """
@@ -1169,6 +1184,51 @@ class _DataPreparer(object):
         # (to be called relatively often during long-lasting operations):
         self.tick_callback = lambda: None
 
+        self._using_legacy_version_of_access_filtering_conditions = (
+            self._is_env_var_non_empty('N6_USE_LEGACY_VERSION_OF_ACCESS_FILTERING_CONDITIONS'))
+
+        self._cond_builder = CondBuilder()
+        self._cond_optimizer = self._make_access_filtering_cond_optimizer()
+        self._cond_to_sqla_converter = self._make_access_filtering_cond_to_sqla_converter()
+        ### XXX uncomment when predicates-related parts support new `Cond` et consortes.
+        #self._cond_to_predicate_converter = CondPredicateMaker()
+
+    def _is_env_var_non_empty(self, env_var_name):
+        is_set = bool(os.environ.get(env_var_name))
+        LOGGER.info(
+            f'{env_var_name} is {"*set*" if is_set else "*not* set"} '
+            f'(to a non-empty value)')
+        return is_set
+
+    def _make_access_filtering_cond_optimizer(self):
+        if self._is_env_var_non_empty('N6_SKIP_OPTIMIZATION_OF_ACCESS_FILTERING_CONDITIONS'):
+            return (lambda cond: cond)
+
+        cond_optimizing_transformers = (    # (visitors that always *take* and *return* `Cond`s)
+            CondFactoringTransformer(),
+            CondEqualityMergingTransformer(),
+        )
+        def optimizer(cond):
+            assert isinstance(cond, Cond)
+            for transformer in cond_optimizing_transformers:
+                cond = transformer(cond)
+            assert isinstance(cond, Cond)
+            return cond
+        return optimizer
+
+    def _make_access_filtering_cond_to_sqla_converter(self):
+        cond_preparation_and_conversion_visitors = (
+            CondDeMorganTransformer(),
+            _CondToSQLAlchemyConverter(),
+        )
+        def converter(cond):
+            assert isinstance(cond, Cond)
+            for visitor in cond_preparation_and_conversion_visitors:
+                cond = visitor(cond)
+            assert not isinstance(cond, Cond)   # (now it is an SQLAlchemy object...)
+            return cond
+        return converter
+
     def get_user_ids_to_org_ids(self, root_node):
         result = {}
         org_id_to_node = root_node['ou']['orgs'].get('o', {})
@@ -1458,7 +1518,7 @@ class _DataPreparer(object):
 
     def _make_org_ids_to_access_infos(self, root_node, org_id_to_node):
         result = {}
-        cond_builder = SQLAlchemyConditionBuilder(n6NormalizedData)
+        cond_builder = self._get_access_info_filtering_condition_builder()
         grouped_set = self._get_org_subsource_az_tuples(root_node, org_id_to_node)
         for org_id, subsource_refint, access_zone in sorted(grouped_set):  # (deterministic order)
             self.tick_callback()
@@ -1479,11 +1539,33 @@ class _DataPreparer(object):
                 result[org_id] = access_info
             else:
                 access_info['access_zone_conditions'].setdefault(access_zone, []).append(cond)
+        self._postprocess_access_info_filtering_conditions(result)
         return result
+
+    def _get_access_info_filtering_condition_builder(self):
+        if self._using_legacy_version_of_access_filtering_conditions:
+            return LegacySQLAlchemyConditionBuilder(n6NormalizedData)
+        return self._cond_builder
+
+    def _postprocess_access_info_filtering_conditions(self, org_ids_to_access_infos):
+        if self._using_legacy_version_of_access_filtering_conditions:
+            return
+        for access_info in org_ids_to_access_infos.values():
+            for or_subconditions in access_info['access_zone_conditions'].values():
+                self.tick_callback()
+                cond_optimized = self._optimized_cond_from_or_subconditions(or_subconditions)
+                sqla_optimized = self._cond_to_sqla_converter(cond_optimized)
+                or_subconditions[:] = [sqla_optimized]
+
+    def _optimized_cond_from_or_subconditions(self, or_subconditions):
+        assert isinstance(or_subconditions, list) and or_subconditions
+        cond_unoptimized = self._cond_builder.or_(or_subconditions)
+        cond_optimized = self._cond_optimizer(cond_unoptimized)
+        return cond_optimized
 
     def _make_source_ids_to_subs_to_stream_api_access_infos(self, root_node, org_id_to_node):
         result = {}
-        cond_builder = PredicateConditionBuilder()
+        cond_builder = self._get_predicates_dedicated_condition_builder()
         grouped_set = self._get_org_subsource_az_tuples(root_node, org_id_to_node)
         for org_id, subsource_refint, access_zone in sorted(grouped_set):  # (deterministic order)
             org = org_id_to_node[org_id]
@@ -1500,7 +1582,7 @@ class _DataPreparer(object):
                 cond = self._get_condition_for_subsource_and_full_access_flag(
                     root_node, source_id, subsource_refint, cond_builder)
                 saa_info = predicate, az_to_org_ids = (
-                    cond.predicate,
+                    self._predicate_from_cond(cond),
                     {access_zone: set() for access_zone in ACCESS_ZONES},
                 )
                 subsource_to_saa_info[subsource_refint] = saa_info
@@ -1521,7 +1603,11 @@ class _DataPreparer(object):
                 ) and (
                     saa_info[0] is predicate and (
                         callable(predicate) or
-                        isinstance(predicate, BaseCond)  # <- for unit tests only
+                        isinstance(predicate, (  # <- for unit tests only
+                            LegacyBaseCond))
+                            # XXX: uncomment when this part supports new `Cond` et consortes.
+                            #if self._using_legacy_version_of_access_filtering_conditions
+                            #else Cond))
                     )
                 ) and (
                     saa_info[1] is az_to_org_ids and
@@ -1533,11 +1619,8 @@ class _DataPreparer(object):
         return result
 
     def _make_source_ids_to_notification_access_info_mappings(self, root_node, org_id_to_node):
-        ### TODO later?: get rid of code duplication with the
-        ### _make_source_ids_to_subs_to_stream_api_access_infos()
-        ### method.
         result = {}
-        cond_builder = PredicateConditionBuilder()
+        cond_builder = self._get_predicates_dedicated_condition_builder()
         grouped_set = self._get_org_subsource_az_tuples(root_node, org_id_to_node)
         for org_id, subsource_refint, access_zone in sorted(grouped_set):  # (deterministic order)
             if access_zone == 'inside':
@@ -1559,12 +1642,24 @@ class _DataPreparer(object):
                     cond = self._get_condition_for_subsource_and_full_access_flag(
                         root_node, source_id, subsource_refint,
                         cond_builder, full_access)
-                    na_info = predicate, na_org_ids = cond.predicate, set()
+                    na_info = predicate, na_org_ids = self._predicate_from_cond(cond), set()
                     na_info_mapping[na_info_key] = na_info
                 else:
                     predicate, na_org_ids = na_info
                 na_org_ids.add(org_id)
         return result
+
+    def _get_predicates_dedicated_condition_builder(self):
+        ### XXX: uncomment when this part supports new `Cond` et consortes.
+        #if self._using_legacy_version_of_access_filtering_conditions:
+            return LegacyPredicateConditionBuilder()
+        #return self._cond_builder
+
+    def _predicate_from_cond(self, cond):
+        ### XXX: uncomment when this part supports new `Cond` et consortes.
+        #if self._using_legacy_version_of_access_filtering_conditions:
+            return cond.predicate
+        #return self._cond_to_predicate_converter(self._cond_optimizer(cond))
 
     def _set_resource_limits(self, org_id_to_access_info, root_node, org_id_to_node):
         event_data_resource_ids = sorted(EVENT_DATA_RESOURCE_IDS)  # (deterministic order)
@@ -1712,7 +1807,6 @@ class _DataPreparer(object):
         return cond_builder.and_(
             cond_builder['source'] == source_id,
             cond_builder.and_(*inclusion_container_conditions),
-            ### FIXME: a bug! -- see: #3379
             cond_builder.and_(*(cond_builder.not_(container_condition)
                                 for container_condition in exclusion_container_conditions)))
 
@@ -1858,6 +1952,94 @@ class _DataPreparer(object):
         except ValueError:
             dt = datetime.datetime.strptime(time_str, '%H')
         return dt.time()
+
+
+class _CondToSQLAlchemyConverter(CondVisitor):
+
+    _NON_NULLABLE_COLUMNS = {
+        # based on content of `etc/mysql/initdb/1_create_tables.sql`
+        'id',
+        'rid',
+        'source',
+        'restriction',
+        'confidence',
+        'category',
+        'time',
+        'ip',
+    }
+
+    def __init__(self):
+        import sqlalchemy
+        self._sqla_not = sqlalchemy.not_
+        self._sqla_and = sqlalchemy.and_
+        self._sqla_or = sqlalchemy.or_
+        self._sqla_make_true = sqlalchemy.true
+        self._sqla_make_false = sqlalchemy.false
+        self._sqla_column = functools.partial(getattr, n6NormalizedData)
+
+    def visit_NotCond(self, cond):
+        subcond = cond.subcond
+        assert isinstance(subcond, RecItemCond)  # (<- thanks to `CondDeMorganTransformer`...)
+
+        if isinstance(subcond, IsNullCond):
+            # (`!= None` will be converted by SQLAlchemy to `IS NOT NULL`)
+            return self._sqla_column(subcond.rec_key) != None                  # noqa
+
+        if isinstance(subcond, EqualCond):
+            sqla_null_unsafe_neg = self._sqla_column(subcond.rec_key) != subcond.op_param
+        elif isinstance(subcond, InCond):
+            values = list(subcond.op_param)
+            assert values  # guaranteed by InCond
+            sqla_null_unsafe_neg = self._sqla_column(subcond.rec_key).notin_(values)
+        else:
+            sqla_null_unsafe_neg = self._sqla_not(self(subcond))
+
+        # The following stuff protects us against the #3379 bug.
+        if subcond.rec_key in self._NON_NULLABLE_COLUMNS:
+            return sqla_null_unsafe_neg
+        return self._sqla_or(
+            # (`== None` will be converted by SQLAlchemy to `IS NULL`)
+            self._sqla_column(subcond.rec_key) == None,                        # noqa
+            sqla_null_unsafe_neg)
+
+    def visit_AndCond(self, cond):
+        assert cond.subconditions  # guaranteed by AndCond
+        return self._sqla_and(*map(self, cond.subconditions))
+
+    def visit_OrCond(self, cond):
+        assert cond.subconditions  # guaranteed by OrCond
+        return self._sqla_or(*map(self, cond.subconditions))
+
+    def visit_EqualCond(self, cond):
+        return self._sqla_column(cond.rec_key) == cond.op_param
+
+    def visit_GreaterCond(self, cond):
+        return self._sqla_column(cond.rec_key) > cond.op_param
+
+    def visit_GreaterOrEqualCond(self, cond):
+        return self._sqla_column(cond.rec_key) >= cond.op_param
+
+    def visit_LessCond(self, cond):
+        return self._sqla_column(cond.rec_key) < cond.op_param
+
+    def visit_LessOrEqualCond(self, cond):
+        return self._sqla_column(cond.rec_key) <= cond.op_param
+
+    def visit_InCond(self, cond):
+        values = list(cond.op_param)
+        assert values  # guaranteed by InCond
+        return self._sqla_column(cond.rec_key).in_(values)
+
+    def visit_BetweenCond(self, cond):
+        min_value, max_value = cond.op_param
+        return self._sqla_column(cond.rec_key).between(min_value, max_value)
+
+    def visit_IsNullCond(self, cond):
+        # (`== None` will be converted by SQLAlchemy to `IS NULL`)
+        return self._sqla_column(cond.rec_key) == None                         # noqa
+
+    def visit_FixedCond(self, cond):
+        return (self._sqla_make_true() if cond.truthness else self._sqla_make_false())
 
 
 class _IdentityBasedThreadSafeCache(object):

@@ -4,6 +4,7 @@ import collections
 import contextlib
 import datetime
 import itertools
+import os
 import random
 import re
 import string
@@ -32,6 +33,8 @@ from n6lib.auth_api import (
 from n6lib.auth_related_test_helpers import (
     EXAMPLE_SEARCH_RAW_RETURN_VALUE,
     EXAMPLE_ORG_IDS_TO_ACCESS_INFOS,
+    EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION,
+    EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS,
     EXAMPLE_ORG_IDS_TO_ACTUAL_NAMES,
     EXAMPLE_SOURCE_IDS_TO_SUBS_TO_STREAM_API_ACCESS_INFOS,
     EXAMPLE_SOURCE_IDS_TO_NOTIFICATION_ACCESS_INFO_MAPPINGS,
@@ -76,7 +79,7 @@ class _AuthAPILdapDataBasedMethodTestMixIn(object):
              patch('n6lib.auth_api.LdapAPI.set_config', create=True), \
              patch('n6lib.auth_api.LdapAPI.configure_db', create=True):
             self.auth_api = AuthAPI()
-            self.data_preparer = _DataPreparer()
+            self.data_preparer = self.auth_api._data_preparer
             try:
                 with patch('n6lib.auth_api.LdapAPI._make_ssl_connection', create=True), \
                      patch('n6lib.auth_api.LdapAPI._db_session_maker', create=True), \
@@ -480,14 +483,68 @@ class TestAuthAPI__get_org_ids_to_access_infos(
         search_flat_return_value = EXAMPLE_SEARCH_RAW_RETURN_VALUE
         expected_result = EXAMPLE_ORG_IDS_TO_ACCESS_INFOS
 
+        _make_converter = _DataPreparer._make_access_filtering_cond_to_sqla_converter
+
+        def _make_wrapped_converter(*args, **kwargs):
+            converter = _make_converter(*args, **kwargs)
+            return (lambda cond: sqlalchemy_expr_to_str(converter(cond)))
+
+        with patch.object(_DataPreparer, '_make_access_filtering_cond_to_sqla_converter',
+                          _make_wrapped_converter), \
+             self.standard_context(search_flat_return_value):
+
+            actual_result = self.auth_api.get_org_ids_to_access_infos()
+
+        self.assertEqual(actual_result, expected_result)
+        self.assert_problematic_orgs_logged(LOGGER_error_mock, {'o3', 'o4', 'o6'})
+
+
+class TestAuthAPI__get_org_ids_to_access_infos__without_optimization(
+        _AuthAPILdapDataBasedMethodTestMixIn,
+        unittest.TestCase):
+
+    @patch('n6lib.auth_api.LOGGER.error', new_callable=_make_LOGGER_error_mock)
+    def test(self, LOGGER_error_mock):
+        # see: n6lib.auth_related_test_helpers
+        search_flat_return_value = EXAMPLE_SEARCH_RAW_RETURN_VALUE
+        expected_result = EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION
+
+        _make_converter = _DataPreparer._make_access_filtering_cond_to_sqla_converter
+
+        def _make_wrapped_converter(*args, **kwargs):
+            converter = _make_converter(*args, **kwargs)
+            return (lambda cond: sqlalchemy_expr_to_str(converter(cond)))
+
+        with patch.object(_DataPreparer, '_make_access_filtering_cond_to_sqla_converter',
+                          _make_wrapped_converter), \
+             patch.dict(os.environ,
+                        {'N6_SKIP_OPTIMIZATION_OF_ACCESS_FILTERING_CONDITIONS': 'y'}), \
+             self.standard_context(search_flat_return_value):
+
+            actual_result = self.auth_api.get_org_ids_to_access_infos()
+
+        self.assertEqual(actual_result, expected_result)
+        self.assert_problematic_orgs_logged(LOGGER_error_mock, {'o3', 'o4', 'o6'})
+
+
+class TestAuthAPI__get_org_ids_to_access_infos__with_legacy_conditions(
+        _AuthAPILdapDataBasedMethodTestMixIn,
+        unittest.TestCase):
+
+    @patch('n6lib.auth_api.LOGGER.error', new_callable=_make_LOGGER_error_mock)
+    def test(self, LOGGER_error_mock):
+        # see: n6lib.auth_related_test_helpers
+        search_flat_return_value = EXAMPLE_SEARCH_RAW_RETURN_VALUE
+        expected_result = EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS
+
         _get_condition = _DataPreparer._get_condition_for_subsource_and_full_access_flag
 
-        def _get_condition_as_str(*args, **kwargs):
-            return sqlalchemy_expr_to_str(_get_condition(*args, **kwargs))
-
-        with patch('n6lib.auth_api._DataPreparer._get_condition_for_subsource_and_full_access_flag',
-                   _get_condition_as_str), \
+        with patch.object(_DataPreparer, '_get_condition_for_subsource_and_full_access_flag',
+                          lambda *a, **kw: sqlalchemy_expr_to_str(_get_condition(*a, **kw))), \
+             patch.dict(os.environ,
+                        {'N6_USE_LEGACY_VERSION_OF_ACCESS_FILTERING_CONDITIONS': 'y'}), \
              self.standard_context(search_flat_return_value):
+
             actual_result = self.auth_api.get_org_ids_to_access_infos()
 
         self.assertEqual(actual_result, expected_result)

@@ -26,7 +26,7 @@ from n6lib.unit_test_helpers import TestCaseMixin
 def _create_test_jwt_token(expired: bool = False,
                            aud: str = "example:com"
                            ) -> str:
-    date = datetime.date(2022, 1, 1) + datetime.timedelta(days=365)
+    date = datetime.date(2022, 1, 1) + datetime.timedelta(days=3650)
     if expired:
         date = datetime.date(2022, 1, 1)
     timestamp = time.mktime(date.timetuple())
@@ -83,6 +83,7 @@ REQUEST_CONTACT_UID_200 = {
     },
     'error': None,
 }
+
 REQUEST_CONTACT_UID_301 = {
     'status_code': 301,
     'response': {
@@ -115,6 +116,7 @@ REQUEST_CLIENT_DETAILS_200 = {
         },
     'error': None,
 }
+
 REQUEST_CLIENT_DETAILS_301 = {
     'status_code': 301,
     'response': {
@@ -144,6 +146,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             external_config=DEFAULT__VALID_CLIENT_ESSENTIALS,
             expected_error=None,
         ).label('1. Valid example.'),
+
         param(
             custom_domain=DEFAULT__VALID_EXAMPLE_DOMAIN,
             external_config={
@@ -154,6 +157,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             },
             expected_error=TypeError,
         ).label('2. Invalid example - argument `base_api_url` is None.'),
+
         param(
             custom_domain=DEFAULT__VALID_EXAMPLE_DOMAIN,
             external_config={
@@ -164,6 +168,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             },
             expected_error=TypeError,
         ).label('3. Invalid example - argument `username` is None.'),
+
         param(
             custom_domain=DEFAULT__VALID_EXAMPLE_DOMAIN,
             external_config={
@@ -174,6 +179,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             },
             expected_error=TypeError,
         ).label('4. Invalid example - argument `password` is None.'),
+
         param(
             custom_domain=DEFAULT__VALID_EXAMPLE_DOMAIN,
             external_config={
@@ -184,6 +190,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             },
             expected_error=TypeError,
         ).label('5. Invalid example - argument `auth_token_audience` is None.'),
+
         param(
             custom_domain=DEFAULT__VALID_EXAMPLE_DOMAIN,
             external_config={
@@ -221,14 +228,17 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             custom_domain='example.com',
             expected_domain='example.com',
         ).label('Valid domain.'),
+
         param(
             custom_domain='http://example.com',
             expected_domain='example.com',
         ).label('Domain with http:// prefix (will be removed).'),
+
         param(
             custom_domain='https://example.com',
             expected_domain='example.com',
         ).label('Domain with https:// prefix (will be removed).'),
+
         param(
             custom_domain='123@456',
             expected_error=ValueError,
@@ -265,32 +275,39 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             custom_url_type=URLType.AUTH,
             expected_url='https://www.example.com/auth/login'
         ).label('1. Valid auth url.'),
+
         param(
             custom_url_type=URLType.DOMAIN,
             custom_data='test1.com',
             expected_url='https://www.example.com/domains/test1.com'
         ).label('2. Valid domain url.'),
+
         param(
             custom_url_type=URLType.CLIENT_UID,
             custom_data='1',
             expected_url='https://www.example.com/clients/1'
         ).label('3. Valid client_id url.'),
+
         param(
             custom_url_type=URLType.DOMAIN,
             expected_error=ValueError,
         ).label('4. No data provided while creating a domain_url.'),
+
         param(
             custom_url_type=URLType.CLIENT_UID,
             expected_error=ValueError,
         ).label('5. No data provided while creating a client_id_url.'),
+
         param(
             custom_url_type=URLType.AUTH,
             custom_data='This should not be provided',
             expected_error=ValueError,
         ).label('6. Data while creating auth_url.'),
+
         param(
             expected_error=ValueError,
         ).label('7. Invalid or none URL type provided.'),
+
         param(
             custom_url_type=URLType.AUTH,
             expected_url='https://www.example.com/auth/login',
@@ -335,10 +352,12 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             expiration_timestamp=datetime.datetime.now().timestamp() + 1000,
             expected_result__is_expired=False,
         ).label('1. Token not expired.'),
+
         param(
             expiration_timestamp=datetime.datetime.now().timestamp() - 1000,
             expected_result__is_expired=True,
         ).label('2. Expired token.'),
+
         param(
             expiration_timestamp=datetime.datetime.now().timestamp() + 30,
             expected_result__is_expired=True,
@@ -370,6 +389,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
                 "error": None,
             },
         ).label('1. Valid response.'),
+
         param(
             custom_response={
                 "status_code": 404,
@@ -384,6 +404,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'Invalid response. Error in `error` '
             '- we expect to catch `custom_exc`.'
         ),
+
         param(
             custom_response={
                 "status_code": None,
@@ -398,6 +419,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'Invalid response. No `status_code` '
             '- we expect to catch `custom_exc`.'
         ),
+
         param(
             custom_response={
                 "status_code": 200,
@@ -412,6 +434,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             '4. '
             'Valid response. Mandatory key in response.'
         ),
+
         param(
             custom_response={
                 "status_code": 200,
@@ -429,6 +452,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'Invalid response. '
             'Mandatory key `"key_3"` not in response.'
         ),
+
         param(
             custom_response={
                 "status_code": 200,
@@ -446,6 +470,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'Invalid response. '
             'Mandatory keys `key_3` and `key_4` not in response.'
         ),
+
         param(
             custom_response={
                 "status_code": 200,
@@ -501,6 +526,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'obtained contact_uid; '
             'no errors'
         ),
+
         param(
             perform_request_mocked_responses=[REQUEST_CONTACT_UID_301],
             expected_result=REQUEST_CONTACT_UID_301,
@@ -516,6 +542,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'obtained `contact_uid` response; '
             '1x warning in logs (status_code != 200)'
         ),
+
         param(
             perform_request_mocked_responses=[ContactUidFetchError(exc=HTTPError)],
             expected_error=ContactUidFetchError,
@@ -525,6 +552,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'We expect to raise this `ContactUidFetchError`.'
             'See more: `_react_to_response_dict_errors_or_checks()` tests.'
         ),
+
         param(
             perform_request_mocked_responses=[ContactUidFetchError(
                 exc=ValueError())],
@@ -582,6 +610,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'obtained `contact_uid`; '
             'no errors'
         ),
+
         param(
             perform_request_mocked_responses=[REQUEST_CLIENT_DETAILS_301],
             expected_result=REQUEST_CLIENT_DETAILS_301,
@@ -591,12 +620,14 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
                     f'{REQUEST_CLIENT_DETAILS_301["status_code"]}. '
                     f'See: {REQUEST_CLIENT_DETAILS_301}'
             ],
+
         ).label(
             '2. '
             'Response: status_code==301; '
             'obtained `client_details`; '
             'no errors'
         ),
+
         param(
             perform_request_mocked_responses=[ClientDetailsFetchError(exc=HTTPError)],
             expected_error=ClientDetailsFetchError,
@@ -606,6 +637,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'We expect to raise this `ClientDetailsFetchError`.'
             'See more: `_react_to_response_dict_errors_or_checks()` tests.'
         ),
+
         param(
             perform_request_mocked_responses=[ClientDetailsFetchError(
                 exc=ValueError())],
@@ -661,6 +693,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             ],
             expected_client_details=REQUEST_CLIENT_DETAILS_200['response']
         ).label('1. Full run: no stored token in a file'),
+
         param(
             custom_domain=DEFAULT__VALID_EXAMPLE_DOMAIN,
             mock_token_stored_in_file=NOT_EXPIRED_JWT_TOKEN,
@@ -670,6 +703,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             ],
             expected_client_details=REQUEST_CLIENT_DETAILS_200['response']
         ).label('2. Full run: token stored in a file **is not** expired.'),
+
         param(
             custom_domain=DEFAULT__VALID_EXAMPLE_DOMAIN,
             mock_token_stored_in_file=EXPIRED_JWT_TOKEN,
@@ -680,6 +714,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             ],
             expected_client_details=REQUEST_CLIENT_DETAILS_200['response']
         ).label('3. Full run: token stored in a file **is** expired.'),
+
         param(
             custom_domain=DEFAULT__VALID_EXAMPLE_DOMAIN,
             mock_token_stored_in_file=EXPIRED_JWT_TOKEN,
@@ -692,6 +727,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'Full run: we could not get `access_token`. '
             'We expect `AuthTokenError`.'
         ),
+
         param(
             custom_domain=DEFAULT__VALID_EXAMPLE_DOMAIN,
             mock_token_stored_in_file=NOT_EXPIRED_JWT_TOKEN,
@@ -704,6 +740,7 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'Full run: we could not get `contact_uid`. '
             'We expect `ContactUidFetchError`.'
         ),
+
         param(
             custom_domain=DEFAULT__VALID_EXAMPLE_DOMAIN,
             mock_token_stored_in_file=EXPIRED_JWT_TOKEN,

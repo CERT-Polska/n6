@@ -2,7 +2,31 @@ import { AxiosError } from 'axios';
 import { useQuery, UseQueryOptions, UseQueryResult } from 'react-query';
 import qs from 'qs';
 import { dataController, controllers, customAxios } from 'api';
-import { IApiKey, IForgottenPasswordData, ILogin, IMfaConfig } from 'api/auth/types';
+import { IApiKey, IForgottenPasswordData, ILogin, ILoginKeycloak, IMfaConfig } from 'api/auth/types';
+
+export class KeycloakStub {
+  get authenticated() {
+    return false;
+  }
+
+  get token() {
+    return '';
+  }
+
+  init() {
+    return new Promise((resolve) => {
+      resolve(false);
+    });
+  }
+
+  login() {
+    return false;
+  }
+
+  logout() {
+    return false;
+  }
+}
 
 export const getLogout = async (): Promise<void> => {
   try {
@@ -12,19 +36,24 @@ export const getLogout = async (): Promise<void> => {
   }
 };
 
-const getMfaConfig = async (): Promise<IMfaConfig> => {
+const getMfaConfig = async (): Promise<IMfaConfig | null> => {
   try {
     const payload = await customAxios.get<IMfaConfig>(`${dataController}${controllers.auth.mfaConfig}`);
     return payload.data;
   } catch (reason) {
+    if (reason.response.status === 403) {
+      // do not respond with 403 response to avoid resetting the auth
+      // state and falling into the infinite loop
+      return null;
+    }
     throw reason;
   }
 };
 
 export const useMfaConfig = (
-  options?: Omit<UseQueryOptions<IMfaConfig, AxiosError>, 'queryKey' | 'queryFn'>
-): UseQueryResult<IMfaConfig, AxiosError> => {
-  return useQuery('mfaConfig', (): Promise<IMfaConfig> => getMfaConfig(), options);
+  options?: Omit<UseQueryOptions<IMfaConfig | null, AxiosError>, 'queryKey' | 'queryFn'>
+): UseQueryResult<IMfaConfig | null, AxiosError> => {
+  return useQuery('mfaConfig', (): Promise<IMfaConfig | null> => getMfaConfig(), options);
 };
 
 const getApiKey = async (): Promise<IApiKey> => {
@@ -64,6 +93,15 @@ export const postLogin = async (data: Record<string, string>): Promise<ILogin> =
   try {
     const encodedData = qs.stringify(data);
     const payload = await customAxios.post(`${dataController}${controllers.auth.login}`, encodedData);
+    return payload.data;
+  } catch (reason) {
+    throw reason;
+  }
+};
+
+export const postLoginKeycloak = async (): Promise<ILoginKeycloak> => {
+  try {
+    const payload = await customAxios.post(`${dataController}${controllers.auth.loginKeycloak}`);
     return payload.data;
   } catch (reason) {
     throw reason;

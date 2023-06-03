@@ -45,15 +45,16 @@ function getPayloadFromFormData(formId) {
 }
 
 function addInputPair(parentNode, label, name, value, elemType = 'input', inputClass = null, readOnly = false) {
-  let newLabel = document.createElement('label');
+  const newLabel = document.createElement('label');
   newLabel.textContent = label;
-  let newInput = document.createElement(elemType);
+  const newInput = document.createElement(elemType);
   newInput.name = name;
   newInput.value = value !== undefined ? value : '';
   if (inputClass) newInput.classList.add(inputClass);
   if (readOnly) newInput.setAttribute('readonly', 'readonly');
   parentNode.appendChild(newLabel);
   parentNode.appendChild(newInput);
+  return [newInput, newLabel];
 }
 
 function validateForm(formId) {
@@ -110,7 +111,8 @@ function _getObjFromFormData(formData) {
   let obj = {};
   for (const i of formData) {
     let key = i[0];
-    // replace array brackets to get array name, if they exist
+    // replace array brackets, if they are at the end of the key name,
+    // to get the name of array
     let arrayName = key.replace(inputArrayRe, '');
     if (key !== arrayName) {
       // if the condition is true, the key is an array

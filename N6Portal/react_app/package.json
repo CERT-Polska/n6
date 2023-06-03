@@ -15,6 +15,7 @@
     "focus-visible": "^5.2.0",
     "get-user-locale": "^1.4.0",
     "jwt-decode": "^3.1.2",
+    "keycloak-js": "^20.0.2",
     "object-hash": "^2.2.0",
     "pug": "^3.0.2",
     "qrcode": "^1.4.4",

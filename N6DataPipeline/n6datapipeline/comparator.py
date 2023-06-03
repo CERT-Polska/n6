@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import datetime
 import json
@@ -6,7 +6,10 @@ import pickle
 import os
 import os.path
 
-from n6lib.common_helpers import open_file
+from n6lib.common_helpers import (
+    make_exc_ascii_str,
+    open_file,
+)
 from n6lib.config import Config
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 from n6lib.log_helpers import get_logger, logging_configured
@@ -69,7 +72,7 @@ class SourceData(object):
             return False
         else:
             return True
-        
+
     def get_event_key(self, data):
         if data.get("url") is not None:
             return data.get("url")
@@ -172,25 +175,45 @@ class ComparatorData(object):
 
 class ComparatorDataWrapper(object):
 
+    _STATE_PICKLE_PROTOCOL = 4
+
     def __init__(self, dbpath):
         self.comp_data = None
         self.dbpath = dbpath
+        self.restore_state()
+
+    def restore_state(self):
         try:
-            self.restore_state()
-        except:
-            LOGGER.error("Error restoring state from: %r", self.dbpath)
+            with open_file(self.dbpath, 'rb') as f:
+                self.comp_data = pickle.load(f)
+        except FileNotFoundError as exc:
+            LOGGER.warning(
+                'Could not load the comparator state (%s). '
+                'Initializing a new empty state...',
+                make_exc_ascii_str(exc))
             self.comp_data = ComparatorData()
+        except Exception as exc:
+            LOGGER.error(
+                'Could not load the comparator state from %a (%s). '
+                'You may need to deal with the problem manually!',
+                self.dbpath, make_exc_ascii_str(exc))
+            raise
+        else:
+            LOGGER.info('Loaded the comparator state from %a.', self.dbpath)
 
     def store_state(self):
         try:
-            with open_file(self.dbpath, "wb") as f:
-                pickle.dump(self.comp_data, f, 2)
-        except IOError:
-            LOGGER.error("Error saving state to: %r", self.dbpath)
-
-    def restore_state(self):
-        with open_file(self.dbpath, "rb") as f:
-            self.comp_data = pickle.load(f)
+            with open_file(self.dbpath, 'wb') as f:
+                pickle.dump(self.comp_data, f, self._STATE_PICKLE_PROTOCOL)
+        except OSError as exc:
+            LOGGER.error(
+                'Failed to save the comparator state to %a (%s). '
+                'Proceeding without having it saved, but the '
+                'component may not work correctly anymore!',
+                self.dbpath, make_exc_ascii_str(exc))
+            # XXX: Should we still proceed despite this error?
+        else:
+            LOGGER.info('Saved the comparator state to %a.', self.dbpath)
 
     def process_new_message(self, data):
         """Processes a message and validates agains db to detect new/change/update.

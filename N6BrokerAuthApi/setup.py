@@ -50,13 +50,13 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     zip_safe=False,
-    python_requres='==3.9.*',
+    python_requires='==3.9.*',
     install_requires=requires,
     entry_points="""\
         [paste.app_factory]
         main = n6brokerauthapi:main
     """,
-    tests_require=['unittest_expander==0.3.1'],
+    tests_require=['unittest_expander==0.4.4'],
     test_suite='n6brokerauthapi.tests',
     description='Authentication and authorization API for RabbitMQ',
     url='https://github.com/CERT-Polska/n6',

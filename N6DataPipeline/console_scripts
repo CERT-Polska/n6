@@ -5,7 +5,7 @@ n6comparator = n6datapipeline.comparator:main
 n6filter = n6datapipeline.filter:main
 n6recorder = n6datapipeline.recorder:main
 n6anonymizer = n6datapipeline.aux.anonymizer:main
-#n6manage = n6datapipeline.aux.pkitools.n6manage:main
+
 n6run_intelmqsetup = n6datapipeline.intelmq.utils.intelmq_setup_wrapper:main
 n6run_bot = n6datapipeline.intelmq.wrapper:main
 n6run_adapter_to_n6 = n6datapipeline.intelmq.utils.intelmq_adapter:run_intelmq_to_n6

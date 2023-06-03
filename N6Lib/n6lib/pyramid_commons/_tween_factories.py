@@ -8,11 +8,30 @@ https://docs.pylonsproject.org/projects/pyramid/en/stable/narr/hooks.html#regist
 import collections
 import sys
 
+from pyramid.response import Response
+
+from n6lib.const import (
+    HTTP_AC_REQUEST_HEADERS_HEADER,
+    HTTP_AC_REQUEST_METHOD_HEADER,
+)
 from n6lib.context_helpers import force_exit_on_any_remaining_entered_contexts
 from n6lib.data_backend_api import (
     N6DataBackendAPI,
     transact,
 )
+
+
+def preflight_requests_handler_tween_factory(handler, registry):
+
+    def preflight_requests_handler_tween(request):
+        if (request.method == 'OPTIONS'
+                and HTTP_AC_REQUEST_HEADERS_HEADER in request.headers
+                and HTTP_AC_REQUEST_METHOD_HEADER in request.headers):
+            # return empty response with "No Content" status
+            return Response(status=204)
+        return handler(request)
+
+    return preflight_requests_handler_tween
 
 
 def auth_db_apis_maintenance_tween_factory(handler, registry):

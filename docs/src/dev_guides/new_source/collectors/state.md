@@ -27,7 +27,7 @@ We will care only about 3 of them:
 - `make_default_state(self)` - creates the default state object of the collector.
   The default implementation just returns `None`.
 
-This class is a mixin, so it does not modify the `run_handling` method of
+This class is a mixin, so it does not modify the `run_collection` method of
 a collector in any way whatsoever. So it is your responsibility to call
 `load_state` before starting collecting data and `save_state` just before
 the exiting (or after each state update, this method ensures that in case
@@ -60,7 +60,7 @@ class MyStatefullCollector(StatefulCollectorMixin, BaseCollector):
 
     config_spec = '''
         [my_statefull_collector]
-        state_dir :: str
+        state_dir :: path
         url :: str
     '''
 

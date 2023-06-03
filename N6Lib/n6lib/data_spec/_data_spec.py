@@ -50,8 +50,9 @@
 #    * used in the context of REST API results and related machinery --
 #      such as: `event attribute name`, `result dict key`, `result key`,
 #      `result field key`...
-#    * used in the context of N6Core components and related machinery --
-#      such as: `event attribute name`, `record dict key`...]
+#    * used in the context of `N6DataPipeline`/`N6DataSources`
+#      components and related machinery -- such as: `event attribute
+#      name`, `record dict key`...]
 #
 #
 # REST-API-queries-related stuff
@@ -228,7 +229,7 @@ class N6DataSpec(DataSpec):
 
     restriction = UnicodeEnumFieldForN6(
         in_params='optional',
-        in_result='required',
+        in_result=('required', 'unrestricted'),
         enum_values=RESTRICTION_ENUMS,
     )
 
@@ -246,11 +247,10 @@ class N6DataSpec(DataSpec):
 
     modified = DateTimeFieldForN6(
         in_params=None,
-        in_result='optional',
-        ###in_result='required',
 
-        ### XXX: to be required in result and optional in params
-        ### XXX: to be unrestricted both in params and in result...
+        # TODO later: change to `('required', 'unrestricted')` (after
+        # making `modified` *NOT NULL* in Event DB schema; see: #8751)
+        in_result=('optional', 'unrestricted'),
 
         extra_params=dict(
             min=DateTimeFieldForN6(
@@ -612,6 +612,10 @@ class N6DataSpec(DataSpec):
     x509issuer = SomeUnicodeFieldForN6(in_result=('optional', 'unrestricted'))
     x509subject = SomeUnicodeFieldForN6(in_result=('optional', 'unrestricted'))
 
+    # * of the UnicodeLimitedFieldForN6 type:
+    artemis_uuid = UnicodeLimitedFieldForN6(in_result='optional', max_length=36)
+    snitch_uuid = UnicodeLimitedFieldForN6(in_result='optional', max_length=36)
+
     # * of the SomeFieldForN6 type:
     additional_data = SomeFieldForN6(in_result='optional')
     botid = SomeFieldForN6(in_result='optional')
@@ -673,6 +677,7 @@ class N6DataSpec(DataSpec):
         'additional_data',
         'adip',
         'alternative_fqdns',
+        'artemis_uuid',
         'block',
         'botid',
         'cert_length',
@@ -717,6 +722,7 @@ class N6DataSpec(DataSpec):
         'revision',
         'rt',
         'sender',
+        'snitch_uuid',
         'subject_common_name',
         'sysdesc',
         'tags',

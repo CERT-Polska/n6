@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import collections.abc
 import copy
@@ -7,8 +7,13 @@ import datetime
 import hashlib
 import io
 import json
+import pickle
+import re
+import sys
 import traceback
 import unittest
+from collections.abc import Iterator
+from types import ModuleType
 from typing import Any
 from unittest.mock import (
     ANY,
@@ -47,6 +52,7 @@ from n6lib.config import (
 )
 from n6lib.record_dict import (
     AdjusterError,
+    BLRecordDict,
     RecordDict,
 )
 from n6lib.unit_test_helpers import (
@@ -56,10 +62,12 @@ from n6lib.unit_test_helpers import (
 )
 from n6datapipeline.base import LegacyQueuedBase
 from n6datasources.parsers.base import (
-    BaseParser,
+    LOGGER as module_logger,  # noqa
     AggregatedEventParser,
+    BaseParser,
     BlackListParser,
     SkipParseExceptionsMixin,
+    add_parser_entry_point_functions,
 )
 
 
@@ -100,9 +108,9 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
         self.meth = MethodProxy(BaseParser, self.mock)
 
 
-    def _assert_config_spec_pattern_is_str_or_egg_containing_basic_stuff(self, owner):
-        parser_class_name = get_class_name(owner)
-        config_spec_pattern = owner.config_spec_pattern
+    def _assert_config_spec_pattern_is_str_or_egg_containing_basic_stuff(self, parser):
+        parser_class_name = get_class_name(parser)
+        config_spec_pattern = parser.config_spec_pattern
         try:
             config_spec = as_config_spec_string(
                 config_spec_pattern,
@@ -162,7 +170,6 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
             r'(?mx)^prefetch_count \s* [=:] \s* 1 \s* :: \s* int\b')
         self._assert_config_spec_pattern_is_str_or_egg_containing_basic_stuff(BaseParser)
         self.assertIs(BaseParser.record_dict_class, RecordDict)
-        self.assertIsNone(BaseParser.record_dict_kwargs, RecordDict)
         self.assertEqual(BaseParser.event_type, 'event')
         self.assertFalse(BaseParser.allow_empty_results)
         self.assertTrue(BaseParser.supports_n6recovery)
@@ -438,18 +445,18 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
              self.super_patcher as super_mock, \
              self.config_patcher:
 
-            instance = SomeParser(a=SAMPLE_ARG_A, bb=SAMPLE_ARG_B)
+            parser = SomeParser(a=SAMPLE_ARG_A, bb=SAMPLE_ARG_B)
 
-        self.assertIsInstance(instance, SomeParser)
+        self.assertIsInstance(parser, SomeParser)
         super_mock.assert_called_once_with()
         super_init_mock.assert_called_once_with(a=SAMPLE_ARG_A, bb=SAMPLE_ARG_B)
-        self.assertEqual(instance.config, expected_config)
-        self.assertIsInstance(instance.config, ConfigSection)
-        self.assertEqual(instance.config_full, expected_config_full)
-        self.assertIsInstance(instance.config_full, Config)
-        self.assertEqual(instance.prefetch_count, expected_config['prefetch_count'])
+        self.assertEqual(parser.config, expected_config)
+        self.assertIsInstance(parser.config, ConfigSection)
+        self.assertEqual(parser.config_full, expected_config_full)
+        self.assertIsInstance(parser.config_full, Config)
+        self.assertEqual(parser.prefetch_count, expected_config['prefetch_count'])
 
-        self.assertEqual(instance.input_queue, {
+        self.assertEqual(parser.input_queue, {
             'exchange': 'raw',            # (note: `BaseParser.preinit_hook()` ensures this
             'exchange_type': 'topic',     # is true, if `default_binding_key` is provided)
             'queue_name': binding_key,
@@ -464,13 +471,13 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
             'exchange_type': 'topic',
         })
 
-        self._assert_config_spec_pattern_is_str_or_egg_containing_basic_stuff(instance)
+        self._assert_config_spec_pattern_is_str_or_egg_containing_basic_stuff(parser)
 
 
     def test_instantiation_with_missing_default_binding_key_causes_error(self):
         class SomeParser(BaseParser):  # noqa
             pass  # no `default_binding_key` defined => it's an abstract class
-        expected_error_regex = "attribute 'default_binding_key' is required"
+        expected_error_regex = r"attribute 'default_binding_key' is required"
 
         with self.assertRaisesRegex(NotImplementedError, expected_error_regex):
             SomeParser()
@@ -705,18 +712,18 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
         with self.config_patcher, \
              patch('n6datapipeline.base.LOGGER') as n6datapipeline_base_logger_mock:
 
-            instance = SomeParser.__new__(SomeParser)
+            parser = SomeParser.__new__(SomeParser)
 
-            self.assertEqual(instance.input_queue, {
+            self.assertEqual(parser.input_queue, {
                 'exchange': 'raw',
                 'exchange_type': 'topic',     # (note: `BaseParser.preinit_hook()` ensures this
                 'queue_name': binding_key,    # is true, if `default_binding_key` is provided)
             })
 
-            instance.configure_pipeline()
+            parser.configure_pipeline()
 
         self.assertEqual(n6datapipeline_base_logger_mock.warning.mock_calls, [])
-        self.assertEqual(instance.input_queue, {
+        self.assertEqual(parser.input_queue, {
             'exchange': 'raw',
             'exchange_type': 'topic',
             'queue_name': binding_key,
@@ -1127,24 +1134,134 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
             self.meth.parse(sentinel.data)
 
 
-    # def test__new_record_dict(self):
-    #     TODO... See: #8527.
+    def test__new_record_dict(self):
+        del self.mock.record_dict_kwargs  # remove this line when removing assert in tested cls...
+        self.mock.record_dict_class = Mock(return_value=sentinel.record_dict)
+        # Note that actual behaviors of the `set_basic_items()` and
+        # `handle_parse_error()` methods -- as well as of record dict
+        # classes -- are tested separately.
+        self.mock.set_basic_items = Mock()
+        self.mock.handle_parse_error = sentinel.handle_parse_error_impl
+
+        result = self.meth.new_record_dict(
+            sentinel.data,
+            a=SAMPLE_ARG_A,
+            bb=SAMPLE_ARG_B)
+
+        self.assertIs(result, sentinel.record_dict)
+        self.assertEqual(self.mock.mock_calls, [
+            call.record_dict_class(
+                log_nonstandard_names=True,
+                context_manager_error_callback=sentinel.handle_parse_error_impl,
+                a=SAMPLE_ARG_A,
+                bb=SAMPLE_ARG_B,
+            ),
+            call.set_basic_items(
+                sentinel.record_dict,
+                sentinel.data,
+            ),
+        ])
 
 
-    # def test__handle_parse_error(self):
-    #     TODO... See: #8527.
+    @foreach(
+        param(
+            cm_error=AdjusterError('foo'),
+            expected_log_warning_regex=r'Event could not be generated due to AdjusterError: foo',
+            expected_result=True,
+        ),
+        param(
+            cm_error=AttributeError('foo'),
+            expected_log_warning_regex=None,
+            expected_result=False,
+        ),
+        param(
+            cm_error=TypeError('foo'),
+            expected_log_warning_regex=None,
+            expected_result=False,
+        ),
+        param(
+            cm_error=SystemExit('foo'),
+            expected_log_warning_regex=None,
+            expected_result=False,
+        ),
+        param(
+            cm_error=KeyboardInterrupt('foo'),
+            expected_log_warning_regex=None,
+            expected_result=False,
+        ),
+    )
+    def test__handle_parse_error(self,
+                                 cm_error,
+                                 expected_log_warning_regex,
+                                 expected_result):
+
+        class MyParser(BaseParser):
+            pass
+        parser = MyParser.__new__(MyParser)
+
+        with self.assertLogWarningRegexes(module_logger, expected_log_warning_regex):
+            result = parser.handle_parse_error(context_manager_error=cm_error)
+
+        self.assertIs(result, expected_result)
 
 
-    # def test__handle_parse_error__is_picklable(self):
-    #     TODO... See: #8527.
+    def test__handle_parse_error__is_picklable(self):
+        class MyParser(BaseParser):
+            pass
+        parser = MyParser.__new__(MyParser)
+        func = parser.handle_parse_error
+
+        func_unpickled_pickled = pickle.loads(pickle.dumps(func))
+
+        self.assertIs(func_unpickled_pickled, func)
 
 
-    # def test__set_basic_items(self):
-    #     TODO... See: #8527.
+    @foreach(
+        param(
+            constant_items_example={
+                'restriction': 'need-to-know',
+                'confidence': 'low',
+                'category': 'phish',
+            },
+        ),
+        param(
+            constant_items_example={
+                'restriction': 'public',
+                'confidence': 'medium',
+                'category': 'cnc',
+                'name': 'spyeye',
+                # Note: in real parser classes, the 'source' and 'rid'
+                # items should *never* be placed in `constant_items`
+                # (as you can see here, their values are to be set to
+                # respective values from `data` anyway).
+                'source': 'unused.unused',
+                'rid': '00000000000111111111112222222222'
+            },
+        ),
+    )
+    def test__set_basic_items(self, constant_items_example):
+        message_id = 'abcd1234a123aa1a23a12345aa123456'
+        data = {
+            'properties.message_id': message_id,
+            'source': 'provider.channel',
+        }
+        class MyParser(BaseParser):
+            constant_items = constant_items_example.copy()
+        parser = MyParser.__new__(MyParser)
+        record_dict = RecordDict()
+        record_dict_expected_content = constant_items_example.copy()
+        record_dict_expected_content.update({
+            'rid': message_id,
+            'source': 'provider.channel',
+        })
+
+        parser.set_basic_items(record_dict, data)
+
+        self.assertEqual(record_dict, record_dict_expected_content)
 
 
     @paramseq
-    def _parsed_content_and_expected_hash_base_cases_for__get_output_message_id(self):
+    def _parsed_content_and_expected_hash_base_cases_for__get_output_message_id():
         return [
             # basics
             (
@@ -1307,7 +1424,7 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
 
 
     @paramseq
-    def _parsed_content_and_exc_class_cases_for__get_output_message_id(self):
+    def _parsed_content_and_expected_exc_class_cases_for__get_output_message_id():
         return [
             # bad subdict key type
             (
@@ -1350,21 +1467,43 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
             ),
         ]
 
-    @foreach(_parsed_content_and_exc_class_cases_for__get_output_message_id)
-    def test__get_output_message_id__errors(self, parsed_content, exc_class):
+    @foreach(_parsed_content_and_expected_exc_class_cases_for__get_output_message_id)
+    def test__get_output_message_id__errors(self, parsed_content, expected_exc_class):
         class _RecordDict(RecordDict):
             adjust_key1 = adjust_key2 = None
             optional_keys = RecordDict.optional_keys | {'key1', 'key2'}
         parser = BaseParser.__new__(BaseParser)
         record_dict = _RecordDict(parsed_content)
 
-        with self.assertRaises(exc_class):
+        with self.assertRaises(expected_exc_class):
             parser.get_output_message_id(record_dict)
 
 
-    # def test__iter_output_id_base_items(self):
-    #     TODO... See: #8527.
-    #   (although it's, to some extent, covered by `test__get_output_message_id()`)
+    @foreach(
+        param(
+            parsed_content={'source': 'provider.channel'},
+            expected_result=[('source', 'provider.channel')]
+        ),
+        param(
+            parsed_content={'source': 'provider.channel',
+                            'time': '2023-01-10 11:12:13',
+                            '_do_not_resolve_fqdn_to_ip': True,
+                            '_group': 'whatever'},
+            expected_result=[
+                    ('source', 'provider.channel'),
+                    ('time', '2023-01-10 11:12:13')
+            ]
+        )
+    )
+    def test__iter_output_id_base_items(self, parsed_content, expected_result):
+        parsed = RecordDict(parsed_content)
+
+        result = self.meth.iter_output_id_base_items(parsed)
+        result_as_list = list(result)
+
+        self.assertIsInstance(result, Iterator)
+        self.assertEqual(result_as_list, expected_result)
+        self.assertEqual(self.mock.mock_calls, [])
 
 
     @foreach(
@@ -1406,26 +1545,694 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
         self.assertEqual(self.mock.mock_calls, [])
 
 
-    # def test__set_proto(self):
-    #     TODO... See: #8527.
+    @foreach(
+        param(
+            parsed_content={
+                'source': 'provider.channel'
+            },
+            proto_number=6,
+            expected_log_warning_regex=None,
+            expected_content={
+                'source': 'provider.channel',
+                'proto': 'tcp'
+            },
+        ),
+        param(
+            parsed_content={
+                'source': 'provider.channel',
+                'fqdn': 'example.com'
+            },
+            proto_number=17,
+            expected_log_warning_regex=None,
+            expected_content={
+                'source': 'provider.channel',
+                'fqdn': 'example.com',
+                'proto': 'udp'
+            },
+        ),
+        param(
+            parsed_content={
+                'source': 'provider.channel',
+                'fqdn': 'example.com'
+            },
+            proto_number=1,
+            expected_log_warning_regex=None,
+            expected_content={
+                'source': 'provider.channel',
+                'fqdn': 'example.com',
+                'proto': 'icmp'
+            },
+        ),
+        param(
+            parsed_content={
+                'source': 'provider.channel',
+                'fqdn': 'example.com'
+            },
+            proto_number=2,
+            expected_log_warning_regex=r"Unrecognized proto symbol number: '2'",
+            expected_content={
+                'source': 'provider.channel',
+                'fqdn': 'example.com',
+            },
+        ),
+    )
+    def test__set_proto(self,
+                        parsed_content,
+                        proto_number,
+                        expected_log_warning_regex,
+                        expected_content):
+        class MyParser(BaseParser):
+            pass
+        parsed = RecordDict(parsed_content)
+        actual_method_obj = vars(BaseParser)['set_proto']
+
+        self.assertIsInstance(actual_method_obj, staticmethod)
+        self.assertIs(actual_method_obj.__func__, MyParser.set_proto)
+        with self.assertLogWarningRegexes(module_logger, expected_log_warning_regex):
+            MyParser.set_proto(parsed, proto_number)
+        self.assertEqual(parsed, expected_content)
 
 
-## TODO... See: #8527.
-# class TestSkipParseExceptionsMixin
-#     (though at least some parts of `SkipParseExceptionsMixin` are covered by
-#   ` Test__get_output_bodies__results_for_various_concrete_parsers()`)
+@expand
+class TestSkipParseExceptionsMixin(TestCaseMixin, unittest.TestCase):
+
+    def setUp(self):
+        # (We want to make `LegacyQueuedBase.__new__()`'s stuff isolated
+        # from real `sys.argv`...)
+        self.patch_argparse_stuff()
 
 
-## TODO... See: #8527.
-# class TestAggregatedEventParser
-#     (though at least some parts of `AggregatedEventParser` are covered by
-#   ` Test__get_output_bodies__results_for_various_concrete_parsers()`)
+    @foreach(
+        param(
+            cm_error=AdjusterError('foo'),
+            expected_log_warning_regex=r'Event could not be generated due to AdjusterError: foo',
+            expected_result=True,
+        ),
+        param(
+            cm_error=AttributeError('foo'),
+            expected_log_warning_regex=r'Event could not be generated due to AttributeError: foo',
+            expected_result=True,
+        ),
+        param(
+            cm_error=TypeError('foo'),
+            expected_log_warning_regex=r'Event could not be generated due to TypeError: foo',
+            expected_result=True,
+        ),
+        # The following ones are *not* derived from `Exception`.
+        param(
+            cm_error=SystemExit('foo'),
+            expected_log_warning_regex=None,
+            expected_result=False,
+        ),
+        param(
+            cm_error=KeyboardInterrupt('foo'),
+            expected_log_warning_regex=None,
+            expected_result=False,
+        ),
+    )
+    def test__handle_parse_error(self,
+                                 cm_error,
+                                 expected_result,
+                                 expected_log_warning_regex):
+
+        class MyParser(SkipParseExceptionsMixin, BaseParser):
+            pass
+        parser = MyParser.__new__(MyParser)
+
+        with self.assertLogWarningRegexes(module_logger, expected_log_warning_regex):
+            result = parser.handle_parse_error(context_manager_error=cm_error)
+
+        self.assertIs(result, expected_result)
 
 
-## TODO... See: #8527.
-# class TestBlackListParser
-#     (though at least some parts of `BlackListParser` are covered by
-#   ` Test__get_output_bodies__results_for_various_concrete_parsers()`)
+    def test__handle_parse_error__is_picklable(self):
+        class MyParser(SkipParseExceptionsMixin, BaseParser):
+            pass
+        parser = MyParser.__new__(MyParser)
+        func = parser.handle_parse_error
+
+        func_unpickled_pickled = pickle.loads(pickle.dumps(func))
+
+        self.assertIs(func_unpickled_pickled, func)
+
+
+@expand
+class TestAggregatedEventParser(TestCaseMixin, unittest.TestCase):
+
+    def setUp(self):
+        # (We want to make `LegacyQueuedBase.__new__()`'s stuff isolated
+        # from real `sys.argv`...)
+        self.patch_argparse_stuff()
+
+
+    def test_superclasses(self):
+        self.assertTrue(issubclass(AggregatedEventParser, BaseParser))
+        self.assertTrue(issubclass(AggregatedEventParser, ConfigMixin))
+        self.assertTrue(issubclass(AggregatedEventParser, LegacyQueuedBase))
+
+
+    def test_class_attr_values(self):
+        # Here we cover only the attributes or their values specific
+        # to this class.
+        self.assertEqual(AggregatedEventParser.event_type, 'hifreq')
+        self.assertIsNone(AggregatedEventParser.group_id_components)
+
+
+    def test_instantiation_and_instance_basics(self):
+        class MyParser(AggregatedEventParser):
+            group_id_components = 'foo', 'bar', 'spam'
+        super_obj_stub = PlainNamespace()
+        super_obj_stub.__init__ = Mock()
+        with patch('n6datasources.parsers.base.super',
+                   return_value=super_obj_stub) as super_mock:
+
+            parser = MyParser(a=SAMPLE_ARG_A, bb=SAMPLE_ARG_B)
+
+        super_mock.assert_called_once_with()
+        super_obj_stub.__init__.assert_called_once_with(a=SAMPLE_ARG_A, bb=SAMPLE_ARG_B)
+        self.assertIsInstance(parser, MyParser)
+        self.assertIsInstance(parser, AggregatedEventParser)
+        self.assertEqual(parser.event_type, 'hifreq')
+        self.assertEqual(parser.group_id_components, ('foo', 'bar', 'spam'))
+
+
+    def test_instantiation_with_missing_group_id_components_causes_error(self):
+        class MyParser(AggregatedEventParser):
+            pass
+        expected_error_regex = r"attribute 'group_id_components' is required"
+
+        with self.assertRaisesRegex(NotImplementedError, expected_error_regex):
+            MyParser()
+
+
+    @foreach(
+        param(
+            cm_error=AdjusterError('foo'),
+            expected_log_warning_regex=r'Event could not be generated due to AdjusterError: foo',
+            expected_result=True,
+        ),
+        param(
+            cm_error=AttributeError('foo'),
+            expected_log_warning_regex=None,
+            expected_result=False,
+        ),
+        param(
+            cm_error=TypeError('foo'),
+            expected_log_warning_regex=None,
+            expected_result=False,
+        ),
+        param(
+            cm_error=SystemExit('foo'),
+            expected_log_warning_regex=None,
+            expected_result=False,
+        ),
+        param(
+            cm_error=KeyboardInterrupt('foo'),
+            expected_log_warning_regex=None,
+            expected_result=False,
+        ),
+    )
+    def test__handle_parse_error(self,
+                                 cm_error,
+                                 expected_log_warning_regex,
+                                 expected_result):
+
+        class MyParser(AggregatedEventParser):
+            pass
+        parser = MyParser.__new__(MyParser)
+
+        with self.assertLogWarningRegexes(module_logger, expected_log_warning_regex):
+            result = parser.handle_parse_error(context_manager_error=cm_error)
+
+        self.assertIs(result, expected_result)
+
+
+    def test__handle_parse_error__is_picklable(self):
+        class MyParser(AggregatedEventParser):
+            pass
+        parser = MyParser.__new__(MyParser)
+        func = parser.handle_parse_error
+
+        func_unpickled_pickled = pickle.loads(pickle.dumps(func))
+
+        self.assertIs(func_unpickled_pickled, func)
+
+
+    @foreach([
+        param(
+            group_id_components_example=('ip', 'name', 'dport', 'notpresent'),
+            parsed_content={
+                'category': 'phish',
+                'confidence': 'low',
+                'restriction': 'need-to-know',
+                'rid': 'abcd1234a123aa1a23a12345aa123456',
+                'source': 'provider.channel',
+                'address': [{'ip': '1.2.3.4'}, {'ip': '0.2.4.6'}, {'ip': '66.77.88.99'}],
+                'dport': 443,
+                'name': 'malurl',
+            },
+            expected_group='1.2.3.4_malurl_443_None',
+        ),
+        param(
+            group_id_components_example=('ip', 'name', 'dport', 'notpresent'),
+            parsed_content={
+                'category': 'phish',
+                'confidence': 'low',
+                'restriction': 'need-to-know',
+                'rid': 'abcd1234a123aa1a23a12345aa123456',
+                'source': 'provider.channel',
+                'dport': 443,
+                'name': 'malurl',
+            },
+            expected_group='None_malurl_443_None',
+        ),
+        param(
+            group_id_components_example='name',
+            parsed_content={
+                'category': 'bots',
+                'confidence': 'medium',
+                'restriction': 'public',
+                'rid': 'abcd1234a123aa1a23a12345aa123456',
+                'source': 'provider.channel',
+                'name': 'bots',
+            },
+            expected_group='bots',
+        ),
+    ])
+    @foreach(
+        param(do_not_resolve_fqdn_to_ip=None),
+        param(do_not_resolve_fqdn_to_ip=True),
+        param(do_not_resolve_fqdn_to_ip=False),
+    )
+    def test__postprocess_parsed(self,
+                                 group_id_components_example,
+                                 parsed_content,
+                                 do_not_resolve_fqdn_to_ip,
+                                 expected_group):
+        data = {
+            'raw': b'<...just an example unrelated data item...>',
+        }
+        class MyParser(AggregatedEventParser):
+            group_id_components = group_id_components_example
+        parser = MyParser.__new__(MyParser)
+        parsed = RecordDict(parsed_content)
+        expected_parsed_content = parsed_content | {'_group': expected_group}
+        if do_not_resolve_fqdn_to_ip is not None:
+            data['_do_not_resolve_fqdn_to_ip'] = do_not_resolve_fqdn_to_ip
+            if do_not_resolve_fqdn_to_ip:
+                expected_parsed_content['_do_not_resolve_fqdn_to_ip'] = True
+
+        result = parser.postprocess_parsed(data, parsed, sentinel.total, sentinel.item_no)
+
+        self.assertEqual(result, expected_parsed_content)
+
+
+    def test__postprocess_parsed__with_missing_all_group_id_component_items_causes_error(self):
+        data = {
+            'raw': b'<...just an example unrelated data item...>',
+        }
+        parsed_content = {
+            'category': 'phish',
+            'confidence': 'low',
+            'restriction': 'need-to-know',
+            'rid': 'abcd1234a123aa1a23a12345aa123456',
+            'source': 'provider.channel',
+        }
+        class MyParser(AggregatedEventParser):
+            group_id_components = 'ip', 'name', 'dport'
+        parser = MyParser.__new__(MyParser)
+        parsed = RecordDict(parsed_content)
+
+        with self.assertRaisesRegex(ValueError, (
+              r'none of the group id components \(ip, name, dport\) '
+              r'is set to a non-None value \(in <RecordDict .*>\)')):
+            parser.postprocess_parsed(data, parsed, sentinel.total, sentinel.item_no)
+
+
+@expand
+class TestBlackListParser(TestCaseMixin, unittest.TestCase):
+
+    def setUp(self):
+        # (We want to make `LegacyQueuedBase.__new__()`'s stuff isolated
+        # from real `sys.argv`...)
+        self.patch_argparse_stuff()
+
+
+    def test_superclasses(self):
+        self.assertTrue(issubclass(BlackListParser, BaseParser))
+        self.assertTrue(issubclass(BlackListParser, ConfigMixin))
+        self.assertTrue(issubclass(BlackListParser, LegacyQueuedBase))
+
+
+    def test_class_attr_values(self):
+        # Here we cover only the attributes or their values specific
+        # to this class.
+        self.assertIs(BlackListParser.record_dict_class, BLRecordDict)
+        self.assertEqual(BlackListParser.event_type, 'bl')
+        self.assertEqual(BlackListParser.bl_current_time_regex_group, 'datetime')
+        self.assertIsNone(BlackListParser.bl_current_time_regex)
+        self.assertIsNone(BlackListParser.bl_current_time_format)
+
+
+    def test_instantiation_is_inherited(self):
+        self.assertIs(BlackListParser.__new__, BaseParser.__new__)
+        self.assertIs(BlackListParser.__init__, BaseParser.__init__)
+
+
+    @foreach([
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023/01/01 11:11:11',
+            },
+            regex_example=re.compile(
+                r'(?P<datetime>\d{4}/\d{1,2}/\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII),
+            regex_group_example=sentinel.inherited,  # default: 'datetime'
+            time_format_example='%Y/%m/%d %H:%M:%S',
+            expected_result=datetime.datetime(2023, 1, 1, 11, 11, 11)
+        ).label('inherited regex group'),
+
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023/01/01 11:11:11',
+            },
+            regex_example=re.compile(
+                r'(?P<custom>\d{4}/\d{1,2}/\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII),
+            regex_group_example='custom',
+            time_format_example='%Y/%m/%d %H:%M:%S',
+            expected_result=datetime.datetime(2023, 1, 1, 11, 11, 11)
+        ).label('custom regex group'),
+
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023/01/01 11:11:11',
+            },
+            regex_example=re.compile(
+                r'(\d{4}/\d{1,2}/\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII),
+            regex_group_example=1,
+            time_format_example='%Y/%m/%d %H:%M:%S',
+            expected_result=datetime.datetime(2023, 1, 1, 11, 11, 11),
+        ).label('numeric regex group'),
+
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023/01/01 11:11:11',
+            },
+            regex_example=sentinel.inherited,  # default: None
+            regex_group_example=sentinel.irrelevant_here,
+            time_format_example=sentinel.irrelevant_here,
+            expected_result=None,
+        ).label('no regex - returns None'),
+
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023-01-01 11:11:11',
+            },
+            regex_example=re.compile(
+                r'(?P<datetime>\d{4}/\d{1,2}/\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII),
+            regex_group_example=sentinel.irrelevant_here,
+            time_format_example=sentinel.irrelevant_here,
+            expected_result=None,
+        ).label('not matching regex - returns None'),
+
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023/01/01 11:11:11',
+            },
+            regex_example=re.compile(
+                r'(foo)|(\d{4}/\d{1,2}/\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII),
+            regex_group_example=1,
+            time_format_example=sentinel.irrelevant_here,
+            expected_result=None,
+        ).label('not matched (but known) regex group - returns None'),
+
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023/01/01 11:11:11',
+            },
+            regex_example=re.compile(
+                r'(\d*?)(\d{4}/\d{1,2}/\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII),
+            regex_group_example=1,
+            time_format_example=sentinel.irrelevant_here,
+            expected_result=None,
+        ).label('matched but empty regex group - returns None'),
+
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023/01/01 11:11:11',
+            },
+            regex_example=re.compile(
+                r'(?P<datetime>\d{4}/\d{1,2}/\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII),
+            regex_group_example='custom',
+            time_format_example=sentinel.irrelevant_here,
+            expected_exc_class=IndexError
+        ).label('unknown regex group - raises IndexError'),
+
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023/01/01 11:11:11',
+            },
+            regex_example=re.compile(
+                r'(\d{4}/\d{1,2}/\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII),
+            regex_group_example=1,
+            time_format_example='%Y-%m-%d %H:%M:%S',
+            expected_exc_class=ValueError,
+        ).label('not matching time format - raises ValueError'),
+
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023-01-01 11:11:11',
+            },
+            regex_example=re.compile(
+                r'(\d{4}-\d{1,2}-\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII),
+            regex_group_example=1,
+            time_format_example=sentinel.inherited,  # default: None
+            expected_result=datetime.datetime(2023, 1, 1, 11, 11, 11),
+        ).label('no time format, but date in ISO format'),
+
+        param(
+            data_example={
+                'irrelevant_attribute': 'irrelevant value',
+                'raw': b'example data 2023/01/01 11:11:11',
+            },
+            regex_example=re.compile(
+                r'(\d{4}/\d{1,2}/\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII),
+            regex_group_example=1,
+            time_format_example=sentinel.inherited,  # default: None
+            expected_exc_class=ValueError,
+        ).label('no time format, date not in ISO format - raises ValueError'),
+    ])
+    def test__get_bl_current_time_from_data(self,
+                                            data_example,
+                                            regex_example,
+                                            regex_group_example,
+                                            time_format_example,
+                                            expected_result=None,
+                                            expected_exc_class=None):
+        class MyParser(BlackListParser):
+            if regex_example is not sentinel.inherited:
+                bl_current_time_regex = regex_example
+            if regex_group_example is not sentinel.inherited:
+                bl_current_time_regex_group = regex_group_example
+            if time_format_example is not sentinel.inherited:
+                bl_current_time_format = time_format_example
+
+        parser = MyParser.__new__(MyParser)
+        if expected_exc_class is not None:
+            assert expected_result is None, 'test code expectation'
+            with self.assertRaises(expected_exc_class):
+                parser.get_bl_current_time_from_data(data_example, parsed=sentinel.unused)
+        else:
+            result = parser.get_bl_current_time_from_data(data_example, parsed=sentinel.unused)
+            self.assertEqual(result, expected_result)
+
+
+    @foreach(AdjusterError, AttributeError, TypeError, SystemExit, KeyboardInterrupt)
+    def test__handle_parse_error(self, cm_error_class):
+        class MyParser(BlackListParser):
+            pass
+        parser = MyParser.__new__(MyParser)
+        cm_error = cm_error_class('foo')
+
+        with self.assertNoLogWarnings(module_logger):
+            result = parser.handle_parse_error(cm_error)
+
+        self.assertIs(result, False)
+
+
+    def test__handle_parse_error__is_picklable(self):
+        class MyParser(BlackListParser):
+            pass
+        parser = MyParser.__new__(MyParser)
+        func = parser.handle_parse_error
+
+        func_unpickled_pickled = pickle.loads(pickle.dumps(func))
+
+        self.assertIs(func_unpickled_pickled, func)
+
+
+    @foreach([
+        param(
+            data={
+                'properties.timestamp': '2022-01-08 08:08:08',
+                'properties.message_id': '9bcd1234a123aa1a23a12345aa123456',
+                'raw': b'example data 2023-09-09 09:09:09',
+            },
+            total_example=3,
+            item_no_example=2,
+            expected_content_added_to_parsed={
+                '_bl-series-id': '9bcd1234a123aa1a23a12345aa123456',
+                '_bl-series-total': 3,
+                '_bl-series-no': 2,
+                '_bl-time': '2022-01-08 08:08:08',
+                '_bl-current-time': '2023-09-09 09:09:09',
+            }
+        ),
+
+        param(
+            data={
+                'properties.timestamp': '2023-01-10 10:10:10',
+                'properties.message_id': 'abcd1234a123aa1a23a12345aa123456',
+                'raw': b'example data 2023-01-12 12:12:12',
+            },
+            total_example=1,
+            item_no_example=0,
+            expected_content_added_to_parsed={
+                '_bl-series-id': 'abcd1234a123aa1a23a12345aa123456',
+                '_bl-series-total': 1,
+                '_bl-series-no': 0,
+                '_bl-time': '2023-01-10 10:10:10',
+                '_bl-current-time': '2023-01-12 12:12:12',
+            }
+        )
+    ])
+    def test__postprocess_parsed(self,
+                                 data,
+                                 total_example,
+                                 item_no_example,
+                                 expected_content_added_to_parsed):
+        parsed_content = {'source': 'just-an-example.unrelated-item'}
+        expected_parsed_content = parsed_content | expected_content_added_to_parsed
+        parsed = BLRecordDict(parsed_content)
+        inherited_postprocess_parsed_mock = self.patch(
+            'n6datasources.parsers.base.BaseParser.postprocess_parsed',
+            return_value=parsed)
+        class MyParser(BlackListParser):
+            default_binding_key = 'foo.bar'
+            bl_current_time_regex = re.compile(
+                r'(?P<datetime>\d{4}-\d{1,2}-\d{1,2}\s'
+                r'\d{1,2}:\d{1,2}:\d{1,2})', re.ASCII)
+            bl_current_time_format = "%Y-%m-%d %H:%M:%S"
+        parser = MyParser.__new__(MyParser)
+
+        parsed = parser.postprocess_parsed(
+            data=data,
+            parsed=sentinel.parsed,
+            total=total_example,
+            item_no=item_no_example)
+
+        self.assertEqual(parsed, expected_parsed_content)
+        self.assertEqual(inherited_postprocess_parsed_mock.mock_calls, [
+            call(
+                data,
+                sentinel.parsed,
+                total_example,
+                item_no_example,
+            ),
+        ])
+
+
+    @foreach([
+        param(
+            data={
+                'properties.timestamp': '2023-01-01 09:09:09',
+                'properties.message_id': 'abcd1234a123aa1a23a12345aa123456',
+                'irrelevant_attribute': 'irrelevant value',
+                'meta': {  # (here not used)
+                    'irrelevant meta key': 'irrelevant value',
+                    'mail_time': '2023-01-08 08:08:08',
+                    'http_last_modified': '2023-04-04 04:04:04',
+                }
+            },
+            get_bl_current_time_from_data_value=datetime.datetime(2023, 1, 5, 5, 5, 5),
+            expected_result=datetime.datetime(2023, 1, 5, 5, 5, 5)
+        ).label('from `get_bl_current_time_from_data()` call'),
+
+        param(
+            data={
+                'properties.timestamp': '2023-01-10 10:10:10',
+                'properties.message_id': 'abcd1234a123aa1a23a12345aa123456',
+                'irrelevant_attribute': 'irrelevant value',
+                'meta': {
+                    'irrelevant meta key': 'irrelevant value',
+                    'mail_time': '2023-01-08 08:08:08',
+                    'http_last_modified': '2023-04-04 04:04:04',  # (<- here not used)
+                }
+            },
+            get_bl_current_time_from_data_value=None,
+            expected_result='2023-01-08 08:08:08',
+        ).label('from `meta.mail_time` AMQP header'),
+
+        param(
+            data={
+                'properties.timestamp': '2022-01-10 10:11:11',
+                'properties.message_id': 'abcd1234a123aa1a23a12345aa123456',
+                'irrelevant_attribute': 'irrelevant value',
+                'meta': {
+                    'irrelevant meta key': 'irrelevant value',
+                    'http_last_modified': '2023-04-04 04:04:04',
+                }
+            },
+            get_bl_current_time_from_data_value=None,
+            expected_result='2023-04-04 04:04:04',
+        ).label('from `meta.http_last_modified` AMQP header'),
+
+        param(
+            data={
+                'properties.timestamp': '2023-03-03 03:03:03',
+                'properties.message_id': 'abcd1234a123aa1a23a12345aa123456',
+                'irrelevant_attribute': 'irrelevant value',
+            },
+            get_bl_current_time_from_data_value=None,
+            expected_result='2023-03-03 03:03:03',
+        ).label('last resort: from `properties.timestamp`'),
+    ])
+    def test___get_bl_current_time(self,
+                                   data,
+                                   get_bl_current_time_from_data_value,
+                                   expected_result):
+        class MyParser(BlackListParser):
+            pass
+        parser = MyParser.__new__(MyParser)
+        get_bl_current_time_from_data_mock = self.patch(
+            'n6datasources.parsers.base.BlackListParser.get_bl_current_time_from_data',
+            return_value=get_bl_current_time_from_data_value)
+
+        result = parser._get_bl_current_time(data, sentinel.parsed)
+
+        self.assertEqual(result, expected_result)
+        self.assertEqual(get_bl_current_time_from_data_mock.mock_calls, [
+            call(data, sentinel.parsed),
+        ])
 
 
 class Test__get_output_bodies__results_for_various_concrete_parsers(TestCaseMixin,
@@ -1781,5 +2588,69 @@ class Test__get_output_bodies__results_for_various_concrete_parsers(TestCaseMixi
                 parser.get_output_bodies(data, FilePagedSequence._instance_mock())
 
 
-## TODO... See: #8527.
-# class Test__add_parser_entry_point_functions
+@expand
+class Test__add_parser_entry_point_functions(TestCaseMixin, unittest.TestCase):
+
+    @foreach(
+        param(module_name='my_specific_test_module'),
+        param(module_name='my_specific_test_module.test_parser'),
+        param(module_name='_my_specific_test_module'),
+        param(module_name='_my_specific_test_module.test_parser'),
+    )
+    @foreach(
+        param(pass_module_obj=True),
+        param(pass_module_obj=False),
+    )
+    def test(self, module_name, pass_module_obj):
+        class NonParserClass: pass
+        class _MyParserPriv1(BaseParser): pass
+        class _MyParserPriv2(BlackListParser): pass
+        class _MyParserPriv3(AggregatedEventParser): pass
+        class MyParser1(BaseParser): pass
+        class MyParser2(BlackListParser): pass
+        class MyParser3(AggregatedEventParser): pass
+        class MyParser4(BaseParser):
+            @classmethod
+            def run_script(cls): pass
+            run_script.__func__.__module__ = module_name                # noqa
+            run_script.__func__.__qualname__ = 'MyParser4.run_script'   # noqa
+        module_obj = ModuleType(module_name)
+        self.patch_dict(sys.modules, {module_name: module_obj})
+        module_obj.NonParserClass = NonParserClass
+        module_obj.irrelevant_attr = sentinel.irrelevant_attr
+        module_obj._MyParserPriv1 = _MyParserPriv1
+        module_obj._MyParserPriv2 = _MyParserPriv2
+        module_obj._MyParserPriv3 = _MyParserPriv3
+        module_obj.MyParser1 = MyParser1
+        module_obj.MyParser2 = MyParser2
+        module_obj.MyParser3 = MyParser3
+        module_obj.MyParser4 = MyParser4
+        run_script_func_1 = self.check_and_extract_func_from_class_method(MyParser1.run_script)
+        run_script_func_2 = self.check_and_extract_func_from_class_method(MyParser2.run_script)
+        run_script_func_3 = self.check_and_extract_func_from_class_method(MyParser3.run_script)
+        run_script_func_4 = self.check_and_extract_func_from_class_method(MyParser4.run_script)
+        assert run_script_func_1 is run_script_func_2 is run_script_func_3 is not run_script_func_4
+
+        add_parser_entry_point_functions(
+            module_obj if pass_module_obj
+            else module_name)
+
+        # * No entry points for private parsers and non-parser objects:
+        self.assertFalse(hasattr(module_obj, 'NonParserClass_main'))
+        self.assertFalse(hasattr(module_obj, 'irrelevant_attr_main'))
+        self.assertFalse(hasattr(module_obj, '_MyParserPriv1_main'))
+        self.assertFalse(hasattr(module_obj, '_MyParserPriv2_main'))
+        self.assertFalse(hasattr(module_obj, '_MyParserPriv3_main'))
+        # * On the other hand, each public parser deserves its entry point:
+        self.assertTrue(hasattr(module_obj, 'MyParser1_main'))
+        self.assertTrue(hasattr(module_obj, 'MyParser2_main'))
+        self.assertTrue(hasattr(module_obj, 'MyParser3_main'))
+        self.assertTrue(hasattr(module_obj, 'MyParser4_main'))
+        entry_func_1 = self.check_and_extract_func_from_class_method(module_obj.MyParser1_main)
+        entry_func_2 = self.check_and_extract_func_from_class_method(module_obj.MyParser2_main)
+        entry_func_3 = self.check_and_extract_func_from_class_method(module_obj.MyParser3_main)
+        entry_func_4 = self.check_and_extract_func_from_class_method(module_obj.MyParser4_main)
+        self.assertIs(entry_func_1, run_script_func_1)
+        self.assertIs(entry_func_2, run_script_func_2)
+        self.assertIs(entry_func_3, run_script_func_3)
+        self.assertIs(entry_func_4, run_script_func_4)

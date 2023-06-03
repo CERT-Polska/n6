@@ -190,12 +190,13 @@ class AuthManageAPI(_AuthDatabaseAPI):
 
     @staticmethod
     def adjust_if_is_legacy_user_login(login: _StrOrNone) -> _StrOrNone:
-        # Even though, nowadays, *user logins* (aka *user ids*)
-        # cannot contain any uppercase letters, REST API's legacy
-        # *API keys* and subjects of *legacy client certificates*
-        # can include such characters. That's why a *to-lowercase*
-        # normalization (done by calling this static method) is
-        # needed in the fragments of code that handle those cases.
+        # Even though, nowadays, *user logins* (aka *user ids*) cannot
+        # contain any uppercase letters, REST API's/Stream API's legacy
+        # *API keys*, Stream API's `username` parameter values and
+        # subjects of *legacy client certificates* can include such
+        # characters. That's why a *to-lowercase* normalization (done by
+        # calling this static method) is needed in the fragments of code
+        # that handle those cases.
         if (login is not None
               and EmailCustomizedField.regex.search(login)
               and login != login.lower()):
@@ -217,6 +218,25 @@ class AuthManageAPI(_AuthDatabaseAPI):
         if only_nonblocked:
             users = [u for u in users if not u.is_blocked]
         return _attr_list(users, 'login')
+
+    @cleaning_kwargs_as_params_with_data_spec(
+        org_id=OrgIdField(
+            single_param=True,
+            in_params='required',
+        ),
+    )
+    def get_org_by_org_id(self, org_id: str) -> models.Org:
+        return self._get_by_primary_key(models.Org, org_id)
+
+    @cleaning_kwargs_as_params_with_data_spec(
+        login=UserLoginField(
+            single_param=True,
+            in_params='required',
+        ),
+        _non_param_kwarg_names={'for_update'},
+    )
+    def get_user_by_login(self, login: str, for_update=False) -> models.User:
+        return self._get_user_by_login(login, for_update)
 
     def get_user_org_id(self, login: str) -> str:
         user = self._get_user_by_login(login)
@@ -596,6 +616,19 @@ class AuthManageAPI(_AuthDatabaseAPI):
     _NEW_ORG_ACCESS_TO_INSIDE_VALUE = True
     _NEW_ORG_ACCESS_TO_THREATS_VALUE = True
     _NEW_ORG_EMAIL_NOTIFICATION_TIME_INITIAL_VALUES = (datetime.time(9),)
+
+
+    @cleaning_kwargs_as_params_with_data_spec(
+        user_id=UserLoginField(
+            single_param=True,
+            in_params='required',
+        ),
+    )
+    def create_new_user(self, org, user_id):
+        new_user = models.User(login=user_id)
+        new_user.org = org
+        self._db_session.add(new_user)
+        self._db_session.flush()
 
 
     @cleaning_kwargs_as_params_with_data_spec(

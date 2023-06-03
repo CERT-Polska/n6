@@ -37,7 +37,8 @@ $ mysql -u HERE_MARIADB_USERNAME -p -h HERE_MARIADB_HOST \
 
 * appropriate configuration of your Auth DB is placed in some `*.conf`
   file(s) in the `~/.n6/` and/or `/etc/n6/` directory (for a config
-  template, see the file `N6Core/n6/data/conf/09_auth_db.conf`);
+  template, see the file
+  `N6DataPipeline/n6datapipeline/data/conf/09_auth_db.conf`);
 
 * a Python *virtualenv* containing your `n6lib` installation is
   activated in the shell that is to be used to run the migration

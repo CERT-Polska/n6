@@ -1,0 +1,5 @@
+{
+  "REACT_APP_OIDC_AUTH_ENABLED": "OpenID Connect Single Sign-on Enabled",
+  "REACT_APP_OIDC_BUTTON_LABEL": "Single Sign-on Log-in Button Label",
+  "OIDC_CONFIG": "OpenID Connect Adapter Configuration (JSON Format)"
+}

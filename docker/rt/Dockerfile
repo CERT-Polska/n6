@@ -1,2 +1,2 @@
-ARG DOCKER_IMAGE=netsandbox/request-tracker
+ARG DOCKER_IMAGE=request-tracker:latest
 FROM $DOCKER_IMAGE

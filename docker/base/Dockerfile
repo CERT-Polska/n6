@@ -8,6 +8,8 @@ ENV DEBIAN_FRONTEND noninteractive
 ARG use-proxy
 ARG apt-proxy-nask
 
+# TODO: get rid of, no longer necessary, Python-2-related stuff...
+
 RUN \
     # install base dependencies
     echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/99AcquireRetries; \
@@ -134,7 +136,7 @@ RUN set -ex; \
         puka \
         pycurl \
         pyrabbit \
-        unittest_expander==0.3.1 \
+        unittest_expander==0.4.4 \
         unittest-xml-reporting==2.5.2; \
     # entrypoint
     cp ~/n6/docker/base/entrypoint.sh ~/; \
@@ -151,7 +153,7 @@ RUN \
     pip install --upgrade wheel; \
     # install tools for n6 tests
     pip install --no-cache-dir \
-        unittest_expander==0.3.1 \
+        unittest_expander==0.4.4 \
         pytest==7.1.2 \
         pytest-cov==3.0.0 \
         coverage

@@ -66,6 +66,12 @@ WSGI_SSL_ORG_ID_FIELD = 'SSL_CLIENT_S_DN_O'
 WSGI_SSL_USER_ID_FIELD = 'SSL_CLIENT_S_DN_CN'
 
 
+# names of HTTP headers characteristic for preflight requests
+
+HTTP_AC_REQUEST_METHOD_HEADER = 'Access-Control-Request-Method'
+HTTP_AC_REQUEST_HEADERS_HEADER = 'Access-Control-Request-Headers'
+
+
 # possible values of the `raw_type` attribute of collector classes,
 # and of the `type` property of messages in the `raw` AMQP exchange
 RAW_TYPE_ENUMS = (

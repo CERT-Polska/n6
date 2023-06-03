@@ -1,3 +1,0 @@
-include *.txt *.rst requirements requirements-*
-recursive-include n6corelib *--data *.conf *.ini
-recursive-include n6corelib/data *

@@ -1,7 +1,5 @@
 {
-  "terms": "List of terms",
+  "terms": "Markdown formatted Terms of Service",
   "checkboxLabel": "Message shown when user accepts the terms",
-  "header": "Terms of Service headline",
-  "intro": "Precaution",
   "version": "Version of document"
 }

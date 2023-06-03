@@ -1,4 +1,4 @@
-# Copyright (c) 2015-2021 NASK. All rights reserved.
+# Copyright (c) 2015-2022 NASK. All rights reserved.
 
 from operator import eq, gt, ge, lt, le, contains
 
@@ -12,14 +12,8 @@ from n6lib.class_helpers import (
 from n6lib.common_helpers import ip_str_to_int
 
 
-            ### XXX: To make Abstract|Predicate* stuff consistent with
-            ### the SQL behaviour treating of None values and missing
-            ### keys should probably be changed -- at least when dealing
-            ### with #3379 (=> so let's get back to the topic when
-            ### dealing with #3379).
-
-## maybe TODO later: some docstrings could be added...
-
+# TODO later: this module is slated for removal. Eventually, the module
+#             `n6lib.data_selection_tools` will replace it completely.
 
 
 #
@@ -490,6 +484,9 @@ class AbstractConditionBuilder(BaseConditionBuilder):
 
 # concrete ones:
 
+# This class is deprecated and no longer used (unless the environment
+# variable `N6_USE_LEGACY_VERSION_OF_ACCESS_FILTERING_CONDITIONS` is
+# set to a non-empty value).
 class SQLAlchemyConditionBuilder(BaseConditionBuilder):
 
     class _Column(BaseConditionBuilder._Column):
@@ -538,7 +535,7 @@ class SQLAlchemyConditionBuilder(BaseConditionBuilder):
 
     and_ = staticmethod(sqlalchemy.and_)
     or_ = staticmethod(sqlalchemy.or_)
-    not_ = staticmethod(sqlalchemy.not_)  ### FIXME: a bug! -- see: #3379
+    not_ = staticmethod(sqlalchemy.not_)  # (buggy -- see: #3379)
 
 
 class PredicateConditionBuilder(AbstractConditionBuilder):

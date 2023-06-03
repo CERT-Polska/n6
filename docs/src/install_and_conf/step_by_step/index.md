@@ -2,16 +2,15 @@
 
 !!! warning "TODO note"
 
-    **This guide needs an update regarding:**
+    **This guide needs essential updates regarding:**
 
-    * **The recent migration of *n6* from Python 2.7 to 3.9** (as well as the
+    * **The migration of *n6* from Python 2.7 to 3.9** (as well as the
       related upgrades applied to other software in use, including the OS).
-      Notably, the current implementation of the *n6* basic data pipeline
-      resides in `N6DataPipeline` (Python-3-only), *not* in `N6Core` (where
-      the legacy Python-2 stuff is kept).
+      Notably, the current implementation of the *n6* data pipeline resides in
+      the top-level dir `N6DataPipeline` (Python-3-only), *not* in the removed
+      top-level dir `N6Core` (where the legacy Python-2 stuff used to be kept).
 
-    * **The recent swich to a brand new frontend of *n6 Portal***
-      (*React*-based).
+    * **The swich to a brand new frontend of *n6 Portal*** (*React*-based).
 
 ## Opening remarks
 

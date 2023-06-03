@@ -1,8 +1,0 @@
-n6anonymizer = n6.utils.anonymizer:main
-n6archiveraw = n6.archiver.archive_raw:main
-n6aggregator = n6.utils.aggregator:main
-n6enrich = n6.utils.enrich:main
-n6comparator = n6.utils.comparator:main
-n6filter = n6.utils.filter:main
-n6recorder = n6.archiver.recorder:main
-n6manage = n6.utils.management.n6manage:main

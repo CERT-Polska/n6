@@ -9,18 +9,24 @@ python-dateutil>=2.8,<2.9
 radar==0.3
 requests==2.25.1
 rt<2.0.0
-unittest_expander==0.3.1
 bcrypt==3.1.7
 passlib==1.7.4
 dnspython==1.16.0
-M2Crypto==0.37.1
+M2Crypto==0.38
 MarkupSafe<2.1.0
 Jinja2<3.0.0
+cryptography<3.4
 PyJWT==1.7.1
+python-keycloak==2.5.0
 
 # pip install section
+ruamel.yaml<0.17.22
+pymisp==2.4.119.1
 geoip2
+more_itertools
+lxml
 pyotp==2.3.0
 PyStemmer==2.0.1
 pystempel==1.2.0
 pytest==7.1.2
+unittest_expander==0.4.4

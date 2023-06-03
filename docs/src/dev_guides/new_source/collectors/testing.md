@@ -103,7 +103,7 @@ So, after all of that, we need to implement the `test` method.
              downloaded_jsons,
              expected_output):
         collector = self._mocked_collector(config_content, downloaded_jsons)
-        collector.run_handling()
+        collector.run_collection()
         self.assertEqual(
             self.publish_output_mock.mock_calls,
             expected_output)
@@ -129,7 +129,7 @@ an external data source and so we can mock it without disrupting the
 collector's logic.
 
 After receiving our collector in the `test` method,
-we simply start it by calling `run_handling` on the collector.
+we simply start it by calling `run_collection` on the collector.
 Then we can make our assertion.
 We compare the output we expected against the value
 of the `mock_calls` property on the mocked output

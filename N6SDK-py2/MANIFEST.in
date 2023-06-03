@@ -1,4 +1,0 @@
-include *.txt *.ini *.cfg *.rst requirements
-include docs/Makefile
-recursive-include docs/source *.py *.rst .gitkeep
-recursive-include n6sdk *.txt *.ini *.cfg *.rst

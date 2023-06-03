@@ -87,14 +87,14 @@ class BaddomainsApiClient:
           * invalid `domain` values;
           * incorrect arguments provided to `_create_url()` method.
         * `AuthTokenError` -- for:
-            any Exception raised during **Phase II** (Auth).
-            Specified exception is stored in the `exc` attribute.
+          * any Exception raised during **Phase II** (Auth).
+          * Specified exception is stored in the `exc` attribute.
         * `ContactUidFetchError` -- for:
-            any Exception raised during **Phase III** (ContactUid).
-            Specified exception is stored in the `exc` attribute.
+          * any Exception raised during **Phase III** (ContactUid).
+          * Specified exception is stored in the `exc` attribute.
         * `ClientDetailsFetchError` -- for
-            any Exception raised during **Phase IV** (ClientDetails).
-            Specified exception is stored in the `exc` attribute.
+          * any Exception raised during **Phase IV** (ClientDetails).
+          * Specified exception is stored in the `exc` attribute.
 
     ***
 
@@ -166,11 +166,12 @@ class BaddomainsApiClient:
 
         self._validate_external_config()
 
-    def __call__(self) -> dict:
-        return self.run()
+    @staticmethod
+    def _get_validated_path(path):
+        return Path(path).expanduser()
 
     def _validate_external_config(self):
-        #TODO: + additional validation (?)
+        # TODO: + additional validation (?)
         if self._bd_base_url is None:
             raise ValueError('The `base_api_url` argument '
                              'should not be None.')
@@ -187,10 +188,9 @@ class BaddomainsApiClient:
             raise ValueError('The `auth_token_cache_dir` argument '
                              'should not be None.')
 
-    @staticmethod
-    def _get_validated_path(path):
-        return Path(path).expanduser()
 
+    def __call__(self) -> dict:
+        return self.run()
 
     def run(self) -> dict:
         access_token = self._read_access_token_from_file()
@@ -273,6 +273,7 @@ class BaddomainsApiClient:
                 f'{response}')
         return response
 
+
     #
     # Helpers
 
@@ -309,6 +310,7 @@ class BaddomainsApiClient:
         datetime.now().timestamp() >= expiration time - 60 seconds.
         """
         try:
+            # (maybe TODO: use our `n6lib.jwt_helpers` after enhancing them appropriately?...)
             decoded_token = jwt.decode(
                 access_token,
                 audience=self._bd_auth_token_audience,
@@ -433,6 +435,6 @@ class BaddomainsApiClient:
                     non_existing_keys.append(key)
             if non_existing_keys:
                 raise custom_exception(exc=RequestException(
-                    f'Invalid response. Following mandatory keys do not appear '
+                    f'Invalid response. These mandatory keys do not appear '
                     f'in response: {", ".join(non_existing_keys)}. '
                     f'Full response: {response_dict}'))

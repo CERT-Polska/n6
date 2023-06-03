@@ -1,9 +1,11 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import collections
 import configparser
 import datetime
 import io
+import json
+import pathlib
 import re
 import sys
 import unittest
@@ -394,10 +396,10 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         self.assertEqualIncludingTypes(set(Config.BASIC_CONVERTERS), {
             'str', 'bytes',
             'bool', 'int', 'float',
-            'date', 'datetime',
+            'date', 'datetime', 'path',
             'list_of_str', 'list_of_bytes',
             'list_of_bool', 'list_of_int', 'list_of_float',
-            'list_of_date', 'list_of_datetime',
+            'list_of_date', 'list_of_datetime', 'list_of_path',
             'importable_dotted_name',
             'py', 'py_namespaces_dict',
             'json',
@@ -416,6 +418,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         ('date', '1410-07-15', datetime.date(1410, 7, 15)),
         ('datetime', '2016-02-29T23:24:25.1234+02:00',
             datetime.datetime(2016, 2, 29, 21, 24, 25, 123400)),
+        ('path', 'spam/pram', pathlib.Path('spam/pram')),
+        ('path', '~/spam/pram/', pathlib.Path('~/spam/pram').expanduser()),
         ('py', "{'\u015b': [{False: 'x'},]}", {'\u015b': [{False: 'x'}]}),
         ('py', "{'\\u015b': [{False: 'x'},]}", {'\u015b': [{False: 'x'}]}),
         ('py_namespaces_dict', "{'\u015b': [{'\\u015b': 42}]}", {'\u015b': [{'\u015b': 42}]}),
@@ -459,6 +463,15 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             datetime.datetime(2016, 2, 29, 21, 24, 25, 123400),
             datetime.datetime(1410, 7, 15, 16, 15, 0),
         ]),
+        ('path', 'spam, pram/,/spam/pram,~/foo/bar , ~/spam/pram/', [
+            pathlib.Path('spam'),
+            pathlib.Path('pram'),
+            pathlib.Path('/spam/pram'),
+            pathlib.Path('~/foo/bar').expanduser(),
+            pathlib.Path('~/spam/pram').expanduser(),
+        ]),
+        ('path', '', []),  # lack of list items is OK, also if blank value is not
+        ('path', ',', []),  # lack of list items is OK, also if blank value is not
     )
     def test__BASIC_CONVERTERS__list_converters(self, base_name, arg, expected_result):
         name = 'list_of_' + base_name
@@ -468,6 +481,25 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         self.assertEqual(converter.__name__, name)
         self.assertEqual(converter.delimiter, ',')
         self.assertIs(converter.item_converter, Config.BASIC_CONVERTERS[base_name])
+
+
+    @foreach(
+        ('path', ''),
+        ('path', ' '),
+        ('path', '\t'),
+        ('path', '\t\n\xa0\t'),
+        ('list_of_path', ',,'),
+        ('list_of_path', ',a'),
+        ('list_of_path', 'a,,b'),
+        ('list_of_path', '\t,a'),
+        ('list_of_path', '\t,\t,\t'),
+        ('list_of_path', '\t\n\xa0\t, a, c/d/e'),
+        ('list_of_path', ',a, ,a/b,\t\n\xa0\t,/c/d/e'),
+    )
+    def test__BASIC_CONVERTERS__blank_path_value_causes_error(self, name, arg):
+        converter = Config.BASIC_CONVERTERS[name]
+        with self.assertRaisesRegex(ValueError, r'not allowed to be empty or whitespace-only'):
+            converter(arg)
 
 
     def test_init_with_no_arguments_causes_error(self):
@@ -557,6 +589,21 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             ).label('config, no kwargs')
 
         yield param(
+            # (same as the previous, *except that* all initialization kwargs,
+            # though effectively the same, previously were not given explicitly...)
+                config_spec=cls.DEFAULT_CONFIG_SPEC,
+                optional_kwargs=dict(
+                    settings=None,                           # (<- as if not given at all)
+                    custom_converters=None,                  # (<- as if not given at all)
+                    config_filename_regex=None,              # (<- as if not given at all)
+                    config_filename_excluding_regex=None,    # (<- as if not given at all)
+                ),
+                config_files_content=DEFAULT,
+                expected_open_calls=DEFAULT,
+                expected_outcome=Config.make(cls.EXPECTED_CONFIG_BASE),
+            ).label('config, all kwargs set to None')
+
+        yield param(
                 config_spec=cls.DEFAULT_CONFIG_SPEC,
                 optional_kwargs=dict(
                     settings=dict(cls.DEFAULT_SETTINGS),
@@ -565,6 +612,21 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                 expected_open_calls=[],
                 expected_outcome=Config.make(cls.EXPECTED_CONFIG_BASE),
             ).label('settings, no other kwargs')
+
+        yield param(
+            # (same as the previous, *except that* some initialization kwargs,
+            # though effectively the same, previously were not given explicitly...)
+                config_spec=cls.DEFAULT_CONFIG_SPEC,
+                optional_kwargs=dict(
+                    settings=dict(cls.DEFAULT_SETTINGS),
+                    custom_converters=None,                  # (<- as if not given at all)
+                    config_filename_regex=None,              # (<- as if not given at all)
+                    config_filename_excluding_regex=None,    # (<- as if not given at all)
+                ),
+                config_files_content=sen.irrelevant,
+                expected_open_calls=[],
+                expected_outcome=Config.make(cls.EXPECTED_CONFIG_BASE),
+            ).label('settings, all other kwargs set to None')
 
         yield param(
                 config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
@@ -614,6 +676,273 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     }
                 ),
             ).label('settings, other kwargs: `custom_converters`')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
+                optional_kwargs=dict(
+                    custom_converters=dict(weird='-*- {0} -*-'.format),
+                ),
+                config_files_content=sen.irrelevant,
+                expected_open_calls=[],
+                expected_outcome=Config.make(
+                    cls.EXPECTED_CONFIG_BASE, **{
+                        'first': dict(
+                            cls.EXPECTED_CONFIG_BASE['first'],
+                            efg='-*- 42.0 -*-',
+                        ),
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*-      3.2 -*-',
+                            b='-*-     44.20 -*-',
+                            c='-*-     45.200  -*-',
+                            d='-*- 000046.2000 -*-',
+                        ),
+                    }
+                ),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                Config.overriden_init_defaults,
+                settings=dict(cls.DEFAULT_SETTINGS),
+            ).label('from overriden defaults: `settings`, passed directly: `custom_converters`')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
+                optional_kwargs=dict(
+                    settings=dict(cls.DEFAULT_SETTINGS),
+                    custom_converters=None,  # (<- as if not given at all)
+                ),
+                config_files_content=sen.irrelevant,
+                expected_open_calls=[],
+                expected_outcome=Config.make(
+                    cls.EXPECTED_CONFIG_BASE, **{
+                        'first': dict(
+                            cls.EXPECTED_CONFIG_BASE['first'],
+                            efg='-*- 42.0 -*-',
+                        ),
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*-      3.2 -*-',
+                            b='-*-     44.20 -*-',
+                            c='-*-     45.200  -*-',
+                            d='-*- 000046.2000 -*-',
+                        ),
+                    }
+                ),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                Config.overriden_init_defaults,
+                custom_converters=dict(weird='-*- {0} -*-'.format),
+            ).label('from overriden defaults: `custom_converters`, passed directly: `settings`')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
+                optional_kwargs=dict(),
+                config_files_content=sen.irrelevant,
+                expected_open_calls=[],
+                expected_outcome=Config.make(
+                    cls.EXPECTED_CONFIG_BASE, **{
+                        'first': dict(
+                            cls.EXPECTED_CONFIG_BASE['first'],
+                            efg='-*- 42.0 -*-',
+                        ),
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*-      3.2 -*-',
+                            b='-*-     44.20 -*-',
+                            c='-*-     45.200  -*-',
+                            d='-*- 000046.2000 -*-',
+                        ),
+                    }
+                ),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                Config.overriden_init_defaults,
+                settings=dict(cls.DEFAULT_SETTINGS),
+                custom_converters=dict(weird='-*- {0} -*-'.format),
+            ).label('from overriden defaults: `settings` and `custom_converters`')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
+                optional_kwargs=dict(
+                    settings=dict(cls.DEFAULT_SETTINGS),
+                    custom_converters=dict(weird='-*- {0} -*-'.format),
+                ),
+                config_files_content=sen.irrelevant,
+                expected_open_calls=[],
+                expected_outcome=Config.make(
+                    cls.EXPECTED_CONFIG_BASE, **{
+                        'first': dict(
+                            cls.EXPECTED_CONFIG_BASE['first'],
+                            efg='-*- 42.0 -*-',
+                        ),
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*-      3.2 -*-',
+                            b='-*-     44.20 -*-',
+                            c='-*-     45.200  -*-',
+                            d='-*- 000046.2000 -*-',
+                        ),
+                    }
+                ),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                Config.overriden_init_defaults,
+                settings=sen.efectively_not_used,
+                custom_converters=sen.efectively_not_used,
+            ).label('from overriden defaults: `settings` and `custom_converters`, '
+                    'yet shadowed by those directly passed')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
+                optional_kwargs=dict(
+                    settings=None,           # (<- as if not given at all)
+                    custom_converters=None,  # (<- as if not given at all)
+                ),
+                config_files_content=sen.irrelevant,
+                expected_open_calls=[],
+                expected_outcome=Config.make(
+                    cls.EXPECTED_CONFIG_BASE, **{
+                        'first': dict(
+                            cls.EXPECTED_CONFIG_BASE['first'],
+                            efg='-*- 42.0 -*-',
+                        ),
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*-      3.2 -*-',
+                            b='-*-     44.20 -*-',
+                            c='-*-     45.200  -*-',
+                            d='-*- 000046.2000 -*-',
+                        ),
+                    }
+                ),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                # (outer `with...`)
+                Config.overriden_init_defaults,
+                settings=dict(cls.DEFAULT_SETTINGS),
+            ).context(
+                # (inner `with...`)
+                Config.overriden_init_defaults,
+                custom_converters=dict(weird='-*- {0} -*-'.format),
+            ).label('from overriden defaults: `custom_converters` (inner) and `settings` (outer)')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
+                optional_kwargs=dict(),
+                config_files_content=sen.irrelevant,
+                expected_open_calls=[],
+                expected_outcome=Config.make(
+                    cls.EXPECTED_CONFIG_BASE, **{
+                        'first': dict(
+                            cls.EXPECTED_CONFIG_BASE['first'],
+                            efg='-*- 42.0 -*-',
+                        ),
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*-      3.2 -*-',
+                            b='-*-     44.20 -*-',
+                            c='-*-     45.200  -*-',
+                            d='-*- 000046.2000 -*-',
+                        ),
+                    }
+                ),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                # (outer `with...`)
+                Config.overriden_init_defaults,
+                custom_converters=dict(weird='-*- {0} -*-'.format),
+            ).context(
+                # (inner `with...`)
+                Config.overriden_init_defaults,
+                settings=dict(cls.DEFAULT_SETTINGS),
+            ).label('from overriden defaults: `settings` (inner) and `custom_converters` (outer)')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
+                optional_kwargs=dict(),
+                config_files_content=sen.irrelevant,
+                expected_open_calls=[],
+                expected_outcome=Config.make(
+                    cls.EXPECTED_CONFIG_BASE, **{
+                        'first': dict(
+                            cls.EXPECTED_CONFIG_BASE['first'],
+                            efg='-*- 42.0 -*-',
+                        ),
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*-      3.2 -*-',
+                            b='-*-     44.20 -*-',
+                            c='-*-     45.200  -*-',
+                            d='-*- 000046.2000 -*-',
+                        ),
+                    }
+                ),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                # (outer `with...`)
+                Config.overriden_init_defaults,
+                settings=sen.efectively_not_used,
+                custom_converters=sen.efectively_not_used,
+            ).context(
+                # (inner `with...`)
+                Config.overriden_init_defaults,
+                settings=dict(cls.DEFAULT_SETTINGS),
+                custom_converters=dict(weird='-*- {0} -*-'.format),
+            ).label('from overriden defaults: `settings` and `custom_converters`, '
+                    'with outer ones shadowed by inner ones')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
+                optional_kwargs=dict(
+                    settings=dict(cls.DEFAULT_SETTINGS),
+                    custom_converters=dict(weird='-*- {0} -*-'.format),
+                ),
+                config_files_content=sen.irrelevant,
+                expected_open_calls=[],
+                expected_outcome=Config.make(
+                    cls.EXPECTED_CONFIG_BASE, **{
+                        'first': dict(
+                            cls.EXPECTED_CONFIG_BASE['first'],
+                            efg='-*- 42.0 -*-',
+                        ),
+                        'second\u015b': dict(
+                            cls.EXPECTED_CONFIG_BASE['second\u015b'],
+                            a='-*-      3.2 -*-',
+                            b='-*-     44.20 -*-',
+                            c='-*-     45.200  -*-',
+                            d='-*- 000046.2000 -*-',
+                        ),
+                    }
+                ),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                # (outer `with...`)
+                Config.overriden_init_defaults,
+                settings=sen.efectively_not_used,
+                custom_converters=sen.efectively_not_used,
+            ).context(
+                # (inner `with...`)
+                Config.overriden_init_defaults,
+                settings=sen.also_not_used_efectively,
+                custom_converters=sen.also_not_used_efectively,
+            ).label('from overriden defaults: `settings` and `custom_converters`, '
+                    'yet both outer and inner ones shadowed by those directly passed')
 
         yield param(
                 config_spec=cls.DEFAULT_CONFIG_SPEC.replace('float', 'weird'),
@@ -711,8 +1040,8 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     ...
                 ''',
                 optional_kwargs=dict(
-                    settings=None,
-                    custom_converters=None,
+                    settings=None,               # (<- as if not given at all)
+                    custom_converters=None,      # (<- as if not given at all)
                     # (when the `settings` argument is not given or
                     # `None, the following 2 kwargs *are* important)
                     config_filename_regex=re.compile(r'\A[\w.]+\Z'),
@@ -739,17 +1068,293 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
                     'rest kwargs: `settings` and `custom_converters` - set to None')
 
         yield param(
+                config_spec='''
+                    [THIRD]
+                    yY = {"a": 42} :: json
+                    ...
+                ''',
+                optional_kwargs=dict(
+                    custom_converters={'json': lambda s: repr(json.loads(s))},
+                    # (when the `settings` argument is not given or
+                    # `None, the following 2 kwargs *are* important)
+                    config_filename_regex=re.compile(r'\A[\w.]+\Z'),
+                    config_filename_excluding_regex=r'global',
+                ),
+                config_files_content=(
+                    reduce_indent('''
+                        [THIRD]
+                        Qq = Ryq
+                    ''')),
+                expected_open_calls=[
+                    call('a/b/00_foo_bar.SPAM', encoding='utf-8'),
+                    call('a/b/123_spam.conf', encoding='utf-8'),
+                    call('a/b/logging.conf', encoding='utf-8'),
+                    call('/x/y/54_u_x.conf', encoding='utf-8'),
+                ],
+                expected_outcome=Config.make({
+                    'THIRD': {
+                        'yy': "{'a': 42}",
+                        'qq': 'Ryq',
+                    },
+                }),
+            ).label('config; kwargs: `custom_converters`, `config_filename_regex`, '
+                    '`config_filename_excluding_regex`; `settings` not given')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec='''
+                    [THIRD]
+                    yY = {"a": 42} :: json
+                    ...
+                ''',
+                optional_kwargs=dict(
+                    custom_converters={'json': lambda s: repr(json.loads(s))},
+                    config_filename_excluding_regex=r'global',
+                ),
+                config_files_content=(
+                    reduce_indent('''
+                        [THIRD]
+                        Qq = Ryq
+                    ''')),
+                expected_open_calls=[
+                    call('a/b/00_foo_bar.SPAM', encoding='utf-8'),
+                    call('a/b/123_spam.conf', encoding='utf-8'),
+                    call('a/b/logging.conf', encoding='utf-8'),
+                    call('/x/y/54_u_x.conf', encoding='utf-8'),
+                ],
+                expected_outcome=Config.make({
+                    'THIRD': {
+                        'yy': "{'a': 42}",
+                        'qq': 'Ryq',
+                    },
+                }),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                # (outer `with...`)
+                Config.overriden_init_defaults,
+                settings=sen.effectively_not_used,
+                custom_converters=sen.effectively_not_used,
+                config_filename_regex=re.compile(r'\A[\w.]+\Z'),
+            ).context(
+                # (inner `with...`)
+                Config.overriden_init_defaults,
+                settings=None,  # (<- reset to the basic default)
+                config_filename_excluding_regex=sen.effectively_not_used,
+            ).label('config; overriden defaults + complex shadowing involved (1); '
+                    'custom kwargs: `custom_converters`, `config_filename_regex`, '
+                    '`config_filename_excluding_regex`; `settings` set to None')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec='''
+                    [THIRD]
+                    yY = {"a": 42} :: json
+                    ...
+                ''',
+                optional_kwargs=dict(
+                    settings=None,               # (<- as if not given at all)
+                    custom_converters=None,      # (<- as if not given at all)
+                    config_filename_regex=None,  # (<- as if not given at all)
+                    config_filename_excluding_regex=r'global',
+                ),
+                config_files_content=(
+                    reduce_indent('''
+                        [THIRD]
+                        Qq = Ryq
+                    ''')),
+                expected_open_calls=[
+                    call('a/b/00_foo_bar.SPAM', encoding='utf-8'),
+                    call('a/b/123_spam.conf', encoding='utf-8'),
+                    call('a/b/logging.conf', encoding='utf-8'),
+                    call('/x/y/54_u_x.conf', encoding='utf-8'),
+                ],
+                expected_outcome=Config.make({
+                    'THIRD': {
+                        'yy': "{'a': 42}",
+                        'qq': 'Ryq',
+                    },
+                }),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                # (outer `with...`)
+                Config.overriden_init_defaults,
+                settings=sen.effectively_not_used,
+                custom_converters=sen.effectively_not_used,
+                config_filename_excluding_regex=sen.effectively_not_used,
+            ).context(
+                # (inner `with...`)
+                Config.overriden_init_defaults,
+                settings=None,  # (<- reset to the basic default)
+                custom_converters={'json': lambda s: repr(json.loads(s))},
+                config_filename_regex=re.compile(r'\A[\w.]+\Z'),
+            ).label('config; overriden defaults + complex shadowing involved (2); '
+                    'custom kwargs: `custom_converters`, `config_filename_regex`, '
+                    '`config_filename_excluding_regex`; `settings` set to None')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec='''
+                    [THIRD]
+                    yY = {"a": 42} :: json
+                    ...
+                ''',
+                optional_kwargs=dict(
+                    custom_converters=None,      # (<- as if not given at all)
+                    config_filename_regex=re.compile(r'\A[\w.]+\Z'),
+                ),
+                config_files_content=(
+                    reduce_indent('''
+                        [THIRD]
+                        Qq = Ryq
+                    ''')),
+                expected_open_calls=[
+                    call('a/b/00_foo_bar.SPAM', encoding='utf-8'),
+                    call('a/b/123_spam.conf', encoding='utf-8'),
+                    call('a/b/logging.conf', encoding='utf-8'),
+                    call('/x/y/54_u_x.conf', encoding='utf-8'),
+                ],
+                expected_outcome=Config.make({
+                    'THIRD': {
+                        'yy': "{'a': 42}",
+                        'qq': 'Ryq',
+                    },
+                }),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                # (outer `with...`)
+                Config.overriden_init_defaults,
+                custom_converters={'json': lambda s: repr(json.loads(s))},
+                config_filename_excluding_regex=sen.effectively_not_used,
+            ).context(
+                # (inner `with...`)
+                Config.overriden_init_defaults,
+                config_filename_excluding_regex=r'global',
+            ).label('config; overriden defaults + complex shadowing involved (3); '
+                    'custom kwargs: `custom_converters`, `config_filename_regex`, '
+                    '`config_filename_excluding_regex`; `settings` not given')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+                config_spec='''
+                    [THIRD]
+                    yY = {"a": 42} :: json
+                    ...
+                ''',
+                optional_kwargs=dict(
+                    custom_converters={'json': lambda s: repr(json.loads(s))},
+                ),
+                config_files_content=(
+                    reduce_indent('''
+                        [THIRD]
+                        Qq = Ryq
+                    ''')),
+                expected_open_calls=[
+                    call('a/b/00_foo_bar.SPAM', encoding='utf-8'),
+                    call('a/b/123_spam.conf', encoding='utf-8'),
+                    call('a/b/logging.conf', encoding='utf-8'),
+                    call('/x/y/54_u_x.conf', encoding='utf-8'),
+                ],
+                expected_outcome=Config.make({
+                    'THIRD': {
+                        'yy': "{'a': 42}",
+                        'qq': 'Ryq',
+                    },
+                }),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                Config.overriden_init_defaults,
+                custom_converters=sen.effectively_not_used,
+                config_filename_regex=sen.effectively_not_used,
+            ).context(
+                Config.overriden_init_defaults,
+                settings=sen.effectively_not_used_as_well,
+                config_filename_regex=sen.effectively_not_used_as_well,
+            ).context(
+                Config.overriden_init_defaults,
+                # All shadowed by `None` => reset to the basic defaults:
+                settings=None,
+                custom_converters=None,
+                config_filename_regex=None,
+                config_filename_excluding_regex=None,
+            ).context(
+                Config.overriden_init_defaults,
+                config_filename_regex=re.compile(r'\A[\w.]+\Z'),
+                config_filename_excluding_regex=r'global',
+            ).label('config; overriden defaults + complex shadowing involved (4); '
+                    'custom kwargs: `custom_converters`, `config_filename_regex`, '
+                    '`config_filename_excluding_regex`; `settings` set to None')
+
+        yield param(
+            # (same as the "config, no kwargs"-labeled case [yielded earlier],
+            # *except that* the initialization kwargs, though effectively the
+            # same, are specified in a different way...)
                 config_spec=cls.DEFAULT_CONFIG_SPEC,
                 optional_kwargs=dict(
-                    settings=None,
-                    custom_converters=None,
-                    config_filename_regex=None,
-                    config_filename_excluding_regex=None,
+                    settings=None,           # (<- as if not given at all)
+                    custom_converters=None,  # (<- as if not given at all)
                 ),
                 config_files_content=DEFAULT,
                 expected_open_calls=DEFAULT,
                 expected_outcome=Config.make(cls.EXPECTED_CONFIG_BASE),
-            ).label('config, all kwargs set to None')
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                Config.overriden_init_defaults,
+                custom_converters=sen.effectively_not_used,
+                config_filename_regex=sen.effectively_not_used,
+            ).context(
+                Config.overriden_init_defaults,
+                settings=sen.effectively_not_used_as_well,
+                config_filename_regex=sen.effectively_not_used_as_well,
+            ).context(
+                Config.overriden_init_defaults,
+                # All shadowed by `None` => reset to the basic defaults:
+                settings=None,
+                custom_converters=None,
+                config_filename_regex=None,
+                config_filename_excluding_regex=None,
+            ).label('config, all defaults overriden - yet finally all shadowed by None, '
+                    'i.e., reset to the basic defaults (1)')
+
+        yield param(
+            # (same as the previous, *except that* the initialization kwargs,
+            # though effectively the same, are specified in a different way...)
+            config_spec=cls.DEFAULT_CONFIG_SPEC,
+                optional_kwargs=dict(
+                    config_filename_regex=None,            # (<- as if not given at all)
+                    config_filename_excluding_regex=None,  # (<- as if not given at all)
+                ),
+                config_files_content=DEFAULT,
+                expected_open_calls=DEFAULT,
+                expected_outcome=Config.make(cls.EXPECTED_CONFIG_BASE),
+            # (here we test `with Config.overriden_init_defaults(...): ...`)
+            ).context(
+                Config.overriden_init_defaults,
+                settings=sen.effectively_not_used,
+                config_filename_regex=sen.effectively_not_used,
+            ).context(
+                Config.overriden_init_defaults,
+                custom_converters=sen.effectively_not_used,
+                config_filename_excluding_regex=sen.effectively_not_used,
+            ).context(
+                Config.overriden_init_defaults,
+                # Both shadowed by `None` => reset to the basic defaults:
+                custom_converters=None,
+                config_filename_regex=None,
+            ).context(
+                Config.overriden_init_defaults,
+                settings=sen.effectively_not_used_as_well,
+                config_filename_excluding_regex=sen.effectively_not_used_as_well,
+            ).context(
+                Config.overriden_init_defaults,
+                # Both shadowed by `None` => reset to the basic defaults:
+                settings=None,
+                config_filename_excluding_regex=None,
+            ).label('config, all defaults overriden - yet finally all shadowed by None, '
+                    'i.e., reset to the basic defaults (2)')
 
         yield param(
                 config_spec=cls.DEFAULT_CONFIG_SPEC,

@@ -46,7 +46,7 @@ requires = [
     'sqlalchemy==1.3.24',
 ]
 
-tests_require = ['unittest_expander==0.3.1']
+tests_require = ['unittest_expander==0.4.4']
 
 setup(
     name='n6web',

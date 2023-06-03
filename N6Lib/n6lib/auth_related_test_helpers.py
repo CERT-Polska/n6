@@ -1,4 +1,4 @@
-# Copyright (c) 2015-2021 NASK. All rights reserved.
+# Copyright (c) 2015-2022 NASK. All rights reserved.
 
 from n6lib.db_filtering_abstractions import AbstractConditionBuilder
 from n6lib.ldap_related_test_helpers import (
@@ -27,14 +27,6 @@ def fa_false_cond(condition):
     return Cond.and_(
         condition,
         Cond.not_(Cond['restriction'] == 'internal'))
-
-
-def fa_false_sql(sql_str):
-    """
-    Add the `restriction != 'internal'` condition to the given SQL
-    condition string.
-    """
-    return prep_sql_str(sql_str + " AND event.restriction != 'internal'")
 
 
 
@@ -82,7 +74,7 @@ def fa_false_sql(sql_str):
 #   * 'go4' -- which includes organization 'o6'
 #   * 'go5' -- which includes no organizations
 #
-# * nine subsources:
+# * ten subsources:
 #   * belonging to source 'source.one':
 #      * 'p1'
 #      * 'p2'
@@ -95,6 +87,7 @@ def fa_false_sql(sql_str):
 #      * 'p7'
 #      * 'p8'
 #      * 'p9'
+#      * 'p10'
 #
 # * eight subsource groups:
 #   * 'gp1' -- which includes subsources: 'p1', 'p2'
@@ -110,7 +103,7 @@ def fa_false_sql(sql_str):
 #   * 'c1' -- specifying criteria: asn=1|2|3 or ip-network=10.0.0.0/8|192.168.0.0/24
 #   * 'c2' -- specifying criteria: asn=3|4|5
 #   * 'c3' -- specifying criteria: cc=PL
-#   * 'c4' -- specifying criteria: category=bot
+#   * 'c4' -- specifying criteria: category=bot|cnc
 #   * 'c5' -- specifying criteria: name=foo
 #   * 'c6' -- specifying no criteria
 #
@@ -130,6 +123,7 @@ def fa_false_sql(sql_str):
 #   | p7 |    |    | !  |    |    | !  |
 #   | p8 |    |    | !  |    |    | !  |
 #   | p9 |    |    | !  |    |    | !  |
+#   | p10| !  | +  |    | !  | +  |    |
 #   +----+----+----+----+----+----+----+
 #
 # * organization <-> subsource relations:
@@ -144,112 +138,112 @@ def fa_false_sql(sql_str):
 #    `NO-RES` -- `YES` but the resource is disabled for the organization]
 #
 #   * for resource '/report/inside' (access zone 'inside'):
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     |COMPONENTS| p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | (none) |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     | o1       | gp1 gp3| gp1    | gp3    |        |        |        | gp3    |        | gp3    | (gp7)  |
-#     | o2       |        |        |        |        |        |        | d      |        | d      |        |
-#     | o3       |        | d      |        |        |        |        |        |        |        |        |
-#     | o4       |        |        |        |        | d      |        |        |        | !GP8   |        |
-#     | o5       | gp1    | gp1    |        | d      |        |        | gp5    |        |gp8 !GP8|        |
-#     | o6       |        |        |        |        |        |        |        |        |        |        |
-#     | o7       | gp1    | gp1    |        |        | d      | d      | gp5    |        | gp8 !D |        |
-#     | o8..o10  | gp1    | gp1    |        | d      |        |        | gp5    |        |gp8 !GP8|        |
-#     | o11      |        |        |        |        |        |        |        |        |        |        |
-#     | o12      | d      |        |        |        |        |        |        |        |        |        |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     | go1      |        | d      | gp2    | gp2    | d      |        |        |        |        |        |
-#     | go2      | d      |        | d      |        |        | gp4    |        |        |        |        |
-#     | go3      |        |        |        |        |        | d      |        |        |        |        |
-#     | go4      |        |        |        |        |        |        |        |        |        |        |
-#     | go5      | d gp3  | d      | gp2 gp3| gp2    | d      | d gp4  | gp3    |        | gp3    | (gp7)  |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     |  EFFECT  | p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | (none) |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     | o1/go1   | YES    | YES    | YES    | YES    | YES    |        | YES    |        | YES    |        |
-#     | o2/go1+3 |        | NO-RES | NO-RES | NO-RES | NO-RES | NO-RES | NO-RES |        | NO-RES |        |
-#     | o3/go2+3 | YES    | YES    | YES    |        |        | YES    |        |        |        |        |
-#     | o4/go2   | YES    |        | YES    |        | YES    | YES    |        |        |        |        |
-#     | o5       | YES    | YES    |        | YES    |        |        | YES    |        |        |        |
-#     | o6/go4   |        |        |        |        |        |        |        |        |        |        |
-#     | o7       | YES/NS | YES/NS |        |        | YES/NS | YES/NS | YES/NS |        |        |        |
-#     | o8..o10  | YES/NS | YES/NS |        | YES/NS |        |        | YES/NS |        |        |        |
-#     | o11      |        |        |        |        |        |        |        |        |        |        |
-#     | o12/go1  | NO-RES | NO-RES | NO-RES | NO-RES | NO-RES |        |        |        |        |        |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     |COMPONENTS| p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | p10    | (none) |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     | o1       | gp1 gp3| gp1    | gp3    |        |        |        | gp3    |        | gp3    |        | (gp7)  |
+#     | o2       |        |        |        |        |        |        | d      |        | d      |        |        |
+#     | o3       |        | d      |        |        |        |        |        |        |        |        |        |
+#     | o4       |        |        |        |        | d      |        |        |        | !GP8   |        |        |
+#     | o5       | gp1    | gp1    |        | d      |        |        | gp5    |        |gp8 !GP8|  d     |        |
+#     | o6       |        |        |        |        |        |        |        |        |        |        |        |
+#     | o7       | gp1    | gp1    |        |        | d      | d      | gp5    |        | gp8 !D |        |        |
+#     | o8..o10  | gp1    | gp1    |        | d      |        |        | gp5    |        |gp8 !GP8|        |        |
+#     | o11      |        |        |        |        |        |        |        |        |        |        |        |
+#     | o12      | d      |        |        |        |        |        |        |        |        |        |        |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     | go1      |        | d      | gp2    | gp2    | d      |        |        |        |        |        |        |
+#     | go2      | d      |        | d      |        |        | gp4    |        |        |        |        |        |
+#     | go3      |        |        |        |        |        | d      |        |        |        |        |        |
+#     | go4      |        |        |        |        |        |        |        |        |        |        |        |
+#     | go5      | d gp3  | d      | gp2 gp3| gp2    | d      | d gp4  | gp3    |        | gp3    |        | (gp7)  |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     |  EFFECT  | p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | p10    | (none) |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     | o1/go1   | YES    | YES    | YES    | YES    | YES    |        | YES    |        | YES    |        |        |
+#     | o2/go1+3 |        | NO-RES | NO-RES | NO-RES | NO-RES | NO-RES | NO-RES |        | NO-RES |        |        |
+#     | o3/go2+3 | YES    | YES    | YES    |        |        | YES    |        |        |        |        |        |
+#     | o4/go2   | YES    |        | YES    |        | YES    | YES    |        |        |        |        |        |
+#     | o5       | YES    | YES    |        | YES    |        |        | YES    |        |        | YES    |        |
+#     | o6/go4   |        |        |        |        |        |        |        |        |        |        |        |
+#     | o7       | YES/NS | YES/NS |        |        | YES/NS | YES/NS | YES/NS |        |        |        |        |
+#     | o8..o10  | YES/NS | YES/NS |        | YES/NS |        |        | YES/NS |        |        |        |        |
+#     | o11      |        |        |        |        |        |        |        |        |        |        |        |
+#     | o12/go1  | NO-RES | NO-RES | NO-RES | NO-RES | NO-RES |        |        |        |        |        |        |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
 #
 #   * for resource '/search/events' (access zone 'search'):
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     |COMPONENTS| p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | (none) |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     | o1       |        | d !D   | !GP2   | !GP2   |        |        |        | !GP6   |        |        |
-#     | o2       | !GP3   |        | !GP3   |        | !D     |        | !GP3   | !D     | !GP3   |        |
-#     | o3       |        |        |        |        |        |        |        |        |        |        |
-#     | o4       |        | d      |        |        |        |d gp4 !D|gp5 !GP5| d !GP6 |gp8 !GP8|        |
-#     | o5       |        |        |        |        |        |        |        |        |        |        |
-#     | o6       |        | d      | !GP2   | d !GP2 |        | d gp4  | gp5    |gp6 !GP6| gp8    |        |
-#     | o7       | gp1    | gp1    |        |        | d      | d      | gp5    |gp6 !GP6| gp8    |        |
-#     | o8..o10  |        |        |        |        |        |        |        |        |        |        |
-#     | o11      |        |        |        |        |        |        |        |        |        |        |
-#     | o12      | d      |        |        |        |        |        |        |!D !GP6 |        |        |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     | go1      |        |        |        |        |        |        |        | d gp6  |        |        |
-#     | go2      |        |        |        |        |        |        |        |        |        |        |
-#     | go3      |        |        |        |        |        |        |        |        |        |        |
-#     | go4      |        |        |        |        |        |        |        |        |        |        |
-#     | go5      | d gp3  | d      | gp2 gp3| gp2    | d      | d gp4  | gp3    |        | gp3    | (gp7)  |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     |  EFFECT  | p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | (none) |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     | o1/go1   |        |        |        |        |        |        |        |        |        |        |
-#     | o2/go1+3 |        |        |        |        |        |        |        |        |        |        |
-#     | o3/go2+3 |        |        |        |        |        |        |        |        |        |        |
-#     | o4/go2   |        | YES    |        |        |        |        |        |        |        |        |
-#     | o5       |        |        |        |        |        |        |        |        |        |        |
-#     | o6/go4   |        | NO-RES |        |        |        | NO-RES | NO-RES |        | NO-RES |        |
-#     | o7       | YES/NS | YES/NS |        |        | YES/NS | YES/NS | YES/NS |        | YES/NS |        |
-#     | o8..o10  |        |        |        |        |        |        |        |        |        |        |
-#     | o11      |        |        |        |        |        |        |        |        |        |        |
-#     | o12/go1  | NO-RES |        |        |        |        |        |        |        |        |        |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     |COMPONENTS| p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | p10    | (none) |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     | o1       |        | d !D   | !GP2   | !GP2   |        |        |        | !GP6   |        |        |        |
+#     | o2       | !GP3   |        | !GP3   |        | !D     |        | !GP3   | !D     | !GP3   |        |        |
+#     | o3       |        |        |        |        |        |        |        |        |        |        |        |
+#     | o4       |        | d      |        |        |        |d gp4 !D|gp5 !GP5| d !GP6 |gp8 !GP8|        |        |
+#     | o5       |        |        |        |        |        |        |        |        |        |        |        |
+#     | o6       |        | d      | !GP2   | d !GP2 |        | d gp4  | gp5    |gp6 !GP6| gp8    |        |        |
+#     | o7       | gp1    | gp1    |        |        | d      | d      | gp5    |gp6 !GP6| gp8    |        |        |
+#     | o8..o10  |        |        |        |        |        |        |        |        |        |        |        |
+#     | o11      |        |        |        |        |        |        |        |        |        |        |        |
+#     | o12      | d      |        |        |        |        |        |        |!D !GP6 |        |        |        |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     | go1      |        |        |        |        |        |        |        | d gp6  |        |        |        |
+#     | go2      |        |        |        |        |        |        |        |        |        |        |        |
+#     | go3      |        |        |        |        |        |        |        |        |        |        |        |
+#     | go4      |        |        |        |        |        |        |        |        |        |        |        |
+#     | go5      | d gp3  | d      | gp2 gp3| gp2    | d      | d gp4  | gp3    |        | gp3    |        | (gp7)  |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     |  EFFECT  | p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | p10    | (none) |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     | o1/go1   |        |        |        |        |        |        |        |        |        |        |        |
+#     | o2/go1+3 |        |        |        |        |        |        |        |        |        |        |        |
+#     | o3/go2+3 |        |        |        |        |        |        |        |        |        |        |        |
+#     | o4/go2   |        | YES    |        |        |        |        |        |        |        |        |        |
+#     | o5       |        |        |        |        |        |        |        |        |        |        |        |
+#     | o6/go4   |        | NO-RES |        |        |        | NO-RES | NO-RES |        | NO-RES |        |        |
+#     | o7       | YES/NS | YES/NS |        |        | YES/NS | YES/NS | YES/NS |        | YES/NS |        |        |
+#     | o8..o10  |        |        |        |        |        |        |        |        |        |        |        |
+#     | o11      |        |        |        |        |        |        |        |        |        |        |        |
+#     | o12/go1  | NO-RES |        |        |        |        |        |        |        |        |        |        |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
 #
 #   * for resource '/report/threats' (access zone 'threats'):
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     |COMPONENTS| p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | (none) |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     | o1       | gp1 gp3| gp1    |gp3 !GP2| !GP2   |        |        | gp3    |        | gp3    | (gp7)  |
-#     | o2       | !GP3   |        | !GP3   |        | !D     |        | d !GP3 |        | d !GP3 |        |
-#     | o3       | !GP1   | d !GP1 |        |        |        |        |        |        |        |        |
-#     | o4       |        |        |        |        | d      | !D     | !GP5   |        |        |        |
-#     | o5       | gp1    | gp1 !D |        | d      |        | !D !GP4|gp5 !GP5|        | gp8    |        |
-#     | o6       |        |        |        |        |        |        |        |        |        |        |
-#     | o7       | gp1 !D | gp1    |        |        | d      | d !GP4 | gp5 !D |        | gp8    |        |
-#     | o8..o10  | gp1    | gp1 !D |        | d      |        | !D !GP4|gp5 !GP5|        | gp8    |        |
-#     | o11      |        |        |        |        |        |        |        |        |        |        |
-#     | o12      | d      |        |        |        |        |        |        |        |        |        |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     | go1      |        | d      | gp2    | gp2    | d      |        |        |        |        |        |
-#     | go2      | d      |        | d      |        |        | gp4    |        |        |        |        |
-#     | go3      |        |        |        |        |        | d      |        |        |        |        |
-#     | go4      |        |        |        |        |        |        |        |        |        |        |
-#     | go5      | d gp3  | d      | gp2 gp3| gp2    | d      | d gp4  | gp3    |        | gp3    | (gp7)  |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     |  EFFECT  | p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | (none) |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
-#     | o1/go1   | YES    | YES    |        |        | YES    |        | YES    |        | YES    |        |
-#     | o2/go1+3 |        | YES    |        | YES    |        | YES    |        |        |        |        |
-#     | o3/go2+3 |        |        | YES    |        |        | YES    |        |        |        |        |
-#     | o4/go2   | YES    |        | YES    |        | YES    |        |        |        |        |        |
-#     | o5       | YES    |        |        | YES    |        |        |        |        | YES    |        |
-#     | o6/go4   |        |        |        |        |        |        |        |        |        |        |
-#     | o7       |        | YES/NS |        |        | YES/NS |        |        |        | YES/NS |        |
-#     | o8..o10  | YES/NS |        |        | YES/NS |        |        |        |        | YES/NS |        |
-#     | o11      |        |        |        |        |        |        |        |        |        |        |
-#     | o12/go1  | NO-RES | NO-RES | NO-RES | NO-RES | NO-RES |        |        |        |        |        |
-#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     |COMPONENTS| p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | p10    | (none) |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     | o1       | gp1 gp3| gp1    |gp3 !GP2| !GP2   |        |        | gp3    |        | gp3    |        | (gp7)  |
+#     | o2       | !GP3   |        | !GP3   |        | !D     |        | d !GP3 |        | d !GP3 |        |        |
+#     | o3       | !GP1   | d !GP1 |        |        |        |        |        |        |        |        |        |
+#     | o4       |        |        |        |        | d      | !D     | !GP5   |        |        |        |        |
+#     | o5       | gp1    | gp1 !D |        | d      |        | !D !GP4|gp5 !GP5|        | gp8    | d !D   |        |
+#     | o6       |        |        |        |        |        |        |        |        |        |        |        |
+#     | o7       | gp1 !D | gp1    |        |        | d      | d !GP4 | gp5 !D |        | gp8    |        |        |
+#     | o8..o10  | gp1    | gp1 !D |        | d      |        | !D !GP4|gp5 !GP5|        | gp8    |        |        |
+#     | o11      |        |        |        |        |        |        |        |        |        |        |        |
+#     | o12      | d      |        |        |        |        |        |        |        |        |        |        |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     | go1      |        | d      | gp2    | gp2    | d      |        |        |        |        |        |        |
+#     | go2      | d      |        | d      |        |        | gp4    |        |        |        |        |        |
+#     | go3      |        |        |        |        |        | d      |        |        |        |        |        |
+#     | go4      |        |        |        |        |        |        |        |        |        |        |        |
+#     | go5      | d gp3  | d      | gp2 gp3| gp2    | d      | d gp4  | gp3    |        | gp3    |        | (gp7)  |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     |  EFFECT  | p1     | p2     | p3     | p4     | p5     | p6     | p7     | p8     | p9     | p10    | (none) |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
+#     | o1/go1   | YES    | YES    |        |        | YES    |        | YES    |        | YES    |        |        |
+#     | o2/go1+3 |        | YES    |        | YES    |        | YES    |        |        |        |        |        |
+#     | o3/go2+3 |        |        | YES    |        |        | YES    |        |        |        |        |        |
+#     | o4/go2   | YES    |        | YES    |        | YES    |        |        |        |        |        |        |
+#     | o5       | YES    |        |        | YES    |        |        |        |        | YES    |        |        |
+#     | o6/go4   |        |        |        |        |        |        |        |        |        |        |        |
+#     | o7       |        | YES/NS |        |        | YES/NS |        |        |        | YES/NS |        |        |
+#     | o8..o10  | YES/NS |        |        | YES/NS |        |        |        |        | YES/NS |        |        |
+#     | o11      |        |        |        |        |        |        |        |        |        |        |        |
+#     | o12/go1  | NO-RES | NO-RES | NO-RES | NO-RES | NO-RES |        |        |        |        |        |        |
+#     +----------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+--------+
 #
 #   [note that, here, '/report/inside' is similar to '/report/threats' -- but:
 #
@@ -379,7 +373,7 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
 
     _O.res(5, 'res-inside'),
     _O.channel(5, 'inside', {
-        'n6subsource-refint': [_P.dn(4)],
+        'n6subsource-refint': [_P.dn(4), _P.dn(10)],
         'n6subsource-group-refint': [_GP.dn(1), _GP.dn(5), _GP.dn(8)],
     }),
     _O.channel(5, 'inside-ex', {
@@ -399,7 +393,6 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
         'n6subsource-refint': [_P.dn(9)],
     }),
 
-    # (note: for o8's `inside` -- the same as for o5's)
     _O.res(8, 'res-inside'),
     _O.channel(8, 'inside', {
         'n6subsource-refint': [_P.dn(4)],
@@ -409,7 +402,7 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
         'n6subsource-group-refint': [_GP.dn(8)],
     }),
 
-    # (note: for o9's `inside` -- the same as for o5's)
+    # (note: for o9's `inside` -- the same as for o8's)
     _O.res(9, 'res-inside'),
     _O.channel(9, 'inside', {
         'n6subsource-refint': [_P.dn(4)],
@@ -419,7 +412,7 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
         'n6subsource-group-refint': [_GP.dn(8)],
     }),
 
-    # (note: for o10's `inside` -- the same as for o5's)
+    # (note: for o10's `inside` -- the same as for o8's)
     _O.res(10, 'res-inside'),
     _O.channel(10, 'inside', {
         'n6subsource-refint': [_P.dn(4)],
@@ -625,11 +618,11 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
 
     _O.res(5, 'res-threats'),
     _O.channel(5, 'threats', {
-        'n6subsource-refint': [_P.dn(4)],
+        'n6subsource-refint': [_P.dn(4), _P.dn(10)],
         'n6subsource-group-refint': [_GP.dn(1), _GP.dn(5), _GP.dn(8)],
     }),
     _O.channel(5, 'threats-ex', {
-        'n6subsource-refint': [_P.dn(2), _P.dn(6)],
+        'n6subsource-refint': [_P.dn(2), _P.dn(6), _P.dn(10)],
         'n6subsource-group-refint': [_GP.dn(4), _GP.dn(5)],
     }),
 
@@ -651,7 +644,6 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
         'n6subsource-group-refint': [_GP.dn(4)],
     }),
 
-    # (note: for o8's `threats` -- the same as for o5's)
     _O.res(8, 'res-threats'),
     _O.channel(8, 'threats', {
         'n6subsource-refint': [_P.dn(4)],
@@ -662,7 +654,7 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
         'n6subsource-group-refint': [_GP.dn(4), _GP.dn(5)],
     }),
 
-    # (note: for o9's `threats` -- the same as for o5's)
+    # (note: for o9's `threats` -- the same as for o8's)
     _O.res(9, 'res-threats'),
     _O.channel(9, 'threats', {
         'n6subsource-refint': [_P.dn(4)],
@@ -673,7 +665,7 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
         'n6subsource-group-refint': [_GP.dn(4), _GP.dn(5)],
     }),
 
-    # (note: for o10's `threats` -- the same as for o5's)
+    # (note: for o10's `threats` -- the same as for o8's)
     _O.res(10, 'res-threats'),
     _O.channel(10, 'threats', {
         'n6subsource-refint': [_P.dn(4)],
@@ -761,6 +753,10 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
     _P(9, {
         'n6exclusion-criteria-refint': [_Cri.dn(3), _Cri.dn(6)],
     }),
+    _P(10, {
+        'n6inclusion-criteria-refint': [_Cri.dn(2), _Cri.dn(5)],
+        'n6exclusion-criteria-refint': [_Cri.dn(1), _Cri.dn(4)],
+    }),
 ]
 
 # criteria containers
@@ -800,16 +796,7 @@ P1_COND_FA_TRUE = Cond.and_(
         Cond['ip'].between(3232235520, 3232235775)),
     Cond.and_())
 
-P1_SQL_FA_TRUE = prep_sql_str("""
-    event.source = 'source.one'
-    AND
-    (event.asn IN (1, 2, 3)
-     OR event.ip >= 167772160 AND event.ip <= 184549375
-     OR event.ip >= 3232235520 AND event.ip <= 3232235775)
-""")
-
 P1_COND_FA_FALSE = fa_false_cond(P1_COND_FA_TRUE)
-P1_SQL_FA_FALSE = fa_false_sql(P1_SQL_FA_TRUE)
 
 
 P2_COND_FA_TRUE = Cond.and_(
@@ -822,17 +809,7 @@ P2_COND_FA_TRUE = Cond.and_(
         Cond['asn'].in_([3, 4, 5])),
     Cond.and_())
 
-P2_SQL_FA_TRUE = prep_sql_str("""
-    event.source = 'source.one'
-    AND
-    (event.asn IN (1, 2, 3)
-     OR event.ip >= 167772160 AND event.ip <= 184549375
-     OR event.ip >= 3232235520 AND event.ip <= 3232235775)
-    AND event.asn IN (3, 4, 5)
-""")
-
 P2_COND_FA_FALSE = fa_false_cond(P2_COND_FA_TRUE)
-P2_SQL_FA_FALSE = fa_false_sql(P2_SQL_FA_TRUE)
 
 
 P3_COND_FA_TRUE = Cond.and_(
@@ -840,12 +817,7 @@ P3_COND_FA_TRUE = Cond.and_(
     Cond.and_(),
     Cond.and_())
 
-P3_SQL_FA_TRUE = prep_sql_str("""
-    event.source = 'source.one'
-""")
-
 P3_COND_FA_FALSE = fa_false_cond(P3_COND_FA_TRUE)
-P3_SQL_FA_FALSE = fa_false_sql(P3_SQL_FA_TRUE)
 
 
 P4_COND_FA_TRUE = Cond.and_(
@@ -856,16 +828,7 @@ P4_COND_FA_TRUE = Cond.and_(
         Cond.not_(Cond['category'].in_(['bots', 'cnc'])),
         Cond.not_(Cond['name'].in_(['foo']))))
 
-P4_SQL_FA_TRUE = prep_sql_str("""
-    event.source = 'source.two'
-    AND event.name IN ('foo')
-    AND event.cc NOT IN ('PL')
-    AND event.category NOT IN ('bots', 'cnc')
-    AND event.name NOT IN ('foo')
-""")
-
 P4_COND_FA_FALSE = fa_false_cond(P4_COND_FA_TRUE)
-P4_SQL_FA_FALSE = fa_false_sql(P4_SQL_FA_TRUE)
 
 
 P5_COND_FA_TRUE = Cond.and_(
@@ -875,14 +838,7 @@ P5_COND_FA_TRUE = Cond.and_(
         Cond['name'].in_(['foo'])),
     Cond.and_())
 
-P5_SQL_FA_TRUE = prep_sql_str("""
-    event.source = 'source.two'
-    AND event.category IN ('bots', 'cnc')
-    AND event.name IN ('foo')
-""")
-
 P5_COND_FA_FALSE = fa_false_cond(P5_COND_FA_TRUE)
-P5_SQL_FA_FALSE = fa_false_sql(P5_SQL_FA_TRUE)
 
 
 P6_COND_FA_TRUE = Cond.and_(
@@ -890,12 +846,7 @@ P6_COND_FA_TRUE = Cond.and_(
     Cond.and_(),
     Cond.and_())
 
-P6_SQL_FA_TRUE = prep_sql_str("""
-    event.source = 'source.two'
-""")
-
 P6_COND_FA_FALSE = fa_false_cond(P6_COND_FA_TRUE)
-P6_SQL_FA_FALSE = fa_false_sql(P6_SQL_FA_TRUE)
 
 
 P7_COND_FA_TRUE = P9_COND_FA_TRUE = Cond.and_(
@@ -903,21 +854,29 @@ P7_COND_FA_TRUE = P9_COND_FA_TRUE = Cond.and_(
     Cond.and_(),
     Cond.not_(Cond['cc'].in_(['PL'])))
 
-P7_SQL_FA_TRUE = P9_SQL_FA_TRUE = prep_sql_str("""
-    event.source = 'xyz.some-other'
-    AND event.cc NOT IN ('PL')
-""")
-
 P7_COND_FA_FALSE = fa_false_cond(P7_COND_FA_TRUE)
-P7_SQL_FA_FALSE = fa_false_sql(P7_SQL_FA_TRUE)
-
 P9_COND_FA_FALSE = fa_false_cond(P9_COND_FA_TRUE)
-P9_SQL_FA_FALSE = fa_false_sql(P9_SQL_FA_TRUE)
+
+
+P10_COND_FA_TRUE = Cond.and_(
+    Cond['source'] == 'xyz.some-other',
+    Cond.and_(
+        Cond['asn'].in_([3, 4, 5]),
+        Cond['name'].in_(['foo'])),
+    Cond.and_(
+        Cond.not_(Cond.or_(
+            Cond['asn'].in_([1, 2, 3]),
+            Cond['ip'].between(167772160, 184549375),
+            Cond['ip'].between(3232235520, 3232235775))),
+        Cond.not_(Cond['category'].in_(['bots', 'cnc'])),
+    ))
+
+P10_COND_FA_FALSE = fa_false_cond(P10_COND_FA_TRUE)
 
 
 EXAMPLE_SOURCE_IDS_TO_SUBS_TO_STREAM_API_ACCESS_INFOS = {
-    # note: a patch is needed in tests: predicate functions (real callables)
-    # shall be substituted with Abstract*Cond/Predicate*Cond instances
+    # (note: a patch is needed in tests: predicate functions (real callables)
+    # shall be substituted with `Abstract*Cond`/`Predicate*Cond` instances) XXX
     'source.one': {
         _P.dn(1): (
             P1_COND_FA_FALSE,
@@ -988,13 +947,21 @@ EXAMPLE_SOURCE_IDS_TO_SUBS_TO_STREAM_API_ACCESS_INFOS = {
                 'threats': {'o1', 'o5'},
             },
         ),
+        _P.dn(10): (
+            P10_COND_FA_FALSE,
+            {
+                'inside': {'o5'},
+                'search': set(),
+                'threats': set(),
+            },
+        ),
     },
 }
 
 
 EXAMPLE_SOURCE_IDS_TO_NOTIFICATION_ACCESS_INFO_MAPPINGS = {
-    # note: a patch is needed in tests: predicate functions (real callables)
-    # shall be substituted with Abstract*Cond/Predicate*Cond instances
+    # (note: a patch is needed in tests: predicate functions (real callables)
+    # shall be substituted with `Abstract*Cond`/`Predicate*Cond` instances) XXX
     'source.one': {
         (_P.dn(1), False): (
             P1_COND_FA_FALSE,
@@ -1056,21 +1023,66 @@ EXAMPLE_SOURCE_IDS_TO_NOTIFICATION_ACCESS_INFO_MAPPINGS = {
             P9_COND_FA_TRUE,
             {'o1'},
         ),
+        (_P.dn(10), False): (
+            P10_COND_FA_FALSE,
+            {'o5'},
+        ),
     },
 }
 
 
+# Default-behavior-dedicated data (with condition optimizations enabled):
 EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
-    # note: a patch is needed in tests: SQLAlchemy conditions shall be
-    # processed with sqlalchemy_related_test_helpers.sqlalchemy_expr_to_str()
+    # (note: a patch is needed in tests: SQLAlchemy conditions shall be
+    # processed with `sqlalchemy_related_test_helpers.sqlalchemy_expr_to_str()`)
     'o1': {
         'access_zone_conditions': {
-            'inside': [P1_SQL_FA_TRUE, P2_SQL_FA_TRUE, P3_SQL_FA_TRUE, P4_SQL_FA_TRUE,
-                       P5_SQL_FA_TRUE, P7_SQL_FA_TRUE, P9_SQL_FA_TRUE],
+            'inside': [' OR '.join(map(prep_sql_str, [
+                # (P1 optimized out - it always matches a subset of what in matched by P3)
+                # (P2 optimized out - it always matches a subset of what in matched by P3 and P1)
+                # P3:
+                """
+                    event.source = 'source.one'
+                """,
+                # (P4 reduced to FALSE - which is neutral in OR)
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+                # (P9 omitted as being same as P7)
+            ]))],
 
             # no 'search'
-            'threats': [P1_SQL_FA_TRUE, P2_SQL_FA_TRUE, P5_SQL_FA_TRUE, P7_SQL_FA_TRUE,
-                        P9_SQL_FA_TRUE],
+
+            'threats': [' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                """,
+                # (P2 optimized out - it always matches a subset of what in matched by P1)
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+                # (P9 omitted as being same as P7)
+            ]))],
         },
         'rest_api_full_access': True,
         'rest_api_resource_limits': {
@@ -1091,11 +1103,41 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     },
     'o2': {
         'access_zone_conditions': {
-            'inside': [P2_SQL_FA_FALSE, P3_SQL_FA_FALSE, P4_SQL_FA_FALSE, P5_SQL_FA_FALSE,
-                       P6_SQL_FA_FALSE, P7_SQL_FA_FALSE, P9_SQL_FA_FALSE],
+            'inside': ["event.restriction != 'internal' AND (%s)"
+                       % ' OR '.join(map(prep_sql_str, [
+                # (P2 optimized out - it always matches a subset of what in matched by P3)
+                # (P4 reduced to FALSE - which is neutral in OR)
+                # (P5 optimized out - it always matches a subset of what in matched by P6)
+                # P3+P6:
+                """
+                    event.source IN ('source.one', 'source.two')
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+                # (P9 omitted as being same as P7)
+            ]))],
 
             # no 'search'
-            'threats': [P2_SQL_FA_FALSE, P4_SQL_FA_FALSE, P6_SQL_FA_FALSE],
+
+            'threats': ["event.restriction != 'internal' AND (%s)"
+                        % ' OR '.join(map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                """,
+                # (P4 reduced to FALSE - which is neutral in OR)
+                # P6:
+                """
+                    event.source = 'source.two'
+                """,
+            ]))],
         },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
@@ -1117,9 +1159,25 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     },
     'o3': {
         'access_zone_conditions': {
-            'inside': [P1_SQL_FA_FALSE, P2_SQL_FA_FALSE, P3_SQL_FA_FALSE, P6_SQL_FA_FALSE],
+            'inside': [prep_sql_str(
+                # (P1 optimized out - it always matches a subset of what in matched by P3)
+                # (P2 optimized out - it always matches a subset of what in matched by P3 and P1)
+                # P3+P6:
+                """
+                    event.restriction != 'internal' AND
+                    event.source IN ('source.one', 'source.two')
+                """,
+            )],
+
             # no 'search'
-            'threats': [P3_SQL_FA_FALSE, P6_SQL_FA_FALSE],
+
+            'threats': [prep_sql_str(
+                # P3+P6:
+                """
+                    event.restriction != 'internal' AND
+                    event.source IN ('source.one', 'source.two')
+                """,
+            )],
         },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
@@ -1130,9 +1188,42 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     },
     'o4': {
         'access_zone_conditions': {
-            'inside': [P1_SQL_FA_FALSE, P3_SQL_FA_FALSE, P5_SQL_FA_FALSE, P6_SQL_FA_FALSE],
-            'search': [P2_SQL_FA_FALSE],
-            'threats': [P1_SQL_FA_FALSE, P3_SQL_FA_FALSE, P5_SQL_FA_FALSE],
+            'inside': [prep_sql_str(
+                # (P1 optimized out - it always matches a subset of what in matched by P3)
+                # (P5 optimized out - it always matches a subset of what in matched by P6)
+                # P3+P6:
+                """
+                    event.restriction != 'internal' AND
+                    event.source IN ('source.one', 'source.two')
+                """,
+            )],
+
+            'search': [prep_sql_str(
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+            )],
+
+            'threats': ["event.restriction != 'internal' AND (%s)"
+                        % ' OR '.join(map(prep_sql_str, [
+                # (P1 optimized out - it always matches a subset of what in matched by P3)
+                # P3:
+                """
+                    event.source = 'source.one'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                """,
+            ]))],
         },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
@@ -1143,9 +1234,49 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     },
     'o5': {
         'access_zone_conditions': {
-            'inside': [P1_SQL_FA_FALSE, P2_SQL_FA_FALSE, P4_SQL_FA_FALSE, P7_SQL_FA_FALSE],
+            'inside': ["event.restriction != 'internal' AND (%s)"
+                       % ' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                """,
+                # (P2 optimized out - it always matches a subset of what in matched by P1)
+                # (P4 reduced to FALSE - which is neutral in OR)
+
+                # P7+P10 (with NULL-safe negations, thanks to fixing #3379):
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.asn IN (3, 4, 5)
+                         AND event.name = 'foo'
+                         AND (event.asn IS NULL OR event.asn NOT IN (1, 2, 3))
+                         AND event.ip NOT BETWEEN 167772160 AND 184549375
+                         AND event.ip NOT BETWEEN 3232235520 AND 3232235775
+                         AND event.category NOT IN ('bots', 'cnc')
+                         OR event.cc IS NULL OR event.cc != 'PL')
+                """,
+            ]))],
+
             # no 'search'
-            'threats': [P1_SQL_FA_FALSE, P4_SQL_FA_FALSE, P9_SQL_FA_FALSE],
+
+            'threats': ["event.restriction != 'internal' AND (%s)"
+                        % ' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                """,
+                # (P4 reduced to FALSE - which is neutral in OR)
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+            ]))],
         },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
@@ -1157,7 +1288,28 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     'o6': {
         'access_zone_conditions': {
             # no 'inside'
-            'search': [P2_SQL_FA_TRUE, P6_SQL_FA_TRUE, P7_SQL_FA_TRUE, P9_SQL_FA_TRUE],
+
+            'search': [' OR '.join(map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+                # (P9 omitted as being same as P7)
+            ]))],
+
             # no 'threats'
         },
         'rest_api_full_access': True,
@@ -1169,11 +1321,73 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     },
     'o7': {
         'access_zone_conditions': {
-            'inside': [P1_SQL_FA_FALSE, P2_SQL_FA_FALSE, P5_SQL_FA_FALSE, P6_SQL_FA_FALSE,
-                       P7_SQL_FA_FALSE],
-            'search': [P1_SQL_FA_FALSE, P2_SQL_FA_FALSE, P5_SQL_FA_FALSE, P6_SQL_FA_FALSE,
-                       P7_SQL_FA_FALSE, P9_SQL_FA_FALSE],
-            'threats': [P2_SQL_FA_FALSE, P5_SQL_FA_FALSE, P9_SQL_FA_FALSE],
+            'inside': ["event.restriction != 'internal' AND (%s)"
+                       % ' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                """,
+                # (P2 optimized out - it always matches a subset of what in matched by P1)
+                # (P5 optimized out - it always matches a subset of what in matched by P6)
+                # P6:
+                """
+                    event.source = 'source.two'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+            ]))],
+
+            'search': ["event.restriction != 'internal' AND (%s)"
+                       % ' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                """,
+                # (P2 optimized out - it always matches a subset of what in matched by P1)
+                # (P5 optimized out - it always matches a subset of what in matched by P6)
+                # P6:
+                """
+                    event.source = 'source.two'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+                # (P9 omitted as being same as P7)
+            ]))],
+
+            'threats': ["event.restriction != 'internal' AND (%s)"
+                        % ' OR '.join(map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                """,
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+            ]))],
         },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
@@ -1187,9 +1401,42 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o8'] = (
  EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o9']) = (
   EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o10']) = {
     'access_zone_conditions': {
-        'inside': [P1_SQL_FA_FALSE, P2_SQL_FA_FALSE, P4_SQL_FA_FALSE, P7_SQL_FA_FALSE],
+        'inside': ["event.restriction != 'internal' AND (%s)"
+                   % ' OR '.join(map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+            """,
+            # (P2 optimized out - it always matches a subset of what in matched by P1)
+            # (P4 reduced to FALSE - which is neutral in OR)
+            # P7:
+            """
+                event.source = 'xyz.some-other'
+                AND (event.cc IS NULL OR event.cc != 'PL')
+            """,
+        ]))],
+
         # no 'search'
-        'threats': [P1_SQL_FA_FALSE, P4_SQL_FA_FALSE, P9_SQL_FA_FALSE],
+
+        'threats': ["event.restriction != 'internal' AND (%s)"
+                    % ' OR '.join(map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+            """,
+            # (P4 reduced to FALSE - which is neutral in OR)
+            # P9:
+            """
+                event.source = 'xyz.some-other'
+                AND (event.cc IS NULL OR event.cc != 'PL')
+            """,
+        ]))],
     },
     'rest_api_full_access': False,
     'rest_api_resource_limits': {
@@ -1201,11 +1448,1445 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o8'] = (
 # note: no data for the 'o11' organization
 EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o12'] = {
     'access_zone_conditions': {
-        'inside': [P1_SQL_FA_FALSE, P2_SQL_FA_FALSE, P3_SQL_FA_FALSE, P4_SQL_FA_FALSE,
-                   P5_SQL_FA_FALSE],
-        'search': [P1_SQL_FA_FALSE],
-        'threats': [P1_SQL_FA_FALSE, P2_SQL_FA_FALSE, P3_SQL_FA_FALSE, P4_SQL_FA_FALSE,
-                    P5_SQL_FA_FALSE],
+        'inside': ["event.restriction != 'internal' AND (%s)"
+                   % ' OR '.join(map(prep_sql_str, [
+            # (P1 optimized out - it always matches a subset of what in matched by P3)
+            # (P2 optimized out - it always matches a subset of what in matched by P3 and P1)
+            # P3:
+            """
+                event.source = 'source.one'
+            """,
+            # (P4 reduced to FALSE - which is neutral in OR)
+            # P5:
+            """
+                event.source = 'source.two'
+                AND event.category IN ('bots', 'cnc')
+                AND event.name = 'foo'
+            """,
+        ]))],
+
+        'search': [prep_sql_str(
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+                AND event.restriction != 'internal'
+            """,
+        )],
+
+        'threats': ["event.restriction != 'internal' AND (%s)"
+                    % ' OR '.join(map(prep_sql_str, [
+            # (P1 optimized out - it always matches a subset of what in matched by P3)
+            # (P2 optimized out - it always matches a subset of what in matched by P3 and P1)
+            # P3:
+            """
+                event.source = 'source.one'
+            """,
+            # (P4 reduced to FALSE - which is neutral in OR)
+            # P5:
+            """
+                event.source = 'source.two'
+                AND event.category IN ('bots', 'cnc')
+                AND event.name = 'foo'
+            """,
+        ]))],
+    },
+    'rest_api_full_access': False,
+    'rest_api_resource_limits': {}  # note: empty dict because no resources enabled
+}
+
+
+# Non-default-behavior-dedicated data (with condition optimizations
+# disabled -- this behavior can be enabled by setting environment
+# variable `N6_SKIP_OPTIMIZATION_OF_ACCESS_FILTERING_CONDITIONS`):
+EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
+    # (note: a patch is needed in tests: SQLAlchemy conditions shall be
+    # processed with `sqlalchemy_related_test_helpers.sqlalchemy_expr_to_str()`)
+    'o1': {
+        'access_zone_conditions': {
+            'inside': [' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                """,
+                # P3:
+                """
+                    event.source = 'source.one'
+                """,
+                # (P4 reduced to FALSE - which is neutral in OR)
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+                # (P9 omitted as being same as P7)
+            ]))],
+
+            # no 'search'
+
+            'threats': [' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+                # (P9 omitted as being same as P7)
+            ]))],
+        },
+        'rest_api_full_access': True,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            '/search/events': _res_props(
+                window=42,
+                queries_limit=43,
+                results_limit=44,
+                max_days_old=45,
+                request_parameters={
+                    'time.min': True,
+                    'time.max': False,
+                    'time.until': False,
+                },
+            ),
+            '/report/threats': _res_props(),
+        },
+    },
+    'o2': {
+        'access_zone_conditions': {
+            'inside': [' OR '.join(map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P3:
+                """
+                    event.source = 'source.one'
+                    AND event.restriction != 'internal'
+                """,
+                # (P4 reduced to FALSE - which is neutral in OR)
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                    AND event.restriction != 'internal'
+                """,
+                # (P9 omitted as being same as P7)
+            ]))],
+
+            # no 'search'
+
+            'threats': [' OR '.join(map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # (P4 reduced to FALSE - which is neutral in OR)
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+            ]))],
+        },
+        'rest_api_full_access': False,
+        'rest_api_resource_limits': {
+            # no '/report/inside'
+            '/search/events': _res_props(
+                window=42,
+                queries_limit=43,
+            ),
+            '/report/threats': _res_props(
+                results_limit=44,
+                max_days_old=45,
+                request_parameters={
+                    'time.min': False,
+                    'time.max': False,
+                    'time.until': False,
+                },
+            ),
+        },
+    },
+    'o3': {
+        'access_zone_conditions': {
+            'inside': [' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P3:
+                """
+                    event.source = 'source.one'
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+            ]))],
+
+            # no 'search'
+
+            'threats': [' OR '.join(map(prep_sql_str, [
+                # P3:
+                """
+                    event.source = 'source.one'
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+            ]))],
+        },
+        'rest_api_full_access': False,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            '/search/events': _res_props(),
+            '/report/threats': _res_props(),
+        },
+    },
+    'o4': {
+        'access_zone_conditions': {
+            'inside': [' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P3:
+                """
+                    event.source = 'source.one'
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+            ]))],
+
+            'search': [prep_sql_str(
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+            )],
+
+            'threats': [' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P3:
+                """
+                    event.source = 'source.one'
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                    AND event.restriction != 'internal'
+                """,
+            ]))],
+        },
+        'rest_api_full_access': False,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            '/search/events': _res_props(),
+            '/report/threats': _res_props(),
+        },
+    },
+    'o5': {
+        'access_zone_conditions': {
+            'inside': [' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P10 (with NULL-safe negations, thanks to fixing #3379):
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.asn IN (3, 4, 5)
+                    AND event.name = 'foo'
+                    AND (event.asn IS NULL OR event.asn NOT IN (1, 2, 3))
+                    AND event.ip NOT BETWEEN 167772160 AND 184549375
+                    AND event.ip NOT BETWEEN 3232235520 AND 3232235775
+                    AND event.category NOT IN ('bots', 'cnc')
+                    AND event.restriction != 'internal'
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # (P4 reduced to FALSE - which is neutral in OR)
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                    AND event.restriction != 'internal'
+                """,
+            ]))],
+
+            # no 'search'
+
+            'threats': [' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # (P4 reduced to FALSE - which is neutral in OR)
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                    AND event.restriction != 'internal'
+                """,
+            ]))],
+        },
+        'rest_api_full_access': False,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            '/search/events': _res_props(),
+            '/report/threats': _res_props(),
+        },
+    },
+    'o6': {
+        'access_zone_conditions': {
+            # no 'inside'
+
+            'search': [' OR '.join(map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                """,
+                # (P9 omitted as being same as P7)
+            ]))],
+
+            # no 'threats'
+        },
+        'rest_api_full_access': True,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            # no '/search/events'
+            # no '/report/threats'
+        },
+    },
+    'o7': {
+        'access_zone_conditions': {
+            'inside': [' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                    AND event.restriction != 'internal'
+                """,
+            ]))],
+
+            'search': [' OR '.join(map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                    AND event.restriction != 'internal'
+                """,
+                # (P9 omitted as being same as P7)
+            ]))],
+
+            'threats': [' OR '.join(map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 167772160 AND 184549375
+                         OR event.ip BETWEEN 3232235520 AND 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name = 'foo'
+                    AND event.restriction != 'internal'
+                """,
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND (event.cc IS NULL OR event.cc != 'PL')
+                    AND event.restriction != 'internal'
+                """,
+            ]))],
+        },
+        'rest_api_full_access': False,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            '/search/events': _res_props(),
+            '/report/threats': _res_props(),
+        },
+    },
+}
+EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o8'] = (
+ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o9']) = (
+  EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o10']) = {
+    'access_zone_conditions': {
+        'inside': [' OR '.join(map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+                AND event.restriction != 'internal'
+            """,
+            # P2:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+                AND event.asn IN (3, 4, 5)
+                AND event.restriction != 'internal'
+            """,
+            # (P4 reduced to FALSE - which is neutral in OR)
+            # P7:
+            """
+                event.source = 'xyz.some-other'
+                AND (event.cc IS NULL OR event.cc != 'PL')
+                AND event.restriction != 'internal'
+            """,
+        ]))],
+
+        # no 'search'
+
+        'threats': [' OR '.join(map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+                AND event.restriction != 'internal'
+            """,
+            # (P4 reduced to FALSE - which is neutral in OR)
+            # P9:
+            """
+                event.source = 'xyz.some-other'
+                AND (event.cc IS NULL OR event.cc != 'PL')
+                AND event.restriction != 'internal'
+            """,
+        ]))],
+    },
+    'rest_api_full_access': False,
+    'rest_api_resource_limits': {
+        '/report/inside': _res_props(),
+        # no '/search/events'
+        '/report/threats': _res_props(),
+    },
+}
+# note: no data for the 'o11' organization
+EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
+    'access_zone_conditions': {
+        'inside': [' OR '.join(map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+                AND event.restriction != 'internal'
+            """,
+            # P2:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+                AND event.asn IN (3, 4, 5)
+                AND event.restriction != 'internal'
+            """,
+            # P3:
+            """
+                event.source = 'source.one'
+                AND event.restriction != 'internal'
+            """,
+            # (P4 reduced to FALSE - which is neutral in OR)
+            # P5:
+            """
+                event.source = 'source.two'
+                AND event.category IN ('bots', 'cnc')
+                AND event.name = 'foo'
+                AND event.restriction != 'internal'
+            """,
+        ]))],
+
+        'search': [prep_sql_str(
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+                AND event.restriction != 'internal'
+            """,
+        )],
+
+        'threats': [' OR '.join(map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+                AND event.restriction != 'internal'
+            """,
+            # P2:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 167772160 AND 184549375
+                     OR event.ip BETWEEN 3232235520 AND 3232235775)
+                AND event.asn IN (3, 4, 5)
+                AND event.restriction != 'internal'
+            """,
+            # P3:
+            """
+                event.source = 'source.one'
+                AND event.restriction != 'internal'
+            """,
+            # (P4 reduced to FALSE - which is neutral in OR)
+            # P5:
+            """
+                event.source = 'source.two'
+                AND event.category IN ('bots', 'cnc')
+                AND event.name = 'foo'
+                AND event.restriction != 'internal'
+            """,
+        ]))],
+    },
+    'rest_api_full_access': False,
+    'rest_api_resource_limits': {}  # note: empty dict because no resources enabled
+}
+
+
+# Legacy-behavior-dedicated data (without any condition optimizations
+# -- this behavior can be enabled by setting environment variable
+# `N6_USE_LEGACY_VERSION_OF_ACCESS_FILTERING_CONDITIONS`):
+EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
+    # (note: a patch is needed in tests: SQLAlchemy conditions shall be
+    # processed with `sqlalchemy_related_test_helpers.sqlalchemy_expr_to_str()`)
+    'o1': {
+        'access_zone_conditions': {
+            'inside': [*map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                """,
+                # P3:
+                """
+                    event.source = 'source.one'
+                """,
+                # P4:
+                """
+                    event.source = 'source.two'
+                    AND event.name IN ('foo')
+                    AND event.cc NOT IN ('PL')
+                    AND event.category NOT IN ('bots', 'cnc')
+                    AND event.name NOT IN ('foo')
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name IN ('foo')
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                """,
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                """,
+            ])],
+
+            # no 'search'
+
+            'threats': [*map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name IN ('foo')
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                """,
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                """,
+            ])],
+        },
+        'rest_api_full_access': True,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            '/search/events': _res_props(
+                window=42,
+                queries_limit=43,
+                results_limit=44,
+                max_days_old=45,
+                request_parameters={
+                    'time.min': True,
+                    'time.max': False,
+                    'time.until': False,
+                },
+            ),
+            '/report/threats': _res_props(),
+        },
+    },
+    'o2': {
+        'access_zone_conditions': {
+            'inside': [*map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P3:
+                """
+                    event.source = 'source.one'
+                    AND event.restriction != 'internal'
+                """,
+                # P4:
+                """
+                    event.source = 'source.two'
+                    AND event.name IN ('foo')
+                    AND event.cc NOT IN ('PL')
+                    AND event.category NOT IN ('bots', 'cnc')
+                    AND event.name NOT IN ('foo')
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name IN ('foo')
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                    AND event.restriction != 'internal'
+                """,
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+
+            # no 'search'
+
+            'threats': [*map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P4:
+                """
+                    event.source = 'source.two'
+                    AND event.name IN ('foo')
+                    AND event.cc NOT IN ('PL')
+                    AND event.category NOT IN ('bots', 'cnc')
+                    AND event.name NOT IN ('foo')
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+        },
+        'rest_api_full_access': False,
+        'rest_api_resource_limits': {
+            # no '/report/inside'
+            '/search/events': _res_props(
+                window=42,
+                queries_limit=43,
+            ),
+            '/report/threats': _res_props(
+                results_limit=44,
+                max_days_old=45,
+                request_parameters={
+                    'time.min': False,
+                    'time.max': False,
+                    'time.until': False,
+                },
+            ),
+        },
+    },
+    'o3': {
+        'access_zone_conditions': {
+            'inside': [*map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P3:
+                """
+                    event.source = 'source.one'
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+
+            # no 'search'
+
+            'threats': [*map(prep_sql_str, [
+                # P3:
+                """
+                    event.source = 'source.one'
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+        },
+        'rest_api_full_access': False,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            '/search/events': _res_props(),
+            '/report/threats': _res_props(),
+        },
+    },
+    'o4': {
+        'access_zone_conditions': {
+            'inside': [*map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P3:
+                """
+                    event.source = 'source.one'
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name IN ('foo')
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+
+            'search': [*map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+
+            'threats': [*map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P3:
+                """
+                    event.source = 'source.one'
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name IN ('foo')
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+        },
+        'rest_api_full_access': False,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            '/search/events': _res_props(),
+            '/report/threats': _res_props(),
+        },
+    },
+    'o5': {
+        'access_zone_conditions': {
+            'inside': [*map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P10 (with the legacy-behavior-caused NULL-*unsafe* negations -- see #3379):
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.asn IN (3, 4, 5)
+                    AND event.name IN ('foo')
+                    AND NOT (event.asn IN (1, 2, 3)
+                             OR event.ip >= 167772160 AND event.ip <= 184549375
+                             OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.category NOT IN ('bots', 'cnc')
+                    AND event.restriction != 'internal'
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P4:
+                """
+                    event.source = 'source.two'
+                    AND event.name IN ('foo')
+                    AND event.cc NOT IN ('PL')
+                    AND event.category NOT IN ('bots', 'cnc')
+                    AND event.name NOT IN ('foo')
+                    AND event.restriction != 'internal'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+
+            # no 'search'
+
+            'threats': [*map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P4:
+                """
+                    event.source = 'source.two'
+                    AND event.name IN ('foo')
+                    AND event.cc NOT IN ('PL')
+                    AND event.category NOT IN ('bots', 'cnc')
+                    AND event.name NOT IN ('foo')
+                    AND event.restriction != 'internal'
+                """,
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+        },
+        'rest_api_full_access': False,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            '/search/events': _res_props(),
+            '/report/threats': _res_props(),
+        },
+    },
+    'o6': {
+        'access_zone_conditions': {
+            # no 'inside'
+
+            'search': [*map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                """,
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                """,
+            ])],
+
+            # no 'threats'
+        },
+        'rest_api_full_access': True,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            # no '/search/events'
+            # no '/report/threats'
+        },
+    },
+    'o7': {
+        'access_zone_conditions': {
+            'inside': [*map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name IN ('foo')
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+
+            'search': [*map(prep_sql_str, [
+                # P1:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.restriction != 'internal'
+                """,
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name IN ('foo')
+                    AND event.restriction != 'internal'
+                """,
+                # P6:
+                """
+                    event.source = 'source.two'
+                    AND event.restriction != 'internal'
+                """,
+                # P7:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                    AND event.restriction != 'internal'
+                """,
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+
+            'threats': [*map(prep_sql_str, [
+                # P2:
+                """
+                    event.source = 'source.one'
+                    AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 167772160 AND event.ip <= 184549375
+                         OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                    AND event.asn IN (3, 4, 5)
+                    AND event.restriction != 'internal'
+                """,
+                # P5:
+                """
+                    event.source = 'source.two'
+                    AND event.category IN ('bots', 'cnc')
+                    AND event.name IN ('foo')
+                    AND event.restriction != 'internal'
+                """,
+                # P9:
+                """
+                    event.source = 'xyz.some-other'
+                    AND event.cc NOT IN ('PL')
+                    AND event.restriction != 'internal'
+                """,
+            ])],
+        },
+        'rest_api_full_access': False,
+        'rest_api_resource_limits': {
+            '/report/inside': _res_props(),
+            '/search/events': _res_props(),
+            '/report/threats': _res_props(),
+        },
+    },
+}
+EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o8'] = (
+ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o9']) = (
+  EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o10']) = {
+    'access_zone_conditions': {
+        'inside': [*map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 167772160 AND event.ip <= 184549375
+                     OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                AND event.restriction != 'internal'
+            """,
+            # P2:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 167772160 AND event.ip <= 184549375
+                     OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                AND event.asn IN (3, 4, 5)
+                AND event.restriction != 'internal'
+            """,
+            # P4:
+            """
+                event.source = 'source.two'
+                AND event.name IN ('foo')
+                AND event.cc NOT IN ('PL')
+                AND event.category NOT IN ('bots', 'cnc')
+                AND event.name NOT IN ('foo')
+                AND event.restriction != 'internal'
+            """,
+            # P7:
+            """
+                event.source = 'xyz.some-other'
+                AND event.cc NOT IN ('PL')
+                AND event.restriction != 'internal'
+            """,
+        ])],
+
+        # no 'search'
+
+        'threats': [*map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 167772160 AND event.ip <= 184549375
+                     OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                AND event.restriction != 'internal'
+            """,
+            # P4:
+            """
+                event.source = 'source.two'
+                AND event.name IN ('foo')
+                AND event.cc NOT IN ('PL')
+                AND event.category NOT IN ('bots', 'cnc')
+                AND event.name NOT IN ('foo')
+                AND event.restriction != 'internal'
+            """,
+            # P9:
+            """
+                event.source = 'xyz.some-other'
+                AND event.cc NOT IN ('PL')
+                AND event.restriction != 'internal'
+            """,
+        ])],
+    },
+    'rest_api_full_access': False,
+    'rest_api_resource_limits': {
+        '/report/inside': _res_props(),
+        # no '/search/events'
+        '/report/threats': _res_props(),
+    },
+}
+# note: no data for the 'o11' organization
+EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
+    'access_zone_conditions': {
+        'inside': [*map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 167772160 AND event.ip <= 184549375
+                     OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                AND event.restriction != 'internal'
+            """,
+            # P2:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 167772160 AND event.ip <= 184549375
+                     OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                AND event.asn IN (3, 4, 5)
+                AND event.restriction != 'internal'
+            """,
+            # P3:
+            """
+                event.source = 'source.one'
+                AND event.restriction != 'internal'
+            """,
+            # P4:
+            """
+                event.source = 'source.two'
+                AND event.name IN ('foo')
+                AND event.cc NOT IN ('PL')
+                AND event.category NOT IN ('bots', 'cnc')
+                AND event.name NOT IN ('foo')
+                AND event.restriction != 'internal'
+            """,
+            # P5:
+            """
+                event.source = 'source.two'
+                AND event.category IN ('bots', 'cnc')
+                AND event.name IN ('foo')
+                AND event.restriction != 'internal'
+            """,
+        ])],
+
+        'search': [*map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 167772160 AND event.ip <= 184549375
+                     OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                AND event.restriction != 'internal'
+            """,
+        ])],
+
+        'threats': [*map(prep_sql_str, [
+            # P1:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 167772160 AND event.ip <= 184549375
+                     OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                AND event.restriction != 'internal'
+            """,
+            # P2:
+            """
+                event.source = 'source.one'
+                AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 167772160 AND event.ip <= 184549375
+                     OR event.ip >= 3232235520 AND event.ip <= 3232235775)
+                AND event.asn IN (3, 4, 5)
+                AND event.restriction != 'internal'
+            """,
+            # P3:
+            """
+                event.source = 'source.one'
+                AND event.restriction != 'internal'
+            """,
+            # P4:
+            """
+                event.source = 'source.two'
+                AND event.name IN ('foo')
+                AND event.cc NOT IN ('PL')
+                AND event.category NOT IN ('bots', 'cnc')
+                AND event.name NOT IN ('foo')
+                AND event.restriction != 'internal'
+            """,
+            # P5:
+            """
+                event.source = 'source.two'
+                AND event.category IN ('bots', 'cnc')
+                AND event.name IN ('foo')
+                AND event.restriction != 'internal'
+            """,
+        ])],
     },
     'rest_api_full_access': False,
     'rest_api_resource_limits': {}  # note: empty dict because no resources enabled

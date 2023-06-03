@@ -5,6 +5,8 @@ const path = require('path');
 const GUI_ROOT_PATH = path.resolve(__dirname, '..');
 const CONFIG_PATH = path.resolve(GUI_ROOT_PATH, '.env.json');
 const SCHEMA_PATH = path.resolve(__dirname, 'schema');
+const GUI_STATIC_PATH = path.resolve(GUI_ROOT_PATH, 'public');
+const OIDC_JSON_CONFIG_PATH = path.resolve(GUI_STATIC_PATH, 'keycloak.json');
 const DEFAULT_LOCALE_PATH = path.resolve(__dirname, 'locale');
 const DEFAULT_PATH = Object();
 
@@ -34,6 +36,7 @@ class Config {
     this.config = { ...this.rawConfig };
     if (this.config) {
       this.config['_schema'] = this.configSchema;
+      this.config['_oidc_schema'] = this.oidcSchema;
     }
   }
   get configContent() {
@@ -49,6 +52,15 @@ class Config {
       return JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
     } catch (e) {
       throw new ErrorWithCode(500, `Cannot open the config schema file: ${schemaPath}`);
+    }
+  }
+
+  get oidcSchema() {
+    const schemaPath = path.resolve(SCHEMA_PATH, 'oidc.json');
+    try {
+      return JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+    } catch (e) {
+      throw new ErrorWithCode(500, `Cannot open the SSO configuration schema file: ${schemaPath}`);
     }
   }
   saveConfig(updatedConfigObj) {
@@ -79,6 +91,37 @@ class Config {
       [LOCALE_PATH_KEY_NAME]: DEFAULT_LOCALE_PATH,
       [API_URL_KEY_NAME]: apiUrl
     });
+  }
+}
+
+class OidcConfig {
+  configPath = OIDC_JSON_CONFIG_PATH;
+
+  constructor() {
+    this.config = this.configContent;
+  }
+
+  get configContent() {
+    try {
+      return JSON.parse(fs.readFileSync(this.configPath, 'utf-8'));
+    } catch (e) {
+      return '';
+    }
+  }
+
+  saveConfig(newConfig) {
+    let toSave;
+    try {
+      const parsed = JSON.parse(newConfig.trim());
+      toSave = JSON.stringify(parsed, null, 2);
+    } catch (e) {
+      throw new ErrorWithCode(400, 'Failed to save OpenID Connect Adapter Config due to invalid format, must be JSON');
+    }
+    try {
+      fs.writeFileSync(this.configPath, toSave, 'utf-8');
+    } catch (e) {
+      throw new ErrorWithCode(500, `Failed to update OIDC JSON config file: ${e.message}`);
+    }
   }
 }
 
@@ -117,9 +160,11 @@ class Locale {
           `The Terms of Service file to be saved does not contain the required ` + `field: ${key} (${schema[key]})`
         );
       }
-      if (key === 'terms') {
-        this._validateArrayField(localeObj[key], key);
-      }
+      // 'terms' field has been converted to standard text input, which
+      // accepts markdown-formatted text
+      // if (key === 'terms') {
+      //   this._validateArrayField(localeObj[key], key);
+      // }
     }
     // check if locale object does not contain additional fields,
     // not included in schema
@@ -159,7 +204,7 @@ class Locale {
     return localeContent;
   }
   getLocales() {
-    // try to get locale content from JSON files in the path saved
+    // try to get locale content from JSON files in the path
     // saved in config, or get default content from template files
     if (!this.config.config[LOCALE_PATH_KEY_NAME]) {
       throw new ErrorWithCode(
@@ -374,5 +419,6 @@ class Locale {
 module.exports = {
   DEFAULT_PATH: DEFAULT_PATH,
   Config: Config,
+  OidcConfig: OidcConfig,
   Locale: Locale
 };

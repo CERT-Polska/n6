@@ -50,6 +50,13 @@ input[readonly] {
   background: #e6e6e6;
 }
 
+input[type='checkbox'] {
+  scale: 1.4;
+  display: inline-block;
+  width: initial;
+  margin-right: 1.5em;
+}
+
 .invalidField {
   -webkit-box-shadow: 0px 0px 36px -8px rgba(255, 0, 0, 0.78);
   -moz-box-shadow: 0px 0px 36px -8px rgba(255, 0, 0, 0.78);
@@ -61,6 +68,14 @@ label {
   font-size: 1.1em;
   font-weight: bolder;
   margin-bottom: 10px;
+}
+
+.checkbox_label {
+  display: inline-block;
+}
+
+.description {
+  font-size: 1em;
 }
 
 .multiField {
@@ -110,7 +125,7 @@ label {
   background: #e99b9b;
 }
 
-.multiContainer {
+.termsContainer {
   margin-bottom: 40px;
 }
 

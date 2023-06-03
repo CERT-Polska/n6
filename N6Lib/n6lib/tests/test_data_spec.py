@@ -71,6 +71,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
     CUSTOM_RESULT_KEYS = {
         'adip',
         'additional_data',
+        'artemis_uuid',
         'alternative_fqdns',
         'count_actual',
         'description',
@@ -94,9 +95,10 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'gca_specific',
         'ipmi_version',
         'mac_address',
-        'misp_eventdid',    # use of the field is deprecated
+        'misp_eventdid',  # use of the field is deprecated
         'misp_attr_uuid',
         'misp_event_uuid',
+        'snitch_uuid',
         'sysdesc',
         'version',
         'header',
@@ -136,10 +138,8 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
     RESTRICTED_RESULT_KEYS = {
         'client',
         'rid',
-        'restriction',
         'until',
         'count',
-        'modified',
     } | CUSTOM_RESULT_KEYS - {
         'adip',
         'block',
@@ -276,6 +276,8 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'time': datetime.datetime(
             2014, 4, 1, 1, 7, 42,
             tzinfo=FixedOffsetTimezone(120)),
+        'modified': datetime.datetime(
+            2014, 3, 31, 23, 23, 23),
         'url': b'http://www.o\xc5\x82\xc3\xb3wek.EXAMPL\xc4\x98.com/\xdd-TRALAL\xc4\x85.html',
         'fqdn': u'www.ołówek.EXAMPLĘ.com'.encode('utf-8'),
         'username': u'ołówek',
@@ -302,6 +304,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         ],
         'dport': 1234,
         'time': datetime.datetime(2014, 3, 31, 23, 7, 42),
+        'modified': datetime.datetime(2014, 3, 31, 23, 23, 23),
         'url': u'http://www.ołówek.EXAMPLĘ.com/\udcdd-TRALALą.html',
         'fqdn': u'www.xn--owek-qqa78b.xn--exampl-14a.com',
         'username': u'ołówek',
@@ -310,7 +313,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
     restricted_access_cleaned_result_dict_base = {
         k: ('anonymized.source' if k == 'source' else v)
         for k, v in cleaned_result_dict_base.items()
-        if k not in ('rid', 'restriction')}
+        if k != 'rid'}
 
     assert raw_result_dict_base.keys() <= RESULT_KEYS
     assert raw_result_dict_base.keys() == cleaned_result_dict_base.keys()

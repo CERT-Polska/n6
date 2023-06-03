@@ -1,5 +1,212 @@
-# collectors
-n6collector_abusechfeodotracker = n6datasources.collectors.abuse_ch:AbuseChFeodoTrackerCollector_main
+# Collectors
 
-# parsers
+## abuse-ch.*
+n6collector_abusechfeodotracker = n6datasources.collectors.abuse_ch:AbuseChFeodoTrackerCollector_main
+n6collector_abusechsslblacklist = n6datasources.collectors.abuse_ch:AbuseChSslBlacklistCollector_main
+n6collector_abusechurlhauspayloadsamples = n6datasources.collectors.abuse_ch:AbuseChUrlhausPayloadSamplesCollector_main
+n6collector_abusechurlhauspayloadsurls = n6datasources.collectors.abuse_ch:AbuseChUrlhausPayloadsUrlsCollector_main
+n6collector_abusechurlhausurls = n6datasources.collectors.abuse_ch:AbuseChUrlhausUrlsCollector_main
+
+## blueliv.*
+n6collector_bluelivmap = n6datasources.collectors.blueliv:BluelivMapCollector_main
+
+## cert_pl.*
+n6collector_certplshield = n6datasources.collectors.cert_pl:CertPlShieldCollector_main
+
+## cesnet-cz.*
+n6collector_cesnetczwarden = n6datasources.collectors.cesnet_cz:CesnetCzWardenCollector_main
+
+## dan-tv.*
+n6collector_dantvtor = n6datasources.collectors.dan_tv:DanTvTorCollector_main
+
+## darklist-de.*
+n6collector_darklistdebl = n6datasources.collectors.darklist_de:DarklistDeBlCollector_main
+
+## dataplane.*
+n6collector_dataplanednsrd = n6datasources.collectors.dataplane:DataplaneDnsrdCollector_main
+n6collector_dataplanednsrdany = n6datasources.collectors.dataplane:DataplaneDnsrdanyCollector_main
+n6collector_dataplanednsversion = n6datasources.collectors.dataplane:DataplaneDnsversionCollector_main
+n6collector_dataplanesipinvitation = n6datasources.collectors.dataplane:DataplaneSipinvitationCollector_main
+n6collector_dataplanesipquery = n6datasources.collectors.dataplane:DataplaneSipqueryCollector_main
+n6collector_dataplanesipregistration = n6datasources.collectors.dataplane:DataplaneSipregistrationCollector_main
+n6collector_dataplanesmtpdata = n6datasources.collectors.dataplane:DataplaneSmtpdataCollector_main
+n6collector_dataplanesmtpgreet = n6datasources.collectors.dataplane:DataplaneSmtpgreetCollector_main
+n6collector_dataplanesshclient = n6datasources.collectors.dataplane:DataplaneSshclientCollector_main
+n6collector_dataplanesshpwauth = n6datasources.collectors.dataplane:DataplaneSshpwauthCollector_main
+n6collector_dataplanetelnetlogin = n6datasources.collectors.dataplane:DataplaneTelnetloginCollector_main
+n6collector_dataplanevncrfb = n6datasources.collectors.dataplane:DataplaneVncrfbCollector_main
+
+## greensnow-co.*
+n6collector_greensnowcolisttxt = n6datasources.collectors.greensnow_co:GreenSnowCoListTxtCollector_main
+
+## malwarepatrol.*
+n6collector_malwarepatrolmalurl = n6datasources.collectors.malwarepatrol:MalwarepatrolMalurlCollector_main
+
+## openphish.*
+n6collector_openphishwebbl = n6datasources.collectors.openphish:OpenphishWebBlCollector_main
+
+## sblam.*
+n6collector_sblamspam = n6datasources.collectors.sblam:SblamSpamCollector_main
+
+## shadowserver.*
+n6collector_shadowservermail = n6datasources.collectors.shadowserver:ShadowserverMailCollector_main
+
+## spamhaus.*
+n6collector_spamhausbots = n6datasources.collectors.spamhaus:SpamhausBotsCollector_main
+n6collector_spamhausdrop = n6datasources.collectors.spamhaus:SpamhausDropCollector_main
+n6collector_spamhausedrop = n6datasources.collectors.spamhaus:SpamhausEdropCollector_main
+
+## spam404_com.*
+n6collector_spam404comscamlistbl = n6datasources.collectors.spam404_com:Spam404ComScamListBlCollector_main
+
+## stopforum.*
+n6collector_stopforumspam = n6datasources.collectors.stopforum:StopForumSpamCollector_main
+
+## zoneh.*
+n6collector_zonehrss = n6datasources.collectors.zoneh:ZonehRssCollector_main
+
+## *.misp (generic collector; requires a config section name as the sole
+##         positional command-line argument -- because, for different
+##         MISP sources, separate instances of the collector script,
+##         each with its own config, are needed)
+n6collector_misp = n6datasources.collectors.misp:MispCollector_main
+
+## AMQP-based (generic collector; requires a config section name as the
+##             sole positional command-line argument -- because, for
+##             different AMQP-based sources, separate instances of the
+##             collector script, each with its own config, are needed)
+n6collector_amqp = n6datasources.collectors.amqp:AMQPCollector_main
+
+## manual (generic collector; takes a bunch of command-line options;
+##         see its `--help` message...)
+n6collector_manual = n6datasources.collectors.manual:ManualCollector_main
+
+
+# Parsers
+
+## abuse-ch.*
 n6parser_abusechfeodotracker202110 = n6datasources.parsers.abuse_ch:AbuseChFeodoTracker202110Parser_main
+n6parser_abusechsslblacklist201902 = n6datasources.parsers.abuse_ch:AbuseChSslBlacklist201902Parser_main
+n6parser_abusechurlhauspayloadsurls = n6datasources.parsers.abuse_ch:AbuseChUrlhausPayloadsUrlsParser_main
+n6parser_abusechurlhausurls202001 = n6datasources.parsers.abuse_ch:AbuseChUrlhausUrls202001Parser_main
+
+## blueliv.*
+n6parser_bluelivmap = n6datasources.parsers.blueliv:BluelivMapParser_main
+
+## cert_pl.*
+n6parser_certplshield = n6datasources.parsers.cert_pl:CertPlShieldParser_main
+
+## cesnet-cz.*
+n6parser_cesnetczwarden = n6datasources.parsers.cesnet_cz:CesnetCzWardenParser_main
+
+## dan-tv.*
+n6parser_dantvtor = n6datasources.parsers.dan_tv:DanTvTorParser_main
+
+## darklist-de.*
+n6parser_darklistdebl = n6datasources.parsers.darklist_de:DarklistDeBlParser_main
+
+## dataplane.*
+n6parser_dataplanednsrd = n6datasources.parsers.dataplane:DataplaneDnsrdParser_main
+n6parser_dataplanednsrdany = n6datasources.parsers.dataplane:DataplaneDnsrdanyParser_main
+n6parser_dataplanednsversion = n6datasources.parsers.dataplane:DataplaneDnsversionParser_main
+n6parser_dataplanesipinvitation = n6datasources.parsers.dataplane:DataplaneSipinvitationParser_main
+n6parser_dataplanesipquery = n6datasources.parsers.dataplane:DataplaneSipqueryParser_main
+n6parser_dataplanesipregistration = n6datasources.parsers.dataplane:DataplaneSipregistrationParser_main
+n6parser_dataplanesmtpdata = n6datasources.parsers.dataplane:DataplaneSmtpdataParser_main
+n6parser_dataplanesmtpgreet = n6datasources.parsers.dataplane:DataplaneSmtpgreetParser_main
+n6parser_dataplanesshclient = n6datasources.parsers.dataplane:DataplaneSshclientParser_main
+n6parser_dataplanesshpwauth = n6datasources.parsers.dataplane:DataplaneSshpwauthParser_main
+n6parser_dataplanetelnetlogin = n6datasources.parsers.dataplane:DataplaneTelnetloginParser_main
+n6parser_dataplanevncrfb = n6datasources.parsers.dataplane:DataplaneVncrfbParser_main
+
+## greensnow-co.*
+n6parser_greensnowcolisttxt = n6datasources.parsers.greensnow_co:GreenSnowCoListTxtParser_main
+
+## malwarepatrol.*
+n6parser_malwarepatrolmalurl201406 = n6datasources.parsers.malwarepatrol:MalwarepatrolMalurl201406Parser_main
+
+## manual
+n6parser_manual = n6datasources.parsers.manual:ManualParser_main
+
+## openphish.*
+n6parser_openphishwebbl = n6datasources.parsers.openphish:OpenphishWebBlParser_main
+n6parser_openphishweb = n6datasources.parsers.openphish:OpenphishWebParser_main
+
+## sblam.*
+n6parser_sblamspam = n6datasources.parsers.sblam:SblamSpamParser_main
+
+## shadowserver.*
+n6parser_shadowserveradb202204 = n6datasources.parsers.shadowserver:ShadowserverAdb202204Parser_main
+n6parser_shadowserverafp202204 = n6datasources.parsers.shadowserver:ShadowserverAfp202204Parser_main
+n6parser_shadowserveramqp202204 = n6datasources.parsers.shadowserver:ShadowserverAmqp202204Parser_main
+n6parser_shadowserverard202204 = n6datasources.parsers.shadowserver:ShadowserverArd202204Parser_main
+n6parser_shadowserverchargen201412 = n6datasources.parsers.shadowserver:ShadowserverChargen201412Parser_main
+n6parser_shadowserverciscosmartinstall202204 = n6datasources.parsers.shadowserver:ShadowserverCiscoSmartInstall202204Parser_main
+n6parser_shadowservercoap202204 = n6datasources.parsers.shadowserver:ShadowserverCoap202204Parser_main
+n6parser_shadowservercompromisedwebsite201412 = n6datasources.parsers.shadowserver:ShadowserverCompromisedWebsite201412Parser_main
+n6parser_shadowservercwmp201412 = n6datasources.parsers.shadowserver:ShadowserverCwmp201412Parser_main
+n6parser_shadowserverdarknet202203 = n6datasources.parsers.shadowserver:ShadowserverDarknet202203Parser_main
+n6parser_shadowserverdb2201412 = n6datasources.parsers.shadowserver:ShadowserverDb2201412Parser_main
+n6parser_shadowserverdvrdhcpdiscover202204 = n6datasources.parsers.shadowserver:ShadowserverDvrDhcpdiscover202204Parser_main
+n6parser_shadowserverelasticsearch201412 = n6datasources.parsers.shadowserver:ShadowserverElasticsearch201412Parser_main
+n6parser_shadowserverexchange202204 = n6datasources.parsers.shadowserver:ShadowserverExchange202204Parser_main
+n6parser_shadowserverftp202204 = n6datasources.parsers.shadowserver:ShadowserverFtp202204Parser_main
+n6parser_shadowserverhadoop202204 = n6datasources.parsers.shadowserver:ShadowserverHadoop202204Parser_main
+n6parser_shadowserverhttp202204 = n6datasources.parsers.shadowserver:ShadowserverHttp202204Parser_main
+n6parser_shadowserverics202204 = n6datasources.parsers.shadowserver:ShadowserverIcs202204Parser_main
+n6parser_shadowserveripmi201412 = n6datasources.parsers.shadowserver:ShadowserverIpmi201412Parser_main
+n6parser_shadowserveripp202204 = n6datasources.parsers.shadowserver:ShadowserverIpp202204Parser_main
+n6parser_shadowserverisakmp201412 = n6datasources.parsers.shadowserver:ShadowserverIsakmp201412Parser_main
+n6parser_shadowserverldap201412 = n6datasources.parsers.shadowserver:ShadowserverLdap201412Parser_main
+n6parser_shadowserverldaptcp202204 = n6datasources.parsers.shadowserver:ShadowserverLdapTcp202204Parser_main
+n6parser_shadowservermdns201412 = n6datasources.parsers.shadowserver:ShadowserverMdns201412Parser_main
+n6parser_shadowservermemcached201412 = n6datasources.parsers.shadowserver:ShadowserverMemcached201412Parser_main
+n6parser_shadowservermodbus202203 = n6datasources.parsers.shadowserver:ShadowserverModbus202203Parser_main
+n6parser_shadowservermongodb201412 = n6datasources.parsers.shadowserver:ShadowserverMongodb201412Parser_main
+n6parser_shadowservermqtt202204 = n6datasources.parsers.shadowserver:ShadowserverMqtt202204Parser_main
+n6parser_shadowservermssql201412 = n6datasources.parsers.shadowserver:ShadowserverMssql201412Parser_main
+n6parser_shadowservernatpmp201412 = n6datasources.parsers.shadowserver:ShadowserverNatpmp201412Parser_main
+n6parser_shadowservernetbios201412 = n6datasources.parsers.shadowserver:ShadowserverNetbios201412Parser_main
+n6parser_shadowservernetis201412 = n6datasources.parsers.shadowserver:ShadowserverNetis201412Parser_main
+n6parser_shadowserverntpmonitor201412 = n6datasources.parsers.shadowserver:ShadowserverNtpMonitor201412Parser_main
+n6parser_shadowserverntpversion201412 = n6datasources.parsers.shadowserver:ShadowserverNtpVersion201412Parser_main
+n6parser_shadowserveropenresolver201412 = n6datasources.parsers.shadowserver:ShadowserverOpenResolver201412Parser_main
+n6parser_shadowserverportmapper201412 = n6datasources.parsers.shadowserver:ShadowserverPortmapper201412Parser_main
+n6parser_shadowserverqotd201412 = n6datasources.parsers.shadowserver:ShadowserverQotd201412Parser_main
+n6parser_shadowserverradmin202204 = n6datasources.parsers.shadowserver:ShadowserverRadmin202204Parser_main
+n6parser_shadowserverrdp201412 = n6datasources.parsers.shadowserver:ShadowserverRdp201412Parser_main
+n6parser_shadowserverrdpeudp202204 = n6datasources.parsers.shadowserver:ShadowserverRdpeudp202204Parser_main
+n6parser_shadowserverredis201412 = n6datasources.parsers.shadowserver:ShadowserverRedis201412Parser_main
+n6parser_shadowserverrsync202204 = n6datasources.parsers.shadowserver:ShadowserverRsync202204Parser_main
+n6parser_shadowserversandboxurl201412 = n6datasources.parsers.shadowserver:ShadowserverSandboxUrl201412Parser_main
+n6parser_shadowserversinkhole202203 = n6datasources.parsers.shadowserver:ShadowserverSinkhole202203Parser_main
+n6parser_shadowserversinkholehttp202203 = n6datasources.parsers.shadowserver:ShadowserverSinkholeHttp202203Parser_main
+n6parser_shadowserversmb201412 = n6datasources.parsers.shadowserver:ShadowserverSmb201412Parser_main
+n6parser_shadowserversmtp202204 = n6datasources.parsers.shadowserver:ShadowserverSmtp202204Parser_main
+n6parser_shadowserversnmp201412 = n6datasources.parsers.shadowserver:ShadowserverSnmp201412Parser_main
+n6parser_shadowserverssdp201412 = n6datasources.parsers.shadowserver:ShadowserverSsdp201412Parser_main
+n6parser_shadowserversslfreak201412 = n6datasources.parsers.shadowserver:ShadowserverSslFreak201412Parser_main
+n6parser_shadowserversslpoodle201412 = n6datasources.parsers.shadowserver:ShadowserverSslPoodle201412Parser_main
+n6parser_shadowservertelnet201412 = n6datasources.parsers.shadowserver:ShadowserverTelnet201412Parser_main
+n6parser_shadowservertftp201412 = n6datasources.parsers.shadowserver:ShadowserverTftp201412Parser_main
+n6parser_shadowserverubiquiti202204 = n6datasources.parsers.shadowserver:ShadowserverUbiquiti202204Parser_main
+n6parser_shadowservervnc201412 = n6datasources.parsers.shadowserver:ShadowserverVnc201412Parser_main
+n6parser_shadowserverxdmcp201412 = n6datasources.parsers.shadowserver:ShadowserverXdmcp201412Parser_main
+
+## spamhaus.*
+n6parser_spamhausbots = n6datasources.parsers.spamhaus:SpamhausBotsParser_main
+n6parser_spamhausdrop = n6datasources.parsers.spamhaus:SpamhausDropParser_main
+n6parser_spamhausedrop202303 = n6datasources.parsers.spamhaus:SpamhausEdrop202303Parser_main
+
+## stopforum.*
+n6parser_stopforumspam = n6datasources.parsers.stopforum:StopForumSpamParser_main
+
+## spam404_com.*
+n6parser_spam404comscamlist = n6datasources.parsers.spam404_com:Spam404ComScamListParser_main
+n6parser_spam404comscamlistbl = n6datasources.parsers.spam404_com:Spam404ComScamListBlParser_main
+
+## zoneh.*
+n6parser_zonehrss = n6datasources.parsers.zoneh:ZonehRssParser_main
+
+## *.misp (note: only one parser script instance for all `*.misp` sources is needed)
+n6parser_misp = n6datasources.parsers.misp:MispParser_main

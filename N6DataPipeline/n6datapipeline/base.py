@@ -11,10 +11,15 @@ import collections
 import contextlib
 import copy
 import functools
+import inspect
 import pprint
 import re
 import sys
 import time
+from collections.abc import (
+    Awaitable,
+    Generator,
+)
 from typing import (
     Optional,
     SupportsBytes,
@@ -574,11 +579,9 @@ class LegacyQueuedBase(object):
             finally:
                 self._amqp_setup_timeout_callback_manager.deactivate()
         finally:
-            # note: in case of SIGINT/KeyboardInterrupt it is important
-            # that `self._publishing_generator` is closed *before* the
-            # pika IO loop is re-started by `stop()` [sic] -- to avoid
-            # the risk described in the last-but-one paragraph of the
-            # `publish_iteratively()`s docstring
+            # Note: in the case of `SIGINT`/`KeyboardInterrupt` it is
+            # important that `self._publishing_generator` is closed
+            # *before* the pika IO loop is re-started by `stop()` [sic].
             self._ensure_publishing_generator_closed()
 
     def update_connection_params_dict_before_run(self, params_dict):
@@ -1361,10 +1364,16 @@ class LegacyQueuedBase(object):
     # the `start_iterative_publishing()` and `publish_iteratively()`
     # methods (see below)...
 
-    # A marker to be yielded (instead of `None`) by `publish_iteratively()`
-    # to signal that we want to flush unconditionally the pika connection's
-    # outbound buffer.
+    # A marker to be yielded (instead of `None`) by a subclass-specific
+    # `publish_iteratively()` generator to signal that we want to flush
+    # unconditionally the pika connection's outbound buffer.
     FLUSH_OUT = 'FLUSH_OUT'
+
+    # Marker objects to be `await`-ed in `publish_iteratively()` *if* it
+    # is implemented as a *coroutine* (using the `async def` syntax),
+    # rather than a *generator*.
+    PubIter: Awaitable          # (awaiting it is equivalent to generator's `yield`)
+    PubIterFlushOut: Awaitable  # (awaiting it is equivalent to generator's `yield self.FLUSH_OUT`)
 
     # When the size (in bytes) of the pika connection's outbound buffer
     # reaches the value of this attribute then a full flush of the
@@ -1438,17 +1447,27 @@ class LegacyQueuedBase(object):
         * implement the `start_publishing()` method so that it calls
           this (`start_iterative_publishing()`) method, *and*
 
-        * implement the `publish_iteratively()` abstract method (as a
-          generator) -- see its docstring...
+        * implement the `publish_iteratively()` abstract method
+          (typically, as a coroutine or generator) -- see its
+          docstring...
 
         Therefore, typical usage looks like this:
 
             def start_publishing(self):
                 self.start_iterative_publishing()
 
+            async def publish_iteratively(self):
+                # Here: a custom implementation using `await`/`async...`
+                # statements (see the docstring of `publish_iteratively()`).
+
+        ...or this:
+
+            def start_publishing(self):
+                self.start_iterative_publishing()
+
             def publish_iteratively(self):
-                # here: a custom implementation -- see the
-                # docstring of `publish_iteratively()`...
+                # Here: a custom implementation using `yield` statements
+                # (see the docstring of `publish_iteratively()`).
         """
         if self.input_queue is not None:
             # (the mechanism implemented by `_iter_until_buffer_flushed()`
@@ -1463,23 +1482,40 @@ class LegacyQueuedBase(object):
 
     def publish_iteratively(self):
         """
-        An abstract method: the generator that implements the concrete
-        (subclass-customizable) part of *iterative publishing*.
+        An abstract method whose implementations should contain concrete
+        (subclass-specific) parts of *iterative publishing*.
 
-        If the *iterative publishing* mechanism is used (i.e., if the
-        `start_iterative_publishing()` method is called in
-        `start_publishing()`), the `publish_iteratively()` method
-        should be implemented as a generator that executes a `yield`
-        statement after each `publish_output()` call (or after a small
-        number of such calls).  The `yield` statement defines the
-        moment when the control *may* be given back (by the underlying
-        machinery of *iterative publishing*) to the pika connection's
-        IO loop.
+        The method should return:
 
-        The `yield` statement should have one of the following forms:
+        * *either* an awaitable object (typically, a *coroutine*) --
+          then, typically, the method will be implemented as a
+          *coroutine function*, i.e., using the `async def` syntax
+          (see: https://docs.python.org/3/glossary.html#term-coroutine);
+
+        * *or* a *generator iterator* -- then, typically, the
+          method will be implemented as a *generator* function
+          (see: https://docs.python.org/3/glossary.html#term-generator).
+
+        Note: to learn about the *coroutine*-based variant, see the
+        paragraphs near the end of this docstring...
+
+        ***
+
+        If `publish_iteratively()` is implemented just as a traditional
+        *generator* function, then it should execute a `yield` statement
+        after each `publish_output()` call (or at least after a small
+        number of such calls). Such a `yield` indicates a moment when
+        the control *may* be given back (by the underlying machinery of
+        *iterative publishing*) to the pika connection's IO loop.
+
+        Those `yield` statements should have one of the following forms:
 
         * `yield` (or `yield None` which is equivalent),
         * `yield self.FLUSH_OUT` (see below...).
+
+        The generator can also execute `yield from <iterable>`, provided
+        that `<iterable>` produces only `None` and/or `self.FLUSH_OUT`
+        items.
 
         Any exception propagated beyond the generator's `next()` (other
         than `StopIteration`, `SystemExit` or `KeyboardInterrupt`) will
@@ -1490,7 +1526,7 @@ class LegacyQueuedBase(object):
         the `iterative_publishing_exc_message_pattern` attribute (whose
         default value should be sufficient in nearly all cases).
 
-        Example implementation of `publish_iteratively()`:
+        Example implementation of `publish_iteratively()` as a generator:
 
             def publish_iteratively(self):
                 for foo in self._generate_many_foo():
@@ -1502,7 +1538,7 @@ class LegacyQueuedBase(object):
         the hood, it is called by the *iterative publishing* machinery,
         when needed).
 
-        There is also a possibility to manually force flushing out the
+        There is also a possibility to manually force *flushing out* the
         pika connection's outbound buffer -- by yielding the special
         marker: `self.FLUSH_OUT`; when it is yielded then the machinery
         of *iterative publishing* not only gives the control to the
@@ -1523,9 +1559,21 @@ class LegacyQueuedBase(object):
                 for foo in self._generate_many_foo():
                     output_components = self.get_output_components(foo=foo)
                     self.publish_output(*output_components)
-                    yield self.FLUSH_OUT
-                    # we can assume that *output_components* have been sent
-                    self.some_action_to_be_done_after_successful_publish()
+                    yield
+                yield self.FLUSH_OUT
+                # Here we can assume that all previously published data
+                # have been really sent, so:
+                self.some_action_to_be_done_after_successful_publication()
+
+        *Warning*: although *after* a successful (exception-free) *flush
+        out* operation we can assume that all data published before that
+        operation have been sent out (from the point of view of the AMQP
+        connection's output socket) that does *not* necessarily mean
+        that all those data have arrived at the AMQP broker and been
+        safely stored or handled there. (To ensure that, the mechanism
+        of RabbitMQ delivery confirmations would have to be used...
+        Maybe we will implement its use in the future, but for now we
+        must cope without it.)
 
         Note that yielding `self.FLUSH_OUT` at the end of the body of
         the `publish_iteratively()` implementation is *not necessary*
@@ -1534,24 +1582,62 @@ class LegacyQueuedBase(object):
         (of course, provided there is no connection error or other
         exceptional condition).
 
-        *Beware* that invasive asynchronous events, such as handling a
-        SIGINT by the standard handler that raises `KeyboardInterrupt`,
-        can break pika IO loop's data dispatch, i.e., it is possible
-        that the pika connection's outbound buffer appears to be fully
-        flushed but some data have *not* been actually sent via the
-        connection's output socket -- because `KeyboardInterrupt` (or
-        some other asynchronously raised exception) interfered...
-        Therefore, in case of any IO loop interruption caused by
-        `KeyboardInterrupt` (or by another invasive asynchronous event)
-        you should *not* ack or tick off your data as handled properly.
+        ***
 
-        Also, *note* that even the assumption that all data have been
-        sent (from the point of view of the output socket) does *not*
-        necessarily mean that all data have arrived at the AMQP broker
-        and been safely stored/handled there.  (To ensure that,
-        RabbitMQ delivery confirmations would have to be used...
-        Maybe we will implement their support in the future, but for
-        now we must cope without them).
+        If `publish_iteratively()` is implemented as a *coroutine*
+        function (i.e., defined with an `async def` statement) -- then
+        you need to use in it the `await` syntax (instead of `yield`)
+        -- in the following way:
+
+        * `await self.PubIter` will act like a bare `yield` in the
+          *generator*-based variant described above;
+
+        * `await self.PubIterFlushOut` will act like `yield self.FLUSH_OUT`
+          in the *generator*-based variant described above.
+
+        It is also worth noting that:
+
+        * `await <some awaitable>` as well as `async for...` and `async
+          with...` are allowed -- *provided that* all engaged awaitable
+          objects await *only*: `self.PubIter`, `self.PubIterFlushOut`,
+          and/or awaitable objects satisfying (recursively) this demand.
+
+          *A limitation which needs to be noted* is that, when it comes
+          to use of *asynchronous generators* (i.e., routines defined
+          with the `async def` syntax *and* containing any `yield`
+          statements), if the whole *iterative publishing* stuff is
+          interrupted by an exception (e.g., a `KeyboardInterrupt`
+          caused by receiving SIGINT; but also any other error...)
+          then such generators are *not* explicitly cleaned up in an
+          asynchronous manner (by calling their `aclose()` method and
+          awaiting the result). Therefore, a general rule is that
+          *asynchronous generators engaged in iterative publishing
+          **should not** include any `finally` blocks (or `except` blocks
+          catching `GeneratorExit`)*, because then strange things could
+          happen... (In particular, there would be *no guarantee* that
+          those blocks would be properly/fully executed. Also, what is
+          even more important, we cannot exclude the possibility that
+          if such blocks within an asynchronous generator are involved
+          then -- under some unfortunate circumstances -- a code in any
+          coroutine which is called, directly or indirectly, from within
+          that generator can no longer safely assume that all previously
+          published data have been really sent, even if that code is
+          placed directly below an `await self.PubIterFlushOut`
+          statement and no exception is observed by it!)
+
+        Below there is one of the `publish_iteratively()` implementation
+        examples from the earlier description of the *generator*-based
+        variant, translated to the *coroutine*-based variant:
+
+            async def publish_iteratively(self):
+                for foo in self._generate_many_foo():
+                    output_components = self.get_output_components(foo=foo)
+                    self.publish_output(*output_components)
+                    await self.PubIter
+                await self.PubIterFlushOut
+                # Here we can assume that all previously published data
+                # have been really sent, so:
+                self.some_action_to_be_done_after_successful_publication()
         """
         raise NotImplementedError
 
@@ -1716,19 +1802,21 @@ class LegacyQueuedBase(object):
         outbound_buffer_size_threshold = self.iterative_publishing_outbound_buffer_size_threshold
         yield_time_interval_threshold = self._get_yield_time_interval_threshold()
         yielding_allowed = True
-        concrete_publishing_generator = self.publish_iteratively()
+        publishing_impl = self.publish_iteratively()
+        publishing_impl_generator = (
+            self._publishing_impl_generator_from_awaitable(publishing_impl)
+            if inspect.isawaitable(publishing_impl) else publishing_impl)
         try:
             try:
                 # TODO: analyze whether time.time() should be replaced e.g. with time.monotonic().
                 yield_time = time.time()
-                for marker in concrete_publishing_generator:
+                for marker in publishing_impl_generator:
                     if marker not in (self.FLUSH_OUT, None):
                         raise ValueError('marker should be either {!a} or None '
                                          '(got: {!a})'.format(self.FLUSH_OUT, marker))
-                    if (marker == self.FLUSH_OUT or
-                          len(outbound_buffer) >= outbound_buffer_size_threshold):
-                        for _ in self._iter_until_buffer_flushed(outbound_buffer):
-                            yield
+                    if marker == self.FLUSH_OUT or (sum(map(bytes.__len__, outbound_buffer))
+                                                    >= outbound_buffer_size_threshold):
+                        yield from self._iter_until_buffer_flushed(outbound_buffer)
                         # Once the buffer is empty, let's *yield* one more time
                         # unconditionally -- to make it slightly more probable
                         # that the sent data have actually left the machine.
@@ -1743,11 +1831,10 @@ class LegacyQueuedBase(object):
                 raise
             finally:
                 try:
-                    concrete_publishing_generator.close()
+                    publishing_impl_generator.close()
                 finally:
                     if yielding_allowed:
-                        for _ in self._iter_until_buffer_flushed(outbound_buffer):
-                            yield
+                        yield from self._iter_until_buffer_flushed(outbound_buffer)
                         # Once the buffer is empty, let's *yield* one more time
                         # unconditionally -- to make it slightly more probable
                         # that the sent data have actually left the machine.
@@ -1780,6 +1867,30 @@ class LegacyQueuedBase(object):
         #   and such stuff...)
         return min(0.2 * self._conn_params_dict['heartbeat_interval'],
                    10.0)
+
+    class _AwaitablePubIter:
+        def __await__(self):
+            yield None
+
+    class _AwaitablePubIterFlushOut:
+        def __await__(self):
+            yield LegacyQueuedBase.FLUSH_OUT
+
+    PubIter = _AwaitablePubIter()
+    PubIterFlushOut = _AwaitablePubIterFlushOut()
+
+    def _publishing_impl_generator_from_awaitable(self, awaitable):
+        if sys.get_asyncgen_hooks().finalizer is not None:
+            raise RuntimeError(
+                "cannot use the *awaitable*/*coroutine*-based variant of "
+                "*iterative publishing* because `sys.get_asyncgen_hooks()`'s "
+                "finalizer is already set (by some external async event loop?)")
+        async def coroutine_func(aw):
+            await aw
+        coroutine = coroutine_func(awaitable)
+        generator = coroutine.__await__()
+        assert isinstance(generator, Generator)
+        return generator
 
     def _iter_until_buffer_flushed(self, outbound_buffer):
         while True:

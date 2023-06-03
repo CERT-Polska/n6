@@ -67,7 +67,7 @@ setup(
     include_package_data=True,
     python_requires='==3.9.*',
     zip_safe=False,
-    tests_require=['unittest_expander==0.3.1'],
+    tests_require=['unittest_expander==0.4.4'],
     test_suite='n6datasources.tests',
     install_requires=requirements,
     entry_points={

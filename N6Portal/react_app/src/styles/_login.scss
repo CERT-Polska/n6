@@ -3,7 +3,7 @@
 .reset-password-container {
   background-color: #fff;
   @include box-border;
-  padding: sizeToRem(80) 0 sizeToRem(44);
+  padding: sizeToRem(80) 0 sizeToRem(40);
   width: 100%;
   min-height: 100vh;
 
@@ -12,14 +12,14 @@
       width: sizeToRem(600);
       max-width: 100%;
       min-height: auto;
-      margin: sizeToRem(80) auto sizeToRem(60);
+      margin: sizeToRem(80) auto sizeToRem(55);
     }
   }
   @include media-breakpoint-up(lg) {
     width: sizeToRem(600);
     max-width: 100%;
     min-height: auto;
-    margin: sizeToRem(64) auto sizeToRem(60);
+    margin: sizeToRem(64) auto sizeToRem(55);
   }
 }
 
@@ -179,6 +179,11 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+.login-oidc-button {
+  font-size: 0.9em;
+  margin-bottom: 2em;
 }
 
 .login-icon,

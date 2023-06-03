@@ -1,7 +1,5 @@
 {
-  "terms": "Lista podpunktów regulaminu",
+  "terms": "Regulamin Usługi w formacie markdown",
   "checkboxLabel": "Treść wiadomości wyświetlanej po zaakceptowaniu regulaminu",
-  "header": "Nagłówek regulaminu",
-  "intro": "Warunki wstępne",
   "version": "Wersja dokumentu"
 }

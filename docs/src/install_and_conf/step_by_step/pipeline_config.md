@@ -23,7 +23,8 @@ $ ls /home/dataman/.n6/
 00_global.conf    02_archiveraw.conf  07_aggregator.conf  09_auth_db.conf
 10_generator_stream_api.conf  11_mailing.conf   23_filter.conf    25_splunk_emitter.conf
 00_pipeline.conf  05_enrich.conf      07_comparator.conf  10_generator_rest_api.conf
-11_jinja_rendering.conf 21_recorder.conf  24_notifier.conf  logging.conf
+11_jinja_rendering.conf       21_recorder.conf  60_abuse_ch.conf  60_misp.conf
+60_spam404_com.conf   [...]   logging.conf
 ```
 
 ## Logging
@@ -102,10 +103,10 @@ Note that you can download GeoIP database files from:
 Aggregator and Comparator both use a database file to serialize and deserialize an object which 
 is to be stored.
 
-Create directories for cache files, run the command:
+To create directories for state files, run the command:
 
 ```bash
-$ mkdir -p /home/dataman/.n6cache
+$ mkdir -p /home/dataman/.n6state
 ```
 
 The database file will be created automatically on the first aggregator or comparator run.
@@ -113,14 +114,14 @@ Edit file `/home/dataman/.n6/07_aggregator.conf` and provide values for config s
 
 ```ini
 [aggregator]
-dbpath=/home/dataman/.n6cache/aggregator_db.pickle
+dbpath=/home/dataman/.n6state/aggregator_db.pickle
 ```
 
 Edit file `/home/dataman/.n6/07_comparator.conf` and provide values for config section: _dbpath_. 
 
 ```ini
 [comparator]
-dbpath=/home/dataman/.n6cache/comparator_db.pickle
+dbpath=/home/dataman/.n6state/comparator_db.pickle
 ```
 
 It is recommended to leave the remaining configuration options with default values.
@@ -185,7 +186,7 @@ Now, let us try to run one of _n6_ parsers!
 ```bash
 (env)$ n6parser_abusechfeodotracker202110
 n6: INFO       2020-01-16 12:31:17,313 UTC n6lib.log_helpers         in configure_logging() (#133): logging configuration loaded from '/home/dataman/.n6/logging.conf'
-n6: INFO       2020-01-16 12:31:17,316 UTC n6lib.config              in _load_n6_config_files() (#1042): Config files read properly: "/home/dataman/.n6/00_global.conf", "/home/dataman/.n6/02_archiveraw.conf", "/home/dataman/.n6/05_enrich.conf", "/home/dataman/.n6/07_aggregator.conf", "/home/dataman/.n6/07_comparator.conf", "/home/dataman/.n6/09_auth_db.conf", "/home/dataman/.n6/09_manage.conf", "/home/dataman/.n6/21_recorder.conf", "/home/dataman/.n6/23_filter.conf", "/home/dataman/.n6/70_abuse_ch.conf", "/home/dataman/.n6/70_badips.conf", "/home/dataman/.n6/70_dns_bh.conf", "/home/dataman/.n6/70_greensnow.conf", "/home/dataman/.n6/70_misp.conf", "/home/dataman/.n6/70_packetmail.conf", "/home/dataman/.n6/70_spam404.conf", "/home/dataman/.n6/70_zone_h.conf"
+n6: INFO       2020-01-16 12:31:17,316 UTC n6lib.config              in _load_n6_config_files() (#1042): Config files read properly: "/home/dataman/.n6/00_global.conf", "/home/dataman/.n6/02_archiveraw.conf", "/home/dataman/.n6/05_enrich.conf", "/home/dataman/.n6/07_aggregator.conf", "/home/dataman/.n6/07_comparator.conf", "/home/dataman/.n6/09_auth_db.conf", "/home/dataman/.n6/21_recorder.conf", "/home/dataman/.n6/23_filter.conf", "/home/dataman/.n6/60_abuse_ch.conf", "/home/dataman/.n6/60_misp.conf", "/home/dataman/.n6/60_spam404_com.conf", [...]
 n6: INFO       2020-01-16 12:31:17,319 UTC n6.base.queue             in connect() (#459): Connecting to localhost
 n6: INFO       2020-01-16 12:31:17,320 UTC pika.adapters.base_connection in _create_and_connect_to_socket() (#212): Connecting to ::1:5672
 n6: INFO       2020-01-16 12:31:17,324 UTC n6.base.queue             in on_connection_open() (#492): Connection opened

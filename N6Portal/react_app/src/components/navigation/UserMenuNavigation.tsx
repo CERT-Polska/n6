@@ -6,6 +6,7 @@ import { Link, useHistory } from 'react-router-dom';
 import routeList from 'routes/routeList';
 import { getLogout } from 'api/auth';
 import { useTypedIntl } from 'utils/useTypedIntl';
+import useKeycloakContext from 'context/KeycloakContext';
 import useAuthContext from 'context/AuthContext';
 import LanguagePicker from 'components/shared/LanguagePicker';
 
@@ -22,13 +23,20 @@ const UserMenuNavigation: FC = () => {
     throw new Error(`${messages.header_nav_logout_error}`);
   }
 
+  const keycloakContext = useKeycloakContext();
+
   const handleLogout = async () => {
-    try {
-      await logoutFn.mutateAsync();
-      resetAuthState();
+    if (keycloakContext.isAuthenticated) {
       history.push(routeList.login);
-    } catch (error) {
-      setHasError(true);
+      keycloakContext.logout();
+    } else {
+      try {
+        await logoutFn.mutateAsync();
+        resetAuthState();
+        history.push(routeList.login);
+      } catch (error) {
+        setHasError(true);
+      }
     }
   };
 

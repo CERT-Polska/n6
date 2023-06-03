@@ -1,5 +1,0 @@
-include *.txt *.rst requirements requirements-*
-recursive-include n6lib *--data *.conf *.ini
-recursive-include n6lib/data *
-recursive-include n6lib/auth_db/alembic *.py *.mako README *.txt *.rst *.md
-recursive-include n6lib/tests/certs_and_requests_for_testing *

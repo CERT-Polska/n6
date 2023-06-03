@@ -1,9 +1,9 @@
-const express = require('express');
 const path = require('path');
+const express = require('express');
 const app = express();
 const host = '0.0.0.0';
 const port = 3001;
-const { DEFAULT_PATH, Config, Locale } = require('./config_app');
+const { DEFAULT_PATH, Config, Locale, OidcConfig } = require('./config_app');
 
 const DEFAULT_LOCALE_PATH = path.resolve(__dirname, 'locale');
 
@@ -25,6 +25,10 @@ app.get('/', (req, res) => {
   res.render('index');
 });
 
+app.get('/oidc', (req, res) => {
+  res.render('oidc');
+});
+
 app.get('/terms', (req, res) => {
   res.render('terms');
 });
@@ -33,6 +37,18 @@ app.get('/getConfig', (req, res) => {
   let config;
   try {
     config = new Config();
+  } catch (e) {
+    res.status(e.code).send(e.message);
+    return;
+  }
+  res.set('Content-Type', 'application/json');
+  res.send(config.config);
+});
+
+app.get('/getOidcConfig', (req, res) => {
+  let config;
+  try {
+    config = new OidcConfig();
   } catch (e) {
     res.status(e.code).send(e.message);
     return;
@@ -108,6 +124,53 @@ app.post('/saveConfig', (req, res) => {
         `as locale content.`;
       if (locale.createdDirs) msg += `\nThe proper directory structure has been created in the chosen location.`;
     }
+    res.send(msg);
+  } else {
+    // no request body
+    res.status(400).send('Invalid request');
+  }
+});
+
+app.post('/saveOidc', (req, res) => {
+  const ERR_MSG_MAP = {
+    REACT_APP_OIDC_BUTTON_LABEL_EN: 'Single Sign-on Log-in Button Label - English',
+    REACT_APP_OIDC_BUTTON_LABEL_PL: 'Single Sign-on Log-in Button Label - Polish',
+    OIDC_CONFIG: 'OpenID Connect Adapter Configuration'
+  };
+  if (req.body) {
+    for (const key in ERR_MSG_MAP) {
+      if (key === 'OIDC_CONFIG') {
+        if (req.body['REACT_APP_OIDC_AUTH_ENABLED'] && !req.body['OIDC_CONFIG'].trim()) {
+          res.status(400).send(`OpenID Connect SSO is enabled but ${ERR_MSG_MAP[key]} is empty`);
+          return;
+        }
+      } else if (!req.body[key]) {
+        res.status(400).send(`Invalid value of ${ERR_MSG_MAP[key]}`);
+        return;
+      }
+    }
+    let config;
+    let oidc;
+    const buttonLabels = {
+      en: req.body['REACT_APP_OIDC_BUTTON_LABEL_EN'],
+      pl: req.body['REACT_APP_OIDC_BUTTON_LABEL_PL']
+    };
+    const oidcEnabled = req.body['REACT_APP_OIDC_AUTH_ENABLED'];
+    try {
+      config = new Config();
+      oidc = new OidcConfig();
+      config.saveConfig({
+        REACT_APP_OIDC_AUTH_ENABLED: oidcEnabled,
+        REACT_APP_OIDC_BUTTON_LABEL: JSON.stringify(buttonLabels)
+      });
+      if (oidcEnabled) {
+        oidc.saveConfig(req.body['OIDC_CONFIG']);
+      }
+    } catch (e) {
+      res.status(e.code).send(e.message);
+      return;
+    }
+    const msg = 'Configuration has been successfully saved.';
     res.send(msg);
   } else {
     // no request body

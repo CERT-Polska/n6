@@ -107,7 +107,7 @@ ALL_MAGIC_METHOD_NAMES = (ORDINARY_MAGIC_METHOD_NAMES |
 
 class CombinedWithSuper:
 
-    """
+    r"""
     A descriptor that makes it possible to *extend* class attributes
     along the inheritance hierarchy -- much like methods can be
     *extended* by using `super()`.
@@ -119,7 +119,7 @@ class CombinedWithSuper:
     the same-named attribute of a subclass of `Root` (let's name it `A`);
     the resultant *combined value* is what you actually obtain when you
     attempt to get the attribute from the subclass (or from an instance
-    of it)... It is easier to show it rather than to explain it:
+    of it)... It is easier to show it than to explain it:
 
     >>> class Root:
     ...     attr = CombinedWithSuper({'x': 3, 'y': 4, 'z': 5, 'root': '!'})
@@ -576,7 +576,7 @@ class CombinedWithSuper:
     ...             self._log_lines.insert(0, self._SEPARATOR_LINE)
     ...         self._log_lines.insert(0, '[ BEGIN ]')
     ...         self._log_lines.append('[ END ]')
-    ...         print('\\n'.join(self._log_lines))
+    ...         print('\n'.join(self._log_lines))
     ...         self._log_lines.clear()
     ...
     >>> debug = _DebugHelper()
@@ -684,7 +684,7 @@ class CombinedWithSuper:
     ...     def __repr__(cls):
     ...         return f'{cls.__qualname__}'
     ...
-    >>> class X(metaclass=_ShortReprMeta):
+    >>> class E(metaclass=_ShortReprMeta):
     ...     def __repr__(self):
     ...         # (just for shorter instance reprs...)
     ...         return f'{self.__class__.__qualname__}()'
@@ -698,76 +698,76 @@ class CombinedWithSuper:
     ...     # treating it in any special way).
     ...     li = [1, 2]   # (<- it could be set here to `CombinedWithSuper([1, 2])`)
     ...
-    >>> class XChild(X):
+    >>> class EChild(E):
     ...     pass
     ...
-    >>> class Y(XChild):
+    >>> class F(EChild):
     ...     li = MyCombinedWithSuper([3, 4],
     ...                              value_combiner=my_contrived_combiner)
     ...     some_flag = MyCombinedWithSuper(re.ASCII)       # (no *value combiner* => default one)
     ...
-    >>> class YChild(Y):
+    >>> class FChild(F):
     ...     some_flag = MyCombinedWithSuper(re.IGNORECASE)  # (no *value combiner* => default one)
     ...
-    >>> class Z(YChild):
+    >>> class G(FChild):
     ...     li = MyCombinedWithSuper(value=[5, 6],
     ...                              value_combiner=my_contrived_combiner)
     ...
-    >>> X.__mro__ == (X, object)
+    >>> E.__mro__ == (E, object)
     True
-    >>> Y.__mro__ == (Y, XChild, X, object)
+    >>> F.__mro__ == (F, EChild, E, object)
     True
-    >>> Z.__mro__ == (Z, YChild, Y, XChild, X, object)
+    >>> G.__mro__ == (G, FChild, F, EChild, E, object)
     True
-    >>> [1, 2] == X.li == X().li == XChild.li == XChild().li
+    >>> [1, 2] == E.li == E().li == EChild.li == EChild().li
     True
-    >>> debug.dump()  # (note: nothing logged because X's `li` is *not* a `MyCombinedWithSuper`)
+    >>> debug.dump()  # (note: nothing logged because E's `li` is *not* a `MyCombinedWithSuper`)
     [ BEGIN ]
     [ END ]
-    >>> [1, 2, 3, 4] == Y.li == Y().li == YChild.li == YChild().li
+    >>> [1, 2, 3, 4] == F.li == F().li == FChild.li == FChild().li
     True
-    >>> [1, 2, 3, 4, 5, 6] == Z.li == Z().li
+    >>> [1, 2, 3, 4, 5, 6] == G.li == G().li
     True
     >>> debug.dump()
     [ BEGIN ]
     ----------------
-    * getting `Y.li`
-    └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(None, Y)`
-      * getting `super(Y, Y).li`
+    * getting `F.li`
+    └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(None, F)`
+      * getting `super(F, F).li`
       * value from super is `[1, 2]`
       * local value is `[3, 4]`
       * calling `my_contrived_combiner([1, 2], [3, 4])`
       -> `[1, 2, 3, 4]`
     ----------------
-    * getting `Y().li`
-    └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(Y(), Y)`
-      * getting `super(Y, Y()).li`
+    * getting `F().li`
+    └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(F(), F)`
+      * getting `super(F, F()).li`
       * value from super is `[1, 2]`
       * local value is `[3, 4]`
       * calling `my_contrived_combiner([1, 2], [3, 4])`
       -> `[1, 2, 3, 4]`
     ----------------
-    * getting `YChild.li`
-    └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(None, YChild)`
-      * getting `super(Y, YChild).li`
+    * getting `FChild.li`
+    └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(None, FChild)`
+      * getting `super(F, FChild).li`
       * value from super is `[1, 2]`
       * local value is `[3, 4]`
       * calling `my_contrived_combiner([1, 2], [3, 4])`
       -> `[1, 2, 3, 4]`
     ----------------
-    * getting `YChild().li`
-    └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(YChild(), YChild)`
-      * getting `super(Y, YChild()).li`
+    * getting `FChild().li`
+    └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(FChild(), FChild)`
+      * getting `super(F, FChild()).li`
       * value from super is `[1, 2]`
       * local value is `[3, 4]`
       * calling `my_contrived_combiner([1, 2], [3, 4])`
       -> `[1, 2, 3, 4]`
     ----------------
-    * getting `Z.li`
-    └ calling `<Z.li's MyCombinedWithSuper(...)>.__get__(None, Z)`
-      * getting `super(Z, Z).li`
-      └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(None, Z)`
-        * getting `super(Y, Z).li`
+    * getting `G.li`
+    └ calling `<G.li's MyCombinedWithSuper(...)>.__get__(None, G)`
+      * getting `super(G, G).li`
+      └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(None, G)`
+        * getting `super(F, G).li`
         * value from super is `[1, 2]`
         * local value is `[3, 4]`
         * calling `my_contrived_combiner([1, 2], [3, 4])`
@@ -777,11 +777,11 @@ class CombinedWithSuper:
       * calling `my_contrived_combiner([1, 2, 3, 4], [5, 6])`
       -> `[1, 2, 3, 4, 5, 6]`
     ----------------
-    * getting `Z().li`
-    └ calling `<Z.li's MyCombinedWithSuper(...)>.__get__(Z(), Z)`
-      * getting `super(Z, Z()).li`
-      └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(Z(), Z)`
-        * getting `super(Y, Z()).li`
+    * getting `G().li`
+    └ calling `<G.li's MyCombinedWithSuper(...)>.__get__(G(), G)`
+      * getting `super(G, G()).li`
+      └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(G(), G)`
+        * getting `super(F, G()).li`
         * value from super is `[1, 2]`
         * local value is `[3, 4]`
         * calling `my_contrived_combiner([1, 2], [3, 4])`
@@ -792,41 +792,41 @@ class CombinedWithSuper:
       -> `[1, 2, 3, 4, 5, 6]`
     ----------------
     [ END ]
-    >>> (hasattr(X, 'some_flag')
-    ...  or hasattr(X(), 'some_flag')
-    ...  or hasattr(XChild, 'some_flag')
-    ...  or hasattr(XChild(), 'some_flag'))
+    >>> (hasattr(E, 'some_flag')
+    ...  or hasattr(E(), 'some_flag')
+    ...  or hasattr(EChild, 'some_flag')
+    ...  or hasattr(EChild(), 'some_flag'))
     False
-    >>> debug.dump()  # (X and XChild just do *not* have a `some_flag` attribute)
+    >>> debug.dump()  # (E and EChild just do *not* have a `some_flag` attribute)
     [ BEGIN ]
     [ END ]
-    >>> re.ASCII == Y.some_flag == Y().some_flag
+    >>> re.ASCII == F.some_flag == F().some_flag
     True
-    >>> re.ASCII | re.IGNORECASE  \\
-    ...  == YChild.some_flag == YChild().some_flag == Z.some_flag == Z().some_flag
+    >>> re.ASCII | re.IGNORECASE  \
+    ...  == FChild.some_flag == FChild().some_flag == G.some_flag == G().some_flag
     True
     >>> debug.dump()
     [ BEGIN ]
     ----------------
-    * getting `Y.some_flag`
-    └ calling `<Y.some_flag's MyCombinedWithSuper(...)>.__get__(None, Y)`
-      * getting `super(Y, Y).some_flag`
+    * getting `F.some_flag`
+    └ calling `<F.some_flag's MyCombinedWithSuper(...)>.__get__(None, F)`
+      * getting `super(F, F).some_flag`
       * no value from super
       * local value is `re.ASCII`
       -> `re.ASCII`
     ----------------
-    * getting `Y().some_flag`
-    └ calling `<Y.some_flag's MyCombinedWithSuper(...)>.__get__(Y(), Y)`
-      * getting `super(Y, Y()).some_flag`
+    * getting `F().some_flag`
+    └ calling `<F.some_flag's MyCombinedWithSuper(...)>.__get__(F(), F)`
+      * getting `super(F, F()).some_flag`
       * no value from super
       * local value is `re.ASCII`
       -> `re.ASCII`
     ----------------
-    * getting `YChild.some_flag`
-    └ calling `<YChild.some_flag's MyCombinedWithSuper(...)>.__get__(None, YChild)`
-      * getting `super(YChild, YChild).some_flag`
-      └ calling `<Y.some_flag's MyCombinedWithSuper(...)>.__get__(None, YChild)`
-        * getting `super(Y, YChild).some_flag`
+    * getting `FChild.some_flag`
+    └ calling `<FChild.some_flag's MyCombinedWithSuper(...)>.__get__(None, FChild)`
+      * getting `super(FChild, FChild).some_flag`
+      └ calling `<F.some_flag's MyCombinedWithSuper(...)>.__get__(None, FChild)`
+        * getting `super(F, FChild).some_flag`
         * no value from super
         * local value is `re.ASCII`
         -> `re.ASCII`
@@ -835,11 +835,11 @@ class CombinedWithSuper:
       * calling `default_value_combiner(re.ASCII, re.IGNORECASE)`
       -> `re.ASCII|re.IGNORECASE`
     ----------------
-    * getting `YChild().some_flag`
-    └ calling `<YChild.some_flag's MyCombinedWithSuper(...)>.__get__(YChild(), YChild)`
-      * getting `super(YChild, YChild()).some_flag`
-      └ calling `<Y.some_flag's MyCombinedWithSuper(...)>.__get__(YChild(), YChild)`
-        * getting `super(Y, YChild()).some_flag`
+    * getting `FChild().some_flag`
+    └ calling `<FChild.some_flag's MyCombinedWithSuper(...)>.__get__(FChild(), FChild)`
+      * getting `super(FChild, FChild()).some_flag`
+      └ calling `<F.some_flag's MyCombinedWithSuper(...)>.__get__(FChild(), FChild)`
+        * getting `super(F, FChild()).some_flag`
         * no value from super
         * local value is `re.ASCII`
         -> `re.ASCII`
@@ -848,11 +848,11 @@ class CombinedWithSuper:
       * calling `default_value_combiner(re.ASCII, re.IGNORECASE)`
       -> `re.ASCII|re.IGNORECASE`
     ----------------
-    * getting `Z.some_flag`
-    └ calling `<YChild.some_flag's MyCombinedWithSuper(...)>.__get__(None, Z)`
-      * getting `super(YChild, Z).some_flag`
-      └ calling `<Y.some_flag's MyCombinedWithSuper(...)>.__get__(None, Z)`
-        * getting `super(Y, Z).some_flag`
+    * getting `G.some_flag`
+    └ calling `<FChild.some_flag's MyCombinedWithSuper(...)>.__get__(None, G)`
+      * getting `super(FChild, G).some_flag`
+      └ calling `<F.some_flag's MyCombinedWithSuper(...)>.__get__(None, G)`
+        * getting `super(F, G).some_flag`
         * no value from super
         * local value is `re.ASCII`
         -> `re.ASCII`
@@ -861,11 +861,11 @@ class CombinedWithSuper:
       * calling `default_value_combiner(re.ASCII, re.IGNORECASE)`
       -> `re.ASCII|re.IGNORECASE`
     ----------------
-    * getting `Z().some_flag`
-    └ calling `<YChild.some_flag's MyCombinedWithSuper(...)>.__get__(Z(), Z)`
-      * getting `super(YChild, Z()).some_flag`
-      └ calling `<Y.some_flag's MyCombinedWithSuper(...)>.__get__(Z(), Z)`
-        * getting `super(Y, Z()).some_flag`
+    * getting `G().some_flag`
+    └ calling `<FChild.some_flag's MyCombinedWithSuper(...)>.__get__(G(), G)`
+      * getting `super(FChild, G()).some_flag`
+      └ calling `<F.some_flag's MyCombinedWithSuper(...)>.__get__(G(), G)`
+        * getting `super(F, G()).some_flag`
         * no value from super
         * local value is `re.ASCII`
         -> `re.ASCII`
@@ -878,7 +878,7 @@ class CombinedWithSuper:
 
     And now, again, multiple inheritance (with a "diamond"...):
 
-    >>> class I(XChild):
+    >>> class I(EChild):
     ...     li = MyCombinedWithSuper(MY_MISSING_TRIGGER,
     ...                              value_combiner=my_contrived_combiner)
     ...     some_flag = MyCombinedWithSuper()            # (<- no wrapped value, default combiner)
@@ -887,24 +887,24 @@ class CombinedWithSuper:
     ...     li = MyCombinedWithSuper([123456789],
     ...                              value_combiner=my_contrived_combiner)
     ...
-    >>> class K(XChild):
+    >>> class K(EChild):
     ...     li = MyCombinedWithSuper(MY_REPLACE_TRIGGER,
     ...                              value_combiner=my_contrived_combiner)
     ...     some_flag = MyCombinedWithSuper(value_combiner=operator.or_)   # (<- no wrapped value)
     ...
-    >>> class ZK(Z, K):
+    >>> class GK(G, K):
     ...     li = MyCombinedWithSuper([2021, 2022],
     ...                              value_combiner=my_contrived_combiner)
     ...     some_flag = MyCombinedWithSuper(re.VERBOSE,
     ...                                     value_combiner=operator.or_)
     ...
-    >>> I.__mro__ == (I, XChild, X, object)
+    >>> I.__mro__ == (I, EChild, E, object)
     True
-    >>> J.__mro__ == (J, I, XChild, X, object)
+    >>> J.__mro__ == (J, I, EChild, E, object)
     True
-    >>> K.__mro__ == (K, XChild, X, object)
+    >>> K.__mro__ == (K, EChild, E, object)
     True
-    >>> ZK.__mro__ == (ZK, Z, YChild, Y, K, XChild, X, object)
+    >>> GK.__mro__ == (GK, G, FChild, F, K, EChild, E, object)
     True
     >>> hasattr(I, 'li') or hasattr(I(), 'li')
     False
@@ -932,7 +932,7 @@ class CombinedWithSuper:
     True
     >>> [42] == K.li == K().li
     True
-    >>> [42, 3, 4, 5, 6, 2021, 2022] == ZK.li == ZK().li
+    >>> [42, 3, 4, 5, 6, 2021, 2022] == GK.li == GK().li
     True
     >>> debug.dump()
     [ BEGIN ]
@@ -979,15 +979,15 @@ class CombinedWithSuper:
       * calling `my_contrived_combiner([1, 2], 'MY_REPLACE_TRIGGER')`
       -> `[42]`
     ----------------
-    * getting `ZK.li`
-    └ calling `<ZK.li's MyCombinedWithSuper(...)>.__get__(None, ZK)`
-      * getting `super(ZK, ZK).li`
-      └ calling `<Z.li's MyCombinedWithSuper(...)>.__get__(None, ZK)`
-        * getting `super(Z, ZK).li`
-        └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(None, ZK)`
-          * getting `super(Y, ZK).li`
-          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(None, ZK)`
-            * getting `super(K, ZK).li`
+    * getting `GK.li`
+    └ calling `<GK.li's MyCombinedWithSuper(...)>.__get__(None, GK)`
+      * getting `super(GK, GK).li`
+      └ calling `<G.li's MyCombinedWithSuper(...)>.__get__(None, GK)`
+        * getting `super(G, GK).li`
+        └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(None, GK)`
+          * getting `super(F, GK).li`
+          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(None, GK)`
+            * getting `super(K, GK).li`
             * value from super is `[1, 2]`
             * local value is `'MY_REPLACE_TRIGGER'`
             * calling `my_contrived_combiner([1, 2], 'MY_REPLACE_TRIGGER')`
@@ -1005,15 +1005,15 @@ class CombinedWithSuper:
       * calling `my_contrived_combiner([42, 3, 4, 5, 6], [2021, 2022])`
       -> `[42, 3, 4, 5, 6, 2021, 2022]`
     ----------------
-    * getting `ZK().li`
-    └ calling `<ZK.li's MyCombinedWithSuper(...)>.__get__(ZK(), ZK)`
-      * getting `super(ZK, ZK()).li`
-      └ calling `<Z.li's MyCombinedWithSuper(...)>.__get__(ZK(), ZK)`
-        * getting `super(Z, ZK()).li`
-        └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(ZK(), ZK)`
-          * getting `super(Y, ZK()).li`
-          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(ZK(), ZK)`
-            * getting `super(K, ZK()).li`
+    * getting `GK().li`
+    └ calling `<GK.li's MyCombinedWithSuper(...)>.__get__(GK(), GK)`
+      * getting `super(GK, GK()).li`
+      └ calling `<G.li's MyCombinedWithSuper(...)>.__get__(GK(), GK)`
+        * getting `super(G, GK()).li`
+        └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(GK(), GK)`
+          * getting `super(F, GK()).li`
+          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(GK(), GK)`
+            * getting `super(K, GK()).li`
             * value from super is `[1, 2]`
             * local value is `'MY_REPLACE_TRIGGER'`
             * calling `my_contrived_combiner([1, 2], 'MY_REPLACE_TRIGGER')`
@@ -1085,20 +1085,20 @@ class CombinedWithSuper:
       -> exception `AttributeError`
     ----------------
     [ END ]
-    >>> re.ASCII | re.IGNORECASE | re.VERBOSE == ZK.some_flag == ZK().some_flag
+    >>> re.ASCII | re.IGNORECASE | re.VERBOSE == GK.some_flag == GK().some_flag
     True
     >>> debug.dump()
     [ BEGIN ]
     ----------------
-    * getting `ZK.some_flag`
-    └ calling `<ZK.some_flag's MyCombinedWithSuper(...)>.__get__(None, ZK)`
-      * getting `super(ZK, ZK).some_flag`
-      └ calling `<YChild.some_flag's MyCombinedWithSuper(...)>.__get__(None, ZK)`
-        * getting `super(YChild, ZK).some_flag`
-        └ calling `<Y.some_flag's MyCombinedWithSuper(...)>.__get__(None, ZK)`
-          * getting `super(Y, ZK).some_flag`
-          └ calling `<K.some_flag's MyCombinedWithSuper(...)>.__get__(None, ZK)`
-            * getting `super(K, ZK).some_flag`
+    * getting `GK.some_flag`
+    └ calling `<GK.some_flag's MyCombinedWithSuper(...)>.__get__(None, GK)`
+      * getting `super(GK, GK).some_flag`
+      └ calling `<FChild.some_flag's MyCombinedWithSuper(...)>.__get__(None, GK)`
+        * getting `super(FChild, GK).some_flag`
+        └ calling `<F.some_flag's MyCombinedWithSuper(...)>.__get__(None, GK)`
+          * getting `super(F, GK).some_flag`
+          └ calling `<K.some_flag's MyCombinedWithSuper(...)>.__get__(None, GK)`
+            * getting `super(K, GK).some_flag`
             * no value from super
             * no local value
             -> exception `AttributeError`
@@ -1114,15 +1114,15 @@ class CombinedWithSuper:
       * calling `or_(re.ASCII|re.IGNORECASE, re.VERBOSE)`
       -> `re.ASCII|re.IGNORECASE|re.VERBOSE`
     ----------------
-    * getting `ZK().some_flag`
-    └ calling `<ZK.some_flag's MyCombinedWithSuper(...)>.__get__(ZK(), ZK)`
-      * getting `super(ZK, ZK()).some_flag`
-      └ calling `<YChild.some_flag's MyCombinedWithSuper(...)>.__get__(ZK(), ZK)`
-        * getting `super(YChild, ZK()).some_flag`
-        └ calling `<Y.some_flag's MyCombinedWithSuper(...)>.__get__(ZK(), ZK)`
-          * getting `super(Y, ZK()).some_flag`
-          └ calling `<K.some_flag's MyCombinedWithSuper(...)>.__get__(ZK(), ZK)`
-            * getting `super(K, ZK()).some_flag`
+    * getting `GK().some_flag`
+    └ calling `<GK.some_flag's MyCombinedWithSuper(...)>.__get__(GK(), GK)`
+      * getting `super(GK, GK()).some_flag`
+      └ calling `<FChild.some_flag's MyCombinedWithSuper(...)>.__get__(GK(), GK)`
+        * getting `super(FChild, GK()).some_flag`
+        └ calling `<F.some_flag's MyCombinedWithSuper(...)>.__get__(GK(), GK)`
+          * getting `super(F, GK()).some_flag`
+          └ calling `<K.some_flag's MyCombinedWithSuper(...)>.__get__(GK(), GK)`
+            * getting `super(K, GK()).some_flag`
             * no value from super
             * no local value
             -> exception `AttributeError`
@@ -1145,15 +1145,15 @@ class CombinedWithSuper:
     as if the relevant attribute was not present in any of the super
     classes:
 
-    >>> class L(XChild):
+    >>> class L(EChild):
     ...     li = CombinedWithSuper.MISSING
     ...
     >>> class M(L):
     ...     li = MyCombinedWithSuper(987654321)
     ...
-    >>> L.__mro__ == (L, XChild, X, object)
+    >>> L.__mro__ == (L, EChild, E, object)
     True
-    >>> M.__mro__ == (M, L, XChild, X, object)
+    >>> M.__mro__ == (M, L, EChild, E, object)
     True
     >>> CombinedWithSuper.MISSING is L.li is L().li
     True
@@ -1188,34 +1188,34 @@ class CombinedWithSuper:
     ...                              # (lists do *not* support `|` => expecting `TypeError`)
     ...                              value_combiner=operator.or_)
     ...
-    >>> class WrongZK(WrongMixin, ZK):
+    >>> class WrongGK(WrongMixin, GK):
     ...     pass
     ...
-    >>> WrongZK.__mro__ == (  # (note: here `WrongMixin` is near the beginning of the MRO)
-    ...     WrongZK, WrongMixin, ZK, Z, YChild, Y, K, XChild, X, object)
+    >>> WrongGK.__mro__ == (  # (note: here `WrongMixin` is near the beginning of the MRO)
+    ...     WrongGK, WrongMixin, GK, G, FChild, F, K, EChild, E, object)
     True
-    >>> WrongZK.li     # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> WrongGK.li     # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     TypeError: ...
-    >>> WrongZK().li   # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> WrongGK().li   # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     TypeError: ...
     >>> debug.dump()
     [ BEGIN ]
     ----------------
-    * getting `WrongZK.li`
-    └ calling `<WrongMixin.li's MyCombinedWithSuper(...)>.__get__(None, WrongZK)`
-      * getting `super(WrongMixin, WrongZK).li`
-      └ calling `<ZK.li's MyCombinedWithSuper(...)>.__get__(None, WrongZK)`
-        * getting `super(ZK, WrongZK).li`
-        └ calling `<Z.li's MyCombinedWithSuper(...)>.__get__(None, WrongZK)`
-          * getting `super(Z, WrongZK).li`
-          └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(None, WrongZK)`
-            * getting `super(Y, WrongZK).li`
-            └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(None, WrongZK)`
-              * getting `super(K, WrongZK).li`
+    * getting `WrongGK.li`
+    └ calling `<WrongMixin.li's MyCombinedWithSuper(...)>.__get__(None, WrongGK)`
+      * getting `super(WrongMixin, WrongGK).li`
+      └ calling `<GK.li's MyCombinedWithSuper(...)>.__get__(None, WrongGK)`
+        * getting `super(GK, WrongGK).li`
+        └ calling `<G.li's MyCombinedWithSuper(...)>.__get__(None, WrongGK)`
+          * getting `super(G, WrongGK).li`
+          └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(None, WrongGK)`
+            * getting `super(F, WrongGK).li`
+            └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(None, WrongGK)`
+              * getting `super(K, WrongGK).li`
               * value from super is `[1, 2]`
               * local value is `'MY_REPLACE_TRIGGER'`
               * calling `my_contrived_combiner([1, 2], 'MY_REPLACE_TRIGGER')`
@@ -1237,17 +1237,17 @@ class CombinedWithSuper:
       * calling `or_([42, 3, 4, 5, 6, 2021, 2022], [123, 456])`
       -> exception `TypeError`
     ----------------
-    * getting `WrongZK().li`
-    └ calling `<WrongMixin.li's MyCombinedWithSuper(...)>.__get__(WrongZK(), WrongZK)`
-      * getting `super(WrongMixin, WrongZK()).li`
-      └ calling `<ZK.li's MyCombinedWithSuper(...)>.__get__(WrongZK(), WrongZK)`
-        * getting `super(ZK, WrongZK()).li`
-        └ calling `<Z.li's MyCombinedWithSuper(...)>.__get__(WrongZK(), WrongZK)`
-          * getting `super(Z, WrongZK()).li`
-          └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(WrongZK(), WrongZK)`
-            * getting `super(Y, WrongZK()).li`
-            └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(WrongZK(), WrongZK)`
-              * getting `super(K, WrongZK()).li`
+    * getting `WrongGK().li`
+    └ calling `<WrongMixin.li's MyCombinedWithSuper(...)>.__get__(WrongGK(), WrongGK)`
+      * getting `super(WrongMixin, WrongGK()).li`
+      └ calling `<GK.li's MyCombinedWithSuper(...)>.__get__(WrongGK(), WrongGK)`
+        * getting `super(GK, WrongGK()).li`
+        └ calling `<G.li's MyCombinedWithSuper(...)>.__get__(WrongGK(), WrongGK)`
+          * getting `super(G, WrongGK()).li`
+          └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(WrongGK(), WrongGK)`
+            * getting `super(F, WrongGK()).li`
+            └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(WrongGK(), WrongGK)`
+              * getting `super(K, WrongGK()).li`
               * value from super is `[1, 2]`
               * local value is `'MY_REPLACE_TRIGGER'`
               * calling `my_contrived_combiner([1, 2], 'MY_REPLACE_TRIGGER')`
@@ -1272,32 +1272,32 @@ class CombinedWithSuper:
     [ END ]
 
     Note, however, that in the example below `WrongMixin.li` is not even
-    touched (so its value combiners are never invoked) -- because `X.li`
+    touched (so its value combiners are never invoked) -- because `E.li`
     is *not* a `CombinedWithSuper`, so `WrongMixin.li` is *shadowed*
     (rather than *extended*) by it:
 
-    >>> class ZKThenWrong(ZK, WrongMixin):
+    >>> class GKThenWrong(GK, WrongMixin):
     ...     pass
     ...
-    >>> ZKThenWrong.__mro__ == (  # (note: here `WrongMixin` is near the end of the MRO, after `X`)
-    ...     ZKThenWrong, ZK, Z, YChild, Y, K, XChild, X, WrongMixin, object)
+    >>> GKThenWrong.__mro__ == (  # (note: here `WrongMixin` is near the end of the MRO, after `E`)
+    ...     GKThenWrong, GK, G, FChild, F, K, EChild, E, WrongMixin, object)
     True
-    >>> ZKThenWrong.li
+    >>> GKThenWrong.li
     [42, 3, 4, 5, 6, 2021, 2022]
-    >>> ZKThenWrong().li
+    >>> GKThenWrong().li
     [42, 3, 4, 5, 6, 2021, 2022]
     >>> debug.dump()
     [ BEGIN ]
     ----------------
-    * getting `ZKThenWrong.li`
-    └ calling `<ZK.li's MyCombinedWithSuper(...)>.__get__(None, ZKThenWrong)`
-      * getting `super(ZK, ZKThenWrong).li`
-      └ calling `<Z.li's MyCombinedWithSuper(...)>.__get__(None, ZKThenWrong)`
-        * getting `super(Z, ZKThenWrong).li`
-        └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(None, ZKThenWrong)`
-          * getting `super(Y, ZKThenWrong).li`
-          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(None, ZKThenWrong)`
-            * getting `super(K, ZKThenWrong).li`
+    * getting `GKThenWrong.li`
+    └ calling `<GK.li's MyCombinedWithSuper(...)>.__get__(None, GKThenWrong)`
+      * getting `super(GK, GKThenWrong).li`
+      └ calling `<G.li's MyCombinedWithSuper(...)>.__get__(None, GKThenWrong)`
+        * getting `super(G, GKThenWrong).li`
+        └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(None, GKThenWrong)`
+          * getting `super(F, GKThenWrong).li`
+          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(None, GKThenWrong)`
+            * getting `super(K, GKThenWrong).li`
             * value from super is `[1, 2]`
             * local value is `'MY_REPLACE_TRIGGER'`
             * calling `my_contrived_combiner([1, 2], 'MY_REPLACE_TRIGGER')`
@@ -1315,15 +1315,15 @@ class CombinedWithSuper:
       * calling `my_contrived_combiner([42, 3, 4, 5, 6], [2021, 2022])`
       -> `[42, 3, 4, 5, 6, 2021, 2022]`
     ----------------
-    * getting `ZKThenWrong().li`
-    └ calling `<ZK.li's MyCombinedWithSuper(...)>.__get__(ZKThenWrong(), ZKThenWrong)`
-      * getting `super(ZK, ZKThenWrong()).li`
-      └ calling `<Z.li's MyCombinedWithSuper(...)>.__get__(ZKThenWrong(), ZKThenWrong)`
-        * getting `super(Z, ZKThenWrong()).li`
-        └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(ZKThenWrong(), ZKThenWrong)`
-          * getting `super(Y, ZKThenWrong()).li`
-          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(ZKThenWrong(), ZKThenWrong)`
-            * getting `super(K, ZKThenWrong()).li`
+    * getting `GKThenWrong().li`
+    └ calling `<GK.li's MyCombinedWithSuper(...)>.__get__(GKThenWrong(), GKThenWrong)`
+      * getting `super(GK, GKThenWrong()).li`
+      └ calling `<G.li's MyCombinedWithSuper(...)>.__get__(GKThenWrong(), GKThenWrong)`
+        * getting `super(G, GKThenWrong()).li`
+        └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(GKThenWrong(), GKThenWrong)`
+          * getting `super(F, GKThenWrong()).li`
+          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(GKThenWrong(), GKThenWrong)`
+            * getting `super(K, GKThenWrong()).li`
             * value from super is `[1, 2]`
             * local value is `'MY_REPLACE_TRIGGER'`
             * calling `my_contrived_combiner([1, 2], 'MY_REPLACE_TRIGGER')`
@@ -1344,37 +1344,37 @@ class CombinedWithSuper:
     [ END ]
 
     And, below, the `WrongMixin` class is somewhere in the middle of
-    `__mro__` of the attribute lookup owner class (`ZWrongK`):
+    `__mro__` of the attribute lookup owner class (`GWrongK`):
 
     >>> class WrongK(WrongMixin, K):
     ...     pass
     ...
-    >>> class ZWrongK(Z, WrongK):
+    >>> class GWrongK(G, WrongK):
     ...     pass
     ...
-    >>> ZWrongK.__mro__ == (
-    ...     ZWrongK, Z, YChild, Y, WrongK, WrongMixin, K, XChild, X, object)
+    >>> GWrongK.__mro__ == (
+    ...     GWrongK, G, FChild, F, WrongK, WrongMixin, K, EChild, E, object)
     True
-    >>> ZWrongK.li     # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> GWrongK.li     # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     TypeError: ...
-    >>> ZWrongK().li   # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> GWrongK().li   # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     TypeError: ...
     >>> debug.dump()
     [ BEGIN ]
     ----------------
-    * getting `ZWrongK.li`
-    └ calling `<Z.li's MyCombinedWithSuper(...)>.__get__(None, ZWrongK)`
-      * getting `super(Z, ZWrongK).li`
-      └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(None, ZWrongK)`
-        * getting `super(Y, ZWrongK).li`
-        └ calling `<WrongMixin.li's MyCombinedWithSuper(...)>.__get__(None, ZWrongK)`
-          * getting `super(WrongMixin, ZWrongK).li`
-          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(None, ZWrongK)`
-            * getting `super(K, ZWrongK).li`
+    * getting `GWrongK.li`
+    └ calling `<G.li's MyCombinedWithSuper(...)>.__get__(None, GWrongK)`
+      * getting `super(G, GWrongK).li`
+      └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(None, GWrongK)`
+        * getting `super(F, GWrongK).li`
+        └ calling `<WrongMixin.li's MyCombinedWithSuper(...)>.__get__(None, GWrongK)`
+          * getting `super(WrongMixin, GWrongK).li`
+          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(None, GWrongK)`
+            * getting `super(K, GWrongK).li`
             * value from super is `[1, 2]`
             * local value is `'MY_REPLACE_TRIGGER'`
             * calling `my_contrived_combiner([1, 2], 'MY_REPLACE_TRIGGER')`
@@ -1386,15 +1386,15 @@ class CombinedWithSuper:
         -> exception `TypeError`
       -> exception `TypeError`
     ----------------
-    * getting `ZWrongK().li`
-    └ calling `<Z.li's MyCombinedWithSuper(...)>.__get__(ZWrongK(), ZWrongK)`
-      * getting `super(Z, ZWrongK()).li`
-      └ calling `<Y.li's MyCombinedWithSuper(...)>.__get__(ZWrongK(), ZWrongK)`
-        * getting `super(Y, ZWrongK()).li`
-        └ calling `<WrongMixin.li's MyCombinedWithSuper(...)>.__get__(ZWrongK(), ZWrongK)`
-          * getting `super(WrongMixin, ZWrongK()).li`
-          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(ZWrongK(), ZWrongK)`
-            * getting `super(K, ZWrongK()).li`
+    * getting `GWrongK().li`
+    └ calling `<G.li's MyCombinedWithSuper(...)>.__get__(GWrongK(), GWrongK)`
+      * getting `super(G, GWrongK()).li`
+      └ calling `<F.li's MyCombinedWithSuper(...)>.__get__(GWrongK(), GWrongK)`
+        * getting `super(F, GWrongK()).li`
+        └ calling `<WrongMixin.li's MyCombinedWithSuper(...)>.__get__(GWrongK(), GWrongK)`
+          * getting `super(WrongMixin, GWrongK()).li`
+          └ calling `<K.li's MyCombinedWithSuper(...)>.__get__(GWrongK(), GWrongK)`
+            * getting `super(K, GWrongK()).li`
             * value from super is `[1, 2]`
             * local value is `'MY_REPLACE_TRIGGER'`
             * calling `my_contrived_combiner([1, 2], 'MY_REPLACE_TRIGGER')`
@@ -1411,11 +1411,11 @@ class CombinedWithSuper:
     A value combiner should not raise `AttributeError`. If it does then
     such an exception is replaced with `RuntimeError`:
 
-    >>> class AlsoWrong(XChild):
+    >>> class AlsoWrong(EChild):
     ...     li = MyCombinedWithSuper(MY_ATTRIBUTE_ERROR_TRIGGER,
     ...                              value_combiner=my_contrived_combiner)
     ...
-    >>> AlsoWrong.__mro__ == (AlsoWrong, XChild, X, object)
+    >>> AlsoWrong.__mro__ == (AlsoWrong, EChild, E, object)
     True
     >>> AlsoWrong.li     # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):

@@ -5,6 +5,13 @@ html
     script(src='app.js')
   body
     h1= "n6 Portal GUI configurator"
+    h2
+      | The form allows to customize the contents of the Portal's "Terms of Service", in English
+      | and Polish.
+    h3 "Terms of Service" will be presented to user during the account registration.
+    h3
+      | User has to agree to these terms, so you will probably want to adjust them, so they
+      | suit your preferences.
     div#infoMsg.hidden
     div#errorMsg.hidden
     div.formWrapper
@@ -16,10 +23,12 @@ html
     div#buttons
       button(type="button")#sendBtn= "Save current locale"
       button(type="button")#resetBtn= "Reset forms"
-      button(type="button")#previousBtn= "Go to previous screen"
+      button(type="button")#previousBtn= "Go to previous view"
   script.
     setFormListeners();
     document.querySelector('#previousBtn').addEventListener('click', onPrevious, false);
+
+    const TERMS_LIST_TYPE = 'list';
 
     const trashIcon = '<svg xmlns="http://www.w3.org/2000/svg" class="icon icon-tabler ' +
             'icon-tabler-trash" width="24" height="24" viewBox="0 0 24 24" stroke-width="1.5" ' +
@@ -33,54 +42,69 @@ html
             '</svg>';
 
     function _fillSection(data, formId) {
-      // TODO: make the function more versatile, remove hardcoded field
-      // names, get field names from '_required' schema field etc.
       let formObj = document.querySelector(formId);
       for (const key in data['_schema']) {
+        let inputType = 'input';
+        let isFieldDisabled = false;
+        let inputClass = null;
         if (key === 'terms') {
-          // multi-valued input
-          let mainContainer = document.createElement('div');
-          mainContainer.classList.add('multiContainer');
-          formObj.appendChild(mainContainer);
-          let newLabel = document.createElement('label');
-          newLabel.textContent = data['_schema'][key];
-          mainContainer.appendChild(newLabel);
-          if (!data.hasOwnProperty(key) || !Array.isArray(data[key]) || data[key].length === 0) {
-            // add empty field if the fetched value is empty
-            let container = document.createElement('div');
-            container.classList.add('multiField');
-            mainContainer.appendChild(container);
-            addInputPair(container, '#1', `${key}[0]`, '', 'textarea', 'multiInput');
-          } else {
-            for (const i in data[key]) {
-              // container for a label-input pair
-              let container = document.createElement('div');
-              container.classList.add('multiField');
-              mainContainer.appendChild(container);
-              addInputPair(container, `#${Number.parseInt(i) + 1}`, `${key}[${i}]`,
-                      data[key][i], 'textarea', 'multiInput');
-              if (i > 0) {
-                let delIcon = document.createElement('svg');
-                delIcon.innerHTML = trashIcon;
-                delIcon.addEventListener('click', onDel, false);
-                container.appendChild(delIcon);
-              }
-            }
-          }
-          let addBtn = document.createElement('button');
-          addBtn.textContent = 'Add next field';
-          addBtn.type = 'button';
-          mainContainer.appendChild(addBtn);
-          addBtn.addEventListener('click', onAdd, false);
-        } else if (key === 'version') {
-          addInputPair(formObj, data['_schema'][key], key, data[key], 'input', 'disabledField', true);
-        } else {
-          // use multi-line textarea HTML elements only for some
-          // of form fields
-          let inputType = key === 'precaution' ? 'textarea' : 'input';
-          addInputPair(formObj, data['_schema'][key], key, data[key], inputType);
+          inputType = 'textarea';
+          inputClass = 'markdownField';
+        }
+        if (key === 'version') {
+          isFieldDisabled = true;
+          inputClass = 'disabledField';
+        }
+        const [inputField] = addInputPair(formObj,
+          data['_schema'][key],
+          key,
+          data[key],
+          inputType,
+          inputClass,
+          isFieldDisabled,
+        );
+        if (key === 'terms') {
+          inputField.rows = 30;
+          inputField.cols = 30;
         }
       }
+    }
+
+    function _createMultiValuedFields(values, key, typeOfFields) {
+      const mainContainer = document.createElement('div');
+      mainContainer.classList.add('multiContainer');
+      if (typeOfFields !== TERMS_LIST_TYPE
+          || !values
+          || !Array.isArray(values)
+          || values.length === 0) {
+        // add empty field if the fetched value is empty
+        const container = document.createElement('div');
+        container.classList.add('multiField');
+        mainContainer.appendChild(container);
+        addInputPair(container, '#1', `${key}[0]`, '', 'textarea', 'multiInput');
+      } else {
+      for (const i in values) {
+        // container for a label-input pair
+        const container = document.createElement('div');
+        container.classList.add('multiField');
+        mainContainer.appendChild(container);
+        addInputPair(container, `#${Number.parseInt(i) + 1}`, `${key}[${i}]`,
+          values[i], 'textarea', 'multiInput');
+        if (i > 0) {
+          let delIcon = document.createElement('svg');
+          delIcon.innerHTML = trashIcon;
+          delIcon.addEventListener('click', onDel, false);
+          container.appendChild(delIcon);
+        }
+      }
+      }
+      let addBtn = document.createElement('button');
+      addBtn.textContent = 'Add next field';
+      addBtn.type = 'button';
+      mainContainer.appendChild(addBtn);
+      addBtn.addEventListener('click', onAdd, false);
+
+      return mainContainer;
     }
 
     function fillForm(data) {
@@ -157,5 +181,5 @@ html
     }
 
     function onPrevious() {
-      window.location.href = '/';
+      window.location.href = 'oidc';
     }

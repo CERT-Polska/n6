@@ -14,6 +14,7 @@ import { ReactComponent as Logo } from 'images/logo_n6.svg';
 import FormInput from 'components/forms/FormInput';
 import { validateLoginEmail, validatePassword } from 'components/forms/validation/validationSchema';
 import CustomButton from 'components/shared/CustomButton';
+import useKeycloakContext from 'context/KeycloakContext';
 import useLoginContext from 'context/LoginContext';
 import FormFeedback from 'components/forms/FormFeedback';
 
@@ -24,8 +25,9 @@ type TLoginForm = {
 
 const LoginForm: FC = () => {
   const [authError, toggleAuthError] = useState(false);
-  const { messages } = useTypedIntl();
+  const { messages, locale } = useTypedIntl();
   const { updateLoginState } = useLoginContext();
+  const keycloakContext = useKeycloakContext();
   const { isAuthenticated, contextStatus, useInfoFetching, availableResources } = useAuthContext();
 
   const methods = useForm<TLoginForm>({ mode: 'onBlur', defaultValues: { login: '', password: '' } });
@@ -58,6 +60,14 @@ const LoginForm: FC = () => {
     availableResources.includes('/report/inside') && !availableResources.includes('/search/events');
   if (isAuthenticated && hasOnlyInsideAccess) return <Redirect to={routeList.organization} />;
   if (isAuthenticated) return <Redirect to={routeList.incidents} />;
+
+  let oidcBtnLabel = messages.login_oidc_button;
+  try {
+    const envLabel = process.env.REACT_APP_OIDC_BUTTON_LABEL;
+    if (typeof envLabel === 'string') {
+      oidcBtnLabel = JSON.parse(envLabel)[locale];
+    }
+  } catch {}
 
   return (
     <section className="login-container">
@@ -99,6 +109,17 @@ const LoginForm: FC = () => {
           </FormProvider>
           {authError && <FormFeedback response="error" message={`${messages.errApiLoader_header}`} />}
         </div>
+        {keycloakContext.enabled && (
+          <CustomButton
+            onClick={keycloakContext.login}
+            type="button"
+            className="w-100 login-oidc-button"
+            text={`${oidcBtnLabel}`}
+            variant="primary"
+            loading={loginStatus === 'loading'}
+            disabled={loginStatus === 'loading'}
+          />
+        )}
         <p className="login-section-title">{messages.login_create_account_title}</p>
         <CustomButton
           to={routeList.signUp}

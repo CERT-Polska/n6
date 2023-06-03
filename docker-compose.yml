@@ -9,9 +9,6 @@
 # docker-compose run --rm worker n6create_and_initialize_auth_db -D -y
 # docker-compose run --rm worker n6populate_auth_db -F -i -t -s -p example.com login@example.com
 
-# Prepare Auth DB for easy test n6mange
-# docker-compose run --rm worker bash -c  "mysql -h mysql -u root -ppassword --database=auth_db  < /home/dataman/n6/etc/mysql/insertdb/insert_data_auth_db.sql"
-
 # On MySQL Changes - restart web cache
 # docker-compose exec web apache2ctl restart
 
@@ -114,7 +111,6 @@ services:
       - 3306:3306
     volumes:
       - ./volume/mysql:/var/lib/mysql
-      - ./etc/mysql/conf.d:/etc/mysql/conf.d
       - ./etc/mysql/initdb:/docker-entrypoint-initdb.d
     networks:
       - n6-pub-net

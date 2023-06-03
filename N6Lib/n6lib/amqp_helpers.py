@@ -1,6 +1,7 @@
 # Copyright (c) 2013-2021 NASK. All rights reserved.
 
 import os
+import os.path
 import ssl as libssl
 import sys
 from datetime import datetime

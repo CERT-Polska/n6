@@ -1,6 +1,5 @@
 # Copyright (c) 2022 NASK. All rights reserved.
 
-
 import json
 from typing import Optional
 
@@ -27,7 +26,7 @@ class RIPEApiClient:
       `asn_seq` (a `list` or `None`, default: `None`):
         The ASN(s) to check through the RIPE API. If not `None`,
         it should be a list containing string(s) only, which in
-        addition meet(s) following requirements:
+        addition meet(s) the following requirements:
           * consist of digits only;
           * have between 1 and 10 characters in length inclusive.
 
@@ -42,9 +41,8 @@ class RIPEApiClient:
       and it does not ensure that the provided string(s) will actually
       be a valid ASN(s) or IP network(s).
 
-    Although both arguments are optional, it is required to provide
-    exactly one (`asn_seq` or `ip_network_seq`) - otherwise the
-    `ValueError` will be raised.
+    It is required to provide exactly one argument (`asn_seq` or
+    `ip_network_seq`) - otherwise `ValueError` will be raised.
 
 
     Returns:
@@ -56,29 +54,29 @@ class RIPEApiClient:
     Exceptions raised by the constructor and/or instance interface:
 
       * `ValueError` -- for:
-        * **None or both** of the arguments: `asn_seq`,
-          `ip_network_seq` provided.
+        * *none* or *both* of the arguments provided;
         * invalid (here: not passing our simplified validation)
-          ASN(s) or IP network(s).
+          ASN(s) or IP network(s);
         * invalid marker passed to `_obtain_abuse_url()` method.
 
       * `HTTPError` -- for:
         * any exception that can be raised by the `requests`
           or `urllib3` libraries. It is important to mention
           that in some parts of the client we deliberately
-          avoid throwing an `HTTPError` with **404** status code.
+          avoid throwing an `HTTPError` with the *404* status
+          code.
 
     ***
 
     Typically, the client performs the following operations
     divided into three main phases:
 
-    Phase I (Init and validation):
+    Phase I (initialization and validation):
 
       * Validates constructor's arguments - which, as we expect,
         are ASN(s) or IP network(s).
 
-    Phase II (Obtaining **unique details** URLs):
+    Phase II (obtaining *unique details* URLs):
 
       * Creates unique URLs using each ASN/IP network,
       * Requests data from every - previously created - URL.
@@ -87,15 +85,14 @@ class RIPEApiClient:
         Usually there is more than one created URL, but not all of them
         are valid.
 
-    Phase III (Obtaining **attrs_data** from **unique details URLs**
-               and abuse contact finder):
+    Phase III (obtaining *attrs_data* from *unique details URLs*
+    and abuse contact finder):
 
       * Downloads content - as we use to call it in code, the
         `attrs_data` - from any URL created based on the data
         contained in the `admin-c` and `tech-c` keys. Note that
         not every URL is valid, in case of a 404 error the URL
         is skipped.
-
 
     ***
 
@@ -128,14 +125,13 @@ class RIPEApiClient:
     DETAILS_PERSON_URL_PATTERN = 'https://rest.db.ripe.net/ripe/person/'
     DETAILS_EXTENSION = '.json'
 
-
-    # Helpers constants - for internal use
-    UNIQUE_ASN_MARKER = 'ASN'
-    UNIQUE_IP_NETWORK_MARKER = 'IP Network'
+    _UNIQUE_ASN_MARKER = 'ASN'
+    _UNIQUE_IP_NETWORK_MARKER = 'IP Network'
 
 
-    # -- Phase I - Init and validation
-
+    #
+    # Phase I - Initialization and validation
+    #
 
     def __init__(self,
                  asn_seq: Optional[list] = None,
@@ -156,50 +152,59 @@ class RIPEApiClient:
     @staticmethod
     def _get_validated_as_numbers(asn_seq: Optional[list]) -> Optional[list]:
         """
-        Note: this is very simplified validation, our goal is just
-        to - briefly - verify if provided list consists of string(s)
-        which look(s) like an ASN.
+        Note: this is a very simplified validation, our goal is just
+        to verify - briefly - if the provided list contains only strings
+        that look like ASNs.
         """
         if asn_seq is not None:
-            invalid_asn = []
+            invalid = []
             for asn in asn_seq:
                 if not 0 < len(asn) <= 10:
-                    invalid_asn.append(asn)
+                    invalid.append(asn)
                     continue
                 try:
                     int(asn)
                 except ValueError:
-                    invalid_asn.append(asn)
-            if invalid_asn:
+                    invalid.append(asn)
+            if invalid:
                 raise ValueError(
-                    f'Following ASN do not pass our validation: '
-                    f'{invalid_asn}.')
+                    f'These ASNs do not pass our validation: '
+                    f'{invalid}.')
         return asn_seq
 
     @staticmethod
     def _get_validated_ip_networks(ip_networks_seq: Optional[list]
                                    ) -> Optional[list]:
         if ip_networks_seq is not None:
-            invalid_ip_networks = []
+            invalid = []
             for ip_network in ip_networks_seq:
                 if not IPv4_CIDR_NETWORK_REGEX.search(ip_network):
-                    invalid_ip_networks.append(ip_networks_seq)
-            if invalid_ip_networks:
+                    invalid.append(ip_networks_seq)
+            if invalid:
                 raise ValueError(
-                    f'Following IP Network(s) do not pass our validation: '
-                    f'{invalid_ip_networks}.')
+                    f'These IP Networks do not pass our validation: '
+                    f'{invalid}.')
         return ip_networks_seq
 
     def _set_asn_and_ip_network_to_unique_details_urls_structure(self) -> None:
-        for marker in (self.UNIQUE_ASN_MARKER, self.UNIQUE_IP_NETWORK_MARKER):
+        for marker in (self._UNIQUE_ASN_MARKER, self._UNIQUE_IP_NETWORK_MARKER):
             self.asn_ip_network_to_details_urls[marker] = dict()
+
+
+    #
+    # Phases II and III
+    #
 
     def __call__(self):
         return self.run()
 
+    def run(self) -> str:
+        self._obtain_all_unique_details_urls(self.asn_seq, self.ip_network_seq)
+        attrs_data = self._get_attrs_data_from_unique_details_urls()
+        return json.dumps(attrs_data)
 
-    # -- Phase II - Obtaining unique `details` URLs
 
+    # * Phase II - Obtaining unique *details* URLs:
 
     def _obtain_all_unique_details_urls(self,
                                         asn_seq: Optional[list] = None,
@@ -244,13 +249,13 @@ class RIPEApiClient:
                     if asn:
                         self._provide_asn_or_ip_network_to_unique_details_urls(
                             value=record['value'],
-                            marker=self.UNIQUE_ASN_MARKER,
+                            marker=self._UNIQUE_ASN_MARKER,
                             asn_ip_network=asn,
                         )
                     if ip_network:
                         self._provide_asn_or_ip_network_to_unique_details_urls(
                             value=record['value'],
-                            marker=self.UNIQUE_IP_NETWORK_MARKER,
+                            marker=self._UNIQUE_IP_NETWORK_MARKER,
                             asn_ip_network=ip_network,
                         )
 
@@ -268,9 +273,7 @@ class RIPEApiClient:
         ))
 
 
-    # -- Phase III - Obtaining data from unique `details` URLs
-    #                and abuse contact finder
-
+    # * Phase III - Obtaining data from unique *details* URLs + abuse contact finder:
 
     def _get_attrs_data_from_unique_details_urls(self) -> list:
         attrs_data_from_details_urls = []
@@ -309,23 +312,24 @@ class RIPEApiClient:
             attrs_data_from_details_urls.append(adjusted_attributes)
 
     def _obtain_abuse_url(self, asn_or_ip_network: str, marker: str) -> str:
-        if marker == self.UNIQUE_ASN_MARKER:
+        if marker == self._UNIQUE_ASN_MARKER:
             contact_url = self._create_asn_abuse_contact_finder_url(
                 asn_or_ip_network)
-        elif marker == self.UNIQUE_IP_NETWORK_MARKER:
+        elif marker == self._UNIQUE_IP_NETWORK_MARKER:
             contact_url = self._create_ip_network_abuse_contact_finder_url(
                 asn_or_ip_network)
         else:
             raise ValueError(
                 f'Invalid marker {marker}. '
                 f'Allowed markers: '
-                f'{self.UNIQUE_ASN_MARKER}, '
-                f'{self.UNIQUE_IP_NETWORK_MARKER}.')
+                f'{self._UNIQUE_ASN_MARKER}, '
+                f'{self._UNIQUE_IP_NETWORK_MARKER}.')
         return contact_url
 
 
-    # -- Helpers
-
+    #
+    # Helpers
+    #
 
     def _create_asn_request_url(self, asn: str) -> str:
         assert asn is not None
@@ -354,10 +358,3 @@ class RIPEApiClient:
                 return None
             LOGGER.warning(e)
             raise e
-
-    # ---
-
-    def run(self) -> str:
-        self._obtain_all_unique_details_urls(self.asn_seq, self.ip_network_seq)
-        attrs_data = self._get_attrs_data_from_unique_details_urls()
-        return json.dumps(attrs_data)

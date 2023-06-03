@@ -1,9 +1,8 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import io
 import gzip
 import os.path
-import tempfile
 import zipfile
 
 from n6lib.common_helpers import (
@@ -26,8 +25,8 @@ def gzip_decompress(gzipped):
         Decompressed data as a `bytes` object.
 
     Raises:
-        OSError (or subclasses), EOFError:
-            as gzip.GzipFile can raise them for invalid input.
+        `OSError` (or subclasses, e.g. `BadGzipFile`), `EOFError`, `zlib.error`:
+            as `gzip.GzipFile` can raise them for invalid input.
     """
     return gzip.decompress(gzipped)
 
@@ -50,13 +49,13 @@ def iter_unzip_from_bytes(zipped,
             `None`), it will be, firstly, coerced to `bytes` using the
             `as_bytes()` helper from `n6lib.common_helpers` (by
             performing an `as_bytes(password, 'strict')` call).
-        `filenames` (optional; if given, typically a list of `str`/`bytes`):
+        `filenames` (optional; if given, typically a list of `str`/`bytes`/`os.PathLike`):
             A container (e.g., a sequence or a set) of the filenames
             (without dir parts) we are interested in. If given (and
             not `None`) then only the specified files will be extracted,
             ignoring non-existent ones. Each filename will be, firstly,
-            coerced to `str` using the `as_unicode()` helper from
-            `n6lib.common_helpers`.                                     # maybe TODO: add support for Py3's *path*/*path-like* objects...
+            coerced to `str` using the `os.fspath()` helper and then
+            the `as_unicode()` helper from `n6lib.common_helpers`.
         `yielding_with_dirs` (default: False):
             If False -- dir names will be stripped off from yielded file names.
             If True -- file names will be yielded as found in the archive
@@ -66,16 +65,16 @@ def iter_unzip_from_bytes(zipped,
         Pairs: `(<file name (a str obj)>, <file content (a bytes obj)>).`
 
     Raises:
-        zipfile.BadZipfile, EOFError:
-            as zipfile.ZipFile can raise it for invalid input.
-        RuntimeError (or subclasses, in particular NotImplementedError):
-            as zipfile.ZipFile can raise it for unsupported input
+        `zipfile.BadZipfile`, `EOFError`:
+            as `zipfile.ZipFile` can raise it for invalid input.
+        `RuntimeError` (or subclasses, in particular `NotImplementedError`):
+            as `zipfile.ZipFile` can raise it for unsupported input
             features, as well as for unspecified or incorrect password.
     """
     if password is not None:
         password = as_bytes(password, 'strict')
     if filenames is not None:
-            filenames = frozenset(map(as_unicode, filenames))
+        filenames = frozenset(map(as_unicode, map(os.fspath, filenames)))
     zfile = zipfile.ZipFile(io.BytesIO(zipped))
     for fullname in zfile.namelist():
         assert isinstance(fullname, str)

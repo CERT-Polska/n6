@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2022 NASK. All rights reserved.
+# Copyright (c) 2018-2023 NASK. All rights reserved.
 
 import ast
 import json
@@ -138,7 +138,10 @@ from n6lib.class_helpers import (
     is_seq,
 )
 from n6lib.common_helpers import ThreadLocalNamespace
-from n6lib.config import ConfigMixin
+from n6lib.config import (
+    Config,
+    ConfigMixin,
+)
 from n6lib.const import (
     WSGI_SSL_ORG_ID_FIELD,
     WSGI_SSL_USER_ID_FIELD,
@@ -1350,7 +1353,16 @@ class AdminPanel(ConfigMixin):
         baddomains_auth_token_cache_dir =
     '''
 
-    config_filename_regex = re.compile(
+    @classmethod
+    def ensure_admin_panel_specific_config_filename_regex_will_always_be_used(cls):
+        cm = Config.overriden_init_defaults(
+            config_filename_regex=cls._admin_panel_specific_config_filename_regex)
+        type(cm).__enter__(cm)
+        # Let's keep `cm` alive (if it was garbage-collected,
+        # its `__exit__()` would be executed immediately):
+        cls.__config_overriden_init_defaults_cm = cm
+
+    _admin_panel_specific_config_filename_regex = re.compile(
         # Explaining it roughly: the filename must include the "admin"
         # and "panel" words, and must end with ".conf".
 
@@ -1371,8 +1383,6 @@ class AdminPanel(ConfigMixin):
         r'(?=[\W\d_])'  # provided that the first of them is not a letter;
         r'.*'
         r'\.conf\Z')    # the filename must end with ".conf" (lowercase).
-
-    engine_config_prefix = ''
 
     table_views = [
         (Org, OrgView),
@@ -1560,6 +1570,7 @@ def get_app():
         A flask.app.Flask instance.
     """
     with logging_configured():
+        AdminPanel.ensure_admin_panel_specific_config_filename_regex_will_always_be_used()
         monkey_patch_flask_admin()
         engine = SQLAuthDBConfigMixin().engine
         admin_panel = AdminPanel(engine)

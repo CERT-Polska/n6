@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2022 NASK. All rights reserved.
 
 """
 This is a -- somewhat quick and dirty but still useful -- standalone
@@ -164,16 +164,21 @@ def _skip_irrelevant_tests():
             setattr(test_auth_api, name, skipped)
 
 def _set_expected_rest_api_resource_limits_to_defaults():
-    for access_info in test_auth_api.EXAMPLE_ORG_IDS_TO_ACCESS_INFOS.values():
-        for res_props in access_info['rest_api_resource_limits'].values():
-            res_props.clear()
-            res_props.update(
-                max_days_old=100,
-                queries_limit=None,
-                request_parameters=None,
-                results_limit=None,
-                window=3600,
-            )
+    for expected_results in [
+        test_auth_api.EXAMPLE_ORG_IDS_TO_ACCESS_INFOS,
+        test_auth_api.EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION,
+        test_auth_api.EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS,
+    ]:
+        for access_info in expected_results.values():
+            for res_props in access_info['rest_api_resource_limits'].values():
+                res_props.clear()
+                res_props.update(
+                    max_days_old=100,
+                    queries_limit=None,
+                    request_parameters=None,
+                    results_limit=None,
+                    window=3600,
+                )
 
 def _patch_AuthAPILdapDataBasedMethodTestMixIn():
     auth_api_class = (AuthAPIWithPrefetching
@@ -187,6 +192,7 @@ def _patch_AuthAPILdapDataBasedMethodTestMixIn():
             populate_db_with_test_data(self.__class__.__name__)
             with self.unmemoized_root_node_getter(auth_api_class):
                 self.auth_api = auth_api_class(settings=prepare_auth_db_settings())
+                self.data_preparer = self.auth_api._data_preparer
                 try:
                     yield
                 finally:
@@ -195,6 +201,7 @@ def _patch_AuthAPILdapDataBasedMethodTestMixIn():
                             self.auth_api._prefetch_task.cancel_and_join()
                     finally:
                         self.auth_api = None
+                        self.data_preparer = None
         finally:
             drop_db()
 
@@ -475,6 +482,12 @@ def data_maker_for____TestAuthAPI__get_dip_anonymization_disabled_source_ids(ses
 def data_maker_for____TestAuthAPI__get_org_ids_to_access_infos(session):
     return _data_matching_those_from_auth_related_test_helpers(session)
 
+def data_maker_for____TestAuthAPI__get_org_ids_to_access_infos__without_optimization(session):
+    return _data_matching_those_from_auth_related_test_helpers(session)
+
+def data_maker_for____TestAuthAPI__get_org_ids_to_access_infos__with_legacy_conditions(session):
+    return _data_matching_those_from_auth_related_test_helpers(session)
+
 def data_maker_for____TestAuthAPI__get_org_ids_to_actual_names(session):
     return _data_matching_those_from_auth_related_test_helpers(session)
 
@@ -671,6 +684,11 @@ def _data_matching_those_from_auth_related_test_helpers(session):
         label='p9',
         source=s3,
         exclusion_criteria=[cri3, cri6])
+    p10 = models.Subsource(
+        label='p10',
+        source=s3,
+        inclusion_criteria=[cri2, cri5],
+        exclusion_criteria=[cri1, cri4])
     # subsource groups
     gp1 = models.SubsourceGroup(label='gp1', subsources=[p1, p2])
     gp2 = models.SubsourceGroup(label='gp2', subsources=[p3, p4])
@@ -802,7 +820,7 @@ def _data_matching_those_from_auth_related_test_helpers(session):
         stream_api_enabled=True, email_notification_enabled=True,
 
         access_to_inside=True,
-        inside_subsources=[p4],
+        inside_subsources=[p4, p10],
         inside_subsource_groups=[gp1, gp5, gp8],
         inside_off_subsource_groups=[gp8],
 
@@ -813,9 +831,9 @@ def _data_matching_those_from_auth_related_test_helpers(session):
         search_off_subsource_groups=[],
 
         access_to_threats=True,
-        threats_subsources=[p4],
+        threats_subsources=[p4, p10],
         threats_subsource_groups=[gp1, gp5, gp8],
-        threats_off_subsources=[p2, p6],
+        threats_off_subsources=[p2, p6, p10],
         threats_off_subsource_groups=[gp4, gp5],
     )
     o6 = models.Org(
@@ -922,7 +940,7 @@ def _data_matching_those_from_auth_related_test_helpers(session):
     return [
         cri1, cri2, cri3, cri4, cri5, cri6,
         s1, s2, s3,
-        p1, p2, p3, p4, p5, p6, p7, p8, p9,
+        p1, p2, p3, p4, p5, p6, p7, p8, p9, p10,
         gp1, gp2, gp3, gp4, gp5, gp6, gp7, gp8,
         go1, go2, go3, go4, go5,
         o1, o2, o3, o4, o5, o6, o7, o8, o9, o10, o11, o12,

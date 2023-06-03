@@ -1,7 +1,9 @@
 # Copyright (c) 2013-2021 NASK. All rights reserved.
 
+import pathlib
 import unittest
 
+from n6lib.common_helpers import as_bytes
 from n6lib.unpacking_helpers import (
     gzip_decompress,
     iter_unzip_from_bytes,
@@ -64,6 +66,22 @@ class Test__iter_unzip_from_bytes(unittest.TestCase):
         real = list(iter_unzip_from_bytes(
             self.zipped,
             filenames=['IGNORED-NON-EXISTENT', name, 'another ignored...']))
+        self.assertCountEqual(expected, real)
+
+    def test_specified_filenames_including_bytes(self):
+        name, content = self.file_names_and_contents[1]  # .hgignore
+        expected = [(name, content)]
+        real = list(iter_unzip_from_bytes(
+            self.zipped,
+            filenames=['IGNORED-NON-EXISTENT', as_bytes(name), 'another ignored...']))
+        self.assertCountEqual(expected, real)
+
+    def test_specified_filenames_including_pathlib(self):
+        name, content = self.file_names_and_contents[1]  # .hgignore
+        expected = [(name, content)]
+        real = list(iter_unzip_from_bytes(
+            self.zipped,
+            filenames=['IGNORED-NON-EXISTENT', pathlib.PurePosixPath(name), 'another ignored...']))
         self.assertCountEqual(expected, real)
 
     def test_specified_filenames_yielding_with_dirs(self):

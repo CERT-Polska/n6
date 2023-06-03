@@ -1,10 +1,15 @@
-# Copyright (c) 2020-2022 NASK. All rights reserved.
+# Copyright (c) 2020-2023 NASK. All rights reserved.
 
 import datetime
+import os
+from collections.abc import (
+    Callable,
+    Hashable,
+)
 from typing import (
     Any,
-    Callable,
     Literal,
+    Protocol,
     TypedDict,
     TypeVar,
     Union,
@@ -17,10 +22,20 @@ T = TypeVar('T')
 T_co = TypeVar('T_co', covariant=True)
 T_contra = TypeVar('T_contra', contravariant=True)
 
+HashableT = TypeVar('HashableT', bound=Hashable)
+
 DateTime = datetime.datetime
 String = str  # <- TODO: replace with `str` everywhere...
 StrOrBinary = Union[str, bytes, bytearray]
 KwargsDict = dict[str, Any]
+
+FilePath = Union[str, bytes, os.PathLike]
+
+class SupportsRead(Protocol[T_co]):
+    def read(self, length: int = ..., /) -> T_co: ...
+
+class SupportsWrite(Protocol[T_contra]):
+    def write(self, data: T_contra, /) -> Any: ...
 
 Jsonable = Union['JsonableScalar', 'JsonableCollection']
 JsonableScalar = Union[str, int, float, bool, None]

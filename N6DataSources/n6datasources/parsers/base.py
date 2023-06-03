@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 """
 Parser base classes + auxiliary tools.
@@ -102,11 +102,6 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
     # a record dict class -- n6lib.record_dict.RecordDict or its subclass
     # (can be overridden in subclasses)
     record_dict_class = RecordDict
-
-    # standard keyword arguments to be passed into the record
-    # dict constructor defined above (in subclasses it can be
-    # left as None or overridden)
-    record_dict_kwargs = None
 
     # should be one of the three values: 'event', 'bl', 'hifreq'
     # (note: this is a *subset* of n6lib.const.EVENT_TYPE_ENUMS;
@@ -569,9 +564,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         Kwargs:
             Optional keyword arguments to be passed into the record dict
             factory (into the `record_dict_class` attribute of the parser
-            class) together with the items from the `record_dict_kwargs`
-            attribute of the parser class (in case of conflict the items
-            given as arguments override those from the attribute).
+            class).
 
             Note that the `log_nonstandard_names` and
             `context_manager_error_callback` record dict factory
@@ -585,9 +578,8 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         This method is intended to be called in the parse() method to create
         new record dicts.
         """
-        if self.record_dict_kwargs is not None:
-            record_dict_kwargs = dict(self.record_dict_kwargs,
-                                      **record_dict_kwargs)
+        # TODO later: remove this transitional assertion + corresponding line in tests...
+        assert not hasattr(self, 'record_dict_kwargs'), 'attribute not supported anymore'
         record_dict = self.record_dict_class(
             log_nonstandard_names=True,
             context_manager_error_callback=self.handle_parse_error,
@@ -649,8 +641,8 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         (See also: SkipParseExceptionsMixin).
         """
         if isinstance(context_manager_error, AdjusterError):
-            LOGGER.warning('Event could not be generated due to '
-                           'AdjusterError: %s', context_manager_error)
+            LOGGER.warning('Event could not be generated due to %s',
+                           make_exc_ascii_str(context_manager_error))
             return True
         else:
             return False
@@ -802,8 +794,8 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         get_output_bodies(), just before serializing the record dict
         into a JSON string.
         """
-        if data.get('_do_not_resolve_fqdn_to_ip'):
-            assert type(data.get('_do_not_resolve_fqdn_to_ip')) is bool
+        if do_not_resolve_fqdn_to_ip := data.get('_do_not_resolve_fqdn_to_ip'):
+            assert do_not_resolve_fqdn_to_ip is True
             parsed['_do_not_resolve_fqdn_to_ip'] = True
         return parsed
 
@@ -879,7 +871,7 @@ class AggregatedEventParser(BaseParser):
                             for name in group_id_components]
         if all(v is None
                for v in component_values):
-            raise ValueError('None of the group id components ({})'
+            raise ValueError('none of the group id components ({}) '
                              'is set to a non-None value (in {!a})'
                              .format(', '.join(group_id_components),
                                      parsed))

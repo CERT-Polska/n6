@@ -4,17 +4,21 @@ ARG action=develop
 
 COPY --chown=dataman:dataman . n6
 
-# n6 installation in Python 2 environment
+# TODO: get rid of, no longer necessary, Python-2-related stuff...
+
+# Optional installation of old Python-2 stuff. Now, **only if** you
+# provide that stuff manually (for some experimentation, if you are
+# interested in such ancient stuff). Normally, **you don't need it.**
 RUN . /home/dataman/env/bin/activate; \
     cd /home/dataman/n6 && \
-    ./do_setup.py -a $action N6Lib-py2 N6CoreLib N6Core;
+    ./do_setup.py -a $action N6Lib-py2 N6CoreLib N6Core || true ;
 
-# n6 installation in Python 3 environment
+# Actual installation of *n6* (in Python 3 environment)
 RUN . /home/dataman/env_py3k/bin/activate; \
     cd /home/dataman/n6; \
     ./do_setup.py -a $action N6Lib N6SDK N6DataPipeline N6DataSources;
 
-# Customization of configuration files.
+# Customization of configuration files
 RUN . /home/dataman/env/bin/activate; \
     mkdir -p /home/dataman/supervisord/log \
              /home/dataman/supervisord/programs_py2k \

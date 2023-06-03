@@ -15,6 +15,7 @@ from n6lib.data_spec import (
     N6InsideDataSpec,
 )
 from n6lib.mail_notices_api import MailNoticesAPI
+from n6lib.oidc_provider_api import OIDCProviderAPI
 from n6lib.pyramid_commons import (
     AuthTktUserAuthenticationPolicy,
     N6APIKeyView,
@@ -28,6 +29,7 @@ from n6lib.pyramid_commons import (
     N6LimitedStreamView,
     N6LoginMFAView,
     N6LoginMFAConfigConfirmView,
+    N6LoginOIDCView,
     N6LoginView,
     N6LogoutView,
     N6MFAConfigConfirmView,
@@ -39,6 +41,7 @@ from n6lib.pyramid_commons import (
     N6PortalRootFactory,
     N6RegistrationView,
     N6InfoConfigView,
+    OIDCUserAuthenticationPolicy,
 )
 from n6lib.rt_client_api import RTClientAPI
 from n6sdk.pyramid_commons import (
@@ -104,6 +107,7 @@ RESOURCES = [
         view_base=N6DashboardView,
         http_methods='GET',
         permission='auth',
+        http_cache=600,
     ),
     HttpResource(
         resource_id='/daily_events_counts',
@@ -111,6 +115,7 @@ RESOURCES = [
         view_base=N6DailyEventsCountsView,
         http_methods='GET',
         permission='auth',
+        http_cache=600,
     ),
     HttpResource(
         resource_id='/names_ranking',
@@ -118,6 +123,7 @@ RESOURCES = [
         view_base=N6NamesRankingView,
         http_methods='GET',
         permission='auth',
+        http_cache=600,
     ),
 
     #
@@ -161,6 +167,14 @@ RESOURCES = [
         resource_id='/login/mfa_config/confirm',
         url_pattern='/login/mfa_config/confirm',
         view_base=N6LoginMFAConfigConfirmView,
+        http_methods='POST',
+        permission='all',
+    ),
+
+    HttpResource(
+        resource_id='/login/oidc',
+        url_pattern='/login/oidc',
+        view_base=N6LoginOIDCView,
         http_methods='POST',
         permission='all',
     ),
@@ -265,8 +279,9 @@ def main(global_config: dict[str, str], **settings) -> IRouter:
         auth_api_class=AuthAPIWithPrefetching,  # <- XXX: legacy stuff, to be removed in the future
         auth_manage_api=AuthManageAPI(settings),
         mail_notices_api=MailNoticesAPI(settings),
+        oidc_provider_api=OIDCProviderAPI(settings),
         rt_client_api=RTClientAPI(settings),
-        authentication_policy=AuthTktUserAuthenticationPolicy(settings),
+        authentication_policy=OIDCUserAuthenticationPolicy(settings),
         resources=RESOURCES,
         authorization_policy=ACLAuthorizationPolicy(),
         root_factory=N6PortalRootFactory,

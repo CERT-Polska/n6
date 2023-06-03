@@ -1,16 +1,21 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import datetime
 import hashlib
 import os
+import os.path as osp
 import pickle
 import re
 import shutil
+import sys
 import tempfile
 import traceback
 import unittest
 from collections.abc import Callable
+from pathlib import Path
+from types import ModuleType
 from unittest.mock import (
+    ANY,
     MagicMock,
     call,
     Mock,
@@ -44,14 +49,18 @@ from n6datapipeline.base import LegacyQueuedBase
 from n6datasources.collectors.base import (
     AbstractBaseCollector,
     BaseCollector,
+    BaseDownloadingCollector,
     BaseSimpleCollector,
+    BaseSimpleEmailCollector,
     BaseTimeOrderedRowsCollector,
     BaseTwoPhaseCollector,
     CollectorConfigMixin,
     StatefulCollectorMixin,
+    add_collector_entry_point_functions,
 )
 from n6datasources.tests.collectors._collector_test_helpers import BaseCollectorTestCase
 from n6lib.unit_test_helpers import (
+    AnyCallableNamed,
     AnyInstanceOf,
     AnyMatchingRegex,
     TestCaseMixin,
@@ -188,7 +197,7 @@ class TestAbstractBaseCollector(TestCaseMixin, unittest.TestCase):
         ])
 
 
-    def test__after_successful_run(self):
+    def test__after_completed_publishing(self):
         collector_mock = Mock(__class__=AbstractBaseCollector)
 
         AbstractBaseCollector.after_completed_publishing(collector_mock)
@@ -278,6 +287,8 @@ class TestBaseCollector(TestCaseMixin, unittest.TestCase):
         'publish_output',
         'start_iterative_publishing',
         'FLUSH_OUT',
+        'PubIter',
+        'PubIterFlushOut',
     )
     def test_most_important_stuff_inherited_from_LegacyQueuedBase(self, name):
         here = getattr(BaseCollector, name)
@@ -335,11 +346,13 @@ class TestBaseCollector(TestCaseMixin, unittest.TestCase):
         class SomeCollector(BaseCollector):  # noqa
             raw_type = 'stream'
 
+        self.assertIsInstance(SomeCollector.config_spec_pattern, ConfigSpecEgg)
         self._assert_config_spec_pattern_is_str_or_egg_containing_basic_stuff(SomeCollector)
+        self.assertIsNone(SomeCollector.input_queue)
         self.assertEqual(SomeCollector.output_queue, {'exchange': 'raw', 'exchange_type': 'topic'})
+        self.assertIsNone(SomeCollector.raw_format_version_tag)
         self.assertEqual(SomeCollector.raw_type, 'stream')
         self.assertIsNone(SomeCollector.content_type)
-        self.assertIsNone(SomeCollector.raw_format_version_tag)
         self.assertFalse(SomeCollector.supports_n6recovery)
         self.assertEqual(SomeCollector.unsupported_class_attributes, {
             'default_converter',
@@ -364,11 +377,13 @@ class TestBaseCollector(TestCaseMixin, unittest.TestCase):
             raw_type = raw_tp
             content_type = content_tp
 
+        self.assertIsInstance(SomeCollector.config_spec_pattern, ConfigSpecEgg)
         self._assert_config_spec_pattern_is_str_or_egg_containing_basic_stuff(SomeCollector)
+        self.assertIsNone(SomeCollector.input_queue)
         self.assertEqual(SomeCollector.output_queue, {'exchange': 'raw', 'exchange_type': 'topic'})
+        self.assertIsNone(SomeCollector.raw_format_version_tag)
         self.assertEqual(SomeCollector.raw_type, raw_tp)
         self.assertEqual(SomeCollector.content_type, content_tp)
-        self.assertIsNone(SomeCollector.raw_format_version_tag)
         self.assertFalse(SomeCollector.supports_n6recovery)
         self.assertEqual(SomeCollector.unsupported_class_attributes, {
             'default_converter',
@@ -427,7 +442,7 @@ class TestBaseCollector(TestCaseMixin, unittest.TestCase):
         content_tp = 'text/csv'
         output_qu = {'exchange': 'awantury-i-wybryki', 'exchange_type': 'direct'}
         raw_format_vt = '202207'
-        config_spec_pattern_content = '''
+        config_spec_pattern_custom_content = '''
             [{collector_class_name}]
             foo = False :: bool
             bar :: int
@@ -435,18 +450,21 @@ class TestBaseCollector(TestCaseMixin, unittest.TestCase):
 
         class SomeCollector(BaseCollector):  # noqa
             config_spec_pattern = (
-                combined_config_spec(config_spec_pattern_content) if use_combined_config_spec
-                else config_spec_pattern_content)
+                combined_config_spec(config_spec_pattern_custom_content)
+                if use_combined_config_spec else config_spec_pattern_custom_content)
             output_queue = output_qu
+            raw_format_version_tag = raw_format_vt
             raw_type = raw_tp
             content_type = content_tp  # (for raw_type='stream' it's *not* forbidden, just ignored)
-            raw_format_version_tag = raw_format_vt
 
+        self.assertIsInstance(SomeCollector.config_spec_pattern, (
+                ConfigSpecEgg if use_combined_config_spec else str))
         self._assert_config_spec_pattern_is_str_or_egg_containing_basic_stuff(SomeCollector)
+        self.assertIsNone(SomeCollector.input_queue)
         self.assertEqual(SomeCollector.output_queue, output_qu)
+        self.assertEqual(SomeCollector.raw_format_version_tag, raw_format_vt)
         self.assertEqual(SomeCollector.raw_type, raw_tp)
         self.assertEqual(SomeCollector.content_type, content_tp)
-        self.assertEqual(SomeCollector.raw_format_version_tag, raw_format_vt)
 
 
     @foreach(
@@ -1269,7 +1287,9 @@ class TestBaseCollector(TestCaseMixin, unittest.TestCase):
 
     def test__validate_source__with_non_str_value_raises_error(self):
         collector_mock = Mock(__class__=BaseCollector)
-        expected_error_regex = r"source=b'non-str.value' \(an instance of `bytes`\)"
+        expected_error_regex = (
+            r"source=b'non-str.value' \(an instance of `bytes` "
+            r"whereas an instance of `str` was expected\)")
 
         with self.assertRaisesRegex(TypeError, expected_error_regex):
             BaseCollector.validate_source(collector_mock, b'non-str.value')
@@ -1303,7 +1323,9 @@ class TestBaseCollector(TestCaseMixin, unittest.TestCase):
 
     def test__validate_output_rk__with_non_str_value_raises_error(self):
         collector_mock = Mock(__class__=BaseCollector)
-        expected_error_regex = r"output_rk=b'non-str value' \(an instance of `bytes`\)"
+        expected_error_regex = (
+            r"output_rk=b'non-str value' \(an instance of `bytes` "
+            r"whereas an instance of `str` was expected\)")
 
         with self.assertRaisesRegex(TypeError, expected_error_regex):
             BaseCollector.validate_output_rk(collector_mock, b'non-str value')
@@ -1316,7 +1338,9 @@ class TestBaseCollector(TestCaseMixin, unittest.TestCase):
 
     def test__validate_output_data_body__with_non_bytes_value_raises_error(self):
         collector_mock = Mock(__class__=BaseCollector)
-        expected_error_regex = r"output_data_body='non-bytes value' \(an instance of `str`\)"
+        expected_error_regex = (
+            r"output_data_body='non-bytes value' \(an instance of `str` "
+            r"whereas an instance of `bytes` was expected\)")
 
         with self.assertRaisesRegex(TypeError, expected_error_regex):
             BaseCollector.validate_output_data_body(collector_mock, 'non-bytes value')
@@ -1329,75 +1353,2407 @@ class TestBaseCollector(TestCaseMixin, unittest.TestCase):
 
     def test__validate_output_prop_kwargs__with_non_dict_value_raises_error(self):
         collector_mock = Mock(__class__=BaseCollector)
-        expected_error_regex = r"output_prop_kwargs=\['non-dict value'\] \(an instance of `list`\)"
+        expected_error_regex = (
+            r"output_prop_kwargs=\['non-dict value'\] \(an instance of `list` "
+            r"whereas an instance of `dict` was expected\)")
 
         with self.assertRaisesRegex(TypeError, expected_error_regex):
             BaseCollector.validate_output_prop_kwargs(collector_mock, ['non-dict value'])
 
 
-## TODO... See #8522.
-# @expand
-# class TestBaseCollectorByRunningItsRealSubclass(BaseCollectorTestCase):
-#     Note that other tests in this module already cover what needs
-#     to be covered to much extent, however it would be nice to have
-#     dedicated tests that cover even more (in particular, interactions
-#     with and within the *iterative publishing* machinery, including
-#     e.g.: *when our custom `publish_iteratively()` yields `None`* vs.
-#     *when it yields `self.FLUSH_OUT`*, etc.)... See: #8522.
-#
-#
-#     @paramseq
-#     def cases(cls):
-#         # Note (ad the test parameter `expected_recorded_method_calls`):
-#         # in this test class we record invocations of the following
-#         # methods: XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX and
-#         # `after_completed_publishing()` (see the implementation
-#         # of `test()` below...).
-#
-#         yield XXX
-#
-#
-#     @foreach(example_valid_raw_type_and_content_type_cases)
-#     def test(self,
-#              config_content,
-#              raw_type_and_content_type,
-#              source,
-#              expected_recorded_method_calls,
-#              expected_error=None):
-#
-#         class ExampleCollector(BaseCollector):  # noqa
-#
-#             raw_type, content_type = raw_type_and_content_type
-#
-#             def run_collection(self):
-#                 rec.run_collection()
-#
-#             def process_input_data(self, **input_data)
-#                 return XXX
-#
-#             def get_source(self, **processed_data):
-#                 return source
-#
-#             def get_output_data_body(self, *, source, **processed_data):
-#                 return XXX
-#
-#             def get_output_prop_kwargs(self, *, source, output_data_body, **processed_data):
-#                 return XXX
-#
-#             def after_completed_publishing(self):
-#                 rec.after_completed_publishing()
-#
-#         collector = self.prepare_collector(ExampleCollector, config_content=config_content)
-#         rec = Mock()
-#         rec.publish_output = self.publish_output_mock
-#
-#         if expected_error is not None:
-#             with self.assertRaises(expected_error):
-#                 collector.run_collection()
-#         else:
-#             collector.run_collection()
-#
-#         self.assertEqual(rec.mock_calls, expected_recorded_method_calls)
+@expand
+class TestBaseCollectorByRunningItsRealSubclass(BaseCollectorTestCase):
+
+    # Note: this class also provides tests concerning `BaseCollector`,
+    # but here the approach is different from that in `TestBaseCollector`.
+    # In particular, these tests cover the most important interactions
+    # with and within the *iterative publishing* machinery (including
+    # the cases *when our custom `publish_iteratively()` yields `None`
+    # or awaits `self.PubIter`* vs. *when it yields `self.FLUSH_OUT`
+    # or awaits `self.PubIterFLushOut`*).
+
+    @paramseq
+    def cases(cls):
+        # Note ad the test parameter `expected_recorded_calls`: in this
+        # test class we record invocations of many methods as well as
+        # some other callables...
+
+        for raw_type, content_type in [
+            ('stream', None),
+            ('file', 'application/jwt'),
+            ('blacklist', 'text/csv'),
+        ]:
+            expected_prop_kwargs_base = {
+                'type': raw_type,
+            }
+            if content_type is not None:
+                expected_prop_kwargs_base['content_type'] = content_type
+
+            #
+            # No output items
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                iterative_publishing_steps=[],
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call._schedule_next(AnyCallableNamed('inner_stop')),
+                    call.inner_stop(),
+                    call.after_completed_publishing(),
+                    call._external_func__logging_configured().__exit__(None, None, None),
+                ],
+            ).label('no output items')
+
+            #
+            # 1 output item
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                iterative_publishing_steps=[
+                    {},  # not customized `input_data`
+                ],
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+                    call.get_output_components(),
+                    call.process_input_data(),
+                    call.get_source(
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b'my_num=0042 (count=1)',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=1,
+                        output_data_body=b'my_num=0042 (count=1)',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b'my_num=0042 (count=1)',
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 1,
+                            'message_id': '11111111111111111111111111111111',
+                            'headers': {},
+                        },
+                    ),
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call._schedule_next(AnyCallableNamed('inner_stop')),
+                    call.inner_stop(),
+                    call.after_completed_publishing(),
+                    call._external_func__logging_configured().__exit__(None, None, None),
+                ],
+            ).label('1 output item')
+
+            #
+            # 1 output item, with custom stuff from `get_script_init_kwargs()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                script_init_kwargs=dict(
+                    my_num_format_override='08x',
+                ),
+                iterative_publishing_steps=[
+                    {},  # not customized `input_data`
+                ],
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(
+                        my_num_format_override='08x',
+                    ),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+                    call.get_output_components(),
+                    call.process_input_data(),
+                    call.get_source(
+                        my_num=b'0000002a',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_num=b'0000002a',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_num=b'0000002a',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b'my_num=0000002a (count=1)',
+                        my_num=b'0000002a',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=1,
+                        output_data_body=b'my_num=0000002a (count=1)',
+                        my_num=b'0000002a',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b'my_num=0000002a (count=1)',
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 1,
+                            'message_id': '11111111111111111111111111111111',
+                            'headers': {},
+                        },
+                    ),
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call._schedule_next(AnyCallableNamed('inner_stop')),
+                    call.inner_stop(),
+                    call.after_completed_publishing(),
+                    call._external_func__logging_configured().__exit__(None, None, None),
+                ],
+            ).label('1 output item, with custom stuff from `get_script_init_kwargs()`')
+
+            #
+            # 1 output item, with alternative config and without any command-line option
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                config_content='''
+                    [ExampleCollector]
+                    my_num = 123
+                ''',
+                cmdline_args=[],
+                iterative_publishing_steps=[
+                    {},  # not customized `input_data`
+                ],
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 123},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+                    call.get_output_components(),
+                    call.process_input_data(),
+                    call.get_source(
+                        my_num=b'123',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_num=b'123',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_num=b'123',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b'my_num=123 (count=1)',
+                        my_num=b'123',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=1,
+                        output_data_body=b'my_num=123 (count=1)',
+                        my_num=b'123',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b'my_num=123 (count=1)',
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 1,
+                            'message_id': '11111111111111111111111111111111',
+                            'headers': {},
+                        },
+                    ),
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call._schedule_next(AnyCallableNamed('inner_stop')),
+                    call.inner_stop(),
+                    call.after_completed_publishing(),
+                    call._external_func__logging_configured().__exit__(None, None, None),
+                ],
+            ).label('1 output item, with alternative config and without any command-line option')
+
+            #
+            # Several output items, but no yields between publications
+            # (note: that practice is *not* recommended in a real code;
+            # but see some further cases where such yields are present...)
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                iterative_publishing_steps=[
+                    {
+                        # output item #1
+                        'irrelevant_item': True,
+                    },
+                    {
+                        # output item #2
+                        'my_src': 'custom-provider.custom-channel',
+                    },
+                    {
+                        # output item #3
+                        'my_tag': '202305',
+                    },
+                    {
+                        # output item #4
+                        'my_body_prefix': b"It's... ",
+                    },
+                    {
+                        # output item #5
+                        'my_meta_header': 'Whither Canada?',
+                    },
+                    {
+                        # output item #6
+                        'irrelevant_item': True,
+                        'my_src': 'custom-provider.custom-channel',
+                        'my_tag': '202305',
+                        'my_body_prefix': b"It's... ",
+                        'my_meta_header': 'Whither Canada?',
+                    },
+                ],
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+
+                    # * Output item #1 (for `'irrelevant_item': True`):
+
+                    call.get_output_components(
+                        irrelevant_item=True,
+                    ),
+                    call.process_input_data(
+                        irrelevant_item=True,
+                    ),
+                    call.get_source(
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"my_num=0042 (count=1)",
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=1,
+                        output_data_body=b"my_num=0042 (count=1)",
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b"my_num=0042 (count=1)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 1,
+                            'message_id': '11111111111111111111111111111111',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Output item #2 (for `'my_src': 'custom-provider.custom-channel'`):
+
+                    call.get_output_components(
+                        my_src='custom-provider.custom-channel',
+                    ),
+                    call.process_input_data(
+                        my_src='custom-provider.custom-channel',
+                    ),
+                    call.get_source(
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='custom-provider.custom-channel',
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='custom-provider.custom-channel',
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='custom-provider.custom-channel',
+                        output_data_body=b"my_num=0042 (count=2)",
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='custom-provider.custom-channel',
+                        created_timestamp=2,
+                        output_data_body=b"my_num=0042 (count=2)",
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'custom-provider.custom-channel',
+
+                        # body
+                        b"my_num=0042 (count=2)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 2,
+                            'message_id': '22222222222222222222222222222222',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Output item #3 (for `'my_tag': '202305'`):
+
+                    call.get_output_components(
+                        my_tag='202305',
+                    ),
+                    call.process_input_data(
+                        my_tag='202305',
+                    ),
+                    call.get_source(
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"my_num=0042 (count=3)",
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=3,
+                        output_data_body=b"my_num=0042 (count=3)",
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel.202305',
+
+                        # body
+                        b"my_num=0042 (count=3)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 3,
+                            'message_id': '33333333333333333333333333333333',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Output item #4 (for `'my_body_prefix': b"It's... "`):
+
+                    call.get_output_components(
+                        my_body_prefix=b"It's... ",
+                    ),
+                    call.process_input_data(
+                        my_body_prefix=b"It's... ",
+                    ),
+                    call.get_source(
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"It's... my_num=0042 (count=4)",
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=4,
+                        output_data_body=b"It's... my_num=0042 (count=4)",
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b"It's... my_num=0042 (count=4)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 4,
+                            'message_id': '44444444444444444444444444444444',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Output item #5 (for `'my_meta_header': 'Whither Canada?'`):
+
+                    call.get_output_components(
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.process_input_data(
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.get_source(
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"my_num=0042 (count=5)",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=5,
+                        output_data_body=b"my_num=0042 (count=5)",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b"my_num=0042 (count=5)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 5,
+                            'message_id': '55555555555555555555555555555555',
+                            'headers': {
+                                'meta': {
+                                    'my_meta_header': 'Whither Canada?',
+                                },
+                            },
+                        },
+                    ),
+
+                    # * Output item #6 (for `{
+                    #       'irrelevant_item': True,
+                    #       'my_src': 'custom-provider.custom-channel',
+                    #       'my_tag': '202305',
+                    #       'my_body_prefix': b"It's... ",
+                    #       'my_meta_header': 'Whither Canada?',
+                    #   }`):
+
+                    call.get_output_components(
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.process_input_data(
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.get_source(
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='custom-provider.custom-channel',
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='custom-provider.custom-channel',
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='custom-provider.custom-channel',
+                        output_data_body=b"It's... my_num=0042 (count=6)",
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='custom-provider.custom-channel',
+                        created_timestamp=6,
+                        output_data_body=b"It's... my_num=0042 (count=6)",
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'custom-provider.custom-channel.202305',
+
+                        # body
+                        b"It's... my_num=0042 (count=6)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 6,
+                            'message_id': '66666666666666666666666666666666',
+                            'headers': {
+                                'meta': {
+                                    'my_meta_header': 'Whither Canada?',
+                                },
+                            },
+                        },
+                    ),
+
+                    # * Finalization:
+
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call._schedule_next(AnyCallableNamed('inner_stop')),
+                    call.inner_stop(),
+                    call.after_completed_publishing(),
+                    call._external_func__logging_configured().__exit__(None, None, None),
+                ],
+            ).label('Several output items, but no yields between publications')
+
+            #
+            # Several output items, publications interspersed by `yield None`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                iterative_publishing_steps=[
+                    {
+                        # output item #1
+                        'irrelevant_item': True,
+                    },
+                    None,  # yield
+                    {
+                        # output item #2
+                        'my_src': 'custom-provider.custom-channel',
+                    },
+                    None,  # yield
+                    {
+                        # output item #3
+                        'my_tag': '202305',
+                    },
+                    None,  # yield
+                    {
+                        # output item #4
+                        'my_body_prefix': b"It's... ",
+                    },
+                    None,  # yield
+                    {
+                        # output item #5
+                        'my_meta_header': 'Whither Canada?',
+                    },
+                    None,  # yield
+                    {
+                        # output item #6
+                        'irrelevant_item': True,
+                        'my_src': 'custom-provider.custom-channel',
+                        'my_tag': '202305',
+                        'my_body_prefix': b"It's... ",
+                        'my_meta_header': 'Whither Canada?',
+                    },
+                ],
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+
+                    # * Output item #1 (for `'irrelevant_item': True`):
+
+                    call.get_output_components(
+                        irrelevant_item=True,
+                    ),
+                    call.process_input_data(
+                        irrelevant_item=True,
+                    ),
+                    call.get_source(
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"my_num=0042 (count=1)",
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=1,
+                        output_data_body=b"my_num=0042 (count=1)",
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b"my_num=0042 (count=1)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 1,
+                            'message_id': '11111111111111111111111111111111',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Output item #2 (for `'my_src': 'custom-provider.custom-channel'`):
+
+                    call.get_output_components(
+                        my_src='custom-provider.custom-channel',
+                    ),
+                    call.process_input_data(
+                        my_src='custom-provider.custom-channel',
+                    ),
+                    call.get_source(
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='custom-provider.custom-channel',
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='custom-provider.custom-channel',
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='custom-provider.custom-channel',
+                        output_data_body=b"my_num=0042 (count=2)",
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='custom-provider.custom-channel',
+                        created_timestamp=2,
+                        output_data_body=b"my_num=0042 (count=2)",
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'custom-provider.custom-channel',
+
+                        # body
+                        b"my_num=0042 (count=2)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 2,
+                            'message_id': '22222222222222222222222222222222',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Output item #3 (for `'my_tag': '202305'`):
+
+                    call.get_output_components(
+                        my_tag='202305',
+                    ),
+                    call.process_input_data(
+                        my_tag='202305',
+                    ),
+                    call.get_source(
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"my_num=0042 (count=3)",
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=3,
+                        output_data_body=b"my_num=0042 (count=3)",
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel.202305',
+
+                        # body
+                        b"my_num=0042 (count=3)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 3,
+                            'message_id': '33333333333333333333333333333333',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Output item #4 (for `'my_body_prefix': b"It's... "`):
+
+                    call.get_output_components(
+                        my_body_prefix=b"It's... ",
+                    ),
+                    call.process_input_data(
+                        my_body_prefix=b"It's... ",
+                    ),
+                    call.get_source(
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"It's... my_num=0042 (count=4)",
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=4,
+                        output_data_body=b"It's... my_num=0042 (count=4)",
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b"It's... my_num=0042 (count=4)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 4,
+                            'message_id': '44444444444444444444444444444444',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Output item #5 (for `'my_meta_header': 'Whither Canada?'`):
+
+                    call.get_output_components(
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.process_input_data(
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.get_source(
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"my_num=0042 (count=5)",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=5,
+                        output_data_body=b"my_num=0042 (count=5)",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b"my_num=0042 (count=5)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 5,
+                            'message_id': '55555555555555555555555555555555',
+                            'headers': {
+                                'meta': {
+                                    'my_meta_header': 'Whither Canada?',
+                                },
+                            },
+                        },
+                    ),
+
+                    # * Note: `yield_time_interval_threshold` has been reached
+                    #   so this is the moment when the `pika` event loop gets the
+                    #   control for a short time (more precisely:, it would if it
+                    #   was not patched by the `BaseCollectorTestCase`'s machinery):
+
+                    # (our contrived implementation will advance time by 10s)
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+
+                    # * Output item #6 (for `{
+                    #       'irrelevant_item': True,
+                    #       'my_src': 'custom-provider.custom-channel',
+                    #       'my_tag': '202305',
+                    #       'my_body_prefix': b"It's... ",
+                    #       'my_meta_header': 'Whither Canada?',
+                    #   }`):
+
+                    call.get_output_components(
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.process_input_data(
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.get_source(
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='custom-provider.custom-channel',
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='custom-provider.custom-channel',
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='custom-provider.custom-channel',
+                        output_data_body=b"It's... my_num=0042 (count=6)",
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='custom-provider.custom-channel',
+                        created_timestamp=16,
+                        output_data_body=b"It's... my_num=0042 (count=6)",
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'custom-provider.custom-channel.202305',
+
+                        # body
+                        b"It's... my_num=0042 (count=6)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 16,
+                            'message_id': '66666666666666666666666666666666',
+                            'headers': {
+                                'meta': {
+                                    'my_meta_header': 'Whither Canada?',
+                                },
+                            },
+                        },
+                    ),
+
+                    # * Finalization:
+
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call._schedule_next(AnyCallableNamed('inner_stop')),
+                    call.inner_stop(),
+                    call.after_completed_publishing(),
+                    call._external_func__logging_configured().__exit__(None, None, None),
+                ],
+            ).label('Several output items, publications interspersed by `yield None`')
+
+            #
+            # Several output items, publications interspersed by `yield self.FLUSH_OUT`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                iterative_publishing_steps=[
+                    {
+                        # output item #1
+                        'irrelevant_item': True,
+                    },
+                    BaseCollector.FLUSH_OUT,  # yield FLUSH_OUT
+                    {
+                        # output item #2
+                        'my_src': 'custom-provider.custom-channel',
+                    },
+                    BaseCollector.FLUSH_OUT,  # yield FLUSH_OUT
+                    {
+                        # output item #3
+                        'my_tag': '202305',
+                    },
+                    BaseCollector.FLUSH_OUT,  # yield FLUSH_OUT
+                    {
+                        # output item #4
+                        'my_body_prefix': b"It's... ",
+                    },
+                    BaseCollector.FLUSH_OUT,  # yield FLUSH_OUT
+                    {
+                        # output item #5
+                        'my_meta_header': 'Whither Canada?',
+                    },
+                    BaseCollector.FLUSH_OUT,  # yield FLUSH_OUT
+                    {
+                        # output item #6
+                        'irrelevant_item': True,
+                        'my_src': 'custom-provider.custom-channel',
+                        'my_tag': '202305',
+                        'my_body_prefix': b"It's... ",
+                        'my_meta_header': 'Whither Canada?',
+                    },
+                ],
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+
+                    # * Output item #1 (for `'irrelevant_item': True`):
+
+                    call.get_output_components(
+                        irrelevant_item=True,
+                    ),
+                    call.process_input_data(
+                        irrelevant_item=True,
+                    ),
+                    call.get_source(
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"my_num=0042 (count=1)",
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=1,
+                        output_data_body=b"my_num=0042 (count=1)",
+                        irrelevant_item=True,
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b"my_num=0042 (count=1)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 1,
+                            'message_id': '11111111111111111111111111111111',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Here the `FLUSH_OUT` marker has been yielded, so then:
+
+                    # (our contrived implementation will advance time by 100s)
+                    call._iter_until_buffer_flushed(),
+                    # (our contrived implementation will advance time by 10s)
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+
+                    # * Output item #2 (for `'my_src': 'custom-provider.custom-channel'`):
+
+                    call.get_output_components(
+                        my_src='custom-provider.custom-channel',
+                    ),
+                    call.process_input_data(
+                        my_src='custom-provider.custom-channel',
+                    ),
+                    call.get_source(
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='custom-provider.custom-channel',
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='custom-provider.custom-channel',
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='custom-provider.custom-channel',
+                        output_data_body=b"my_num=0042 (count=2)",
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='custom-provider.custom-channel',
+                        created_timestamp=112,
+                        output_data_body=b"my_num=0042 (count=2)",
+                        my_src='custom-provider.custom-channel',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'custom-provider.custom-channel',
+
+                        # body
+                        b"my_num=0042 (count=2)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 112,
+                            'message_id': '22222222222222222222222222222222',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Here the `FLUSH_OUT` marker has been yielded, so then:
+
+                    # (our contrived implementation will advance time by 100s)
+                    call._iter_until_buffer_flushed(),
+                    # (our contrived implementation will advance time by 10s)
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+
+                    # * Output item #3 (for `'my_tag': '202305'`):
+
+                    call.get_output_components(
+                        my_tag='202305',
+                    ),
+                    call.process_input_data(
+                        my_tag='202305',
+                    ),
+                    call.get_source(
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"my_num=0042 (count=3)",
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=223,
+                        output_data_body=b"my_num=0042 (count=3)",
+                        my_tag='202305',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel.202305',
+
+                        # body
+                        b"my_num=0042 (count=3)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 223,
+                            'message_id': '33333333333333333333333333333333',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Here the `FLUSH_OUT` marker has been yielded, so then:
+
+                    # (our contrived implementation will advance time by 100s)
+                    call._iter_until_buffer_flushed(),
+                    # (our contrived implementation will advance time by 10s)
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+
+                    # * Output item #4 (for `'my_body_prefix': b"It's... "`):
+
+                    call.get_output_components(
+                        my_body_prefix=b"It's... ",
+                    ),
+                    call.process_input_data(
+                        my_body_prefix=b"It's... ",
+                    ),
+                    call.get_source(
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"It's... my_num=0042 (count=4)",
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=334,
+                        output_data_body=b"It's... my_num=0042 (count=4)",
+                        my_body_prefix=b"It's... ",
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b"It's... my_num=0042 (count=4)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 334,
+                            'message_id': '44444444444444444444444444444444',
+                            'headers': {},
+                        },
+                    ),
+
+                    # * Here the `FLUSH_OUT` marker has been yielded, so then:
+
+                    # (our contrived implementation will advance time by 100s)
+                    call._iter_until_buffer_flushed(),
+                    # (our contrived implementation will advance time by 10s)
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+
+                    # * Output item #5 (for `'my_meta_header': 'Whither Canada?'`):
+
+                    call.get_output_components(
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.process_input_data(
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.get_source(
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='std-provider.std-channel',
+                        output_data_body=b"my_num=0042 (count=5)",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='std-provider.std-channel',
+                        created_timestamp=445,
+                        output_data_body=b"my_num=0042 (count=5)",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'std-provider.std-channel',
+
+                        # body
+                        b"my_num=0042 (count=5)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 445,
+                            'message_id': '55555555555555555555555555555555',
+                            'headers': {
+                                'meta': {
+                                    'my_meta_header': 'Whither Canada?',
+                                },
+                            },
+                        },
+                    ),
+
+                    # * Here the `FLUSH_OUT` marker has been yielded, so then:
+
+                    # (our contrived implementation will advance time by 100s)
+                    call._iter_until_buffer_flushed(),
+                    # (our contrived implementation will advance time by 10s)
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+
+                    # * Output item #6 (for `{
+                    #       'irrelevant_item': True,
+                    #       'my_src': 'custom-provider.custom-channel',
+                    #       'my_tag': '202305',
+                    #       'my_body_prefix': b"It's... ",
+                    #       'my_meta_header': 'Whither Canada?',
+                    #   }`):
+
+                    call.get_output_components(
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.process_input_data(
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                    ),
+                    call.get_source(
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='custom-provider.custom-channel',
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='custom-provider.custom-channel',
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_prop_kwargs(
+                        source='custom-provider.custom-channel',
+                        output_data_body=b"It's... my_num=0042 (count=6)",
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_message_id(
+                        source='custom-provider.custom-channel',
+                        created_timestamp=556,
+                        output_data_body=b"It's... my_num=0042 (count=6)",
+                        irrelevant_item=True,
+                        my_src='custom-provider.custom-channel',
+                        my_tag='202305',
+                        my_body_prefix=b"It's... ",
+                        my_meta_header='Whither Canada?',
+                        my_num=b'0042',
+                    ),
+                    call.publish_output(
+                        # routing_key
+                        'custom-provider.custom-channel.202305',
+
+                        # body
+                        b"It's... my_num=0042 (count=6)",
+
+                        # prop_kwargs
+                        expected_prop_kwargs_base | {
+                            'timestamp': 556,
+                            'message_id': '66666666666666666666666666666666',
+                            'headers': {
+                                'meta': {
+                                    'my_meta_header': 'Whither Canada?',
+                                },
+                            },
+                        },
+                    ),
+
+                    # * Finalization:
+
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call._schedule_next(AnyCallableNamed('inner_stop')),
+                    call.inner_stop(),
+                    call.after_completed_publishing(),
+                    call._external_func__logging_configured().__exit__(None, None, None),
+                ],
+            ).label('Several output items, publications interspersed by `yield self.FLUSH_OUT`')
+
+            #
+            # Error from `get_script_init_kwargs()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                name_to_side_effect=dict(
+                    _class_method__get_script_init_kwargs=ZeroDivisionError('arbitrary error'),
+                ),
+                expected_exc_and_regex=(
+                    ZeroDivisionError,
+                    r'arbitrary error',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._external_func__logging_configured().__exit__(
+                        ZeroDivisionError, ANY, ANY,
+                    ),
+                ],
+            ).label('Error from `get_script_init_kwargs()`')
+
+            #
+            # Error from the command-line argument parser
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                cmdline_args=['--n6illegal-option', 'whatever'],
+                expected_exc_and_regex=(
+                    SystemExit,
+                    r'^2$',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._external_func__logging_configured().__exit__(
+                        SystemExit, ANY, ANY,
+                    ),
+                ],
+            ).label('Error from the command-line argument parser')
+
+            #
+            # Error from `__init__()` (wrong configuration: missing option)
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                config_content='[ExampleCollector]',
+                expected_exc_and_regex=(
+                    ConfigError,
+                    r'missing required config options: ExampleCollector.my_num',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call._external_func__logging_configured().__exit__(
+                        ConfigError, ANY, ANY,
+                    ),
+                ],
+            ).label('Error from `__init__()` (wrong configuration: missing option)')
+
+            #
+            # Error from `run()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                name_to_side_effect=dict(
+                    run=ZeroDivisionError('arbitrary error'),
+                ),
+                expected_exc_and_regex=(
+                    ZeroDivisionError,
+                    r'arbitrary error',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call._external_func__logging_configured().__exit__(
+                        ZeroDivisionError, ANY, ANY,
+                    ),
+                ],
+            ).label('Error from `run()`')
+
+            #
+            # `KeyboardInterrupt` from `run()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                name_to_side_effect=dict(
+                    run=KeyboardInterrupt,
+                ),
+                expected_exc_and_regex=(
+                    KeyboardInterrupt,
+                    r'',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.stop(),        # <- note this
+                    call.inner_stop(),  # <- and this
+                    call._external_func__logging_configured().__exit__(
+                        KeyboardInterrupt, ANY, ANY,
+                    ),
+                ],
+            ).label('`KeyboardInterrupt` from `run()`')
+
+            #
+            # `SystemExit` from `run()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                name_to_side_effect=dict(
+                    run=SystemExit('whatever'),
+                ),
+                expected_exc_and_regex=(
+                    SystemExit,
+                    r'whatever',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call._external_func__logging_configured().__exit__(
+                        SystemExit, ANY, ANY,
+                    ),
+                ],
+            ).label('`SystemExit` from `run()`')
+
+            #
+            # Error from `_next_publishing_iteration()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                name_to_side_effect=dict(
+                    _next_publishing_iteration=ZeroDivisionError('arbitrary error'),
+                ),
+                expected_exc_and_regex=(
+                    SystemExit,  # <- note this
+                    r'ERROR during iterative publishing:.*arbitrary error',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call._external_func__logging_configured().__exit__(
+                        SystemExit, ANY, ANY,
+                    ),
+                ],
+            ).label('Error from `_next_publishing_iteration()`')
+
+            #
+            # `KeyboardInterrupt` from `_next_publishing_iteration()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                name_to_side_effect=dict(
+                    _next_publishing_iteration=KeyboardInterrupt,
+                ),
+                expected_exc_and_regex=(
+                    KeyboardInterrupt,
+                    r'',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.stop(),        # <- note this
+                    call.inner_stop(),  # <- and this
+                    call._external_func__logging_configured().__exit__(
+                        KeyboardInterrupt, ANY, ANY,
+                    ),
+                ],
+            ).label('`KeyboardInterrupt` from `_next_publishing_iteration()`')
+
+            #
+            # Error from `publish_iteratively()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                name_to_side_effect=dict(
+                    publish_iteratively=ZeroDivisionError('arbitrary error'),
+                ),
+                expected_exc_and_regex=(
+                    SystemExit,  # <- note this
+                    r'ERROR during iterative publishing:.*arbitrary error',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+                    # note this:
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call._external_func__logging_configured().__exit__(
+                        SystemExit, ANY, ANY,
+                    ),
+                ],
+            ).label('Error from `publish_iteratively()`')
+
+            #
+            # `KeyboardInterrupt` from `publish_iteratively()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                name_to_side_effect=dict(
+                    publish_iteratively=KeyboardInterrupt,
+                ),
+                expected_exc_and_regex=(
+                    KeyboardInterrupt,
+                    r'',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+                    # note this:
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.stop(),        # <- also note this
+                    call.inner_stop(),  # <- and this
+                    call._external_func__logging_configured().__exit__(
+                        KeyboardInterrupt, ANY, ANY,
+                    ),
+                ],
+            ).label('`KeyboardInterrupt` from `publish_iteratively()`')
+
+            #
+            # Error from `get_output_data_body()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                name_to_side_effect=dict(
+                    get_output_data_body=ZeroDivisionError('arbitrary error'),
+                ),
+                iterative_publishing_steps=[
+                    {},  # not customized `input_data`
+                ],
+                expected_exc_and_regex=(
+                    SystemExit,  # <- note this
+                    r'ERROR during iterative publishing:.*arbitrary error',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+                    call.get_output_components(),
+                    call.process_input_data(),
+                    call.get_source(
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_num=b'0042',
+                    ),
+                    # note this:
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call._external_func__logging_configured().__exit__(
+                        SystemExit, ANY, ANY,
+                    ),
+                ],
+            ).label('Error from `get_output_data_body()`')
+
+            #
+            # `KeyboardInterrupt` from `get_output_data_body()`
+
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                name_to_side_effect=dict(
+                    get_output_data_body=KeyboardInterrupt,
+                ),
+                iterative_publishing_steps=[
+                    {},  # not customized `input_data`
+                ],
+                expected_exc_and_regex=(
+                    KeyboardInterrupt,
+                    r'',
+                ),
+                expected_recorded_calls=[
+                    call._external_func__logging_configured(),
+                    call._external_func__logging_configured().__enter__(),
+                    call._class_method__get_script_init_kwargs(),
+                    call._class_method__get_arg_parser(),
+                    call._special_method__init(),
+                    call.set_configuration(),
+                    call.get_config_spec_format_kwargs(),
+                    call.get_config_from_config_full(
+                        config_full=Config.make({
+                            'ExampleCollector': {'my_num': 42},
+                        }),
+                        collector_class_name='ExampleCollector',
+                    ),
+                    call.run_collection(),
+                    call.run(),
+                    call.start_publishing(),
+                    call.start_iterative_publishing(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.publish_iteratively(),
+                    call.get_output_components(),
+                    call.process_input_data(),
+                    call.get_source(
+                        my_num=b'0042',
+                    ),
+                    call.get_output_rk(
+                        source='std-provider.std-channel',
+                        my_num=b'0042',
+                    ),
+                    call.get_output_data_body(
+                        source='std-provider.std-channel',
+                        my_num=b'0042',
+                    ),
+                    # note this:
+                    call._iter_until_buffer_flushed(),
+                    call._schedule_next(AnyCallableNamed('_next_publishing_iteration')),
+                    call._next_publishing_iteration(),
+                    call.stop(),        # <- also note this
+                    call.inner_stop(),  # <- and this
+                    call._external_func__logging_configured().__exit__(
+                        KeyboardInterrupt, ANY, ANY,
+                    ),
+                ],
+            ).label('`KeyboardInterrupt` from `get_output_data_body()`')
+
+
+    @foreach(cases)
+    @foreach(
+        param(iterative_publishing_implemented_as_async_def_coroutine=False),
+        param(iterative_publishing_implemented_as_async_def_coroutine=True),
+    )
+    def test(self,
+             *,
+             iterative_publishing_implemented_as_async_def_coroutine,
+             raw_type_and_content_type,
+             config_content='''
+                 [ExampleCollector]
+                 my_num = 42
+            ''',
+             cmdline_args=(
+                 '--n6my-num-format',
+                 '04',
+             ),
+             script_init_kwargs=None,
+             name_to_side_effect=None,
+             iterative_publishing_steps=None,
+             expected_recorded_calls=None,
+             expected_exc_and_regex=None):
+
+        if script_init_kwargs is None:
+            script_init_kwargs = {}
+
+        if name_to_side_effect is None:
+            name_to_side_effect = {}
+
+        if iterative_publishing_steps is None:
+            iterative_publishing_steps = []
+
+        if expected_recorded_calls is None:
+            expected_recorded_calls = []
+
+
+        class ExampleCollector(BaseCollector):  # noqa
+
+            raw_type, content_type = raw_type_and_content_type
+
+            config_spec_pattern = combined_config_spec('''
+                [{collector_class_name}]
+                my_num :: {my_num_converter_spec}
+            ''')
+
+            @classmethod
+            def get_script_init_kwargs(cls):
+                rec._class_method__get_script_init_kwargs()
+                # Here we have an example custom extension of the
+                # default implementation; see the docstring of
+                # `AbstractBaseCollector.get_arg_parser()`...
+                return (
+                    super().get_script_init_kwargs()
+                    | script_init_kwargs)
+
+            @classmethod
+            def get_arg_parser(cls):
+                rec._class_method__get_arg_parser()
+                # Here we have an example custom extension of the
+                # default implementation; see the docstring of
+                # `LegacyQueuedBase.get_arg_parser()`...
+                arg_parser = super().get_arg_parser()
+                arg_parser.add_argument('--n6my-num-format', default='')
+                return arg_parser
+
+            def __init__(self, *, my_num_format_override=None, **kwargs):
+                rec._special_method__init(**(
+                    kwargs if my_num_format_override is None
+                    else kwargs | dict(my_num_format_override=my_num_format_override)))
+                # Here we have an example custom extension of the
+                # default implementation of `BaseCollector.__init__()`.
+                super().__init__(**kwargs)
+                self._pub_count = 0
+                self._my_num_format = (
+                    my_num_format_override if my_num_format_override is not None
+                    else self.cmdline_args.n6my_num_format)
+                # (see: `get_config_from_config_full()` below...)
+                assert getattr(self.config, 'my_silly_marker_for_this_test_only', None) == 'Ye!'
+
+            def set_configuration(self):
+                rec.set_configuration()
+                super().set_configuration()
+
+            def get_config_spec_format_kwargs(self):
+                rec.get_config_spec_format_kwargs()
+                # Here we have an example custom extension of the
+                # default implementation; see the docstring of
+                # `CollectorConfigMixin.get_config_spec_format_kwargs()`...
+                return super().get_config_spec_format_kwargs() | {
+                    'my_num_converter_spec': 'int',
+                }
+
+            def get_config_from_config_full(self, *, config_full, collector_class_name):
+                rec.get_config_from_config_full(
+                    config_full=config_full,
+                    collector_class_name=collector_class_name,
+                )
+                # Here we have an example custom extension of the
+                # default implementation; see the docstring of
+                # `CollectorConfigMixin.get_config_from_config_full()`...
+                config = super().get_config_from_config_full(
+                    config_full=config_full,
+                    collector_class_name=collector_class_name)
+                config.my_silly_marker_for_this_test_only = 'Ye!'
+                return config
+
+            def run_collection(self):
+                rec.run_collection()
+                # Note: typically, the default implementation of
+                # this method is enough; however, occasionally,
+                # the possibility of extending it appears useful...
+                # (Here, we do not add anything interesting.)
+                super().run_collection()
+
+            # By placing in this class the following eight method
+            # definitions we override/extend some internals of
+            # `LegacyQueuedBase`, just for these tests (normally
+            # you do *not* override or extend these methods!).
+
+            def run(self):
+                rec.run()
+                super().run()  # (calling just a `BaseCollectorTestCase`-produced fake)
+
+            def stop(self):
+                rec.stop()
+                super().stop()  # (calling just a `BaseCollectorTestCase`-produced fake)
+
+            def inner_stop(self):
+                rec.inner_stop()
+                super().inner_stop()  # (calling just a `BaseCollectorTestCase`-produced fake)
+
+            def start_iterative_publishing(self):
+                rec.start_iterative_publishing()
+                super().start_iterative_publishing()
+
+            def _get_yield_time_interval_threshold(self):
+                # (in these tests we need this method to return the
+                # following value, but we do not need `rec...` here)
+                return 4.0
+
+            def _iter_until_buffer_flushed(self, outbound_buffer):
+                rec._iter_until_buffer_flushed()
+                nonlocal cur_time
+                cur_time += 100
+                yield from super()._iter_until_buffer_flushed(outbound_buffer)
+
+            def _next_publishing_iteration(self):
+                rec._next_publishing_iteration()
+                super()._next_publishing_iteration()
+
+            def _schedule_next(self, callback):
+                rec._schedule_next(callback)
+                nonlocal cur_time
+                if self._pub_count > 0:
+                    cur_time += 10
+                super()._schedule_next(callback)
+
+            # Extending/overriding some `LegacyQueuedBase`'s public hook
+            # methods related to the *iterative publishing* mechanism...
+
+            def start_publishing(self):
+                rec.start_publishing()
+                # Here we have an example custom extension; see the
+                # docstrings of `LegacyQueuedBase.start_publishing()`...
+                # and `LegacyQueuedBase.start_iterative_publishing()`...
+                super().start_publishing()
+                self.start_iterative_publishing()
+
+            # (Note: the following two variants of the `publish_iteratively()`
+            # abstract method are supposed to be perfectly equivalent; although,
+            # generally, the *coroutine-based* technique is more flexible...)
+            if iterative_publishing_implemented_as_async_def_coroutine:
+
+                async def publish_iteratively(self):
+                    rec.publish_iteratively()
+                    # Here we have an example of a *coroutine-based* custom
+                    # implementation of this abstract method; see the docstring
+                    # of `LegacyQueuedBase.publish_iteratively()`...
+                    for step in iterative_publishing_steps:
+                        if isinstance(step, dict):
+                            # `step` is an *input data* dict
+                            output_components = self.get_output_components(**step)
+                            self.publish_output(*output_components)
+                        else:
+                            # `step` is a marker...
+                            assert step in (self.FLUSH_OUT, None)
+                            if step == self.FLUSH_OUT:
+                                await self.PubIterFlushOut
+                            else:
+                                await self.PubIter
+
+            else:
+
+                def publish_iteratively(self):
+                    rec.publish_iteratively()
+                    # Here we have an example of a *generator-based* custom
+                    # implementation of this abstract method; see the docstring
+                    # of `LegacyQueuedBase.publish_iteratively()`...
+                    for step in iterative_publishing_steps:
+                        if isinstance(step, dict):
+                            # `step` is an *input data* dict
+                            output_components = self.get_output_components(**step)
+                            self.publish_output(*output_components)
+                        else:
+                            # `step` is a marker...
+                            assert step in (self.FLUSH_OUT, None)
+                            yield step
+
+            # Extending/overriding `BaseCollector`'s public hook methods
+
+            def get_output_components(self, **input_data):
+                rec.get_output_components(**input_data)
+                nonlocal cur_time
+                cur_time += 1
+                # Here we have an example custom extension of the
+                # default implementation; see the docstring of
+                # `BaseCollector.get_output_components()`...
+                self._pub_count += 1
+                return super().get_output_components(**input_data)
+
+            def process_input_data(self, **input_data):
+                rec.process_input_data(**input_data)
+                # Here we have an example custom extension of the
+                # default implementation; see the docstring of
+                # `BaseCollector.process_input_data()`...
+                processed_data = super().process_input_data(**input_data)
+                assert processed_data == input_data
+                my_num = self.config['my_num']
+                my_num_formatted = format(my_num, self._my_num_format)
+                processed_data['my_num'] = my_num_formatted.encode('utf-8')
+                return processed_data
+
+            def get_source(self, **processed_data):
+                rec.get_source(**processed_data)
+                # Here we have an example custom implementation
+                # of this abstract method; see the docstring of
+                # `BaseCollector.get_source()`...
+                return (
+                    processed_data['my_src'] if 'my_src' in processed_data
+                    else 'std-provider.std-channel')
+
+            def get_output_rk(self, *, source, **processed_data):
+                rec.get_output_rk(source=source, **processed_data)
+                # Here we have an example custom extension of the
+                # default implementation; see the docstring of
+                # `BaseCollector.get_output_rk()`...
+                self.raw_format_version_tag = processed_data.get('my_tag')
+                return super().get_output_rk(source=source, **processed_data)
+
+            def get_output_data_body(self, *, source, **processed_data):
+                rec.get_output_data_body(source=source, **processed_data)
+                # Here we have an example custom implementation
+                # of this abstract method; see the docstring of
+                # `BaseCollector.get_output_data_body()`...
+                my_body_prefix = processed_data.get('my_body_prefix', b'')
+                return b'%bmy_num=%b (count=%d)' % (
+                    my_body_prefix,
+                    processed_data['my_num'],
+                    self._pub_count)
+
+            def get_output_prop_kwargs(self, *, source, output_data_body,
+                                       **processed_data):
+                rec.get_output_prop_kwargs(
+                    source=source,
+                    output_data_body=output_data_body,
+                    **processed_data)
+                # Here we have an example custom extension of the
+                # default implementation; see the docstring of
+                # `BaseCollector.get_output_prop_kwargs()`...
+                prop_kwargs = super().get_output_prop_kwargs(
+                    source=source,
+                    output_data_body=output_data_body,
+                    **processed_data)
+                meta_header_val = processed_data.get('my_meta_header')
+                if meta_header_val:
+                    prop_kwargs['headers'].setdefault('meta', {})
+                    prop_kwargs['headers']['meta']['my_meta_header'] = meta_header_val
+                return prop_kwargs
+
+            def get_output_message_id(self, *, source, created_timestamp,
+                                      output_data_body, **processed_data):
+                rec.get_output_message_id(
+                    source=source,
+                    created_timestamp=created_timestamp,
+                    output_data_body=output_data_body,
+                    **processed_data)
+                assert created_timestamp == int(cur_time)
+                # Here we have an example custom extension of the
+                # default implementation; see the docstring of
+                # `BaseCollector.get_output_message_id()`...
+                message_id = super().get_output_message_id(
+                    source=source,
+                    created_timestamp=created_timestamp,
+                    output_data_body=output_data_body,
+                    **processed_data)
+                # This is a contrived transformation, just for these tests...
+                last_pub_count_digit = str(self._pub_count)[-1:]
+                final_message_id = last_pub_count_digit * len(message_id)
+                return final_message_id
+
+            # Yet another `AbstractBaseCollector`'s public hook
+
+            def after_completed_publishing(self):
+                rec.after_completed_publishing()
+                # (note: in fact, the `AbstractBaseCollector`'s version
+                # of this method does nothing, but it is a good practice
+                # to invoke the `super()`'s version anyway -- just to
+                # remain *open for extension* by any future mixins etc.)
+                super().after_completed_publishing()
+
+
+        self.do_patching(config_content=config_content, cmdline_args=cmdline_args)
+        self.patch('time.time', side_effect=lambda: cur_time)
+        cur_time = 0.77  # (<- incremented by certain `ExampleCollector`'s methods...)
+        rec = self._prepare_recording_mock(name_to_side_effect)
+
+        if expected_exc_and_regex:
+            with self.assertRaisesRegex(*expected_exc_and_regex):
+                ExampleCollector.run_script()
+        else:
+            ExampleCollector.run_script()
+
+        self.assertEqual(rec.mock_calls, expected_recorded_calls)
+
+
+    def _prepare_recording_mock(self, name_to_side_effect):
+        rec = MagicMock()
+        rec.publish_output = self.publish_output_mock
+        self.patch(
+            'n6datasources.collectors.base.logging_configured',
+            rec._external_func__logging_configured)
+        for name, side_effect in name_to_side_effect.items():
+            mock = getattr(rec, name)
+            mock.side_effect = side_effect
+        return rec
 
 
 @expand
@@ -1405,7 +3761,7 @@ class TestBaseTwoPhaseCollector(BaseCollectorTestCase):
 
     @paramseq
     def cases(cls):
-        # Note (ad the test parameter `expected_recorded_method_calls`):
+        # Note ad the test parameter `expected_recorded_method_calls`:
         # in this test class we record invocations of the following
         # methods: `obtain_input_pile()`, `generate_input_data_dicts()`,
         # `get_output_components()`, `publish_output()` and
@@ -1413,15 +3769,14 @@ class TestBaseTwoPhaseCollector(BaseCollectorTestCase):
         # of `test()` below...).
 
         for raw_type, content_type in [
-            # (each value is a `(<collector's *raw_type*>, <collector's *content_type*>)` tuple)
             ('stream', None),
             ('file', 'application/jwt'),
             ('blacklist', 'text/csv'),
         ]:
-            # XXX: we may want to move testing of these prop-kwargs-related
-            #      details to `TestBaseCollectorByRunningItsRealSubclass`
-            #      (when it's ready) -- here leaving a simplified version
-            #      (such as in `TestBaseSimpleCollector`).
+            # The expected value of `publish_output()` calls' 3rd
+            # argument (`prop_kwargs`). Note: more of this argument's
+            # details are covered in some other tests (in particular,
+            # see `cases()` of `TestBaseSimpleCollector`).
             expected_prop_kwargs = {
                 'timestamp': AnyInstanceOf(int),
                 'message_id': AnyMatchingRegex(r'\A[0-9a-f]{32}\Z'),
@@ -1588,7 +3943,7 @@ class TestBaseSimpleCollector(BaseCollectorTestCase):
 
     @paramseq
     def data_body_cases(cls):
-        # Note (ad the test parameter `expected_recorded_method_calls`):
+        # Note ad the test parameter `expected_recorded_method_calls`:
         # in this test class we record only invocations of two methods:
         # `publish_output()` and `after_completed_publishing()` (see the
         # implementation of `test()` below...).
@@ -1645,6 +4000,212 @@ class TestBaseSimpleCollector(BaseCollectorTestCase):
 
 
 @expand
+class TestBaseSimpleEmailCollector(BaseCollectorTestCase):
+
+    @paramseq
+    def cases(cls):
+        # Note ad the test parameter `expected_recorded_method_calls`:
+        # in this test class we record only invocations of two methods:
+        # `publish_output()` and `after_completed_publishing()` (see the
+        # implementation of `test()` below...).
+
+        for raw_type, content_type in [
+            ('stream', None),
+            ('file', 'application/jwt'),
+            ('blacklist', 'text/csv'),
+        ]:
+            yield param(
+                raw_type_and_content_type=(raw_type, content_type),
+                raw_email_msg=(
+                    b'Date: Sun, 28 May 2023 07:08:09 +0200 (CEST)\r\n'
+                    b'Subject: New  events! \r\n'
+                    b'From: "Sophisticated Source" <our.source@example.org>\r\n'
+                    b'To: "CSIRT for Solar System" <solar.system.csirt@example.net>\r\n'
+                    b'Content-Type: text/plain; charset=utf-8\r\n'
+                    b'Content-Transfer-Encoding: quoted-printable\r\n'
+                    b'\r\n'
+                    b'Przepraszamy, brak iwent=C3=B3w, bo nie dowie=C5=BAli...\r\n'),
+                expected_recorded_method_calls=[],
+            )
+
+            for raw_subject in [None, b'Subject: New  events! \r\n']:
+                for raw_date in [None,  b'Date: Mon, 29 May 2023 10:11:12 +0200 (CEST)\r\n']:
+
+                    expected_headers = {}
+                    if raw_subject or raw_date:
+                        expected_headers['meta'] = {}
+                        if raw_subject:
+                            expected_headers['meta']['mail_subject'] = 'New events!'
+                        if raw_date:
+                            expected_headers['meta']['mail_time'] = '2023-05-29 08:11:12'  # (UTC)
+
+                    yield param(
+                        raw_type_and_content_type=(raw_type, content_type),
+                        raw_email_msg=(
+                            (raw_date or b'') +
+                            (raw_subject or b'') +
+                            b'From: "Sophisticated Source" <our.source@example.org>\r\n'
+                            b'To: "CSIRT for Solar System" <solar.system.csirt@example.net>\r\n'
+                            b'Content-Type: text/plain; charset=utf-8\r\n'
+                            b'Content-Transfer-Encoding: quoted-printable\r\n'
+                            b'\r\n'
+                            b'Dzie=C5=84 dobry!\r\n'
+                            b'\r\n'
+                            b'Oto nasze =C5=9Bwie=C5=BCutkie iwenty:\r\n'
+                            b'\r\n'
+                            b'Pierwszy...\r\n'
+                            b'Drugi...\r\n'
+                            b'Ty=C5=BC i trzeci.\r\n'
+                            b'\r\n'
+                            b'To wszystko, dzi=C4=99kujemy za uwag=C4=99!\r\n'),
+                        expected_recorded_method_calls=[
+                            call.publish_output(
+                                # routing_key
+                                'example-provider.example-channel',
+
+                                # body
+                                bytes(
+                                    'Dzień dobry!\n'
+                                    '\n'
+                                    'Oto nasze świeżutkie iwenty:\n'
+                                    '\n'
+                                    'Pierwszy...\n'
+                                    'Drugi...\n'
+                                    'Tyż i trzeci.\n'
+                                    '\n'
+                                    'To wszystko, dziękujemy za uwagę!\n',
+                                    encoding='utf-8'),
+
+                                # prop_kwargs
+                                {
+                                    'timestamp': AnyInstanceOf(int),
+                                    'message_id': AnyMatchingRegex(r'\A[0-9a-f]{32}\Z'),
+                                    'headers': expected_headers,
+                                    'type': raw_type,
+                                } | ({'content_type': content_type} if content_type is not None
+                                     else {})
+                            ),
+                            call.after_completed_publishing(),
+                        ],
+                    )
+
+    @foreach(cases)
+    def test(self,
+             raw_type_and_content_type,
+             raw_email_msg,
+             expected_recorded_method_calls):
+
+        class ExampleSimpleEmailCollector(BaseSimpleEmailCollector):  # noqa
+
+            raw_type, content_type = raw_type_and_content_type
+
+            def obtain_data_body(self):
+                content = self.email_msg.find_content(
+                    content_type='text/plain',
+                    content_regex='^Oto nasze świeżutkie iwenty:$')
+                if content is not None:
+                    return content.encode('utf-8')
+                return None
+
+            def get_source(self, **kwargs):
+                return 'example-provider.example-channel'
+
+            def after_completed_publishing(self):
+                rec.after_completed_publishing()
+
+        collector = self.prepare_collector(
+            ExampleSimpleEmailCollector,
+            stdin_data=raw_email_msg)
+        rec = Mock()
+        rec.publish_output = self.publish_output_mock
+
+        collector.run_collection()
+
+        self.assertEqual(rec.mock_calls, expected_recorded_method_calls)
+
+
+## TODO:
+# @expand
+# class TestBaseDownloadingCollector...
+
+
+## TODO: incorporate the following test into `TestBaseDownloadingCollector`
+##       when it is made... (see the comment above).
+@expand
+class TestBaseDownloadingCollector__get_request_headers(BaseCollectorTestCase):
+
+    @paramseq
+    def configured_and_custom_header_cases():
+        for no_custom_request_headers in [None, {}]:
+            for no_base_request_headers_config_fragment in ['', 'base_request_headers = {}']:
+                yield param(
+                    config_content=f'''
+                        [ExampleDownloadingCollector]
+                        {no_base_request_headers_config_fragment}
+                    ''',
+                    custom_request_headers=no_custom_request_headers,
+                    expected_request_headers={},
+                )
+
+            yield param(
+                config_content='''
+                    [ExampleDownloadingCollector]
+                    base_request_headers = {'k': '42', 'BeCeDe': 'Ala ma kota!'}
+                ''',
+                custom_request_headers=no_custom_request_headers,
+                expected_request_headers={'k': '42', 'BeCeDe': 'Ala ma kota!'},
+            )
+
+        yield param(
+            config_content='''
+                [ExampleDownloadingCollector]
+                base_request_headers = {'k': '42'}
+            ''',
+            custom_request_headers={'BeCeDe': 'Ala ma kota!'},
+            expected_request_headers={'k': '42', 'BeCeDe': 'Ala ma kota!'},
+        )
+
+        for base_request_headers_config_fragment in [
+            "",
+            "base_request_headers = {}",
+            "base_request_headers = {'BeCeDe': 'qwertyuiop'}",
+            "base_request_headers = {'K': '123456'}",
+            "base_request_headers = {'k': '123456', 'becede': 'ALA MA KOTA!'}",
+            "base_request_headers = {'\u212a': '123456', 'bEceDE': 'asdfghjkl'}",
+        ]:
+            yield param(
+                # Note: when base headers are being shadowed by custom
+                # headers, keys are matched in a *case-insensitive* way.
+                config_content=f'''
+                    [ExampleDownloadingCollector]
+                    {base_request_headers_config_fragment}
+                ''',
+                custom_request_headers={'k': '42', 'BeCeDe': 'Ala ma kota!'},
+                expected_request_headers={'k': '42', 'BeCeDe': 'Ala ma kota!'},
+            )
+
+    @foreach(example_valid_raw_type_and_content_type_cases)
+    @foreach(configured_and_custom_header_cases)
+    def test(self,
+             raw_type_and_content_type,
+             config_content,
+             custom_request_headers,
+             expected_request_headers):
+
+        class ExampleDownloadingCollector(BaseDownloadingCollector):
+            raw_type, content_type = raw_type_and_content_type
+
+        collector = self.prepare_collector(
+            ExampleDownloadingCollector,
+            config_content=config_content)
+
+        result = collector._BaseDownloadingCollector__get_request_headers(custom_request_headers)
+
+        assert isinstance(result, dict)
+        assert result == expected_request_headers
+
+
+@expand
 class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
     EXAMPLE_CONFIG = '''
@@ -1666,7 +4227,7 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
         config_spec_pattern = '''
             [{collector_class_name}]
-            state_dir :: str
+            state_dir :: path
             row_count_mismatch_is_fatal = no :: bool
         '''
 
@@ -1715,8 +4276,8 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"ham","2019-07-13"\n'
-                        b'"spam","2019-07-11"'
+                        b'"spam","2019-07-11"\n'
+                        b'"ham","2019-07-13"'
                     ),
 
                     # prop_kwargs
@@ -1763,8 +4324,8 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"ham","2019-07-13"\n'
-                        b'"spam","2019-07-11"'
+                        b'"spam","2019-07-11"\n'
+                        b'"ham","2019-07-13"'
                     ),
 
                     # prop_kwargs
@@ -1811,8 +4372,8 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"ham","7"\n'
-                        b'"spam","6"'
+                        b'"spam","6"\n'
+                        b'"ham","7"'
                     ),
 
                     # prop_kwargs
@@ -1854,10 +4415,18 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"ham","2019-07-11"\n'
-                        b'"spam","2019-07-11"\n'
+                        # Note that the order of output rows is always
+                        # processed in the following way: first it is
+                        # *reversed* and then the rows are *sorted* by
+                        # row time in a *stable* manner (that is, when
+                        # a tie occurs, i.e., when two row times being
+                        # compared are equal, the initial reversed order
+                        # is preserved; here this rule concerns the rows
+                        # `"spam"...` and `"ham"...`).
+                        b'"egg","2019-07-02"\n'
                         b'"zzz","2019-07-10"\n'
-                        b'"egg","2019-07-02"'
+                        b'"spam","2019-07-11"\n'
+                        b'"ham","2019-07-11"'
                     ),
 
                     # prop_kwargs
@@ -1971,9 +4540,9 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"ham","2019-07-11"\n'
+                        b'"zzz","2019-07-02"\n'
                         b'"spam","2019-07-11"\n'
-                        b'"zzz","2019-07-02"'
+                        b'"ham","2019-07-11"'
                     ),
 
                     # prop_kwargs
@@ -2033,11 +4602,11 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"zzz","2019-07-10"\n'
-                        b'"egg","2019-07-02"\n'
-                        b'"sss","2019-07-02"\n'
+                        b'"foo","2019-06-30"\n'
                         b'"bar","2019-07-01"\n'
-                        b'"foo","2019-06-30"'
+                        b'"sss","2019-07-02"\n'
+                        b'"egg","2019-07-02"\n'
+                        b'"zzz","2019-07-10"'
                     ),
 
                     # prop_kwargs
@@ -2070,11 +4639,11 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"zzz","2019-07-10"\n'
-                        b'"egg","2019-07-10"\n'
-                        b'"sss","2019-07-02"\n'
+                        b'"foo","2019-06-30"\n'
                         b'"bar","2019-07-01"\n'
-                        b'"foo","2019-06-30"'
+                        b'"sss","2019-07-02"\n'
+                        b'"egg","2019-07-10"\n'
+                        b'"zzz","2019-07-10"'
                     ),
 
                     # prop_kwargs
@@ -2175,8 +4744,8 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"ham","2019-07-02"\n'
-                        b'"egg","2019-07-02"'
+                        b'"egg","2019-07-02"\n'
+                        b'"ham","2019-07-02"'
                     ),
 
                     # prop_kwargs
@@ -2268,8 +4837,8 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"zzz","2019-07-10"\n'
-                        b'"egg","2019-07-02"'
+                        b'"egg","2019-07-02"\n'
+                        b'"zzz","2019-07-10"'
                     ),
 
                     # prop_kwargs
@@ -2309,8 +4878,8 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"zzz","2019-07-10"\n'
-                        b'"egg","2019-07-02"'
+                        b'"egg","2019-07-02"\n'
+                        b'"zzz","2019-07-10"'
                     ),
 
                     # prop_kwargs
@@ -2361,8 +4930,8 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"zzz","2019-07-10"\n'
-                        b'"egg","2019-07-02"'
+                        b'"egg","2019-07-02"\n'
+                        b'"zzz","2019-07-10"'
                     ),
 
                     # prop_kwargs
@@ -2469,10 +5038,10 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"www","2019-07-11"\n'
+                        b'"egg","2019-07-02"\n'
                         b'"zzz","2019-07-10"\n'
                         b'"zzz","2019-07-10"\n'
-                        b'"egg","2019-07-02"'
+                        b'"www","2019-07-11"'
                     ),
 
                     # prop_kwargs
@@ -2523,10 +5092,10 @@ class TestBaseTimeOrderedRowsCollector(BaseCollectorTestCase):
 
                     # body
                     (
-                        b'"www","2019-07-11"\n'
+                        b'"egg","2019-07-02"\n'
                         b'"zzz","2019-07-10"\n'
                         b'"zzz","2019-07-10"\n'
-                        b'"egg","2019-07-02"'
+                        b'"www","2019-07-11"'
                     ),
 
                     # prop_kwargs
@@ -2684,9 +5253,12 @@ class TestStatefulCollectorMixin(BaseCollectorTestCase):
             return TestStatefulCollectorMixin.DEFAULT_STATE
 
 
-    def _prepare_collector_and_state_dir(self, raw_type, content_type):
-        state_dir = tempfile.mkdtemp(prefix='n6-TestStatefulCollectorMixin')
-        self.addCleanup(shutil.rmtree, state_dir)
+    def _prepare_collector_and_state_dir(self, raw_type, content_type, create_state_dir=True):
+        parent_dir = tempfile.mkdtemp(prefix='n6-TestStatefulCollectorMixin')
+        self.addCleanup(shutil.rmtree, parent_dir)  # noqa
+        state_dir = osp.join(parent_dir, '.n6state')
+        if create_state_dir:
+            os.makedirs(state_dir, 0o700)
         collector_class = self.ExampleStatefulCollector
         self.patch_object(collector_class, 'raw_type', raw_type)
         self.patch_object(collector_class, 'content_type', content_type)
@@ -2726,22 +5298,40 @@ class TestStatefulCollectorMixin(BaseCollectorTestCase):
             state={b'\xdc': datetime.date(2022, 1, 3), (1.3,): {1.3j}},
         )
 
+    @paramseq
+    def state_dir_existence_cases():  # noqa
+        yield param(
+            already_existing_state_dir=True,
+        )
+        yield param(
+            already_existing_state_dir=False,
+        )
+
 
     #
     # Actual tests
 
     @foreach(state_cases)
+    @foreach(state_dir_existence_cases)
     @foreach(example_valid_raw_type_and_content_type_cases)
-    def test_saving_and_loading_state(self, state, raw_type_and_content_type):
+    def test_saving_and_loading_state(self,
+                                      state,
+                                      already_existing_state_dir,
+                                      raw_type_and_content_type):
         logger_warning_mock = self.patch('n6datasources.collectors.base.LOGGER').warning
-        collector, state_dir = self._prepare_collector_and_state_dir(*raw_type_and_content_type)
-        assert logger_warning_mock.call_count == 0
-        assert os.listdir(state_dir) == []  # No state has been saved.
+        collector, state_dir = self._prepare_collector_and_state_dir(
+            *raw_type_and_content_type,
+            create_state_dir=already_existing_state_dir)
         expected_state_file_name = (
             f'{__name__}'
             f'.TestStatefulCollectorMixin'
             f'.ExampleStatefulCollector'
             f'.pickle')
+        assert (
+            # No state has been saved.
+            os.listdir(state_dir) == [] if already_existing_state_dir
+            else not osp.exists(state_dir))
+        assert logger_warning_mock.call_count == 0
 
         collector.save_state(state)
         loaded_state = collector.load_state()
@@ -2752,23 +5342,32 @@ class TestStatefulCollectorMixin(BaseCollectorTestCase):
         self.assertEqual(logger_warning_mock.call_count, 0)
 
 
+    @foreach(state_dir_existence_cases)
     @foreach(example_valid_raw_type_and_content_type_cases)
-    def test_using_default_state(self, raw_type_and_content_type):
+    def test_using_default_state(self,
+                                 already_existing_state_dir,
+                                 raw_type_and_content_type):
         logger_warning_mock = self.patch('n6datasources.collectors.base.LOGGER').warning
-        collector, state_dir = self._prepare_collector_and_state_dir(*raw_type_and_content_type)
+        collector, state_dir = self._prepare_collector_and_state_dir(
+            *raw_type_and_content_type,
+            create_state_dir=already_existing_state_dir)
+        def no_state_saved():
+            return (
+                os.listdir(state_dir) == [] if already_existing_state_dir
+                else not osp.exists(state_dir))
+        assert no_state_saved()
         assert logger_warning_mock.call_count == 0
-        assert os.listdir(state_dir) == []  # No state has been saved.
 
         loaded_state = collector.load_state()
 
         self.assertEqual(loaded_state, self.DEFAULT_STATE)
         self.assertEqual(logger_warning_mock.call_count, 1)
-        self.assertEqual(os.listdir(state_dir), [])
+        self.assertTrue(no_state_saved())
 
         default_state = collector.make_default_state()
 
         self.assertEqual(default_state, self.DEFAULT_STATE)
-        self.assertEqual(os.listdir(state_dir), [])
+        self.assertTrue(no_state_saved())
 
 
     def test__get_state_file_name(self):
@@ -2825,5 +5424,349 @@ class TestStatefulCollectorMixin(BaseCollectorTestCase):
                 pickle_protocol = 3
 
 
-## TODO... See #8522.
-# class Test__add_collector_entry_point_functions
+    @foreach(
+        param(
+            state_file_content=(
+                b'\x80\x05\x953\x00\x00\x00\x00\x00\x00\x00}\x94\x8c\x03now'
+                b'\x94\x8c\x08datetime\x94\x8c\x08datetime\x94\x93\x94C\n'
+                b'\x07\xe6\x08\x19\x0f\x08/\x0c\x05b\x94\x85\x94R\x94s.'),
+            expected_loaded_state={'now': datetime.datetime(2022, 8, 25, 15, 8, 47, 787810)},
+        ).label('Protocol-5: with-datetime pickle from Py3'),
+
+        param(
+            state_file_content=(
+                b'\x80\x04\x953\x00\x00\x00\x00\x00\x00\x00}\x94\x8c\x03now'
+                b'\x94\x8c\x08datetime\x94\x8c\x08datetime\x94\x93\x94C\n'
+                b'\x07\xe6\x08\x19\x0f\x08/\x0c\x05b\x94\x85\x94R\x94s.'),
+            expected_loaded_state={'now': datetime.datetime(2022, 8, 25, 15, 8, 47, 787810)},
+        ).label('Protocol-4: with-datetime pickle from Py3'),
+
+        param(
+            state_file_content=(
+                b'\x80\x04\x95\x0b\x00\x00\x00\x00\x00\x00\x00]\x94'
+                b'(K\x01K*K\x10e.'),
+            expected_loaded_state=[1, 42, 16],
+        ).label('Protocol-4: non-problematic pickle from Py3'),
+
+        param(
+            state_file_content=(
+                b'\x80\x04\x95\x14\x00\x00\x00\x00\x00\x00\x00]\x94'
+                b'(K*\x8c\nja\xc5\xba\xc5\x84 \xed\xb3\x9d\x94e.'),
+            expected_loaded_state=[42, 'jaźń \udcdd'],
+        ).label('Protocol-4: with-UTF-8-with-surrogate-text pickle from Py3'),
+
+        param(
+            state_file_content=(
+                b'\x80\x04\x95\x12\x00\x00\x00\x00\x00\x00\x00]\x94'
+                b'(K*C\x08ja\xc5\xba\xc5\x84 \xdd\x94e.'),
+            expected_loaded_state=[42, b'ja\xc5\xba\xc5\x84 \xdd'],
+        ).label('Protocol-4: with-not-only-UTF-8-bytes pickle from Py3'),
+
+        param(
+            state_file_content=(
+                b'\x80\x03}q\x00X\x03\x00\x00\x00nowq\x01cdatetime\ndatetime\nq'
+                b'\x02C\n\x07\xe6\x08\x19\x0f\x08/\x0c\x05bq\x03\x85q\x04Rq\x05s.'),
+            expected_loaded_state={'now': datetime.datetime(2022, 8, 25, 15, 8, 47, 787810)},
+        ).label('Protocol-3: with-datetime from Py3'),
+
+        param(
+            state_file_content=(
+                b'\x80\x02}q\x00X\x03\x00\x00\x00nowq\x01cdatetime\ndatetime\nq'
+                b'\x02c_codecs\nencode\nq\x03X\x0b\x00\x00\x00\x07\xc3\xa6'
+                b'\x08\x19\x0f\x08/\x0c\x05bq\x04X\x06\x00\x00\x00latin1q\x05'
+                b'\x86q\x06Rq\x07\x85q\x08Rq\ts.'),
+            expected_warning_count=2,
+            expected_loaded_state={'now': datetime.datetime(2022, 8, 25, 15, 8, 47, 787810)},
+        ).label('Protocol-2: with-datetime pickle from Py3'),
+
+        param(
+            state_file_content=(
+                b'\x80\x02}q\x01U\x03nowq\x02cdatetime\ndatetime\nq\x03U\n'
+                b'\x07\xe6\x08\x19\x0f\x08/\x0c\x05b\x85Rq\x04s.'),
+            expected_warning_count=1,
+            expected_exc=SystemExit,
+        ).label('Protocol-2: with-datetime pickle from Py2'),
+
+        param(
+            state_file_content=(
+                b'\x80\x02}q\x01U\x03nowq\x02cdatetime\ndatetime\nq\x03U\n'
+                b'\x07\xe6\x08\x19\x0f\x08/\x0c\x05b\x85Rq\x04s.'),
+            get_py2_pickle_load_kwargs__own_impl=lambda: dict(
+                encoding='latin1', errors='strict',
+            ),
+            expected_warning_count=2,
+            expected_loaded_state={'now': datetime.datetime(2022, 8, 25, 15, 8, 47, 787810)},
+        ).label('Protocol-2: with-datetime pickle from Py2, '
+                'encoding="latin1"'),
+
+        param(
+            state_file_content=(
+                b'\x80\x02}q\x01U\x03nowq\x02cdatetime\ndatetime\nq\x03U\n'
+                b'\x07\xe6\x08\x19\x0f\x08/\x0c\x05b\x85Rq\x04s.'),
+            get_py2_pickle_load_kwargs__own_impl=lambda: dict(
+                encoding='bytes', errors='strict',
+            ),
+            expected_warning_count=2,
+            expected_loaded_state={b'now': datetime.datetime(2022, 8, 25, 15, 8, 47, 787810)},
+        ).label('Protocol-2: with-datetime pickle from Py2, '
+                'encoding="bytes"'),
+
+        param(
+            state_file_content=(
+                b'\x80\x02}q\x01U\x03nowq\x02cdatetime\ndatetime\nq\x03U\n'
+                b'\x07\xe6\x08\x19\x0f\x08/\x0c\x05b\x85Rq\x04s.'),
+            get_py2_pickle_load_kwargs__own_impl=lambda: dict(
+                encoding='bytes', errors='strict',
+            ),
+            adjust_state_from_py2_pickle__own_impl=repr,
+            expected_warning_count=2,
+            expected_loaded_state="{b'now': datetime.datetime(2022, 8, 25, 15, 8, 47, 787810)}",
+        ).label('Protocol-2: with-datetime pickle from Py2, '
+                'encoding="latin1", custom `adjust_state_from_py2_pickle()`'),
+
+        param(
+            state_file_content=b'\x80\x02]q\x01(K\x01K*K\x10e.',
+            expected_warning_count=2,
+            expected_loaded_state=[1, 42, 16],
+        ).label('Protocol-2: non-problematic pickle from Py2'),
+
+        param(
+            state_file_content=b'\x80\x02]q\x01(K\x01K*K\x10e.',
+            adjust_state_from_py2_pickle__own_impl=repr,
+            expected_warning_count=2,
+            expected_loaded_state='[1, 42, 16]',
+        ).label('Protocol-2: non-problematic pickle from Py2, '
+                'custom `adjust_state_from_py2_pickle()`'),
+
+        param(
+            state_file_content=(
+                b'\x80\x02]q\x01(K*X\n\x00\x00\x00ja\xc5\xba\xc5\x84 \xed\xb3\x9dq\x02e.'),
+            expected_warning_count=2,
+            expected_loaded_state=[42, 'jaźń \udcdd'],
+        ).label('Protocol-2: with-UTF-8-with-surrogate-text pickle from Py2'),
+
+        param(
+            state_file_content=b'\x80\x02]q\x01(K*U\x08ja\xc5\xba\xc5\x84 \xddq\x02e.',
+            expected_warning_count=1,
+            expected_exc=SystemExit,
+        ).label('Protocol-2: with-not-only-UTF-8-bytes pickle from Py2'),
+
+        param(
+            state_file_content=b'\x80\x02]q\x01(K*U\x08ja\xc5\xba\xc5\x84 \xddq\x02e.',
+            expected_warning_count=1,
+            get_py2_pickle_load_kwargs__own_impl=lambda: dict(
+                encoding='utf-8',
+            ),
+            expected_exc=SystemExit,
+        ).label('Protocol-2: with-not-only-UTF-8-bytes pickle from Py2, '
+                'encoding="utf-8"'),
+
+        param(
+            state_file_content=b'\x80\x02]q\x01(K*U\x08ja\xc5\xba\xc5\x84 \xddq\x02e.',
+            expected_warning_count=2,
+            get_py2_pickle_load_kwargs__own_impl=lambda: dict(
+                encoding='utf-8', errors='surrogateescape',
+            ),
+            expected_loaded_state=[42, 'jaźń \udcdd'],
+        ).label('Protocol-2: with-not-only-UTF-8-bytes pickle from Py2, '
+                'encoding="utf-8", errors="surrogateescape"'),
+
+        param(
+            state_file_content=b'\x80\x02]q\x01(K*U\x08ja\xc5\xba\xc5\x84 \xddq\x02e.',
+            expected_warning_count=2,
+            get_py2_pickle_load_kwargs__own_impl=lambda: dict(
+                encoding='bytes', errors='strict',
+            ),
+            expected_loaded_state=[42, b'ja\xc5\xba\xc5\x84 \xdd'],
+        ).label('Protocol-2: with-not-only-UTF-8-bytes pickle from Py2, encoding="bytes"'),
+
+        param(
+            state_file_content=b'',
+            expected_exc=EOFError,
+        ).label('empty'),
+
+        param(
+            state_file_content=b'x',
+            expected_exc=pickle.UnpicklingError,
+        ).label('1-byte garbage'),
+
+        param(
+            state_file_content=b'xy',
+            expected_exc=SystemExit,
+        ).label('2-bytes garbage'),
+
+        param(
+            state_file_content=b'xyz1234567890',
+            expected_exc=SystemExit,
+        ).label('longer garbage'),
+
+        param(
+            state_file_content=(
+                b'}q\x00X\x03\x00\x00\x00nowq\x01cdatetime\ndatetime\n'
+                b'q\x02(c_codecs\nencode\nq\x03(X\x0b\x00\x00\x00\x07'
+                b'\xc3\xa6\x08\x19\x0f\x08/\x0c\x05bq\x04X\x06\x00\x00'
+                b'\x00latin1q\x05tq\x06Rq\x07tq\x08Rq\ts.'),
+            expected_exc=SystemExit,
+        ).label('Protocol-1 from Py3: treated as garbage.'),
+
+        param(
+            state_file_content=(
+                b'}q\x01U\x03nowq\x02cdatetime\ndatetime\nq\x03(U\n'
+                b'\x07\xe6\x08\x19\x0f\x08/\x0c\x05btRq\x04s.'),
+            expected_exc=SystemExit,
+        ).label('Protocol-1 from Py2: treated as garbage.'),
+
+        param(
+            state_file_content=(
+                b'(dp0\nVnow\np1\ncdatetime\ndatetime\np2\n(c_codecs\n'
+                b'encode\np3\n(V\x07\xe6\x08\x19\x0f\x08/\x0c\x05b\np4'
+                b'\nVlatin1\np5\ntp6\nRp7\ntp8\nRp9\ns.'),
+            expected_exc=SystemExit,
+        ).label('Protocol-0 from Py3: treated as garbage.'),
+
+        param(
+            state_file_content=(
+                b"(dp1\nS'now'\np2\ncdatetime\ndatetime\np3\n(S'\\x07"
+                b"\\xe6\\x08\\x19\\x0f\\x08/\\x0c\\x05b'\ntRp4\ns."),
+            expected_exc=SystemExit,
+        ).label('Protocol-0 from Py2: treated as garbage.'),
+
+        param(
+            state_file_content=b'\x80',
+            expected_exc=pickle.UnpicklingError,
+        ).label('1-byte like for Pickle Protocol 2, 3 or newer'),
+
+        param(
+            state_file_content=b'\x80\x03',
+            expected_exc=EOFError,
+        ).label('2-bytes like for Pickle Protocol 3 or newer'),
+
+        param(
+            state_file_content=b'\x80\x04xyz',
+            expected_exc=pickle.UnpicklingError,
+        ).label('2-bytes like for Pickle Protocol 3 or newer, then garbage'),
+
+        param(
+            state_file_content=b'\x80\x02',
+            expected_warning_count=1,
+            expected_exc=SystemExit,
+        ).label('2-bytes like for Pickle Protocol 2'),
+
+        param(
+            state_file_content=b'\x80\x02xyz',
+            expected_warning_count=1,
+            expected_exc=SystemExit,
+        ).label('2-bytes like for Pickle Protocol 2, then garbage'),
+    )
+    @foreach(example_valid_raw_type_and_content_type_cases)
+    def test_loading_state_in_various_pickle_formats(self,
+                                                     raw_type_and_content_type,
+                                                     state_file_content,
+                                                     get_py2_pickle_load_kwargs__own_impl=None,
+                                                     adjust_state_from_py2_pickle__own_impl=None,
+                                                     expected_warning_count=0,
+                                                     expected_loaded_state=None,
+                                                     expected_exc=None):
+        assert (expected_loaded_state is not None and expected_exc is None
+                or expected_loaded_state is None and expected_exc is not None)
+
+        logger_warning_mock = self.patch('n6datasources.collectors.base.LOGGER').warning
+        collector, state_dir = self._prepare_collector_and_state_dir(*raw_type_and_content_type)
+        if get_py2_pickle_load_kwargs__own_impl is not None:
+            collector.get_py2_pickle_load_kwargs = get_py2_pickle_load_kwargs__own_impl
+        if adjust_state_from_py2_pickle__own_impl is not None:
+            collector.adjust_state_from_py2_pickle = adjust_state_from_py2_pickle__own_impl
+        state_file_path = Path(state_dir) / (
+            f'{__name__}'
+            f'.TestStatefulCollectorMixin'
+            f'.ExampleStatefulCollector'
+            f'.pickle')
+        state_file_path.write_bytes(state_file_content)
+        assert logger_warning_mock.call_count == 0
+        assert os.listdir(state_dir) == [state_file_path.name]
+
+        if expected_exc is not None:
+            with self.assertRaises(expected_exc) as exc_context:
+                collector.load_state()
+            if isinstance(exc_context.exception, SystemExit):
+                self.assertTrue(exc_context.exception.code)
+        else:
+            loaded_state = collector.load_state()
+            self.assertEqual(loaded_state, expected_loaded_state)
+        self.assertEqual(logger_warning_mock.call_count, expected_warning_count)
+
+
+@expand
+class Test__add_collector_entry_point_functions(TestCaseMixin, unittest.TestCase):
+
+    @foreach(
+        param(module_name='my_specific_test_module'),
+        param(module_name='my_specific_test_module.test_collector'),
+        param(module_name='_my_specific_test_module'),
+        param(module_name='_my_specific_test_module.test_collector'),
+    )
+    @foreach(
+        param(pass_module_obj=True),
+        param(pass_module_obj=False),
+    )
+    def test(self, module_name, pass_module_obj):
+        class NonCollectorClass: pass
+        class _MyCollectorPriv1(AbstractBaseCollector): pass
+        class _MyCollectorPriv2(BaseCollector):
+            raw_type = 'stream'
+        class _MyCollectorPriv3(BaseTimeOrderedRowsCollector):
+            raw_type = 'file'
+            content_type = 'text/plain'
+        class MyCollector1(AbstractBaseCollector): pass
+        class MyCollector2(BaseCollector):
+            raw_type = 'stream'
+        class MyCollector3(BaseTimeOrderedRowsCollector):
+            raw_type = 'file'
+            content_type = 'text/plain'
+        class MyCollector4(BaseCollector):
+            raw_type = 'blacklist'
+            content_type = 'text/plain'
+            @classmethod
+            def run_script(cls): pass
+            run_script.__func__.__module__ = module_name                   # noqa
+            run_script.__func__.__qualname__ = 'MyCollector4.run_script'   # noqa
+        module_obj = ModuleType(module_name)
+        self.patch_dict(sys.modules, {module_name: module_obj})
+        module_obj.NonCollectorClass = NonCollectorClass
+        module_obj.irrelevant_attr = sentinel.irrelevant_attr
+        module_obj._MyCollectorPriv1 = _MyCollectorPriv1
+        module_obj._MyCollectorPriv2 = _MyCollectorPriv2
+        module_obj._MyCollectorPriv3 = _MyCollectorPriv3
+        module_obj.MyCollector1 = MyCollector1
+        module_obj.MyCollector2 = MyCollector2
+        module_obj.MyCollector3 = MyCollector3
+        module_obj.MyCollector4 = MyCollector4
+        run_script_func_1 = self.check_and_extract_func_from_class_method(MyCollector1.run_script)
+        run_script_func_2 = self.check_and_extract_func_from_class_method(MyCollector2.run_script)
+        run_script_func_3 = self.check_and_extract_func_from_class_method(MyCollector3.run_script)
+        run_script_func_4 = self.check_and_extract_func_from_class_method(MyCollector4.run_script)
+        assert run_script_func_1 is run_script_func_2 is run_script_func_3 is not run_script_func_4
+
+        add_collector_entry_point_functions(
+            module_obj if pass_module_obj
+            else module_name)
+
+        # * No entry points for private collectors and non-collector objects:
+        self.assertFalse(hasattr(module_obj, 'NonCollectorClass_main'))
+        self.assertFalse(hasattr(module_obj, 'irrelevant_attr_main'))
+        self.assertFalse(hasattr(module_obj, '_MyCollectorPriv1_main'))
+        self.assertFalse(hasattr(module_obj, '_MyCollectorPriv2_main'))
+        self.assertFalse(hasattr(module_obj, '_MyCollectorPriv3_main'))
+        # * On the other hand, each public collector deserves its entry point:
+        self.assertTrue(hasattr(module_obj, 'MyCollector1_main'))
+        self.assertTrue(hasattr(module_obj, 'MyCollector2_main'))
+        self.assertTrue(hasattr(module_obj, 'MyCollector3_main'))
+        self.assertTrue(hasattr(module_obj, 'MyCollector4_main'))
+        entry_func_1 = self.check_and_extract_func_from_class_method(module_obj.MyCollector1_main)
+        entry_func_2 = self.check_and_extract_func_from_class_method(module_obj.MyCollector2_main)
+        entry_func_3 = self.check_and_extract_func_from_class_method(module_obj.MyCollector3_main)
+        entry_func_4 = self.check_and_extract_func_from_class_method(module_obj.MyCollector4_main)
+        self.assertIs(entry_func_1, run_script_func_1)
+        self.assertIs(entry_func_2, run_script_func_2)
+        self.assertIs(entry_func_3, run_script_func_3)
+        self.assertIs(entry_func_4, run_script_func_4)

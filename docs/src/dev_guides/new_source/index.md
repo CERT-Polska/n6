@@ -4,12 +4,12 @@ XXX NOT FINISHED!!!
 
 !!! warning "TODO note"
 
-    **This guide needs an update regarding the migration of *n6* from
+    **This guide needs essential updates regarding the migration of *n6* from
     Python 2.7 to 3.9** (as well as other related and unrelated changes);
-    especially that the *n6*'s data sources and data pipeline stuff
-    now works under Python 3.9 and resides in `N6DataSources` and
-    `N6DataPipeline` (where some names and other interface details differ
-    from the corresponding, Python-2.7-only, legacy stuff kept in `N6Core`).
+    especially that the *n6*'s data sources and data pipeline stuff now
+    works under Python 3.9 and resides in `N6DataSources` and
+    `N6DataPipeline` (where various interface details differ from the old,
+    now removed, Python-2.7-only stuff which used to be kept in `N6Core`).
 
 The aim of this guide is to describe how to implement new _n6_
 components necessary for collecting and parsing data from some

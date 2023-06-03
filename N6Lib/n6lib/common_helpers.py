@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 #
 # For some code in this module:
 # Copyright (c) 2001-2013 Python Software Foundation. All rights reserved.
@@ -29,14 +29,21 @@ import traceback
 import weakref
 from collections.abc import (
     Callable,
+    Hashable,
     Iterable,
     Iterator,
     Mapping,
     MutableMapping,
     MutableSequence,
+    Reversible,
+    Set,
 )
 from importlib import import_module
 from threading import get_ident as get_current_thread_ident
+from typing import (
+    TypeVar,
+    Union,
+)
 
 from pkg_resources import cleanup_resources
 
@@ -72,7 +79,10 @@ from n6lib.const import (
     HOSTNAME,
     SCRIPT_BASENAME,
 )
-from n6lib.typing_helpers import T
+from n6lib.typing_helpers import (
+    HashableT,
+    T,
+)
 
 
 _DOMAIN_ASCII_LOWERCASE_STRICT_REGEX_SUBPATTERN = (
@@ -373,56 +383,56 @@ class FilePagedSequence(MutableSequence):
     The interface is similar to the built-in `list`'s one, except that:
 
     * slices are not supported;
-    * the `remove()`, `insert()`, `reverse()` and `sort()` methods are
-      not supported;
-    * the `+`, `*` and `*=` operators are not supported (though `+=` is
-      supported);
-    * the `del` operation is not supported, and the `pop()` method
-      supports only popping the last item -- and works only if the
+
+    * the `remove()`, `insert()`, `reverse()`, `sort()` and `copy()`
+      methods are *not supported* (though the `reversed()` built-in
+      function *is* supported);
+
+    * the `+`, `*` and `*=` operators are *not supported* (though `+=`
+      *is* supported);
+
+    * the `del` operation is *not supported*, and the `pop()` method
+      supports *only* popping the last item, i.e., it works only if the
       argument is specified as `-1` or not specified at all; also, note
       that `clear()` *is* supported (use it instead of `del seq[:]`);
-    * `index()` accepts only one argument (does not accept the `start`
-      and `stop` range limiting arguments);
+
     * all sequence items must be picklable (effects of using unpicklable
       items are undefined; generally, that will cause an exception, but
       -- typically -- that exception will be deferred until the moment
-      when after adding more items the current data page needs to be
+      when, after adding more items, the current data page needs to be
       saved...);
+
+    * pickling and the `copy()`/`deepcopy()` functions from the `copy`
+      module should also be considered *unsupported* (i.e., effects of
+      trying to apply them to instances of this class are undefined;
+      exceptions and/or unexpected behavior are likely);
+
     * the constructor accepts an additional argument: `page_size` --
       being the number of items each page may consist of (its default
       value is `1000`);
+
     * there are additional methods:
+
       * `close()` -- clears the sequence and removes all temporary files
         (if any); after that, the instance can be used again, just as if
         it was a newly created empty instance (new temporary files will
         be created when needed);
+
       * a context-manager (`with`-statement) interface:
+
         * its `__enter__()` returns the instance;
         * its `__exit__()` calls the aforementioned `close()` method.
 
-    Unsupported actions raise `NotImplementedError`.
+    Unsupported `list`-specific operations raise `NotImplementedError`.
 
-    Temporary directory and files are created lazily -- no disk operations
+    Temporary files are created lazily. No disk (filesystem) operations
     are performed at all if all data fit on one page.
 
     The implementation is *not* thread-safe.
 
-    >>> list(FilePagedSequence())
-    []
-    >>> list(FilePagedSequence(page_size=3))
-    []
-    >>> len(FilePagedSequence(page_size=3))
-    0
-    >>> bool(FilePagedSequence(page_size=3))
-    False
-
     >>> seq = FilePagedSequence([1, 'foo', {'a': None}, ['b']], page_size=3)
     >>> seq
     FilePagedSequence(<4 items...>, page_size=3)
-    >>> len(seq)
-    4
-    >>> bool(seq)
-    True
     >>> seq[0]
     1
     >>> seq[-1]
@@ -435,19 +445,197 @@ class FilePagedSequence(MutableSequence):
     'foo'
     >>> len(seq)
     4
+    >>> bool(seq)
+    True
+
+    >>> itr = iter(seq)
+    >>> isinstance(itr, Iterator)
+    True
+    >>> list(itr)   # (`itr` is a proper *iterator*, so any future uses of it will yield no items)
+    [1, 'foo', {'a': None}, ['b']]
+    >>> list(itr)
+    []
     >>> list(seq)
     [1, 'foo', {'a': None}, ['b']]
+    >>> list(seq)   # (`seq` is a real *sequence*, so -- obviously -- you can use it many times)
+    [1, 'foo', {'a': None}, ['b']]
+
+    >>> empty1 = FilePagedSequence()
+    >>> empty1
+    FilePagedSequence(<0 items...>, page_size=1000)
+    >>> empty2 = FilePagedSequence(page_size=3)
+    >>> empty2
+    FilePagedSequence(<0 items...>, page_size=3)
+    >>> len(empty1) == len(empty2) == 0
+    True
+    >>> list(empty1) == list(empty2) == []
+    True
+    >>> bool(empty1)
+    False
+    >>> bool(empty2)
+    False
 
     >>> seq.append(42.0)
     >>> seq
     FilePagedSequence(<5 items...>, page_size=3)
-    >>> len(seq)
+    >>> len(seq)   # (length increased)
     5
     >>> list(seq)
     [1, 'foo', {'a': None}, ['b'], 42.0]
 
-    >>> seq.pop()
-    42.0
+    >>> @picklable
+    ... class NotEqual:   # (a helper for tests of some item-membership-related operations...)
+    ...     def __init__(self):
+    ...         self._key = f'__NotEqual_object_{id(self)}'
+    ...         setattr(self.__class__, self._key, self)
+    ...     def __repr__(self):
+    ...         return '<NotEqual...>'
+    ...     def __eq__(self, other):
+    ...         return False                     # <- *not equal* to anything, even to itself
+    ...     def __reduce__(self):
+    ...         return f'NotEqual.{self._key}'   # <- preserves its identity when (un)pickled
+    ...
+    >>> ne1 = NotEqual()
+    >>> ne2 = NotEqual()
+    >>> ne1 != ne1 != ne2
+    True
+    >>> ne1 is ne1 is not ne2
+    True
+
+    >>> seq.append(ne1)
+    >>> seq
+    FilePagedSequence(<6 items...>, page_size=3)
+    >>> len(seq)
+    6
+    >>> list(seq)
+    [1, 'foo', {'a': None}, ['b'], 42.0, <NotEqual...>]
+
+    >>> all(item in seq
+    ...     for item in [1, 1.0, 'foo', {'a': None}, ['b'], 42, 0j+42, ne1])
+    True
+    >>> any(item not in seq
+    ...     for item in [1, 1.0, 'foo', {'a': None}, ['b'], 42, 0j+42, ne1])
+    False
+    >>> all(item not in seq
+    ...     for item in [0, -1.0, 'fo', {'aa': None}, ['B'], '42', 42.000000001, ne2])
+    True
+    >>> any(item in seq
+    ...     for item in [0, -1.0, 'fo', {'aa': None}, ['B'], '42', 42.000000001, ne2])
+    False
+
+    >>> seq[4] = 1.0
+    >>> seq[4]
+    1.0
+    >>> len(seq)   # (length not changed)
+    6
+    >>> list(seq)
+    [1, 'foo', {'a': None}, ['b'], 1.0, <NotEqual...>]
+
+    >>> seq.index(1)
+    0
+    >>> seq.index(1, 2)
+    4
+    >>> seq.index(1, 2, 5)
+    4
+    >>> seq.index(1, 2, 3)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError
+    >>> seq.index(ne1)
+    5
+    >>> seq.index(ne1, 4, 6)
+    5
+    >>> seq.index(ne2)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError
+
+    >>> seq.count(1)
+    2
+    >>> seq.count(ne1)
+    1
+    >>> seq.count(ne2)
+    0
+
+    >>> seq[1:2]
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: slices are not supported
+    >>> seq[1:4:2]
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: slices are not supported
+    >>> seq[1:2] = ['a', 'b']
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: slices are not supported
+    >>> seq[1:4:2] = ['a', 'b']
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: slices are not supported
+
+    >>> seq + [3, 'spam']  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: sequence concatenation is not supported
+    >>> [3, 'spam'] + seq  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: sequence concatenation is not supported
+    >>> seq * 2  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: sequence multiplication is not supported
+    >>> 3 * seq  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: sequence multiplication is not supported
+    >>> seq *= 4  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: sequence multiplication is not supported
+
+    >>> seq.copy()
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: copying is not supported
+    >>> seq.sort()
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: in-place sorting is not supported
+    >>> seq.reverse()
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: in-place reversion is not supported
+    >>> seq.insert(2, 'bar')
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: random insertion is not supported
+    >>> seq.remove('foo')
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: random deletion is not supported
+    >>> del seq[-1]
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: random deletion is not supported
+    >>> del seq[1:-2]
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: random deletion is not supported
+    >>> del seq[1:-2:2]
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: random deletion is not supported
+    >>> seq.pop(-2)
+    Traceback (most recent call last):
+      ...
+    NotImplementedError: popping using index other than -1 is not supported
+
+    >>> seq.pop(-1) is ne1
+    True
+    >>> seq.pop(-1)
+    1.0
     >>> seq
     FilePagedSequence(<4 items...>, page_size=3)
     >>> len(seq)
@@ -457,7 +645,7 @@ class FilePagedSequence(MutableSequence):
 
     >>> seq.pop(-1)
     ['b']
-    >>> seq.pop()
+    >>> seq.pop()   # same as `.pop(-1)`
     {'a': None}
     >>> list(seq)
     [1, 'foo']
@@ -465,8 +653,7 @@ class FilePagedSequence(MutableSequence):
     2
 
     >>> seq.append(430)
-    >>> seq.append(440)
-    >>> seq.append(450)
+    >>> seq.extend([440, 450])
     >>> list(seq)
     [1, 'foo', 430, 440, 450]
     >>> len(seq)
@@ -542,15 +729,20 @@ class FilePagedSequence(MutableSequence):
     [1, 'foo', 43, 'a', 'b', 'CCC', 'DDD']
 
     >>> seq.clear()
-    >>> list(seq)
-    []
+    >>> seq
+    FilePagedSequence(<0 items...>, page_size=3)
     >>> len(seq)
     0
+    >>> bool(seq)
+    False
+    >>> list(seq)
+    []
     >>> seq.pop()  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
+      ...
     IndexError
 
-    >>> seq.extend([1, 'foo', {'a': None}, ['b']])
+    >>> seq += [1, 'foo', {'a': None}, ['b']]   # same as `.extend([1, 'foo', {'a': None}, ['b']])`
     >>> seq[0]
     1
     >>> seq[-1]
@@ -583,11 +775,11 @@ class FilePagedSequence(MutableSequence):
     >>> list(seq)
     [1, 'foo']
 
-    >>> seq.append(43)
+    >>> seq.append(ne1)
     >>> seq.append(44)
     >>> seq.append(45)
     >>> list(seq)
-    [1, 'foo', 43, 44, 45]
+    [1, 'foo', <NotEqual...>, 44, 45]
 
     >>> seq.append(46)
     >>> seq[5]
@@ -603,27 +795,27 @@ class FilePagedSequence(MutableSequence):
     >>> seq[6]
     47
     >>> list(seq)
-    [1, 'foo', 43, 44, 45, 46, 47]
+    [1, 'foo', <NotEqual...>, 44, 45, 46, 47]
 
     >>> seq.pop()
     47
     >>> seq[5]
     46
     >>> list(seq)
-    [1, 'foo', 43, 44, 45, 46]
+    [1, 'foo', <NotEqual...>, 44, 45, 46]
 
     >>> seq.append(47)
     >>> seq[-1]
     47
     >>> list(seq)
-    [1, 'foo', 43, 44, 45, 46, 47]
+    [1, 'foo', <NotEqual...>, 44, 45, 46, 47]
 
     >>> seq.pop()
     47
     >>> seq[-1]
     46
     >>> list(seq)
-    [1, 'foo', 43, 44, 45, 46]
+    [1, 'foo', <NotEqual...>, 44, 45, 46]
 
     >>> len(seq)
     6
@@ -638,73 +830,81 @@ class FilePagedSequence(MutableSequence):
     >>> seq[4]
     45
     >>> list(reversed(seq))
-    [45, 44, 43, 'foo', 1]
+    [45, 44, <NotEqual...>, 'foo', 1]
     >>> seq[5]  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
+      ...
     IndexError
     >>> seq[6]  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
+      ...
     IndexError
     >>> seq[7]  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
+      ...
     IndexError
     >>> seq[8]  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
+      ...
     IndexError
 
     >>> seq[-5]
     1
     >>> list(seq)
-    [1, 'foo', 43, 44, 45]
+    [1, 'foo', <NotEqual...>, 44, 45]
     >>> list(iter(seq))
-    [1, 'foo', 43, 44, 45]
+    [1, 'foo', <NotEqual...>, 44, 45]
     >>> seq[-6]  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
+      ...
     IndexError
     >>> seq[0]
     1
     >>> seq[-7]  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
+      ...
     IndexError
     >>> seq[-8]  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
+      ...
     IndexError
     >>> seq[-9]  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
+      ...
     IndexError
 
-    >>> seq == FilePagedSequence([1, 'foo', 43, 44, 45], page_size=3)
+    >>> seq == FilePagedSequence([1, 'foo', ne1, 44, 45], page_size=3)
     True
-    >>> seq == FilePagedSequence([1, 'foo', 43, 44, 45], page_size=4)
+    >>> seq == FilePagedSequence([1, 'foo', ne1, 44, 45], page_size=4)
     True
-    >>> seq == [1, 'foo', 43, 44, 45]
+    >>> seq == [1, 'foo', ne1, 44, 45]
     True
-    >>> [1, 'foo', 43, 44, 45] == seq
+    >>> [1, 'foo', ne1, 44, 45] == seq
     True
-    >>> seq != FilePagedSequence([1, 'foo', 43, 44, 45], page_size=3)
+    >>> seq != FilePagedSequence([1, 'foo', ne1, 44, 45], page_size=3)
     False
-    >>> seq != FilePagedSequence([1, 'foo', 43, 44, 45], page_size=4)
+    >>> seq != FilePagedSequence([1, 'foo', ne1, 44, 45], page_size=4)
     False
-    >>> seq != [1, 'foo', 43, 44, 45]
+    >>> seq != [1, 'foo', ne1, 44, 45]
     False
-    >>> [1, 'foo', 43, 44, 45] != seq
+    >>> [1, 'foo', ne1, 44, 45] != seq
     False
 
-    >>> seq == FilePagedSequence([1, 'foo', 6543, 44, 45], page_size=3)
+    >>> seq == FilePagedSequence([1, 'foo', ne1, 6544, 45], page_size=3)
     False
-    >>> seq == FilePagedSequence([1, 'foo', 6543, 44, 45], page_size=4)
+    >>> seq == FilePagedSequence([1, 'foo', ne1, 6544, 45], page_size=4)
     False
-    >>> seq == [1, 'foo', 6543, 44, 45]
+    >>> seq == [1, 'foo', ne1, 6544, 45]
     False
-    >>> [1, 'foo', 6543, 44, 45] == seq
+    >>> [1, 'foo', ne1, 6544, 45] == seq
     False
-    >>> seq != FilePagedSequence([1, 'foo', 6543, 44, 45], page_size=3)
+    >>> seq != FilePagedSequence([1, 'foo', ne1, 6544, 45], page_size=3)
     True
-    >>> seq != FilePagedSequence([1, 'foo', 6543, 44, 45], page_size=4)
+    >>> seq != FilePagedSequence([1, 'foo', ne1, 6544, 45], page_size=4)
     True
-    >>> seq != [1, 'foo', 6543, 44, 45]
+    >>> seq != [1, 'foo', ne1, 6544, 45]
     True
-    >>> [1, 'foo', 6543, 44, 45] != seq
+    >>> [1, 'foo', ne1, 6544, 45] != seq
     True
 
     >>> FilePagedSequence('abcdef', page_size=4) == ('a', 'b', 'c', 'd', 'e', 'f')
@@ -740,21 +940,23 @@ class FilePagedSequence(MutableSequence):
 
     >>> with seq as cm_target:       # (note: reusing the same instance)
     ...     seq is cm_target
+    ...     not seq._filesystem_used()
     ...     seq.extend(map(int, '1234567890'))
-    ...     seq
-    ...     list(seq)
     ...     seq._filesystem_used()
+    ...     seq == [1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
+    ...     repr(seq) == 'FilePagedSequence(<10 items...>, page_size=3)'
     ...     _dir2 = seq._dir
     ...     osp.exists(_dir2)
-    ...     sorted(os.listdir(_dir2))
+    ...     sorted(os.listdir(_dir2)) == ['0', '1', '2', '3']
     ...     _dir2 != _dir and not osp.exists(_dir)
     ...
     True
-    FilePagedSequence(<10 items...>, page_size=3)
-    [1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
     True
     True
-    ['0', '1', '2', '3']
+    True
+    True
+    True
+    True
     True
     >>> seq
     FilePagedSequence(<0 items...>, page_size=3)
@@ -774,14 +976,14 @@ class FilePagedSequence(MutableSequence):
     ...         seq.append(n)
     ...         seq_last = seq[-1]
     ...         seq_equal_to_range = (seq == range(n + 1))
-    ...         seq_equal_to_rev_range = (list(reversed(seq)) == list(reversed(range(n + 1))))
+    ...         rev_equal_to_rev_range = (list(reversed(seq)) == list(reversed(range(n + 1))))
     ...         seq_j = seq[j]      # (<- it's important for this test that the `seq[j]` lookup
     ...         log({               #     is always done directly before next `seq.append(n)`...)
     ...             'j_i': (j, i),
     ...             'n': n,
     ...             'seq_last': seq_last,
     ...             'seq_equal_to_range': seq_equal_to_range,
-    ...             'seq_equal_to_rev_range': seq_equal_to_rev_range,
+    ...             'rev_equal_to_rev_range': rev_equal_to_rev_range,
     ...             'seq[j]': seq_j,
     ...         })
     ...
@@ -793,7 +995,7 @@ class FilePagedSequence(MutableSequence):
     ...         'n': 10*j + i,
     ...         'seq_last': 10*j + i,
     ...         'seq_equal_to_range': True,
-    ...         'seq_equal_to_rev_range': True,
+    ...         'rev_equal_to_rev_range': True,
     ...         'seq[j]': j,
     ...     }
     ...     for j in range(10)
@@ -898,13 +1100,14 @@ class FilePagedSequence(MutableSequence):
     def __eq__(self, other):
         if is_seq(other):
             return len(self) == len(other) and all(
-                # This is how items are compared by built-in `list`
-                # (note, however, that there may exist objects -- for
-                # example, `float('nan')` -- which compare unequal to
-                # themselves *and* for whom pickling and unpickling
-                # (involved here and, obviously, not used by built-in
-                # `list`) may not keep their identities; but it is so
-                # rare/insubstantial case that we don't care):
+                # This is how items are compared by built-in `list`.
+                # *Side note:* there may exist objects (for example,
+                # `float('nan')`) which compare unequal to themselves
+                # *and* for whom pickling and unpickling (important for
+                # the `FilePagedSequence`'s machinery and -- obviously
+                # -- irrelevant for built-in `list`) *may not* keep
+                # their identities; but that is so rare/insubstantial
+                # case that we don't care.
                 my_item is their_item or my_item == their_item
                 for my_item, their_item in zip(self, other))
         return NotImplemented
@@ -949,6 +1152,21 @@ class FilePagedSequence(MutableSequence):
 
     def sort(self, cmp=None, key=None, reverse=None):
         raise NotImplementedError('in-place sorting is not supported')
+
+    def copy(self):
+        raise NotImplementedError('copying is not supported')
+
+    def __add__(self, other):
+        raise NotImplementedError('sequence concatenation is not supported')
+
+    def __radd__(self, other):
+        raise NotImplementedError('sequence concatenation is not supported')
+
+    def __mul__(self, other):
+        raise NotImplementedError('sequence multiplication is not supported')
+
+    def __rmul__(self, other):
+        raise NotImplementedError('sequence multiplication is not supported')
 
     def __enter__(self):
         return self
@@ -1063,12 +1281,13 @@ class FilePagedSequence(MutableSequence):
             # raises `NotImplementedError`)
             'remove',
         )
-        public_methods_defined_here = (     # <- except `__init__()` and __repr__
+        public_methods_defined_here = (     # <- except `__init__()` and `__repr__()`
             # (with real implementations)
             '__eq__', '__ne__', '__len__', '__getitem__', '__setitem__',
             '__enter__', '__exit__', 'append', 'pop', 'clear', 'close',
             # (raising `NotImplementedError`)
-            '__delitem__', 'insert', 'reverse', 'sort',
+            '__delitem__', 'insert', 'reverse', 'sort', 'copy',
+            '__add__', '__radd__', '__mul__', '__rmul__',
         )
         assert set(public_methods_from_mutable_sequence).issubset(dir(MutableSequence))
         assert set(public_methods_defined_here).isdisjoint(public_methods_from_mutable_sequence)
@@ -1139,6 +1358,943 @@ class FilePagedSequence(MutableSequence):
         return obj_mock
 
 
+_ElemT_co = TypeVar('_ElemT_co', bound=Hashable, covariant=True)
+
+class OPSet(Set[_ElemT_co], Reversible[_ElemT_co], Hashable):
+
+    """
+    An immutable set-like container that *preserves the order* of
+    the elements, whereras average performance of containment tests
+    (`in`/`not in`) is still `O(1)` (as for built-in dicts and sets).
+
+    `OPSet` implements the interface of the following abstract classes
+    defined in `collections.abc`: `Set`, `Reversible` and `Hashable`.
+
+    Since `OPSet` objects are hashable, they can be used as dict keys
+    and set elements (also elements of `OPSet`s).
+
+    Note: the order of elements is preserved by the constructor as well
+    as by any operators that produce new `OPSet` instances, but does not
+    influence any set-specific tests (in particular, equality tests).
+
+    >>> s = OPSet([1, 2, 6, 3, 2, 7, 1])
+    >>> s
+    OPSet([1, 2, 6, 3, 7])
+    >>> len(s)
+    5
+    >>> bool(s)
+    True
+    >>> 1 in s
+    True
+    >>> 4 in s
+    False
+    >>> it = iter(s)
+    >>> next(it)
+    1
+    >>> next(it)
+    2
+    >>> list(it)
+    [6, 3, 7]
+    >>> list(it)
+    []
+    >>> list(s)
+    [1, 2, 6, 3, 7]
+    >>> rv = reversed(s)
+    >>> next(rv)
+    7
+    >>> next(rv)
+    3
+    >>> list(rv)
+    [6, 2, 1]
+    >>> list(it)
+    []
+    >>> list(reversed(s))
+    [7, 3, 6, 2, 1]
+
+    >>> e = OPSet()
+    >>> e
+    OPSet()
+    >>> len(e)
+    0
+    >>> bool(e)
+    False
+    >>> 1 in e
+    False
+    >>> 4 in e
+    False
+    >>> list(e)
+    []
+    >>> list(reversed(e))
+    []
+
+    >>> s == s
+    True
+    >>> s == OPSet([1, 2, 6, 3, 7])
+    True
+    >>> s == OPSet([6, 2, 3, 7, 1])  # (order of elements is irrelevant for equality etc.)
+    True
+    >>> s == {1, 2, 6, 3, 7}
+    True
+    >>> {1, 2, 6, 3, 7} == s
+    True
+    >>> s == {1: None, 2: None, 6: None, 3: None, 7: None}.keys()  # (dict's keys view is set-like)
+    True
+    >>> s == {6: None, 2: None, 3: None, 7: None, 1: None}.keys()
+    True
+    >>> {6: None, 2: None, 3: None, 7: None, 1: None}.keys() == s
+    True
+    >>> class Submissive(Set):
+    ...     def __init__(self, iterable=()): self.li = list(iter_deduplicated(iterable))
+    ...     def __contains__(self, elem): return elem in self.li
+    ...     def __iter__(self): return iter(self.li)
+    ...     def __len__(self): return len(self.li)
+    ...     def _submissive_impl(*_): return NotImplemented
+    ...     __eq__ = __ne__ = __gt__ = __ge__ = __le__ = __lt__ = _submissive_impl
+    ...     __and__ = __rand__ = __or__ = __ror__ = _submissive_impl
+    ...     __sub__ = __rsub__ = __xor__ = __rxor__ = _submissive_impl
+    ...
+    >>> s == Submissive([1, 2, 6, 3, 7])
+    True
+    >>> Submissive([6, 2, 3, 7, 1]) == s
+    True
+    >>> e == e
+    True
+    >>> e == OPSet()
+    True
+    >>> e == set()
+    True
+    >>> set() == e
+    True
+    >>> e == {}.keys()
+    True
+    >>> {}.keys() == e
+    True
+    >>> e == Submissive()
+    True
+    >>> Submissive() == e
+    True
+
+    >>> s == OPSet([6, 2, 3, 7])
+    False
+    >>> s == {1, 2, 6, 3}
+    False
+    >>> {1, 2, 6, 3} == s
+    False
+    >>> s == frozenset({1, 2, 6, 3, 7, 8})
+    False
+    >>> frozenset({1, 2, 6, 3, 7, 8}) == s
+    False
+    >>> s == {1: None, 2: None, 6: None, 3: None, 8: None}.keys()
+    False
+    >>> {1: None, 2: None, 6: None, 3: None, 8: None}.keys() == s
+    False
+    >>> s == Submissive([2, 6, 3])
+    False
+    >>> Submissive([2, 6, 3]) == s
+    False
+    >>> s == e
+    False
+    >>> s == set()
+    False
+    >>> set() == s
+    False
+    >>> s == [1, 2, 6, 3, 7]   # (note: never equal to sequences and other non-set-like iterables)
+    False
+    >>> [1, 2, 6, 3, 7] == s
+    False
+    >>> s == (1, 2, 6, 3, 7)
+    False
+    >>> (1, 2, 6, 3, 7) == s
+    False
+    >>> s == {1: None, 2: None, 6: None, 3: None, 7: None}
+    False
+    >>> s == {6: None, 2: None, 3: None, 7: None, 1: None}
+    False
+    >>> {6: None, 2: None, 3: None, 7: None, 1: None} == s
+    False
+    >>> e == s
+    False
+    >>> e == OPSet([1, 2, 6, 3, 7])
+    False
+    >>> e == {1, 2, 6, 3, 7}
+    False
+    >>> {1, 2, 6, 3, 7} == e
+    False
+    >>> e == {1: None, 2: None, 6: None, 3: None, 7: None}.keys()
+    False
+    >>> {6: None, 2: None, 3: None, 7: None, 1: None}.keys() == e
+    False
+    >>> e == Submissive([1, 2, 6, 3, 7])
+    False
+    >>> Submissive([1, 2, 6, 3, 7]) == e
+    False
+    >>> e == []
+    False
+    >>> [] == e
+    False
+    >>> e == ()
+    False
+    >>> () == e
+    False
+    >>> e == {}
+    False
+    >>> {} == e
+    False
+
+    >>> s != s
+    False
+    >>> s != OPSet([1, 2, 6, 3, 7])
+    False
+    >>> s != OPSet([6, 2, 3, 7, 1])
+    False
+    >>> s != {1, 2, 6, 3, 7}
+    False
+    >>> {1, 2, 6, 3, 7} != s
+    False
+    >>> s != {1: None, 2: None, 6: None, 3: None, 7: None}.keys()
+    False
+    >>> s != {6: None, 2: None, 3: None, 7: None, 1: None}.keys()
+    False
+    >>> {6: None, 2: None, 3: None, 7: None, 1: None}.keys() != s
+    False
+    >>> s != Submissive([1, 2, 6, 3, 7])
+    False
+    >>> Submissive([6, 2, 3, 7, 1]) != s
+    False
+    >>> e != e
+    False
+    >>> e != OPSet()
+    False
+    >>> e != set()
+    False
+    >>> set() != e
+    False
+    >>> e != {}.keys()
+    False
+    >>> {}.keys() != e
+    False
+    >>> e != Submissive()
+    False
+    >>> Submissive() != e
+    False
+
+    >>> s != OPSet([6, 2, 3, 7])
+    True
+    >>> s != {1, 2, 6, 3}
+    True
+    >>> {1, 2, 6, 3} != s
+    True
+    >>> s != frozenset({1, 2, 6, 3, 7, 8})
+    True
+    >>> frozenset({1, 2, 6, 3, 7, 8}) != s
+    True
+    >>> s != {1: None, 2: None, 6: None, 3: None, 8: None}.keys()
+    True
+    >>> {1: None, 2: None, 6: None, 3: None, 8: None}.keys() != s
+    True
+    >>> s != Submissive([2, 6, 3])
+    True
+    >>> Submissive([2, 6, 3]) != s
+    True
+    >>> s != e
+    True
+    >>> s != set()
+    True
+    >>> set() != s
+    True
+    >>> s != [1, 2, 6, 3, 7]
+    True
+    >>> [1, 2, 6, 3, 7] != s
+    True
+    >>> s != (1, 2, 6, 3, 7)
+    True
+    >>> (1, 2, 6, 3, 7) != s
+    True
+    >>> s != {1: None, 2: None, 6: None, 3: None, 7: None}
+    True
+    >>> s != {6: None, 2: None, 3: None, 7: None, 1: None}
+    True
+    >>> {6: None, 2: None, 3: None, 7: None, 1: None} != s
+    True
+    >>> e != s
+    True
+    >>> e != OPSet([1, 2, 6, 3, 7])
+    True
+    >>> e != {1, 2, 6, 3, 7}
+    True
+    >>> {1, 2, 6, 3, 7} != e
+    True
+    >>> e != {1: None, 2: None, 6: None, 3: None, 7: None}.keys()
+    True
+    >>> {6: None, 2: None, 3: None, 7: None, 1: None}.keys() != e
+    True
+    >>> e != Submissive([1, 2, 6, 3, 7])
+    True
+    >>> Submissive([1, 2, 6, 3, 7]) != e
+    True
+    >>> e != []
+    True
+    >>> [] != e
+    True
+    >>> e != ()
+    True
+    >>> () != e
+    True
+    >>> e != {}
+    True
+    >>> {} != e
+    True
+
+    >>> s > s
+    False
+    >>> s > OPSet([1, 2, 6, 3, 7])
+    False
+    >>> s > OPSet([6, 2, 3, 7, 1])
+    False
+    >>> s > Submissive([1, 2, 6, 3, 7])
+    False
+    >>> Submissive([6, 2, 3, 7, 1]) < s
+    False
+    >>> s > {1, 2, 6, 3, 7}
+    False
+    >>> {1, 2, 6, 3, 7} < s
+    False
+    >>> s > OPSet([6, 2, 3, 1])
+    True
+    >>> s > Submissive([6, 2, 3, 1])
+    True
+    >>> Submissive([3, 2, 6, 1]) < s
+    True
+    >>> s > {1, 2, 6, 3}
+    True
+    >>> {1, 2, 6, 3} < s
+    True
+    >>> s > OPSet([6, 2, 3, 8, 7, 1])
+    False
+    >>> s > Submissive([6, 2, 3, 8, 7, 1])
+    False
+    >>> Submissive([3, 6, 8, 7, 2, 1]) < s
+    False
+    >>> s > {1, 2, 6, 3, 7, 8}
+    False
+    >>> {1, 2, 6, 3, 7, 8} < s
+    False
+    >>> s > OPSet([6, 2, 3, 8, 1])
+    False
+    >>> s > Submissive([6, 2, 3, 8, 1])
+    False
+    >>> Submissive([3, 1, 8, 6, 2]) < s
+    False
+    >>> s > {1, 2, 6, 3, 8}
+    False
+    >>> {1, 2, 6, 3, 8} < s
+    False
+    >>> s > e
+    True
+    >>> e < s
+    True
+    >>> e < e
+    False
+    >>> s > set()
+    True
+    >>> set() < s
+    True
+    >>> s > [1, 2, 6, 3, 7]                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    >>> [1, 2, 6, 3, 7] < s                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> s >= s
+    True
+    >>> s >= OPSet([1, 2, 6, 3, 7])
+    True
+    >>> s >= OPSet([6, 2, 3, 7, 1])
+    True
+    >>> s >= Submissive([1, 2, 6, 3, 7])
+    True
+    >>> Submissive([6, 2, 3, 7, 1]) <= s
+    True
+    >>> s >= frozenset({1, 2, 6, 3, 7})
+    True
+    >>> frozenset({1, 2, 6, 3, 7}) <= s
+    True
+    >>> s >= OPSet([6, 2, 3, 1])
+    True
+    >>> s >= Submissive([6, 2, 3, 1])
+    True
+    >>> Submissive([3, 2, 6, 1]) <= s
+    True
+    >>> s >= frozenset({1, 2, 6, 3})
+    True
+    >>> frozenset({1, 2, 6, 3}) <= s
+    True
+    >>> s >= OPSet([6, 2, 3, 8, 7, 1])
+    False
+    >>> s >= Submissive([6, 2, 3, 8, 7, 1])
+    False
+    >>> Submissive([3, 6, 8, 7, 2, 1]) <= s
+    False
+    >>> s >= frozenset({1, 2, 6, 3, 7, 8})
+    False
+    >>> frozenset({1, 2, 6, 3, 7, 8}) <= s
+    False
+    >>> s >= OPSet([6, 2, 3, 8, 1])
+    False
+    >>> s >= Submissive([6, 2, 3, 8, 1])
+    False
+    >>> Submissive([3, 1, 8, 6, 2]) <= s
+    False
+    >>> s >= frozenset({1, 2, 6, 3, 8})
+    False
+    >>> frozenset({1, 2, 6, 3, 8}) <= s
+    False
+    >>> s >= e
+    True
+    >>> e <= s
+    True
+    >>> e <= e
+    True
+    >>> s >= frozenset({})
+    True
+    >>> frozenset({}) <= s
+    True
+    >>> s >= [1, 2, 6, 3, 7]                # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    >>> [1, 2, 6, 3, 7] <= s                # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> s < s
+    False
+    >>> s < OPSet([1, 2, 6, 3, 7])
+    False
+    >>> s < OPSet([6, 2, 3, 7, 1])
+    False
+    >>> s < Submissive([1, 2, 6, 3, 7])
+    False
+    >>> Submissive([6, 2, 3, 7, 1]) > s
+    False
+    >>> s < {1: None, 2: None, 6: None, 3: None, 7: None}.keys()
+    False
+    >>> {1: None, 2: None, 6: None, 3: None, 7: None}.keys() > s
+    False
+    >>> s < OPSet([6, 2, 3, 1])
+    False
+    >>> s < Submissive([6, 2, 3, 1])
+    False
+    >>> Submissive([3, 2, 6, 1]) > s
+    False
+    >>> s < {1: None, 2: None, 6: None, 3: None}.keys()
+    False
+    >>> {1: None, 2: None, 6: None, 3: None}.keys() > s
+    False
+    >>> s < OPSet([6, 2, 3, 8, 7, 1])
+    True
+    >>> s < Submissive([6, 2, 3, 8, 7, 1])
+    True
+    >>> Submissive([3, 6, 8, 7, 2, 1]) > s
+    True
+    >>> s < {1: None, 2: None, 6: None, 3: None, 7: None, 8: None}.keys()
+    True
+    >>> {1: None, 2: None, 6: None, 3: None, 7: None, 8: None}.keys() > s
+    True
+    >>> s < OPSet([6, 2, 3, 8, 1])
+    False
+    >>> s < Submissive([6, 2, 3, 8, 1])
+    False
+    >>> Submissive([3, 1, 8, 6, 2]) > s
+    False
+    >>> s < {1: None, 2: None, 6: None, 3: None, 8: None}.keys()
+    False
+    >>> {1: None, 2: None, 6: None, 3: None, 8: None}.keys() > s
+    False
+    >>> s < e
+    False
+    >>> e < s
+    True
+    >>> e < e
+    False
+    >>> s < {}.keys()
+    False
+    >>> {}.keys() > s
+    False
+    >>> s < [1, 2, 6, 3, 7]                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    >>> [1, 2, 6, 3, 7] > s                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> s <= s
+    True
+    >>> s <= OPSet([1, 2, 6, 3, 7])
+    True
+    >>> s <= OPSet([6, 2, 3, 7, 1])
+    True
+    >>> s <= Submissive([1, 2, 6, 3, 7])
+    True
+    >>> Submissive([6, 2, 3, 7, 1]) >= s
+    True
+    >>> s <= {1, 2, 6, 3, 7}
+    True
+    >>> {1, 2, 6, 3, 7} >= s
+    True
+    >>> s <= OPSet([6, 2, 3, 1])
+    False
+    >>> s <= Submissive([6, 2, 3, 1])
+    False
+    >>> Submissive([3, 2, 6, 1]) >= s
+    False
+    >>> s <= {1, 2, 6, 3}
+    False
+    >>> {1, 2, 6, 3} >= s
+    False
+    >>> s <= OPSet([6, 2, 3, 8, 7, 1])
+    True
+    >>> s <= Submissive([6, 2, 3, 8, 7, 1])
+    True
+    >>> Submissive([3, 6, 8, 7, 2, 1]) >= s
+    True
+    >>> s <= {1, 2, 6, 3, 7, 8}
+    True
+    >>> {1, 2, 6, 3, 7, 8} >= s
+    True
+    >>> s <= OPSet([6, 2, 3, 8, 1])
+    False
+    >>> s <= Submissive([6, 2, 3, 8, 1])
+    False
+    >>> Submissive([3, 1, 8, 6, 2]) >= s
+    False
+    >>> s <= {1, 2, 6, 3, 8}
+    False
+    >>> {1, 2, 6, 3, 8} >= s
+    False
+    >>> s <= e
+    False
+    >>> e <= s
+    True
+    >>> e <= e
+    True
+    >>> s <= set()
+    False
+    >>> set() >= s
+    False
+    >>> s <= [1, 2, 6, 3, 7]                # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    >>> [1, 2, 6, 3, 7] >= s                # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> s.isdisjoint(OPSet([5, 8, 4]))
+    True
+    >>> s.isdisjoint(frozenset({5, 8, 4}))
+    True
+    >>> s.isdisjoint({5: None, 8: None, 4: None}.keys())
+    True
+    >>> s.isdisjoint([5, 8, 4])   # Note: `isdisjoint()` accepts any iterable of hashable objects.
+    True
+    >>> s.isdisjoint((5, 8, 4))
+    True
+    >>> s.isdisjoint({5: None, 8: None, 4: None})
+    True
+    >>> s.isdisjoint(e)
+    True
+    >>> e.isdisjoint(s)
+    True
+    >>> e.isdisjoint(e)
+    True
+    >>> e.isdisjoint(())
+    True
+    >>> s.isdisjoint(s)
+    False
+    >>> s.isdisjoint({1, 2, 6, 3, 7})
+    False
+    >>> s.isdisjoint({2: None, 6: None}.keys())
+    False
+    >>> s.isdisjoint([3, 6, 8, 7, 2, 1])
+    False
+    >>> s.isdisjoint((3, 1, 8, 6, 2))
+    False
+    >>> s.isdisjoint({2: None, 6: None})
+    False
+    >>> e.isdisjoint(2)                     # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> s & s
+    OPSet([1, 2, 6, 3, 7])
+    >>> s & OPSet([9, 1, 2, 6, 3, 8])
+    OPSet([1, 2, 6, 3])
+    >>> s & OPSet([3, 9, 6, 8, 2, 1])
+    OPSet([1, 2, 6, 3])
+    >>> s & {1, 2, 6, 3, 8}
+    OPSet([1, 2, 6, 3])
+    >>> s & {9: None, 1: None, 2: None, 6: None, 3: None, 8: None}.keys()
+    OPSet([1, 2, 6, 3])
+    >>> s & Submissive([9, 1, 2, 6, 3, 8])
+    OPSet([1, 2, 6, 3])
+    >>> Submissive([9, 1, 2, 6, 3, 8]) & s
+    OPSet([1, 2, 6, 3])
+    >>> s & Submissive([3, 9, 6, 2, 8, 1])
+    OPSet([1, 2, 6, 3])
+    >>> Submissive([3, 9, 6, 2, 8, 1]) & s   # (note the order)
+    OPSet([3, 6, 2, 1])
+    >>> s & e
+    OPSet()
+    >>> e & s
+    OPSet()
+    >>> e & e
+    OPSet()
+    >>> s & set()
+    OPSet()
+    >>> s & [1, 2, 6, 3, 7]                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    >>> [1, 2, 6, 3, 7] & s                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> s | s
+    OPSet([1, 2, 6, 3, 7])
+    >>> s | OPSet([9, 1, 2, 6, 3, 8])
+    OPSet([1, 2, 6, 3, 7, 9, 8])
+    >>> s | OPSet([3, 9, 6, 8, 2, 1])
+    OPSet([1, 2, 6, 3, 7, 9, 8])
+    >>> s | {1, 2, 6, 3, 8}
+    OPSet([1, 2, 6, 3, 7, 8])
+    >>> s | {9: None, 1: None, 2: None, 6: None, 3: None, 8: None}.keys()
+    OPSet([1, 2, 6, 3, 7, 9, 8])
+    >>> s | Submissive([9, 1, 2, 6, 3, 8])
+    OPSet([1, 2, 6, 3, 7, 9, 8])
+    >>> Submissive([9, 1, 2, 6, 3, 8]) | s   # (note the order)
+    OPSet([9, 1, 2, 6, 3, 8, 7])
+    >>> s | Submissive([3, 9, 6, 2, 8, 1])
+    OPSet([1, 2, 6, 3, 7, 9, 8])
+    >>> Submissive([3, 9, 6, 2, 8, 1]) | s   # (note the order)
+    OPSet([3, 9, 6, 2, 8, 1, 7])
+    >>> s | e
+    OPSet([1, 2, 6, 3, 7])
+    >>> e | s
+    OPSet([1, 2, 6, 3, 7])
+    >>> e | e
+    OPSet()
+    >>> s | set()
+    OPSet([1, 2, 6, 3, 7])
+    >>> s | [1, 2, 6, 3, 7]                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    >>> [1, 2, 6, 3, 7] | s                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> s - s
+    OPSet()
+    >>> s - OPSet([9, 2, 6, 8])
+    OPSet([1, 3, 7])
+    >>> s - OPSet([6, 9, 8, 2])
+    OPSet([1, 3, 7])
+    >>> s - {9, 2, 6, 8}
+    OPSet([1, 3, 7])
+    >>> s - {9: None, 2: None, 6: None, 8: None}.keys()
+    OPSet([1, 3, 7])
+    >>> s - Submissive([9, 2, 6, 8])
+    OPSet([1, 3, 7])
+    >>> Submissive([1, 2, 6, 3, 7]) - OPSet([9, 2, 6, 8])
+    OPSet([1, 3, 7])
+    >>> s - Submissive([6, 9, 8, 2])
+    OPSet([1, 3, 7])
+    >>> Submissive([1, 2, 6, 3, 7]) - OPSet([2, 9, 6, 8])
+    OPSet([1, 3, 7])
+    >>> s - e
+    OPSet([1, 2, 6, 3, 7])
+    >>> e - s
+    OPSet()
+    >>> e - e
+    OPSet()
+    >>> s - set()
+    OPSet([1, 2, 6, 3, 7])
+    >>> s - [1, 2, 6, 3, 7]                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    >>> [1, 2, 6, 3, 7] - s                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> s ^ s
+    OPSet()
+    >>> s ^ OPSet([9, 2, 6, 8])
+    OPSet([1, 3, 7, 9, 8])
+    >>> s ^ OPSet([6, 9, 8, 2])
+    OPSet([1, 3, 7, 9, 8])
+    >>> s ^ {2, 6, 8}
+    OPSet([1, 3, 7, 8])
+    >>> s ^ {9: None, 2: None, 6: None, 8: None}.keys()
+    OPSet([1, 3, 7, 9, 8])
+    >>> s ^ Submissive([9, 2, 6, 8])
+    OPSet([1, 3, 7, 9, 8])
+    >>> Submissive([9, 2, 6, 8]) ^ s   # (note the order)
+    OPSet([9, 8, 1, 3, 7])
+    >>> s ^ Submissive([6, 9, 8, 2])
+    OPSet([1, 3, 7, 9, 8])
+    >>> Submissive([6, 9, 8, 2]) ^ s   # (note the order)
+    OPSet([9, 8, 1, 3, 7])
+    >>> s ^ e
+    OPSet([1, 2, 6, 3, 7])
+    >>> e ^ s
+    OPSet([1, 2, 6, 3, 7])
+    >>> e ^ e
+    OPSet()
+    >>> s ^ set()
+    OPSet([1, 2, 6, 3, 7])
+    >>> s ^ [1, 2, 6, 3, 7]                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    >>> [1, 2, 6, 3, 7] ^ s                 # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+
+    >>> d = {
+    ...     OPSet([1, 2, 6, 3, 7]): 62371,
+    ...     frozenset({1, 2, 3}): 123,
+    ... }
+    >>> s2 = OPSet([
+    ...     OPSet([1, 2, 6, 3, 7]),
+    ...     frozenset({1, 2, 3}),
+    ... ])
+    >>> s in d and s in s2
+    True
+    >>> e in d or e in s2
+    False
+    >>> frozenset({6, 2, 3, 7, 1}) in d and frozenset({6, 2, 3, 7, 1}) in s2
+    True
+    >>> d[s]
+    62371
+    >>> d[OPSet([6, 2, 3, 7, 1])]
+    62371
+    >>> OPSet([6, 2, 3, 7, 1]) in s2
+    True
+    >>> OPSet([6, 2, 3, 7]) in s2
+    False
+    >>> OPSet([6, 2, 3, 7]) in d
+    False
+    >>> frozenset({6, 2, 3, 7, 1, 8}) in d
+    False
+    >>> frozenset({6, 2, 3, 7, 1, 8}) in s2
+    False
+    >>> OPSet([6, 2, 3, 7, 8]) in d
+    False
+    >>> OPSet([6, 2, 3, 7, 8]) in s2
+    False
+    >>> d[OPSet([1, 2, 3])]
+    123
+    >>> d[OPSet([3, 2, 1])]
+    123
+    >>> OPSet([1, 2, 3]) in s2
+    True
+    >>> OPSet([3, 2, 1]) in s2
+    True
+    >>> ((1, 2, 3) in d
+    ...  or (1, 2, 6, 3, 7) in d
+    ...  or (6, 2, 3, 7, 1) in d
+    ...  or (1, 2, 3) in s2
+    ...  or (1, 2, 6, 3, 7) in s2
+    ...  or (6, 2, 3, 7, 1) in s2)
+    False
+    """
+
+    def __new__(
+            cls,
+            elements: Iterable[_ElemT_co] = (),
+            *,
+            # (hack for efficiency)
+            _type=type,
+            _object_new=object.__new__,
+            _dict_fromkeys=dict.fromkeys) -> 'OPSet[_ElemT_co]':
+
+        if _type(elements) is cls:
+            return elements  # noqa
+
+        new = _object_new(cls)
+        new._d = _dict_fromkeys(elements)
+        return new
+
+    # (non-public instance attribute, treated as immutable/read-only)
+    _d: dict[_ElemT_co, None]
+
+    def __repr__(self) -> str:
+        cls_name = self.__class__.__qualname__
+        arg_repr = repr(list(self._d)) if self else ''
+        return f'{cls_name}({arg_repr})'
+
+    def __len__(
+            self,
+            # (hack for efficiency)
+            _dict_len=dict.__len__) -> int:
+        return _dict_len(self._d)
+
+    def __contains__(
+            self, elem: Hashable,
+            # (hack for efficiency)
+            _dict_contains=dict.__contains__) -> bool:
+        return _dict_contains(self._d, elem)
+
+    def __iter__(
+            self,
+            # (hack for efficiency)
+            _dict_iter=dict.__iter__) -> Iterator[_ElemT_co]:
+        return _dict_iter(self._d)
+
+    def __reversed__(
+            self,
+            # (hack for efficiency)
+            _dict_reversed=dict.__reversed__) -> Iterator[_ElemT_co]:
+        return _dict_reversed(self._d)
+
+    def __hash__(self) -> int:
+        return self._hash_value
+
+    @functools.cached_property
+    def _hash_value(
+            self,
+            # (hack for efficiency)
+            _hash=hash,
+            _frozenset=frozenset) -> int:
+        return _hash(_frozenset(self._d))
+
+    # `__eq__()`, `__ne__()`, `__le__()`, `__ge__()` and `isdisjoint()`
+    # are overridden for efficiency, and also for better type hints:
+
+    _dict_keys_type = type({}.keys())
+
+    def __eq__(
+            self,
+            other: Set[Hashable],
+            # (hack for efficiency)
+            _type=type,
+            _dict_keys=dict.keys,
+            _dict_keys_eq=_dict_keys_type.__eq__) -> bool:
+        if _type(other) is __class__:
+            return _dict_keys_eq(_dict_keys(self._d), _dict_keys(other._d))
+        res = _dict_keys_eq(_dict_keys(self._d), other)
+        if res is NotImplemented:
+            return super().__eq__(other)
+        return res
+
+    __ne__: Callable[[Set[Hashable]], bool] = object.__ne__
+
+    def __le__(
+            self,
+            other: Set[Hashable],
+            # (hack for efficiency)
+            _type=type,
+            _dict_keys=dict.keys,
+            _dict_keys_le=_dict_keys_type.__le__) -> bool:
+        if _type(other) is __class__:
+            return _dict_keys_le(_dict_keys(self._d), _dict_keys(other._d))
+        res = _dict_keys_le(_dict_keys(self._d), other)
+        if res is NotImplemented:
+            return super().__le__(other)
+        return res
+
+    def __ge__(
+            self,
+            other: Set[Hashable],
+            # (hack for efficiency)
+            _type=type,
+            _dict_keys=dict.keys,
+            _dict_keys_ge=_dict_keys_type.__ge__) -> bool:
+        if _type(other) is __class__:
+            return _dict_keys_ge(_dict_keys(self._d), _dict_keys(other._d))
+        res = _dict_keys_ge(_dict_keys(self._d), other)
+        if res is NotImplemented:
+            return super().__ge__(other)
+        return res
+
+    def isdisjoint(
+            self,
+            other: Iterable[Hashable],
+            *,
+            # (hack for efficiency)
+            _dict_keys=dict.keys,
+            _dict_keys_isdisjoint=_dict_keys_type.isdisjoint) -> bool:
+        return _dict_keys_isdisjoint(_dict_keys(self._d), other)
+
+    # Implementations of `&`, `|`, `-` and `^` are overridden to provide
+    # proper order of elements in results, to reject non-`Set` iterables
+    # as well as for better type hints:
+
+    def __and__(self, other: Set[Hashable]) -> 'OPSet[_ElemT_co]':
+        if not isinstance(other, Set):
+            return NotImplemented
+        return self.__class__(
+            value for value in self
+            if value in other)
+
+    def __rand__(self, other: Set[Hashable]) -> 'OPSet[_ElemT_co]':
+        if not isinstance(other, Set):
+            return NotImplemented
+        return self.__class__(
+            value for value in other
+            if value in self)
+
+    def __or__(self, other: Set[HashableT]) -> 'OPSet[Union[_ElemT_co, HashableT]]':
+        if not isinstance(other, Set):
+            return NotImplemented
+        return self.__class__(itertools.chain(self, other))
+
+    def __ror__(self, other: Set[HashableT]) -> 'OPSet[Union[_ElemT_co, HashableT]]':
+        if not isinstance(other, Set):
+            return NotImplemented
+        return self.__class__(itertools.chain(other, self))
+
+    def __sub__(self, other: Set[Hashable]) -> 'OPSet[_ElemT_co]':
+        if not isinstance(other, Set):
+            return NotImplemented
+        return self.__class__(
+            value for value in self
+            if value not in other)
+
+    def __rsub__(self, other: Set[HashableT]) -> 'OPSet[HashableT]':
+        if not isinstance(other, Set):
+            return NotImplemented
+        return self.__class__(
+            value for value in other
+            if value not in self)
+
+    def __xor__(self, other: Set[HashableT]) -> 'OPSet[Union[_ElemT_co, HashableT]]':
+        if not isinstance(other, Set):
+            return NotImplemented
+        other = self.__class__(other)
+        return (self - other) | (other - self)
+
+    def __rxor__(self, other: Set[HashableT]) -> 'OPSet[Union[_ElemT_co, HashableT]]':
+        if not isinstance(other, Set):
+            return NotImplemented
+        other = self.__class__(other)
+        return (other - self) | (self - other)
+
+
 class DictWithSomeHooks(dict):
 
     """
@@ -1179,7 +2335,7 @@ class DictWithSomeHooks(dict):
     * However, if you extend `__init__()` and still want your subclass
       to support the (rarely used) `fromkeys()` class method, you need
       to override the `_standard_fromkeys_enabled` class attribute (in
-      your subclass) by setting it to a true value -- **after ensuring**
+      your subclass) by setting it to a true value -- **and ensuring**
       that your extended `__init__()` is able to take a plain `dict`
       of items as the sole positional argument (note that the default
       version of `__init__()`, provided by `DictWithSomeHooks`, meets
@@ -1803,7 +2959,7 @@ class DictWithSomeHooks(dict):
                 'the class method `fromkeys()` is not enabled (to enable '
                 'it in a subclass that extends `__init__()`, you need '
                 'to: *either* set the `_standard_fromkeys_enabled` class '
-                'attribute to `True` -- after ensuring that `__init__()` '
+                'attribute to `True` and ensure that `__init__()` really '
                 'accepts a plain dict of items as the sole argument; *or* '
                 'provide your own implementation of `fromkeys()`)')
         items = zip(iterable, itertools.repeat(value))
@@ -2233,20 +3389,24 @@ def memoized(func=None,
              max_extra_time=30,
              time_func=time.monotonic):
     """
-    A simple in-memory-LRU-cache-providing call memoizing decorator.
+    A decorator that provides function call memoization based on a FIFO cache.
+
+    Note: this tool provides a FIFO (*first in, first out*) cache.
+    If you need a LRU (*least recently used*-discarding) cache, use
+    `@functools.lru_cache` instead.
 
     Args:
         `func`:
-            The decorated function. Typically, it is ommited to
-            be bound later with the decorator syntax (see the
-            examples below).
+            The decorated function. (Typically, it is ommited to
+            be bound later with the decorator syntax -- see the
+            examples below.)
 
     Kwargs:
-        `expires_after` (default: None):
+        `expires_after` (default: `None`):
             Time interval (in seconds) between caching a call
-            result and its expiration. If set to None -- there
+            result and its expiration. If set to `None` -- there
             is no time-based cache expiration.
-        `max_size` (default: None):
+        `max_size` (default: `None`):
             Maximum number of memoized results (formally, this is
             not a strict maximum: some extra cached results can be
             kept a bit longer -- until their keys' weak references
@@ -2255,7 +3415,7 @@ def memoized(func=None,
             harmless). If set to None -- there is no such limit.
         `max_extra_time` (default: 30):
             Maximum for a random number of seconds to be added to
-            `expires_after` for a particular cached result. None
+            `expires_after` for a particular cached result. `None`
             means the same as 0: no extra time. Non-zero values
             help in "desynchronization" of `@memoized`-based caches,
             i.e., in avoiding unwanted regularity in coincidences of
@@ -2267,8 +3427,13 @@ def memoized(func=None,
             return an `int` or `float` number (one second is assumed to
             be the unit, fractional part is welcome).
 
-    Note: recursion is not supported (the decorated function raises
-    RuntimeError when a recursive call occurs).
+    Recursion is not supported (the decorated function raises
+    `RuntimeError` when a recursive call occurs).
+
+    Function arguments of different types are *not* cached separately
+    (as long as their hashes and values compare *equal*).
+
+    ***
 
     >>> @memoized(expires_after=None, max_size=2)
     ... def add(a, b):
@@ -2280,7 +3445,7 @@ def memoized(func=None,
     3
     >>> add(1, 2)  # now, getting cached results...
     3
-    >>> add(1, 2)
+    >>> add(1+0j, 2.0)   # (argument types are irrelevant as long as values are equal)
     3
     >>> add(1, 3)
     calculating: 1 + 3 = ...
@@ -2301,6 +3466,15 @@ def memoized(func=None,
     3
     >>> add(3, 1)
     4
+    >>> add(1, 3)  # already forgotten (max_size had been exceeded)
+    calculating: 1 + 3 = ...
+    4
+    >>> add(3, 1)  # already forgotten (max_size had been exceeded)
+    calculating: 3 + 1 = ...
+    4
+    >>> add(1, 2)  # already forgotten (max_size had been exceeded)
+    calculating: 1 + 2 = ...
+    3
 
     >>> t = 0
     >>> fake_time = lambda: t
@@ -2314,7 +3488,7 @@ def memoized(func=None,
     -1
 
     >>> t = 1
-    >>> sub(1, 2)
+    >>> sub(1, 2.0)
     -1
 
     >>> t = 2
@@ -2352,6 +3526,63 @@ def memoized(func=None,
     calculating: 1 - 2 = ...
     -1
 
+    >>> @memoized(max_size=2, expires_after=4, max_extra_time=1, time_func=fake_time)
+    ... def mul(a, b):
+    ...     print('calculating: {} * {} = ...'.format(a, b))
+    ...     return a * b
+    ...
+    >>> t = 10
+    >>> mul(2, 2)  # first time: calling the mul() function
+    calculating: 2 * 2 = ...
+    4
+    >>> mul(2, 2)  # now, getting cached results...
+    4
+    >>> mul(2, 2.0)
+    4
+    >>> t = 20
+    >>> mul(2, 2)  # already expired
+    calculating: 2 * 2 = ...
+    4
+    >>> mul(2, 2)  # now, getting cached results again...
+    4
+    >>> mul(2, 2.0)
+    4
+    >>> mul(2, 3)
+    calculating: 2 * 3 = ...
+    6
+    >>> mul(2, 2)
+    4
+    >>> mul(2, 3)
+    6
+    >>> mul(3, 2)  # exceeding max_size: forgeting for (2, 2)
+    calculating: 3 * 2 = ...
+    6
+    >>> mul(2, 3)
+    6
+    >>> mul(3, 2)
+    6
+    >>> mul(2, 2)  # already forgotten (max_size had been exceeded)
+    calculating: 2 * 2 = ...
+    4
+    >>> mul(3, 2)
+    6
+    >>> mul(2, 3)  # already forgotten (max_size had been exceeded)
+    calculating: 2 * 3 = ...
+    6
+    >>> mul(3, 2)  # already forgotten (max_size had been exceeded)
+    calculating: 3 * 2 = ...
+    6
+    >>> mul(2, 2)  # already forgotten (max_size had been exceeded)
+    calculating: 2 * 2 = ...
+    4
+    >>> t = 30
+    >>> mul(2, 2)  # already expired
+    calculating: 2 * 2 = ...
+    4
+    >>> mul(3, 2)  # already expired
+    calculating: 3 * 2 = ...
+    6
+
     >>> @memoized(expires_after=None, max_size=2)
     ... def div(a, b):
     ...     print('calculating: {} / {} = ...'.format(a, b))
@@ -2380,7 +3611,7 @@ def memoized(func=None,
     Uff
     >>> div(15, 3)
     5.0
-    >>> div(8, 2)
+    >>> div(8.0, 2+0j)
     4.0
     >>> div(6, 2)
     calculating: 6 / 2 = ...
@@ -2455,7 +3686,7 @@ def memoized(func=None,
 class DictDeltaKey(collections.namedtuple('DictDeltaKey', ('op', 'key_obj'))):
 
     """
-    The class of special marker keys in dicts returned by make_dict_delta().
+    The class of special marker keys in dicts returned by `make_dict_delta()`.
 
     >>> DictDeltaKey('+', 42)
     DictDeltaKey(op='+', key_obj=42)
@@ -2502,7 +3733,7 @@ def make_dict_delta(dict1, dict2):
 
     Here, "delta dict" is just a dict that contains only differing
     items, with their keys wrapped with DictDeltaKey() instances
-    (appropriately: DictDeltaKey('-', <key>) or DictDeltaKey('+', <key>)).
+    (appropriately: `DictDeltaKey('-', <key>)` or `DictDeltaKey('+', <key>)`).
 
     A few simple examples:
 
@@ -3353,7 +4584,7 @@ def replace_segment(s, segment_index, new_content, sep='.'):
     return sep.join(segments)
 
 
-def splitlines_asc(s, keepends=False):
+def splitlines_asc(s, keepends=False, *, append_empty_ending=False):
     r"""
     Like the built-in `{str/bytes/bytearray}.splitlines()` method, but
     split only at ASCII line boundaries (`\n`, `\r\n`, `\r`), even if
@@ -3361,7 +4592,13 @@ def splitlines_asc(s, keepends=False):
     method does the splits also at some other line boundary characters,
     including `\v`, `\f`, `\u2028` and a few others...).
 
-    **Note:** the argument need *not* to be ASCII-only.
+    Additionally, an extra optional keyword-only argument can be given:
+    `append_empty_ending` (it is `False` by default). If you set it to
+    a truthy value (such as `True`) *and* the input string (or input
+    binary data) ends with a line boundary, the resultant list will
+    contain an additional empty item (see the examples below).
+
+    **Note:** the input need *not* to be ASCII-only.
 
     ***
 
@@ -3372,6 +4609,10 @@ def splitlines_asc(s, keepends=False):
     ['abc', 'def', 'ghi\x0bjkl\x0c\u2028mno', 'pqr']
     >>> splitlines_asc(s, True)
     ['abc\n', 'def\r', 'ghi\x0bjkl\x0c\u2028mno\r\n', 'pqr\n']
+    >>> splitlines_asc(s + 'xyz')
+    ['abc', 'def', 'ghi\x0bjkl\x0c\u2028mno', 'pqr', 'xyz']
+    >>> splitlines_asc(s + 'xyz', True)
+    ['abc\n', 'def\r', 'ghi\x0bjkl\x0c\u2028mno\r\n', 'pqr\n', 'xyz']
 
     ...the results are *different* than when using the method:
 
@@ -3379,6 +4620,22 @@ def splitlines_asc(s, keepends=False):
     ['abc', 'def', 'ghi', 'jkl', '', 'mno', 'pqr']
     >>> s.splitlines(True)
     ['abc\n', 'def\r', 'ghi\x0b', 'jkl\x0c', '\u2028', 'mno\r\n', 'pqr\n']
+    >>> (s + 'xyz').splitlines()
+    ['abc', 'def', 'ghi', 'jkl', '', 'mno', 'pqr', 'xyz']
+    >>> (s + 'xyz').splitlines(True)
+    ['abc\n', 'def\r', 'ghi\x0b', 'jkl\x0c', '\u2028', 'mno\r\n', 'pqr\n', 'xyz']
+
+    Note that the results *may* be even slightly *more different* if
+    `append_empty_ending=True` is passed to `splitlines_asc()`:
+
+    >>> splitlines_asc(s, append_empty_ending=True)
+    ['abc', 'def', 'ghi\x0bjkl\x0c\u2028mno', 'pqr', '']
+    >>> splitlines_asc(s, True, append_empty_ending=True)
+    ['abc\n', 'def\r', 'ghi\x0bjkl\x0c\u2028mno\r\n', 'pqr\n', '']
+    >>> splitlines_asc(s + 'xyz', append_empty_ending=True)
+    ['abc', 'def', 'ghi\x0bjkl\x0c\u2028mno', 'pqr', 'xyz']
+    >>> splitlines_asc(s + 'xyz', True, append_empty_ending=True)
+    ['abc\n', 'def\r', 'ghi\x0bjkl\x0c\u2028mno\r\n', 'pqr\n', 'xyz']
 
     ***
 
@@ -3389,7 +4646,11 @@ def splitlines_asc(s, keepends=False):
     [b'abc', b'def', b'ghi\x0bjkl\x0cmno', b'pqr']
     >>> splitlines_asc(b, True)
     [b'abc\n', b'def\r', b'ghi\x0bjkl\x0cmno\r\n', b'pqr\n']
-    >>> splitlines_asc(bytearray(b'ghi\vjkl\rspam'))
+    >>> splitlines_asc(b + b'xyz')
+    [b'abc', b'def', b'ghi\x0bjkl\x0cmno', b'pqr', b'xyz']
+    >>> splitlines_asc(b + b'xyz', True)
+    [b'abc\n', b'def\r', b'ghi\x0bjkl\x0cmno\r\n', b'pqr\n', b'xyz']
+    >>> splitlines_asc(bytearray(b'ghi\vjkl\rspam\r\n'))
     [bytearray(b'ghi\x0bjkl'), bytearray(b'spam')]
 
     ...the results are *the same* as when using the method:
@@ -3398,14 +4659,39 @@ def splitlines_asc(s, keepends=False):
     [b'abc', b'def', b'ghi\x0bjkl\x0cmno', b'pqr']
     >>> b.splitlines(True)
     [b'abc\n', b'def\r', b'ghi\x0bjkl\x0cmno\r\n', b'pqr\n']
-    >>> bytearray(b'ghi\vjkl\rspam').splitlines()
+    >>> splitlines_asc(b + b'xyz')
+    [b'abc', b'def', b'ghi\x0bjkl\x0cmno', b'pqr', b'xyz']
+    >>> splitlines_asc(b + b'xyz', True)
+    [b'abc\n', b'def\r', b'ghi\x0bjkl\x0cmno\r\n', b'pqr\n', b'xyz']
+    >>> bytearray(b'ghi\vjkl\rspam\r\n').splitlines()
     [bytearray(b'ghi\x0bjkl'), bytearray(b'spam')]
+
+    ...*except that* the results *may* be *slightly* different if
+    `append_empty_ending=True` is passed to `splitlines_asc()`:
+
+    >>> splitlines_asc(b, append_empty_ending=True)
+    [b'abc', b'def', b'ghi\x0bjkl\x0cmno', b'pqr', b'']
+    >>> splitlines_asc(b, True, append_empty_ending=True)
+    [b'abc\n', b'def\r', b'ghi\x0bjkl\x0cmno\r\n', b'pqr\n', b'']
+    >>> splitlines_asc(b + b'xyz', append_empty_ending=True)
+    [b'abc', b'def', b'ghi\x0bjkl\x0cmno', b'pqr', b'xyz']
+    >>> splitlines_asc(b + b'xyz', True, append_empty_ending=True)
+    [b'abc\n', b'def\r', b'ghi\x0bjkl\x0cmno\r\n', b'pqr\n', b'xyz']
+    >>> splitlines_asc(bytearray(b'ghi\vjkl\rspam\r\n'), append_empty_ending=True)
+    [bytearray(b'ghi\x0bjkl'), bytearray(b'spam'), bytearray(b'')]
     """
     if isinstance(s, (bytes, bytearray)):
-        return s.splitlines(keepends)
+        result = s.splitlines(keepends)
+        if append_empty_ending and s.endswith((b'\n', b'\r')):
+            result.append(b'' if isinstance(s, bytes) else bytearray(b''))
+        return result
     if isinstance(s, str):
-        return [b.decode('utf-8', 'surrogatepass')
-                for b in s.encode('utf-8', 'surrogatepass').splitlines(keepends)]
+        result = [
+            b.decode('utf-8', 'surrogatepass')
+            for b in s.encode('utf-8', 'surrogatepass').splitlines(keepends)]
+        if append_empty_ending and s.endswith(('\n', '\r')):
+            result.append('')
+        return result
     raise TypeError('{!a} is neither a `str` nor a `bytes`/`bytearray`'.format(s))
 
 
@@ -3981,8 +5267,157 @@ def with_flipped_args(func):
     return flipped_func
 
 
+def iter_deduplicated(collection_of_objects: Iterable[HashableT]) -> Iterator[HashableT]:
+    """
+    For an iterable of objects given as the only argument
+    (`collection_of_objects`), return an iterator which yields the same
+    objects (in the same order) but omitting any duplicates. Duplicates
+    are detected using `dict`/`set`-like containment tests, so all
+    objects yielded by the iterable should be *hashable*.
+
+    >>> some_string = 'abracadabra'
+    >>> list(iter_deduplicated(some_string))
+    ['a', 'b', 'r', 'c', 'd']
+
+    >>> some_iterator = map(ord, some_string)
+    >>> list(iter_deduplicated(some_iterator))
+    [97, 98, 114, 99, 100]
+    >>> list(some_iterator)
+    []
+
+    >>> some_list = [
+    ...     5.0, 3, 5, 'dwa', 3.0, 1, b'dwa',
+    ...     (1+0j,), frozenset({1}), 'dwa', 2,
+    ...     frozenset({1+0j}), (1,), 'DWA', memoryview(b'dwa'),
+    ... ]
+    >>> it = iter_deduplicated(some_list)
+    >>> next(it)
+    5.0
+    >>> next(it)
+    3
+    >>> next(it)
+    'dwa'
+    >>> next(it)
+    1
+    >>> next(it)
+    b'dwa'
+    >>> list(it)
+    [((1+0j),), frozenset({1}), 2, 'DWA']
+
+    >>> list(iter_deduplicated([                                # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...     1, [1], [1.0], {},  # unhashable objects present...
+    ... ]))
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    """
+    return iter(dict.fromkeys(collection_of_objects))
+
+
+def iter_altered(collection_of_objects: Iterable[HashableT],
+                 *,
+                 without_items: Iterable[Hashable] = (),
+                 extra_items: Iterable[T] = ()) -> Iterator[Union[HashableT, T]]:
+    """
+    For an iterable of objects given as the first argument
+    (`collection_of_objects`), return an iterator which yields the
+    same objects (in the same order) but omitting those present in
+    the iterable given as the `without_items` keyword-only argument
+    (the presence of objects in `without_items` is checked using
+    `dict`/`set`-like containment tests, so all objects in both
+    `collection_of_objects` and `without_items` need to be *hashable*).
+
+    Additionally, at the first of those ommisions, yield all items from
+    the iterable given as the `extra_items` keyword-only argument --
+    except that if there are no omissions (i.e., `collection_of_objects`
+    and `without_items` are disjoint) then the items from `extra_items`
+    are yielded after all items from `collection_of_objects`.
+
+    The default values of both `without_items` and `extra_items` are
+    empty collections.
+
+    >>> abracadabra = 'abracadabra'
+    >>> ''.join(iter_altered(abracadabra, without_items='bc'))
+    'araadara'
+    >>> ''.join(iter_altered(abracadabra, without_items='bc', extra_items=''))
+    'araadara'
+    >>> ''.join(iter_altered(abracadabra, without_items='bc', extra_items='qwerty'))
+    'aqwertyraadara'
+    >>> ''.join(iter_altered(abracadabra, without_items='NOT in', extra_items='qwerty'))
+    'abracadabraqwerty'
+    >>> ''.join(iter_altered(abracadabra, without_items='', extra_items='qwerty'))
+    'abracadabraqwerty'
+    >>> ''.join(iter_altered(abracadabra, extra_items='qwerty'))
+    'abracadabraqwerty'
+
+    >>> ''.join(iter_altered(abracadabra))
+    'abracadabra'
+    >>> ''.join(iter_altered(abracadabra, without_items=''))
+    'abracadabra'
+    >>> ''.join(iter_altered(abracadabra, extra_items=''))
+    'abracadabra'
+    >>> ''.join(iter_altered(abracadabra, without_items='', extra_items=''))
+    'abracadabra'
+    >>> ''.join(iter_altered(abracadabra, without_items='NOT in'))
+    'abracadabra'
+    >>> ''.join(iter_altered(abracadabra, without_items='NOT in', extra_items=''))
+    'abracadabra'
+
+    >>> some_iterator = map(ord, abracadabra)
+    >>> list(iter_altered(some_iterator, without_items=list(map(ord, 'bc'))))
+    [97, 114, 97, 97, 100, 97, 114, 97]
+    >>> list(some_iterator)
+    []
+
+    >>> some_list = [
+    ...     5.0, 3, 5, 'dwa', 3.0, 1, b'dwa',
+    ...     (1+0j,), frozenset({1}), 'dwa', 2,
+    ...     frozenset({1+0j}), (1,), 'DWA', memoryview(b'dwa'),
+    ... ]
+    >>> it = iter_altered(some_list,
+    ...                   without_items=iter(['DWA', 3+0j, b'dwa', 5, 123456789, (1.0,)]))
+    >>> next(it)
+    'dwa'
+    >>> next(it)
+    1
+    >>> list(it)
+    [frozenset({1}), 'dwa', 2, frozenset({(1+0j)})]
+
+    >>> it = iter_altered(some_list,
+    ...                   without_items=iter(['DWA', 3+0j, b'dwa', 5, 123456789, (1.0,)]),
+    ...                   extra_items=iter((5, [4], 3, (2,), [4.0], 3.0, (2,), (1.0,))))
+    >>> next(it)  # (objects in `extra_items` can be equal to some objects in `without_items`)
+    5
+    >>> next(it)  # (objects in `extra_items` do not need to be hashable)
+    [4]
+    >>> list(it)  # (keeping `extra_items`'s order and duplicates, like `collection_of_objects`'s)
+    [3, (2,), [4.0], 3.0, (2,), (1.0,), 'dwa', 1, frozenset({1}), 'dwa', 2, frozenset({(1+0j)})]
+
+    >>> list(iter_altered(abracadabra,                         # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...                   without_items=['b', [None]]))  # <- unhashable object present...
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    >>> list(iter_altered([                                    # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...     1, [1], [1.0], {},  # <- unhashable objects present...
+    ... ], without_items=(1, 2)))
+    Traceback (most recent call last):
+      ...
+    TypeError: ...
+    """
+    without = frozenset(without_items)
+    extra = iter(extra_items)  # Note: only first `yield from extra` will yield anything.
+    for obj in collection_of_objects:
+        if obj in without:
+            yield from extra
+        else:
+            yield obj
+    yield from extra
+
+
 def iter_grouped_by_attr(collection_of_objects: Iterable[T],
                          attr_name: str,
+                         *,
                          presort: bool = False,
 
                          # not real parameters, just quasi-constants for faster access:
@@ -3991,9 +5426,10 @@ def iter_grouped_by_attr(collection_of_objects: Iterable[T],
                          _list=list,
                          _sorted=sorted) -> Iterator[list[T]]:
     """
-    For the given collection of objects (`collection_of_objects`) and
-    attribute name (`attr_name`), return an iterator which yields lists
-    that group adjacent objects having equal values of the designated
+    For an iterable of objects given as the first argument
+    (`collection_of_objects`) and attribute name specified as the second
+    argument (`attr_name`), return an iterator which yields lists that
+    group adjacent objects having equal values of the designated
     attribute.
 
     All objects the given collection contains are expected to have the
@@ -4004,12 +5440,12 @@ def iter_grouped_by_attr(collection_of_objects: Iterable[T],
     especially important if it is, for example, a generator that yields
     a huge number of objects).
 
-    However, if the optional argument `presort` is true (its default
-    value is `False`) then, in the first place, the given collection of
-    objects is consumed to construct a list of those objects, **sorted
-    by the designated attribute**, and only then the main part of the
-    operation is performed -- using that sorted list as the source
-    collection.
+    However, if the optional keyword-only argument `presort` is true
+    (its default value is `False`) then, in the first place, the given
+    collection of objects is consumed to construct a list of those
+    objects, **sorted by the designated attribute**, and only then the
+    main part of the operation is performed -- using that sorted list as
+    the source collection.
 
     >>> a = PlainNamespace(pi=3.14, tau='spam')
     >>> b = PlainNamespace(pi=3.14, tau='ni', mu=None)
@@ -4639,7 +6075,7 @@ class AtomicallySavedFile:
             #             of `__enter__()` and `__exit__()`...).
             raise ValueError('mode {!a} not supported'.format(mode))
         kwargs = self._adjust_kwargs(mode, **kwargs)
-        self._dest_path = dest_path
+        self._dest_path = os.fspath(dest_path)
         self._mode = mode
         self._kwargs = kwargs
 

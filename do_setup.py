@@ -12,6 +12,10 @@ import sys
 import traceback
 
 
+# TODO: remove all, no longer needed, stuff related to Python 2 and the
+#       removed Py2 components.
+
+
 LOGGER = None   # type: logging.Logger   # (to be set in configure_logging(), see below)
 
 PY2 = sys.version_info[0] < 3
@@ -271,6 +275,12 @@ def main():
         if arguments.update_basic_setup_tools:
             command("pip install --upgrade pip setuptools wheel")
             LOGGER.info("'pip', 'setuptools' and 'wheel' updated (if possible)")
+
+        if PY2:
+            # This is a temporary workaround (see: #8602).
+            importlib_metadata_pkg = 'importlib-metadata==2.1.3'
+            command("pip install {}".format(importlib_metadata_pkg))
+            LOGGER.info("'{}' installed".format(importlib_metadata_pkg))
 
         for dirname in arguments.components:
             os.chdir(osp.join(this_script_dir, dirname))

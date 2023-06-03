@@ -31,15 +31,15 @@ class N6ConfigValuesAction(Action):
 class N6ArgumentParser(ArgumentParser):
 
     """
-    Generic argument parser for N6Core scripts.
+    Generic argument parser for `N6DataPipeline`/`N6DataSources` scripts.
 
-    This is an implementation of ArgumentParser for N6 project
+    This is an implementation of `ArgumentParser` for *n6* project
     which has arguments used by all scripts.
 
     Command line arguments provided by this class::
-        --n6config-override:
-            makes it possible to override any N6Core script configuration
-            options for the particular script run.
+        `--n6config-override`:
+            makes it possible to override any `N6DataPipeline`/`N6DataSources`
+            script configuration options for the particular script run.
     """
 
     def __init__(self, *args, **kwargs):

@@ -475,18 +475,21 @@ class TestAnonymizer___get_result_dicts_and_output_body(TestCaseMixin, unittest.
         id=(32 * '3'),
         rid=(32 * '4'),        # (restricted - to be skipped before *value* cleaning)
         source='some.source',  # (to be anonymized)
-        restriction='public',  # (restricted - to be skipped before *value* cleaning)
+        restriction='public',
         confidence='low',
         category='malurl',
         time='2013-07-12 11:30:00',
+        modified='2013-07-12 12:31:02',
     )
 
     cleaned_base = dict(
         id=(32 * '3'),
         source='hidden.42',    # (after anonymization)
+        restriction='public',
         confidence='low',
         category='malurl',
-        time=datetime.datetime(2013, 7, 12, 11, 30, 00),
+        time=datetime.datetime(2013, 7, 12, 11, 30, 0),
+        modified=datetime.datetime(2013, 7, 12, 12, 31, 2),
         type=sen.TO_BE_SET,
     )
 
@@ -653,10 +656,13 @@ class TestAnonymizer___get_result_dicts_and_output_body(TestCaseMixin, unittest.
     @staticmethod
     def _get_expected_body_content(expected_cleaned):
         formatted_time = expected_cleaned['time'].isoformat() + 'Z'
+        formatted_modified = expected_cleaned['modified'].isoformat() + 'Z'
         assert formatted_time[10] == 'T' and formatted_time[-1] == 'Z'
+        assert formatted_modified[10] == 'T' and formatted_modified[-1] == 'Z'
         return dict(
             expected_cleaned,
-            time=formatted_time)
+            time=formatted_time,
+            modified=formatted_modified)
 
 
     @foreach(

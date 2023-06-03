@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 """
 Collector base classes + auxiliary tools.
@@ -6,12 +6,14 @@ Collector base classes + auxiliary tools.
 
 import contextlib
 import datetime
+import operator
+import pathlib
 import pickle
 import hashlib
 import os
-import os.path as osp
 import sys
 import time
+import traceback
 from collections.abc import (
     Iterator,
     Set,
@@ -19,6 +21,7 @@ from collections.abc import (
 from math import trunc
 from typing import (
     Any,
+    BinaryIO,
     ClassVar,
     Optional,
     Union,
@@ -37,6 +40,7 @@ from n6lib.config import (
 )
 from n6lib.common_helpers import (
     AtomicallySavedFile,
+    CIDict,
     as_bytes,
     ascii_str,
     make_exc_ascii_str,
@@ -51,6 +55,7 @@ from n6lib.log_helpers import (
     get_logger,
     logging_configured,
 )
+from n6lib.mail_parsing_helpers import ParsedEmailMessage
 from n6lib.typing_helpers import KwargsDict
 
 
@@ -69,18 +74,20 @@ class CollectorConfigMixin(ConfigMixin):
 
     Note: unlike other mixin classes defined in this module, this class
     is already one of the `BaseCollector`'s superclasses (as well as of
-    the `StatefulCollectorMixin`'s and `DownloadingCollectorMixin`'s
-    superclasses) -- so in most cases you do not need to explicitly
-    derive your collector class from this mixin (one case when you may
-    want to do that is the rare case when you derive your class directly
-    from `AbstractBaseCollector` and not from `BaseCollector`).
+    the `StatefulCollectorMixin`'s superclasses) -- so in most cases you
+    do not need to explicitly derive your collector class from this
+    mixin (one case when you may want to do that is the rare case when
+    you derive your class directly from `AbstractBaseCollector` and not
+    from `BaseCollector`).
     """
 
     # The default *config spec pattern* for collectors. It can be
     # overridden in subclasses, but note that the default implementation
-    # of the `set_configuration()` method expects that the *config spec
-    # pattern* includes the `{collector_class_name}` section (treated
-    # by it as the *main section*). *Hint:* values of the attribute
+    # of the `set_configuration()` method expects that the *config
+    # spec pattern* includes the `{collector_class_name}` section
+    # (treated by it as the *main section* -- unless the method
+    # `get_config_from_config_full()` is overridden in a way that
+    # removes that expectation...). *Hint:* values of the attribute
     # declared along the inheritance hierarchy can be easily *combined*
     # (in a cooperative-inheritance-friendly way) by using the
     # `n6lib.config.combined_config_spec()` helper.
@@ -104,7 +111,9 @@ class CollectorConfigMixin(ConfigMixin):
         collector_class_name = format_kwargs['collector_class_name']
         assert collector_class_name == self.__class__.__name__
         self.config_full = self.get_config_full(**format_kwargs)
-        self.config = self.config_full[collector_class_name]
+        self.config = self.get_config_from_config_full(
+            config_full=self.config_full,
+            collector_class_name=collector_class_name)
 
     def get_config_spec_format_kwargs(self) -> KwargsDict:
         """
@@ -122,6 +131,22 @@ class CollectorConfigMixin(ConfigMixin):
         """
         return {'collector_class_name': self.__class__.__name__}
 
+    def get_config_from_config_full(self,
+                                    *,
+                                    config_full: Config,
+                                    collector_class_name: str) -> ConfigSection:
+        """
+        A hook invoked by `set_configuration()`: given the `Config`
+        mapping already being the value of the `config_full` attribute
+        and the `collector_class_name` item from the dict returned by
+        `get_config_spec_format_kwargs()`, get a `ConfigSection` mapping
+        -- `set_configuration()` will set it as the `config` attribute.
+
+        The default implementation of this method should be appropriate
+        in most cases.
+        """
+        return config_full[collector_class_name]
+
 
 class StatefulCollectorMixin(CollectorConfigMixin):
 
@@ -136,7 +161,7 @@ class StatefulCollectorMixin(CollectorConfigMixin):
     config_spec_pattern = combined_config_spec('''
         [{collector_class_name}]
 
-        state_dir = ~/.n6state :: str
+        state_dir = ~/.n6state :: path
     ''')
 
     unsupported_class_attributes: ClassVar[Set[str]] = CombinedWithSuper(frozenset({
@@ -148,10 +173,8 @@ class StatefulCollectorMixin(CollectorConfigMixin):
                  state_pickle_protocol: int = pickle.HIGHEST_PROTOCOL,
                  **kwargs):
         super().__init__(*args, **kwargs)
-        self._state_pickle_protocol = state_pickle_protocol
-        self._state_file_path = osp.join(
-            osp.expanduser(self.config['state_dir']),
-            self.get_state_file_name())
+        self._state_pickle_protocol: int = state_pickle_protocol
+        self._state_file_path: pathlib.Path = self.config['state_dir'] / self.get_state_file_name()
 
     #
     # Helper methods (can be used in your collector class)
@@ -165,15 +188,27 @@ class StatefulCollectorMixin(CollectorConfigMixin):
         """
         try:
             with open(self._state_file_path, 'rb') as state_file:
-                state = pickle.load(state_file)
-        except (OSError, ValueError, EOFError) as exc:
+                if self.__is_py2_pickle_to_be_loaded(state_file):
+                    state = self.__load_py2_pickle(state_file)
+                else:
+                    state = pickle.load(state_file)
+        except FileNotFoundError as exc:
             state = self.make_default_state()
             LOGGER.warning(
-                "Could not load state (%s), returning: %a",
-                make_exc_ascii_str(exc),
-                state)
+                'Could not load the collector state (%s). '
+                'The following default state will be used: %a.',
+                make_exc_ascii_str(exc), state)
+        except Exception as exc:
+            LOGGER.error(
+                'Could not load the collector state from %a (%s). '
+                'You may need to deal with the problem manually!',
+                os.fspath(self._state_file_path), make_exc_ascii_str(exc))
+            raise
         else:
-            LOGGER.info("Loaded state: %a", state)
+            LOGGER.info(
+                'Loaded the collector state from %a.',
+                os.fspath(self._state_file_path))
+            LOGGER.debug('The loaded state is: %a.', state)
         return state
 
     def save_state(self, state: Any) -> None:
@@ -182,16 +217,28 @@ class StatefulCollectorMixin(CollectorConfigMixin):
 
         Args/kwargs:
             `state`: a picklable object.
-        """
-        state_dir = osp.dirname(self._state_file_path)
-        try:
-            os.makedirs(state_dir, 0o700)
-        except OSError:
-            pass
 
-        with AtomicallySavedFile(self._state_file_path, 'wb') as f:
-             pickle.dump(state, f, self._state_pickle_protocol)
-        LOGGER.info("Saved state: %a", state)
+        Note: when implementing your `StatefulCollectorMixin`-derived
+        concrete collector you may want to call this method in your
+        customized version of the `after_completed_publishing()`
+        collector hook method (see its description in
+        `AbstractBaseCollector`).
+        """
+        state_dir = self._state_file_path.parent
+        state_dir.mkdir(0o700, parents=True, exist_ok=True)
+        try:
+            with AtomicallySavedFile(self._state_file_path, 'wb') as state_file:
+                pickle.dump(state, state_file, self._state_pickle_protocol)
+        except Exception as exc:
+            LOGGER.error(
+                'Could not save the collector state to %a (%s). '
+                'You may need to deal with the problem manually!',
+                os.fspath(self._state_file_path), make_exc_ascii_str(exc))
+            raise
+        LOGGER.info(
+            'Saved the collector state to %a.',
+            os.fspath(self._state_file_path))
+        LOGGER.debug('The saved state is: %a.', state)
 
     #
     # Overridable methods (can be overridden/extended in your collector class)
@@ -202,101 +249,76 @@ class StatefulCollectorMixin(CollectorConfigMixin):
     def get_state_file_name(self) -> str:
         module_name = self.__class__.__module__
         class_qualname = self.__class__.__qualname__
-        self._verify_module_is_not_main(module_name, class_qualname)
+        self.__verify_module_is_not_main(module_name, class_qualname)
         return f'{module_name}.{class_qualname}.pickle'
+
+    # * Py2-to-Py3-state-transition-related:
+
+    def get_py2_pickle_load_kwargs(self) -> KwargsDict:
+        # (Note: these values are equivalent to the defaults. We
+        # specify them here just for explicitness. In subclasses,
+        # they can be shadowed by different ones if necessary.)
+        return dict(encoding='ascii', errors='strict')
+
+    def adjust_state_from_py2_pickle(self, state: Any) -> Any:
+        return state
 
     #
     # Private helpers
 
-    def _verify_module_is_not_main(self, module_name: str, class_qualname: str) -> None:
+    __START_BYTE_FOR_PICKLE_PROTOCOL_2_AND_NEWER = b'\x80'
+
+    def __is_py2_pickle_to_be_loaded(self, state_file: BinaryIO) -> bool:
+        start_byte = state_file.read(1)
+        protocol_byte = state_file.read(1)
+        state_file.seek(0)
+        if not start_byte or not protocol_byte:
+            # Apparently the file is truncated; if so, `pickle.load()`
+            # will raise an error anyway...
+            return False
+        if (start_byte == self.__START_BYTE_FOR_PICKLE_PROTOCOL_2_AND_NEWER
+              and protocol_byte[0] >= 2):
+            # OK, the file seems to contain data pickled using *either*
+            # the Pickle Protocol 2, used by the Python 2 version of this
+            # class (then let's return `True`), *or* the Pickle Protocol
+            # in a newer version, used by the Python 3 version of this
+            # class (then let's return `False`).
+            return (protocol_byte[0] == 2)
+        sys.exit(
+            f'The first two bytes of the state file {state_file.name!a} '
+            f'do not look like the beginning of anything properly '
+            f'serialized using the Pickle Protocol 2 or newer. You '
+            f'need to examine and fix (or remove) the file manually!')
+
+    def __load_py2_pickle(self, state_file: BinaryIO) -> Any:
+        load_kwargs = self.get_py2_pickle_load_kwargs()
+        LOGGER.warning(
+            'Trying to load the state from a Python-2-saved pickle, by '
+            'calling `pickle.load(<state file>, **%a)`...', load_kwargs)
+        try:
+            state = pickle.load(state_file, **load_kwargs)
+        except Exception:  # noqa
+            sys.exit(
+                f'When trying to load the current collector state '
+                f'from the state file {state_file.name!a} *saved by '
+                f'the Python 2 version of the collector*, the program '
+                f'encountered the following exception (to work around '
+                f'the problem, you may want to customize, for this '
+                f'particular collector, the collector methods '
+                f'`get_py2_pickle_load_kwargs()` and/or '
+                f'`adjust_state_from_py2_pickle()`):\n\n'
+                f'{traceback.format_exc().strip()}\n\n')
+        LOGGER.warning(
+            'The state from a Python-2-saved pickle has been loaded. '
+            'Now the `adjust_state_from_py2_pickle()` method of %a '
+            'will be invoked to adjust the loaded data...', self)
+        return self.adjust_state_from_py2_pickle(state)
+
+    def __verify_module_is_not_main(self, module_name: str, class_qualname: str) -> None:
         if module_name == '__main__':
             raise ValueError(
                 f'{module_name!a} is not the proper name of '
                 f'the module containing {class_qualname}')
-
-
-class DownloadingCollectorMixin(CollectorConfigMixin):
-
-    config_spec_pattern = combined_config_spec('''
-        [{collector_class_name}]
-
-        download_retries = 10 :: int
-        base_request_headers = {{}} :: py_namespaces_dict
-    ''')   # (`{{}}` is just escaped `{}` -- to avoid treating it as a pattern's replacement field)
-
-    def __init__(self, /, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._http_response = None          # to be set in request_performer()
-        self._http_last_modified = None     # to be set in request_performer()
-
-    #
-    # Helper properties and methods (can be used in your collector class)
-
-    @property
-    def http_response(self) -> Optional[requests.Response]:
-        return self._http_response
-
-    @property
-    def http_last_modified(self) -> Optional[datetime.datetime]:
-        return self._http_last_modified
-
-    def download(self, *args, stream=False, **kwargs) -> bytes:
-        with self.request_performer(*args, stream=stream, **kwargs) as perf:
-            return perf.response.content
-
-    def download_text(self, *args, stream=False, **kwargs) -> str:
-        with self.request_performer(*args, stream=stream, **kwargs) as perf:
-            return perf.response.text
-
-    @contextlib.contextmanager
-    def request_performer(self,
-                          url: str,
-                          *,
-                          method: str = 'GET',
-                          retries: Optional[int] = None,
-                          custom_request_headers: Optional[dict] = None,
-                          **rest_performer_constructor_kwargs):
-        retries = self._get_request_retries(retries)
-        headers = self._get_request_headers(custom_request_headers)
-        with RequestPerformer(method=method,
-                              url=url,
-                              retries=retries,
-                              headers=headers,
-                              **rest_performer_constructor_kwargs) as perf:
-            self._http_response = perf.response
-            self._http_last_modified = perf.get_dt_header('Last-Modified')
-            yield perf
-
-    #
-    # Private helpers
-
-    def _get_request_retries(self, retries: Optional[int]) -> int:
-        if retries is None:
-            retries = self.config['download_retries']
-            if retries < 0:
-                raise ConfigError(f'config option `download_retries` is '
-                                  f'a negative number: {retries!a}')
-        return retries
-
-    def _get_request_headers(self, custom_request_headers: Optional[dict]) -> dict:
-        headers = self.config['base_request_headers'].copy()
-        if custom_request_headers:
-            headers.update(custom_request_headers)
-        return headers
-
-    #
-    # Extension of `BaseCollector`-specific method
-
-    # The superclass version of this method (referred to in the following
-    # definition in the `super().get_output_prop_kwargs(...)` expression)
-    # will be, typically, provided by the `BaseCollector` class (together
-    # with a bunch of related methods...).
-    def get_output_prop_kwargs(self, **processed_data) -> KwargsDict:
-        prop_kwargs = super().get_output_prop_kwargs(**processed_data)  # noqa
-        if self.http_last_modified:
-            prop_kwargs['headers'].setdefault('meta', dict())
-            prop_kwargs['headers']['meta']['http_last_modified'] = str(self.http_last_modified)
-        return prop_kwargs
 
 
 #
@@ -328,7 +350,7 @@ class AbstractBaseCollector:
         """
         A class method: get a dict of kwargs for instantiation in a script.
 
-        The default implementation returns an empty dict.
+        The default implementation returns an empty `dict`.
         """
         return {}
 
@@ -346,7 +368,7 @@ class AbstractBaseCollector:
         * (1) invoke the collector's `run()` method (which, in its
           typical version implemented in `LegacyQueuedBase`, starts the
           `pika`'s event loop, that will be running until it finishes
-          normally, or *Ctrl+C* is pressed, or some error occurs).
+          normally, or *Ctrl+C* is pressed, or some fatal error occurs).
 
         * (2-a) If `run()` raised a `KeyboardInterrupt` exception
           (typically, because *Ctrl+C* was pressed), invoke the
@@ -420,7 +442,7 @@ class AbstractBaseCollector:
         """
 
 
-class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollector):  # noqa
+class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollector):
 
     """
     The main base class for collectors.
@@ -431,7 +453,7 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         'exchange_type': 'topic',
     }
 
-    # `None` or a string being a tag denoting the version of the
+    # `None` or a `str` being a tag denoting the version of the
     # raw data format (aka *raw format version tag*), in the format:
     # `<4-digit year><2-digit month>` (needed only if the raw data
     # format has ever changed, so that a new parser had to be added)
@@ -529,7 +551,7 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
 
         Args/kwargs:
             `binding_keys`:
-                The list of new binding keys.
+                The `list` of new binding keys.
             <any other arguments>:
                 Ignored.
         """
@@ -631,7 +653,7 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
             The *input data* as some (subclass-specific) keyword arguments.
 
         Returns:
-            A dict of (additional) keyword arguments to be passed the
+            A `dict` of (additional) keyword arguments to be passed the
             following methods:
 
             * `get_source()`,
@@ -643,7 +665,7 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         `get_output_components()`.
 
         The default implementation of this method does nothing and returns
-        the given *input data* unchanged (as a dict).
+        the given *input data* unchanged (as a `dict`).
         """
         return input_data
 
@@ -657,7 +679,7 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
             method, here passed in as keyword arguments).
 
         Returns:
-            A string based on the pattern: '<source provider>.<source channel>'.
+            A `str` based on the pattern: '<source provider>.<source channel>'.
 
         Typically, this method is used indirectly -- being called in
         get_output_components().
@@ -676,14 +698,15 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         Kwargs:
             `source`:
                 The *source specification* string, aka *source id*, aka *source*
-                (based on the pattern: '<source provider>.<source channel>').
+                (as returned by the `get_source()` method; based on the
+                pattern: '<source provider>.<source channel>').
             <some keyword arguments>:
                 Processed data (as returned by the `process_input_data()`
                 method), here passed in as keyword arguments (the default
                 implementation ignores them).
 
         Returns:
-            The output AMQP routing key (a string).
+            The output AMQP routing key (a `str`).
 
         Typically, this method is used indirectly -- being called in
         `get_output_components()`.
@@ -704,13 +727,14 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         Kwargs:
             `source`:
                 The *source specification* string, aka *source id*, aka *source*
-                (based on the pattern: '<source provider>.<source channel>').
+                (as returned by the `get_source()` method; based on the
+                pattern: '<source provider>.<source channel>').
             <some keyword arguments>:
                 Processed data (as returned by the `process_input_data()`
                 method, here passed in as keyword arguments).
 
         Returns:
-            The output AMQP message body (a bytes object).
+            The output AMQP message body (a `bytes` object).
 
         Typically, this method is used indirectly -- being called in
         `get_output_components()`.
@@ -732,16 +756,16 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
                 The *source specification* string, aka *source id*, aka *source*
                 (as returned by the `get_source()` method; based on the
                 pattern: '<source provider>.<source channel>').
-            `output_data_body` (bytes):
-                The output AMQP message data (as returned by the
-                `get_output_data_body()` method).
+            `output_data_body`:
+                A `bytes` object being the output AMQP message data (as
+                returned by the `get_output_data_body()` method).
             <some keyword arguments>:
                 Processed data (as returned by the `process_input_data()`
                 method), here passed in as keyword arguments (the default
                 implementation ignores them).
 
         Returns:
-            Custom keyword arguments for `pika.BasicProperties` (a dict).
+            Custom keyword arguments for `pika.BasicProperties` (a `dict`).
 
         Typically, this method is used indirectly -- being called in
         `get_output_components()`.
@@ -795,8 +819,8 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
                 (as returned by the `get_source()` method; based on the
                 pattern: '<source provider>.<source channel>').
             `output_data_body`:
-                The output AMQP message body (bytes) as returned by the
-                `get_output_data_body()` method.
+                A `bytes` object being the output AMQP message data (as
+                returned by the `get_output_data_body()` method).
             `created_timestamp`:
                 Message creation timestamp as an `int` number.
             <some keyword arguments>:
@@ -805,7 +829,7 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
                 implementation ignores them).
 
         Returns:
-            The output message id (a string).
+            The output message id (a `str`).
 
         Typically, this method is used indirectly -- being called in
         `get_output_prop_kwargs()` (which is called in
@@ -829,12 +853,13 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         if not isinstance(source, str):
             raise TypeError(ascii_str(
                 f'{self.__class__.__qualname__}: {source=!a} '
-                f'(an instance of `{type(source).__qualname__}`)'))
+                f'(an instance of `{type(source).__qualname__}` '
+                f'whereas an instance of `str` was expected)'))
         try:
             cleaned = self._source_value_validation_field.clean_result_value(source)
         except FieldValueError as exc:
             raise ValueError(ascii_str(
-                f'{self.__class__.__qualname__}: {source=!a} ({exc})'))
+                f'{self.__class__.__qualname__}: {source=!a} ({exc})')) from exc
         assert cleaned == source, f'{cleaned!a} vs. {source!a}'
 
     def validate_output_rk(self, output_rk):
@@ -842,24 +867,27 @@ class BaseCollector(CollectorConfigMixin, LegacyQueuedBase, AbstractBaseCollecto
         if not isinstance(output_rk, str):
             raise TypeError(ascii_str(
                 f'{self.__class__.__qualname__}: {output_rk=!a} '
-                f'(an instance of `{type(output_rk).__qualname__}`)'))
+                f'(an instance of `{type(output_rk).__qualname__}` '
+                f'whereas an instance of `str` was expected)'))
 
     def validate_output_data_body(self, output_data_body):
         # (checking *only type*)
         if not isinstance(output_data_body, bytes):
             raise TypeError(ascii_str(
                 f'{self.__class__.__qualname__}: {output_data_body=!a} '
-                f'(an instance of `{type(output_data_body).__qualname__}`)'))
+                f'(an instance of `{type(output_data_body).__qualname__}` '
+                f'whereas an instance of `bytes` was expected)'))
 
     def validate_output_prop_kwargs(self, output_prop_kwargs):
         # (checking *only type*)
         if not isinstance(output_prop_kwargs, dict):
             raise TypeError(ascii_str(
                 f'{self.__class__.__qualname__}: {output_prop_kwargs=!a} '
-                f'(an instance of `{type(output_prop_kwargs).__qualname__}`)'))
+                f'(an instance of `{type(output_prop_kwargs).__qualname__}` '
+                f'whereas an instance of `dict` was expected)'))
 
 
-class BaseTwoPhaseCollector(BaseCollector):                                    # noqa
+class BaseTwoPhaseCollector(BaseCollector):
 
     """
     The main base class for such collectors whose activities can be
@@ -1041,7 +1069,7 @@ class BaseTwoPhaseCollector(BaseCollector):                                    #
         raise NotImplementedError
 
 
-class BaseSimpleCollector(BaseTwoPhaseCollector):                                     # noqa
+class BaseSimpleCollector(BaseTwoPhaseCollector):
 
     """
     The main base class for simple "one-shot" collectors, i.e., such ones
@@ -1095,7 +1123,174 @@ class BaseSimpleCollector(BaseTwoPhaseCollector):                               
         return data_body
 
 
-class BaseTimeOrderedRowsCollector(StatefulCollectorMixin, BaseTwoPhaseCollector):  # noqa
+class BaseSimpleEmailCollector(BaseSimpleCollector):
+
+    """
+    The main base class for "one-shot" collectors spawned when an e-mail
+    message arrives (e.g., by *procmail* or a similar tool); exactly one
+    e-mail message in its raw form (as arrived, with all its headers and
+    body) is expected to be sent to the standard input of the collector
+    script.
+
+    When implementing a collector based on this class, the only methods
+    that need to be overridden (i.e., *abstract methods*) are:
+
+    * `obtain_data_body()` -- typically, its implementation will make
+      use of the `email_msg` instance attribute which is always set
+      (on collector initialization) to an instance of the helper class
+      `n6lib.mail_parsing_helpers.ParsedEmailMessage` (see its docs...)
+      representing the e-mail message received via the standard input of
+      the collector script;
+
+      also, see the description of the `obtain_data_body()` method in
+      `BaseSimpleCollector`;
+
+    * `get_source()` (as always; see its description in `BaseCollector`).
+    """
+
+    @classmethod
+    def get_script_init_kwargs(cls) -> KwargsDict:
+        raw_email_msg: bytes = sys.stdin.buffer.read()
+        return super().get_script_init_kwargs() | {
+            'raw_email_msg': raw_email_msg,
+        }
+
+    email_msg: ParsedEmailMessage
+
+    def __init__(self, /, *, raw_email_msg: bytes, **kwargs):
+        super().__init__(**kwargs)
+        self.email_msg = ParsedEmailMessage.from_bytes(raw_email_msg)
+
+    #
+    # Extension of `BaseCollector`-specific method
+
+    def get_output_prop_kwargs(self, **processed_data) -> KwargsDict:
+        prop_kwargs = super().get_output_prop_kwargs(**processed_data)
+        mail_time_dt = self.email_msg.get_utc_datetime()
+        mail_subject = self.email_msg.get_subject()
+        if mail_time_dt is not None or mail_subject is not None:
+            prop_kwargs['headers'].setdefault('meta', dict())
+            if mail_time_dt is not None:
+                prop_kwargs['headers']['meta']['mail_time'] = str(mail_time_dt)
+            if mail_subject is not None:
+                prop_kwargs['headers']['meta']['mail_subject'] = mail_subject
+        return prop_kwargs
+
+    #
+    # Helper methods (can be used in your collector class)
+
+    def get_email_msg_text(self, content_type: str) -> str:
+        try:
+            text = self.email_msg.find_content(content_type=content_type)
+        except ValueError as exc:
+            raise ValueError(
+                f'unexpected e-mail message format: '
+                f'multiple `{content_type}` parts found') from exc
+        if text is None:
+            raise ValueError(
+                f'unexpected e-mail message format: '
+                f'no `{content_type}` content found')
+        if not isinstance(text, str):
+            raise TypeError(
+                f'resultant text is expected to be an instance '
+                f'of str, got a {text.__class__.__qualname__}')
+        return text
+
+
+class BaseDownloadingCollector(BaseCollector):
+
+    """
+    TODO: docs.
+    """
+
+    config_spec_pattern = combined_config_spec('''
+        [{collector_class_name}]
+
+        download_retries = 3 :: int
+        base_request_headers = {{}} :: py_namespaces_dict
+    ''')   # (`{{}}` is just escaped `{}` -- to avoid treating it as a pattern's replacement field)
+
+    def __init__(self, /, **kwargs):
+        super().__init__(**kwargs)
+        self._http_response = None          # to be set in request_performer()
+        self._http_last_modified = None     # to be set in request_performer()
+
+    #
+    # Extension of `BaseCollector`-specific method
+
+    def get_output_prop_kwargs(self, **processed_data) -> KwargsDict:
+        prop_kwargs = super().get_output_prop_kwargs(**processed_data)
+        if self.http_last_modified is not None:
+            prop_kwargs['headers'].setdefault('meta', dict())
+            prop_kwargs['headers']['meta']['http_last_modified'] = str(self.http_last_modified)
+        return prop_kwargs
+
+    #
+    # Helper properties and methods (can be used in your collector class)
+
+    @property
+    def http_response(self) -> Optional[requests.Response]:
+        return self._http_response
+
+    @property
+    def http_last_modified(self) -> Optional[datetime.datetime]:
+        return self._http_last_modified
+
+    def download(self, *args, stream=False, **kwargs) -> bytes:
+        with self.request_performer(*args, stream=stream, **kwargs) as perf:
+            content = perf.response.content
+        if not isinstance(content, bytes):
+            raise TypeError(f'something wrong: {type(content) = !a} (expected bytes)')
+        return content
+
+    def download_text(self, *args, stream=False, **kwargs) -> str:
+        with self.request_performer(*args, stream=stream, **kwargs) as perf:
+            text = perf.response.text
+        if not isinstance(text, str):
+            raise TypeError(f'something wrong: {type(text) = !a} (expected str)')
+        return text
+
+    @contextlib.contextmanager
+    def request_performer(self,
+                          url: str,
+                          *,
+                          method: str = 'GET',
+                          retries: Optional[int] = None,
+                          custom_request_headers: Optional[dict] = None,
+                          **rest_performer_constructor_kwargs):
+        retries = self.__get_request_retries(retries)
+        headers = self.__get_request_headers(custom_request_headers)
+        with RequestPerformer(method=method,
+                              url=url,
+                              retries=retries,
+                              headers=headers,
+                              **rest_performer_constructor_kwargs) as perf:
+            self._http_response = perf.response
+            self._http_last_modified = perf.get_dt_header('Last-Modified')
+            yield perf
+
+    #
+    # Private helpers
+
+    def __get_request_retries(self, retries: Optional[int]) -> int:
+        if retries is None:
+            retries = self.config['download_retries']
+            if retries < 0:
+                raise ConfigError(f'config option `download_retries` is '
+                                  f'a negative number: {retries!a}')
+        return retries
+
+    def __get_request_headers(self, custom_request_headers: Optional[dict]) -> dict:
+        if custom_request_headers:
+            case_insensitive_keys_mapping = CIDict(self.config['base_request_headers'])
+            case_insensitive_keys_mapping.update(custom_request_headers)
+            new_dict = dict(case_insensitive_keys_mapping)
+        else:
+            new_dict = self.config['base_request_headers'].copy()
+        return new_dict
+
+
+class BaseTimeOrderedRowsCollector(StatefulCollectorMixin, BaseTwoPhaseCollector):
 
     """
     The base class for collectors obtaining "row-like" data, i.e., data
@@ -1131,10 +1326,10 @@ class BaseTimeOrderedRowsCollector(StatefulCollectorMixin, BaseTwoPhaseCollector
     ***
 
     Original data (as returned by `obtain_orig_data()`) should consist
-    of *rows* that can be decoded from bytes and then singled out (see:
+    of *rows* that can be decoded from `bytes` and then singled out (see:
     `all_rows_from_orig_data()` and the methods it calls), then selected
     (see: `get_fresh_rows_only()` and the methods it calls), and finally
-    joined and encoded to bytes (see: `output_data_from_fresh_rows()`
+    joined and encoded to `bytes` (see: `output_data_from_fresh_rows()`
     and the methods it calls).
 
     Rows (those for whom `should_row_be_used()` returns true) should
@@ -1355,7 +1550,7 @@ class BaseTimeOrderedRowsCollector(StatefulCollectorMixin, BaseTwoPhaseCollector
         newest_rows = set()
         rows_count = 0
 
-        fresh_rows = []
+        fresh_rows_and_their_times = []
 
         for row in all_rows:
             row_time = self.extract_row_time(row)
@@ -1389,7 +1584,12 @@ class BaseTimeOrderedRowsCollector(StatefulCollectorMixin, BaseTwoPhaseCollector
                 continue
 
             # this row has *not* been collected yet -> let's collect it
-            fresh_rows.append(row)
+            fresh_rows_and_their_times.append((row, row_time))
+
+        fresh_rows_and_their_times.reverse()   # <- as the original order is often newest-to-oldest
+        fresh_rows_and_their_times.sort(   # <- let's ensure the row order will be oldest-to-newest
+            key=operator.itemgetter(1))    #    (not a *must* here, but still a welcome feature...)
+        fresh_rows = [row for row, _ in fresh_rows_and_their_times]
 
         self._check_counts(prev_rows_count, rows_count, fresh_rows)
 
@@ -1447,7 +1647,7 @@ class BaseTimeOrderedRowsCollector(StatefulCollectorMixin, BaseTwoPhaseCollector
         * `pick_raw_row_time()` (must be implemented in subclasses)
           -- takes the given `row` and extracts the raw value of its
           date-or-timestamp field, and then returns that raw value
-          (typically, as a string); alternatively it can return `None`
+          (typically, as a `str`); alternatively it can return `None`
           (to indicate that the whole row should be ignored) -- then
           the result of the whole `extract_row_time()` call will also
           be `None`, and the call of `clean_row_time()` will *not* be
@@ -1584,8 +1784,12 @@ class BaseTimeOrderedRowsCollector(StatefulCollectorMixin, BaseTwoPhaseCollector
             LOGGER.warning(msg)
 
 
-class BaseDownloadingTimeOrderedRowsCollector(DownloadingCollectorMixin,       # noqa
+class BaseDownloadingTimeOrderedRowsCollector(BaseDownloadingCollector,
                                               BaseTimeOrderedRowsCollector):
+
+    """
+    TODO: docs.
+    """
 
     config_spec_pattern = combined_config_spec('''
         [{collector_class_name}]

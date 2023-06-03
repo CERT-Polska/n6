@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import argparse
 import contextlib
@@ -8,6 +8,8 @@ import functools
 import json
 import inspect
 import io
+import logging
+import operator
 import re
 import sys
 import threading
@@ -15,6 +17,14 @@ import types
 import unittest
 import unittest.mock as mock
 import zipfile
+from collections.abc import (
+    Iterable,
+    Sequence,
+)
+from typing import (
+    Optional,
+    Union,
+)
 
 import pyramid.testing
 from unittest.mock import (
@@ -22,7 +32,11 @@ from unittest.mock import (
     Mock,
     sentinel,
 )
-from sqlalchemy.orm.exc import NoResultFound
+from sqlalchemy.exc import InvalidRequestError
+from sqlalchemy.orm.exc import (
+    MultipleResultsFound,
+    NoResultFound,
+)
 from webob.multidict import MultiDict
 
 from n6lib.class_helpers import (
@@ -50,7 +64,7 @@ def zip_data_in_memory(filename, data):
 
 #
 # Mocks for whom attribute access, mock calls
-# and reset_mock() calls are thread-safe
+# and `reset_mock()` calls are thread-safe
 #
 
 _rlock_for_rlocked_mocks = threading.RLock()
@@ -106,20 +120,20 @@ rlocked_patch.multiple = __rlocked_patching_func(mock.patch.multiple)
 def _patching_method(method_name, patcher_maker, target_autocompletion=True):
 
     """
-    This helper factory is not intended to be used directly.  It it
-    used in the TestCaseMixin to create the following helper methods
-    provided by TestCaseMixin: patch(), patch_object(), patch_dict(),
-    patch_multiple().
+    This helper factory is not intended to be used directly.  It
+    is used in the `TestCaseMixin` to create the following helper
+    methods provided by `TestCaseMixin`: `patch()`, `patch_object()`,
+    `patch_dict()`, `patch_multiple()`.
 
-    Each of the methods created with this helper factory does patching
-    (using the specified `patcher_maker`, e.g., patch() from the `mock`
-    package) and -- what is more interesting -- provides automatic
-    cleanup: thanks to that you can just do in your test case methods:
-    `self.patch(...)` (or `some_mock = self.patch(...)`) and that's all!
-    (Neither `with` statements nor any manual cleanup are needed!)  The
-    only requirement is that a test class in which you use this stuff is
-    a subclass of unittest.TestCase (which provides the addCleanup()
-    method, used by this stuff).
+    Each of the methods created with this helper performs patching
+    (using the specified `patcher_maker`, e.g., `patch()` from the
+    `unittest.mock` package) and -- what is more interesting -- provides
+    automatic cleanup: thanks to that you can just do in your test case
+    methods: `self.patch(...)` (or `some_mock = self.patch(...)`) and
+    that's all! (Neither `with` statements nor any manual cleanup are
+    needed!)  The only requirement is that a test class in which you use
+    this stuff is a subclass of `unittest.TestCase` (which provides the
+    `addCleanup()` method, used by this stuff).
 
     A method created with this helper factory provides also another
     convenience feature: target auto-completion.  Instead of repeating
@@ -129,18 +143,22 @@ def _patching_method(method_name, patcher_maker, target_autocompletion=True):
     -- and then in your test methods you can use the abbreviated form:
     `self.patch('Something', ...)`.
 
-    See also: the comments in the source code of the TestCaseMixin class.
+    See also: the comments in the source code of the `TestCaseMixin` class.
 
     ***
 
-    Below: some doctests of the _patching_method() helper factory.
+    Below: some doctests of the `_patching_method()` helper factory.
 
+    >>> import unittest
     >>> from unittest.mock import MagicMock, call, sentinel
     >>> m = MagicMock()
     >>> m.patch().start.return_value = sentinel.mock_thing
     >>> m.patch().stop = sentinel.stop
     >>> m.reset_mock()
     >>> class FakeTestCase(object):
+    ...     @property
+    ...     def __class__(self):
+    ...         return unittest.TestCase
     ...     addCleanup = m.addCleanup
     ...     default_patch_prefix = 'foo.bar'
     ...     do_patch = _patching_method('do_patch', m.patch)
@@ -329,6 +347,7 @@ def _patching_method(method_name, patcher_maker, target_autocompletion=True):
             # the name from the internal code object...).
             adjusted_exc_message = ascii_str(exc).replace(_inner_name, method_name)
             raise TypeError(adjusted_exc_message) from None
+        assert isinstance(self, unittest.TestCase), f'test helper expectation failed by {self=!a}'
         if target_autocompletion:
             target = _complete_target(self, target)
         patcher_args = (target,) + args
@@ -346,30 +365,132 @@ def _patching_method(method_name, patcher_maker, target_autocompletion=True):
 
 class TestCaseMixin(SDKTestCaseMixin):
 
-    def assertJsonEqual(self, first, second, *args, **kwargs):
+    def assertJsonEqual(self, first, second, *args, **kwargs):          # noqa
+        assert isinstance(self, unittest.TestCase), f'test helper expectation failed by {self=!a}'
         if isinstance(first, (str, bytes, bytearray)):
             first = json.loads(first)
         if isinstance(second, (str, bytes, bytearray)):
             second = json.loads(second)
-        self.assertEqual(first, second, *args, **kwargs)   # noqa
+        self.assertEqual(first, second, *args, **kwargs)
+
+
+    def assertLogWarningRegexes(self,                                   # noqa
+                                logger_name_or_obj: str, /,
+                                expected_log_regexes: Union[
+                                    str,
+                                    re.Pattern[str],
+                                    Iterable[Union[str, re.Pattern[str]]],
+                                    None,
+                                ]):
+        return self.assertLogRegexes(
+            logger_name_or_obj,
+            expected_log_regexes,
+            min_level=logging.WARNING,
+            max_level=logging.WARNING)
+
+
+    def assertNoLogWarnings(self, logger_name_or_obj: str, /):          # noqa
+        return self.assertLogWarningRegexes(
+            logger_name_or_obj,
+            expected_log_regexes=None)
+
 
     @contextlib.contextmanager
-    def assertStateUnchanged(self, *args):
+    def assertLogRegexes(self,                                          # noqa
+                         logger_name_or_obj: str, /,
+                         expected_log_regexes: Union[
+                             str,
+                             re.Pattern[str],
+                             Iterable[Union[str, re.Pattern[str]]],
+                             None,
+                         ],
+                         *,
+                         min_level: Optional[int] = logging.INFO,
+                         max_level: Optional[int] = None):
+
+        assert isinstance(self, unittest.TestCase), f'test helper expectation failed by {self=!a}'
+
+        if expected_log_regexes is None:
+            expected_log_regexes = ()
+        expected_log_regexes: Sequence[Union[str, re.Pattern[str]]] = (
+            [expected_log_regexes] if isinstance(expected_log_regexes, (str, re.Pattern))
+            else list(expected_log_regexes))
+
+        if min_level is None:
+            min_level = 0
+
+        cm = self.assertLogs(logger_name_or_obj, level=min_level)       # noqa
+        cm_enter = type(cm).__enter__
+        cm_exit = type(cm).__exit__
+
+        cm_target = cm_enter(cm)
+        try:
+            yield cm_target
+        except BaseException as exc:
+            exc_info = type(exc), exc, exc.__traceback__
+            raise
+        else:
+            exc_info = None, None, None
+        finally:
+            try:
+                with contextlib.suppress(AssertionError):
+                    cm_exit(cm, *exc_info)                              # noqa
+            finally:
+                # Break the traceback-related reference cycle (if any):
+                exc_info = None                                         # noqa
+
+        assert len(cm_target.output) == len(cm_target.records), 'internal test helper expectation'
+        actual_logs: list[str] = (
+            cm_target.output if max_level is None
+            else [log for log, log_rec in zip(cm_target.output, cm_target.records)
+                  if log_rec.levelno <= max_level])
+
+        match_count = 0
+        for regex in expected_log_regexes:
+            if match_count >= len(actual_logs):
+                remaining_regexes_repr = ', '.join(map(ascii, expected_log_regexes[match_count:]))
+                self.fail(
+                    f'no logs to match these regexes against: '
+                    f'{remaining_regexes_repr}\n(apart from that, '
+                    f'{match_count} match(es) succeeded; full info:\n'
+                    f'{expected_log_regexes=!a},\n{actual_logs=!a})')
+            log = actual_logs[match_count]
+            if not self.regex_search(regex, log):  # noqa
+                self.fail(
+                    f'regex {regex!a} does not match log string {log!a}\n'
+                    f'(before that, {match_count} match(es) succeeded; full '
+                    f'info:\n{expected_log_regexes=!a},\n{actual_logs=!a})')
+            match_count += 1
+        assert match_count == len(expected_log_regexes), 'internal test helper expectation'
+        assert match_count <= len(actual_logs), 'internal test helper expectation'
+
+        if match_count < len(actual_logs):
+            remaining_logs_repr = ', '.join(map(ascii, actual_logs[match_count:]))
+            self.fail(
+                f'extra (unexpected) logs found: {remaining_logs_repr}\n'
+                f'(apart from that, {match_count} match(es) succeeded; '
+                f'full info:\n{expected_log_regexes=!a},\n{actual_logs=!a})')
+        assert match_count == len(actual_logs), 'internal test helper expectation'
+
+
+    @contextlib.contextmanager
+    def assertStateUnchanged(self, *args):                              # noqa
+        assert isinstance(self, unittest.TestCase), f'test helper expectation failed by {self=!a}'
         state_before = copy.deepcopy(list(args))
         try:
             yield state_before
         finally:
             state_after = copy.deepcopy(list(args))
-            self.assertEqual(state_after, state_before)    # noqa
+            self.assertEqual(state_after, state_before)
 
     #
     # Patching convenience stuff
 
     # The following patching methods do not need any `with` statements
     # -- just call them at the beginning of your test method or in
-    # setUp() (e.g.: `self.patch('some_module.SomeObject', ...)`).
+    # `setUp()` (e.g.: `self.patch('some_module.SomeObject', ...)`).
 
-    # [see also: the docstring of the _patching_method() function]
+    # [see also: the docstring of the `_patching_method()` function]
 
     patch = _patching_method(
         'patch',
@@ -418,9 +539,9 @@ class TestCaseMixin(SDKTestCaseMixin):
     #
     # * raise `OSError` on any `open(...)` calls.
     def patch_argparse_stuff(self, cmdline_args=()):
-        orig__ArgumentParser_parse_known_args = self.__orig_ArgumentParser_parse_known_args
+        orig__ArgumentParser_parse_known_args = self.__orig_ArgumentParser_parse_known_args  # noqa
 
-        def fake_of__ArgumentParser_parse_known_args(self, args=None, namespace=None):
+        def fake_of__ArgumentParser_parse_known_args(self, args=None, namespace=None):       # noqa
             if args is None:
                 args = list(cmdline_args)
             return orig__ArgumentParser_parse_known_args(self, args, namespace)
@@ -436,8 +557,42 @@ class TestCaseMixin(SDKTestCaseMixin):
 
     __orig_ArgumentParser_parse_known_args = staticmethod(argparse.ArgumentParser.parse_known_args)
 
+    # The following helper patches `sys.stdin` with a `io.TextIOWrapper`
+    # instance that will produce the data specified as the `stdin_data`
+    # argument (which should be either a `str` or a `bytes` object) --
+    # with the proviso that: (1) reading methods of the `io.TextIOWrapper`
+    # instance will always return `str` objects; (2) reading methods the
+    # the file-like object being the `buffer` attribute of that instance
+    # will always return `bytes` objects; any necessary encoding/decoding
+    # will be done using the specified `encoding` and `errors` (by default:
+    # `'utf-8'` and `'surrogateescape'`, respectively).
+    def patch_stdin(self,
+                    stdin_data: Union[str, bytes],
+                    encoding: str = 'utf-8',
+                    errors: str = 'surrogateescape'):
+        if isinstance(stdin_data, str):
+            stdin_data = stdin_data.encode(encoding, errors)
+        elif not isinstance(stdin_data, bytes):
+            raise TypeError(
+                f'`stdin_data` is expected to be a str or bytes object, '
+                f'got an instance of {type(stdin_data).__qualname__} '
+                f'({stdin_data=!a})')
+        self.patch(
+            'sys.stdin',
+            io.TextIOWrapper(
+                io.BytesIO(stdin_data),
+                encoding,
+                errors))
+
+
     #
     # Other helper methods
+
+    @staticmethod
+    def regex_search(regex, text):
+        if isinstance(regex, (str, bytes)):
+            regex = re.compile(regex)
+        return regex.search(text)
 
     # The following helper extracts from the given bound method the
     # actual plain function object -- checking with `assert*` methods
@@ -445,10 +600,12 @@ class TestCaseMixin(SDKTestCaseMixin):
     # particular, that the original method object is defined as a
     # function wrapped in a `classmethod`.
     def check_and_extract_func_from_class_method(self, method_got_from_class):
-        self.assertIsInstance(method_got_from_class, types.MethodType)         # noqa
+        assert isinstance(self, unittest.TestCase), f'test helper expectation failed by {self=!a}'
+
+        self.assertIsInstance(method_got_from_class, types.MethodType)
 
         func = method_got_from_class.__func__
-        self.assertIsInstance(func, types.FunctionType)                        # noqa
+        self.assertIsInstance(func, types.FunctionType)
 
         func_name = func.__name__
         try:
@@ -466,15 +623,15 @@ class TestCaseMixin(SDKTestCaseMixin):
                 f'not supported by this helper)')
         def_module = sys.modules[func.__module__]
         def_owner_class = getattr(def_module, def_owner_class_name)
-        self.assertIsInstance(def_owner_class, type)                           # noqa
+        self.assertIsInstance(def_owner_class, type)
 
         lookup_owner_class = method_got_from_class.__self__
-        self.assertIsInstance(def_owner_class, type)                           # noqa
+        self.assertIsInstance(def_owner_class, type)
         self.assertTrue(issubclass(lookup_owner_class, def_owner_class))       # noqa
 
         classmethod_obj = vars(def_owner_class)[func_name]
-        self.assertIsInstance(classmethod_obj, classmethod)                    # noqa
-        self.assertIs(classmethod_obj.__func__, func)                          # noqa
+        self.assertIsInstance(classmethod_obj, classmethod)
+        self.assertIs(classmethod_obj.__func__, func)
 
         return func
 
@@ -541,8 +698,9 @@ class _ExpectedObjectPlaceholder(object):
 class AnyInstanceOf(_ExpectedObjectPlaceholder):
 
     """
-    A class that implements a placeholder (somewhat similar to mock.ANY)
-    that compares equal only to instances of the specified classes.
+    A class that implements a placeholder (somewhat similar to
+    `unittest.mock.ANY`) that compares equal only to instances
+    of the specified classes.
 
     >>> import numbers
     >>> any_str_or_integral = AnyInstanceOf(str, numbers.Integral)
@@ -692,18 +850,18 @@ class AnyInstanceOf(_ExpectedObjectPlaceholder):
         return self._classes == other._classes
 
 
-class AnyFunctionNamed(_ExpectedObjectPlaceholder):
+class AnyCallableNamed(_ExpectedObjectPlaceholder):
 
     """
-    A class that implements a placeholder (somewhat similar to mock.ANY)
-    that compares equal only to functions whose name is equal to the
-    specified one.
+    A class that implements a placeholder (somewhat similar to
+    `unittest.mock.ANY`) that compares equal only to functions
+    whose name is equal to the specified one.
 
-    >>> any_func_named_foo = AnyFunctionNamed('foo')
+    >>> any_func_named_foo = AnyCallableNamed('foo')
     >>> any_func_named_foo
-    AnyFunctionNamed('foo')
-    >>> AnyFunctionNamed(name='foo')  # the same, only repr slightly different
-    AnyFunctionNamed(name='foo')
+    AnyCallableNamed('foo')
+    >>> AnyCallableNamed(name='foo')  # the same, only repr slightly different
+    AnyCallableNamed(name='foo')
 
     >>> def foo(): pass
     >>> any_func_named_foo == foo
@@ -727,20 +885,20 @@ class AnyFunctionNamed(_ExpectedObjectPlaceholder):
 
     >>> any_func_named_foo == any_func_named_foo
     True
-    >>> any_func_named_foo == AnyFunctionNamed(name='foo')
+    >>> any_func_named_foo == AnyCallableNamed(name='foo')
     True
     >>> any_func_named_foo != any_func_named_foo
     False
-    >>> any_func_named_foo != AnyFunctionNamed(name='foo')
+    >>> any_func_named_foo != AnyCallableNamed(name='foo')
     False
 
-    >>> any_func_named_foo == AnyFunctionNamed('bar')
+    >>> any_func_named_foo == AnyCallableNamed('bar')
     False
-    >>> AnyFunctionNamed(name='bar') == any_func_named_foo
+    >>> AnyCallableNamed(name='bar') == any_func_named_foo
     False
-    >>> any_func_named_foo != AnyFunctionNamed('bar')
+    >>> any_func_named_foo != AnyCallableNamed('bar')
     True
-    >>> AnyFunctionNamed(name='bar') != any_func_named_foo
+    >>> AnyCallableNamed(name='bar') != any_func_named_foo
     True
     """
 
@@ -749,8 +907,8 @@ class AnyFunctionNamed(_ExpectedObjectPlaceholder):
 
     def eq_test(self, other):
         return (
-            isinstance(other, types.FunctionType) and
-            self._name == other.__name__)
+            callable(other) and
+            self._name == getattr(other, '__name__', None))
 
     def eq_test_for_same_type(self, other):
         return self._name == other._name
@@ -759,9 +917,9 @@ class AnyFunctionNamed(_ExpectedObjectPlaceholder):
 class AnyDictIncluding(_ExpectedObjectPlaceholder):
 
     """
-    A class that implements a placeholder (somewhat similar to mock.ANY)
-    that compares equal only to `dict` instances that contain *at least*
-    (among others) all specified items.
+    A class that implements a placeholder (somewhat similar to
+    `unittest.mock.ANY`) that compares equal only to `dict` instances
+    that contain *at least* (among others) all specified items.
 
     >>> any_dict_including_foobar = AnyDictIncluding(foo='bar')
     >>> any_dict_including_foobar
@@ -887,10 +1045,10 @@ class AnyMatchingRegex(_ExpectedObjectPlaceholder):
 class JSONWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
 
     """
-    A class that implements a placeholder (somewhat similar to mock.ANY)
-    that compares equal only to `str`/`bytes`/`bytearray` instances that,
-    when `json.loads()` is applied to them, produce an object equal to
-    the specified object.
+    A class that implements a placeholder (somewhat similar to
+    `unittest.mock.ANY`) that compares equal only to such `str`,
+    `bytes` and `bytearray` instances that, when `json.loads()` is
+    applied to them, produce an object equal to the specified object.
 
     >>> json1 = JSONWhoseContentIsEqualTo({'key': 42})
     >>> json1
@@ -1122,21 +1280,71 @@ class DBSessionMock(mock.MagicMock):
 
 class QueryMock(mock.MagicMock):
 
-    def filter(self, condition):
-        col = condition.left.key
-        val = condition.right.value
+    def filter(self, *conditions):
+        assert conditions, 'no conditions given'
+        assert all(cond.operator is operator.eq for cond in conditions), (
+            f'for now, only `==`-operator-based conditions are supported, whereas '
+            f'these conditions include, apparently, something else: {conditions!r}')
+        col_val_pairs = [(cond.left.key, cond.right.value) for cond in conditions]
         m = mock.Mock()
-        m.one.return_value = self._get_from_db(self.table, col, val)
+        m.one.side_effect = lambda: self._one_from_db(self.table, col_val_pairs)
+        m.one_or_none.side_effect = lambda: self._one_from_db(self.table, col_val_pairs, none=True)
         return m
 
     def all(self):
         return self.collection.get(self.table, [])
 
-    def _get_from_db(self, table, col, val):
-        for obj in self.collection.get(table, []):
-            if getattr(obj, col) == val:
-                return obj
+    def get(self, val):
+        table_items = self.collection.get(self.table, [])
+        for item in table_items:
+            if self._record_fits_condition(val, item):
+                return item
+        return None
+
+    def _one_from_db(self, table, col_val_pairs, *, none=False):
+        found = [obj for obj in self.collection.get(table, [])
+                 if all(getattr(obj, col) == val for col, val in col_val_pairs)]
+        if found:
+            if len(found) > 1:
+                raise MultipleResultsFound
+            return found[0]
+        if none:
+            return None
         raise NoResultFound
+
+    def _record_fits_condition(self, cond, obj):
+        # Check if the record satisfies the condition. The method
+        # is used in the patched `get()` method of the query.
+        # It considers single-column primary keys as well as
+        # composite ones. Type of the passed condition must match
+        # the type of primary key. Scalar conditions for single-column
+        # keys, tuples or dictionaries - for the composite primary keys.
+        primary_keys = obj.metadata.tables[self.table].primary_key
+        if isinstance(cond, tuple):
+            if len(cond) != len(primary_keys):
+                raise InvalidRequestError
+            for pk, cond_val in zip(primary_keys, cond):
+                val = getattr(obj, pk.name)
+                if val != cond_val:
+                    return False
+            return True
+        if isinstance(cond, dict):
+            if len(cond) != len(primary_keys):
+                raise InvalidRequestError
+            for key, cond_val in cond.items():
+                if key not in primary_keys:
+                    return False
+                val = getattr(obj, key)
+                if cond_val != val:
+                    return False
+            return True
+        if not isinstance(cond, str) or len(primary_keys) != 1:
+            raise InvalidRequestError
+        for pk in primary_keys:
+            val = getattr(obj, pk.name)
+            if val != cond:
+                return False
+        return True
 
 
 class DBConnectionPatchMixin(TestCaseMixin):
@@ -1177,7 +1385,7 @@ class DBConnectionPatchMixin(TestCaseMixin):
                 It should be an empty dict for a new session.
 
         Returns:
-            a MagicMock() class instance, which is adjusted to serve
+            a `MagicMock` class instance, which is adjusted to serve
             as a mock of the return value of database connector
             context manager, or as an attribute of returned
             "context" object in some cases.
@@ -1238,7 +1446,7 @@ class RequestHelperMixin(object):
         Returns:
             A `pyramid.config.Configurator` instance.
         """
-        assert isinstance(self, unittest.TestCase)
+        assert isinstance(self, unittest.TestCase), f'test helper expectation failed by {self=!a}'
         pyramid_configurator = pyramid.testing.setUp()
         self.addCleanup(pyramid.testing.tearDown)
         return pyramid_configurator
@@ -1385,7 +1593,7 @@ class RequestHelperMixin(object):
         Because that argument is typically ignored in *n6* views
         (see `AbstractViewBase` and its subclasses...) the default
         implementation of `get_view_context()` returns just
-        `mock.sentinel.context`.
+        `unittest.mock.sentinel.context`.
         """
         return sentinel.context
 

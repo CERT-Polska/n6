@@ -806,6 +806,7 @@ class _DailyEventsCountsQueryProcessor(_BaseQueryProcessor):
         query = query.join(client_model,
                            and_(client_model.id == event_model.id,
                                 client_model.time >= midnight_datetime(since)))
+        query = query.filter(event_model.time >= midnight_datetime(since))
         query = self.query__access_filtering(query)
         query = self.query__client_filtering(query)
         query = query.group_by(sqla_func.date(event_model.time), event_model.category)
@@ -818,7 +819,12 @@ class _DailyEventsCountsQueryProcessor(_BaseQueryProcessor):
         with self.handling_db_api_error():
             query_result = query.all()
             category_to_count.update(query_result)
-        categories = tuple([str(category) for category in category_to_count.keys()][:6])
+        categories = [str(category) for category in category_to_count.keys()][:6]
+        if 'other' in categories:
+            categories = [str(category) for category in category_to_count.keys()][:7]
+            categories.remove('other')
+        assert 'other' not in categories
+        categories = tuple(categories)
         return categories
 
     def _build_query_for_the_most_frequent_events_categories(self, since: DateTime) -> Query:
@@ -830,6 +836,7 @@ class _DailyEventsCountsQueryProcessor(_BaseQueryProcessor):
         query = query.join(client_model,
                            and_(client_model.id == event_model.id,
                                 client_model.time >= midnight_datetime(since)))
+        query = query.filter(event_model.time >= midnight_datetime(since))
         query = self.query__access_filtering(query)
         query = self.query__client_filtering(query)
         query = query.group_by(event_model.category)
@@ -868,6 +875,7 @@ class _NamesRankingQueryProcessor(_BaseQueryProcessor):
         query = query.join(client_model,
                            and_(client_model.id == event_model.id,
                                 client_model.time >= midnight_datetime(since)))
+        query = query.filter(event_model.time >= midnight_datetime(since))
         query = query.filter(event_model.category == category)
         query = self.query__access_filtering(query)
         query = self.query__client_filtering(query)

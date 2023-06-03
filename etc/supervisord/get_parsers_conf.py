@@ -1,50 +1,49 @@
-# Copyright (c) 2015-2021 NASK. All rights reserved.
+# Copyright (c) 2015-2023 NASK. All rights reserved.
 
-import os.path as osp
+import importlib
+import pathlib
 import pkgutil
 import sys
 
 from n6lib.class_helpers import all_subclasses
-from n6lib.common_helpers import open_file
-
-CONF_TEMPLATE = None
-
-
-def find_parsers():
-    import n6datasources
-    from n6datasources.parsers.base import BaseParser
-    console_scripts_list = []
-    dirname = osp.dirname(osp.abspath(n6datasources.parsers.__file__))
-    for importer, package_name, _ in pkgutil.iter_modules([dirname]):
-        full_package_name = 'n6datasources.parsers.%s' % package_name
-        if full_package_name not in sys.modules and package_name != "base":
-            module = importer.find_module(package_name).load_module()
-    for pclass in all_subclasses(BaseParser): # @UndefinedVariable
-        if pclass.__module__ == "n6datasources.parsers.base":
-            continue
-        if pclass.__qualname__.startswith('_'):
-            continue
-        script_name = pclass.__qualname__.split(".")[-1].lower().replace("parser", "")
-        console_line = "n6parser_%s" % (script_name)
-        console_scripts_list.append(console_line)
-    return console_scripts_list
+from n6lib.common_helpers import (
+    open_file,
+    read_file,
+)
 
 
-def create_supervisord_conf(program_name):
-    with open_file('programs/%s.conf' % program_name, "w") as f:
-        f.write(CONF_TEMPLATE.format(program_name=program_name, program_command=program_name))
-
-
-def load_template():
-    global CONF_TEMPLATE
-    with open_file('program_template.tmpl', 'r') as f:
-        CONF_TEMPLATE = f.read()
+_DIR = pathlib.Path(__file__).resolve(strict=True).parent
 
 
 def main():
-    load_template()
-    for parser in find_parsers():
-        create_supervisord_conf(parser)
+    template = read_file(_DIR / 'program_template.tmpl')
+    for program_name in generate_parser_program_names():
+        create_supervisord_conf(template, program_name)
+
+
+def generate_parser_program_names():
+    _import_parser_modules()
+    for cls in _get_parser_classes():
+        distinct_part = cls.__name__.lower().removesuffix('parser')
+        yield f'n6parser_{distinct_part}'
+
+def _get_parser_classes():
+    from n6datasources.parsers.base import BaseParser
+    return [cls for cls in all_subclasses(BaseParser)
+            if (cls.__module__ != 'n6datasources.parsers.base'
+                and cls.__module__.split('.')[:2] != ['n6datasources', 'tests']
+                and not cls.__name__.startswith('_'))]
+
+def _import_parser_modules():
+    pkg_path_list = [p for p in sys.path if 'n6datasources' in p.lower()]
+    for _, modname, _ in pkgutil.walk_packages(pkg_path_list):
+        if modname.startswith('n6datasources.parsers.'):
+            importlib.import_module(modname)
+
+
+def create_supervisord_conf(template, program_name):
+    with open_file(_DIR / f'programs/{program_name}.conf', 'w') as f:
+        f.write(template.format(program_name=program_name, program_command=program_name))
 
 
 if __name__ == '__main__':

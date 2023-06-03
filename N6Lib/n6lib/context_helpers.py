@@ -20,7 +20,7 @@ class ContextManagerIsNotReentrantError(TypeError):
     whose implementation makes use of `ThreadLocalContextDeposit`, tries
     to use that manager as a *reentrant* one.
 
-    For more details -- see: `ThreadLocalContextDeposit.on_enter()` (in
+    For details -- see: `ThreadLocalContextDeposit.on_enter()` (in
     particular, the description of the `context_factory` parameter).
     """
 
@@ -114,9 +114,10 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
 
     ***
 
-    An overview (quite detailed, including some corner cases) of the
-    `ThreadLocalContextDeposit`'s public interface is presented through
-    the following examples and in the docstrings of the `on_enter()` and
+    A description (even if not "fully comprehensive", still quite
+    detailed -- including certain corner cases...) of the public
+    interface of `ThreadLocalContextDeposit` is presented through the
+    following examples and in the docstrings of the `on_enter()` and
     `on_exit()` methods.
 
     Note, however, that these examples are somewhat contrived. If you
@@ -988,7 +989,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
             `outermost_context_finalizer`:
                 A callable that takes the arguments specified below (in
                 the "Callback args..." paragraph). The callable is used
-                *only* to provide the outermost (root) context.
+                *only* to finalize the outermost (root) context.
 
                 If not given (or given as `None` which is equivalent)
                 and, at the same time, a non-`None` `context_finalizer`

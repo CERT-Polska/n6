@@ -754,7 +754,14 @@ class HttpResource(object):
             ``None`` then the name(s) will be determined by calling
             the :meth:`~AbstractViewBase.get_default_http_methods`
             of the concrete view class; default: ``None``.
-        `parmission`:
+        `http_cache` (int, or :class:`datetime.timedelta`, or tuple...):
+            To be passed (from within :meth:`configure_views`) to the
+            Pyramid configurator's `add_view()` as the `http_cache`
+            keyword argument -- except that, if it is not a tuple or
+            ``0``, it will be used in an adjusted form: a pair (2-tuple)
+            whose first item is the original value and the other item is
+            a ``{'private': True}`` dict.
+        `permission`:
             An object representing a Pyramid permission; default:
             the ``"dummy_permission"`` string.
 
@@ -781,9 +788,14 @@ class HttpResource(object):
             else view_properties)
         self.view_base = view_base
         self.http_methods = http_methods
-        self.http_cache = http_cache
+        self.http_cache = self._adjust_http_cache(http_cache)
         self.permission = permission
         return super(HttpResource, self).__init__(**kwargs)
+
+    def _adjust_http_cache(self, http_cache):
+        if http_cache != 0 and not isinstance(http_cache, tuple):
+            http_cache = (http_cache, {'private': True})
+        return http_cache
 
     def configure_views(self, pyramid_configurator):
         """

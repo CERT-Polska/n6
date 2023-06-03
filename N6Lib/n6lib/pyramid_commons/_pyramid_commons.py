@@ -3,7 +3,6 @@
 import contextlib
 import copy
 import datetime
-import os
 import os.path as osp
 import uuid
 from typing import Optional
@@ -57,6 +56,7 @@ from n6lib.const import (
     WSGI_SSL_USER_ID_FIELD,
 )
 from n6lib.log_helpers import get_logger
+from n6lib.oidc_provider_api import TokenValidationError
 from n6lib.pyramid_commons import mfa_helpers
 from n6lib.pyramid_commons import web_token_helpers
 from n6lib.pyramid_commons._config_converters import (
@@ -281,7 +281,7 @@ class N6DashboardView(EssentialAPIsViewMixin,
                       PreparingNoParamsViewMixin,
                       AbstractViewBase):
 
-    ALL_REMAINING_CATEGORIES_KEY = 'all_remaining'
+    SUMMARY_KEY = 'all'
 
     def make_response(self):
         at = datetime.datetime.utcnow().replace(microsecond=0)
@@ -305,11 +305,9 @@ class N6DashboardView(EssentialAPIsViewMixin,
         counts: dict[str, int] = {
             category: all_counts[category]
             for category in self.get_counted_categories()}
-        counts[self.ALL_REMAINING_CATEGORIES_KEY] = sum(
+        counts[self.SUMMARY_KEY] = sum(
             single_count
-            for category, single_count in all_counts.items()
-            if category not in counts)
-        assert counts.keys() <= set(CATEGORY_ENUMS) | {self.ALL_REMAINING_CATEGORIES_KEY}
+            for category, single_count in all_counts.items())
         return counts
 
 
@@ -927,6 +925,52 @@ class N6LoginMFAConfigConfirmView(_AbstractPortalMFARelatedView):
         return self.json_response({}, headerlist=logged_in_response_headerlist)
 
 
+class N6LoginOIDCView(EssentialAPIsViewMixin, AbstractViewBase):
+
+    class UserCreateFailure(Exception):
+        pass
+
+    def make_response(self):
+        if not self.oidc_provider_api.is_active:
+            raise HTTPForbidden('Authentication through external identity provider is disabled')
+        if self.request.auth_data is not None:
+            return self.json_response(dict(status='logged_in'))
+        user_id = self.oidc_provider_api.unauthenticated_credentials.user_id
+        org_id = self.oidc_provider_api.unauthenticated_credentials.org_id
+        if user_id is not None and org_id is not None:
+            try:
+                self._try_to_create_new_user(user_id, org_id)
+                return self.json_response(dict(status='user_created'))
+            except self.UserCreateFailure:
+                return self.json_response(dict(status='user_not_created'), status_code=403)
+        raise HTTPForbidden
+
+    def _try_to_create_new_user(self, user_id, org_id):
+        with self.auth_manage_api as api:
+            try:
+                api.get_user_by_login(login=user_id)
+                LOGGER.warning('User tried to authenticate through an external OpenID '
+                               'Connect Identity Provider but failed, because although his '
+                               'user record exists in the AuthDB, it is assigned to '
+                               'a different organization. '
+                               'User login: %s - organization: %s', user_id, org_id)
+                raise self.UserCreateFailure
+            except AuthDatabaseAPILookupError:
+                try:
+                    org = api.get_org_by_org_id(org_id=org_id)
+                    api.create_new_user(org, user_id=user_id)
+                    LOGGER.info('Created a new account for the user authenticated through '
+                                'external OpenID Connect Identity Provider. '
+                                'User login: %s - organization: %s', user_id, org_id)
+                    return True
+                except AuthDatabaseAPILookupError:
+                    LOGGER.warning('User tried to authenticate through an external OpenID '
+                                   'Connect Identity Provider but failed, because his '
+                                   'organization does not exist in the AuthDB. '
+                                   'User login: %s - organization: %s', user_id, org_id)
+                    raise self.UserCreateFailure
+
+
 class N6MFAConfigView(_AbstractPortalMFARelatedView):
 
     @classmethod
@@ -1448,11 +1492,11 @@ class N6DailyEventsCountsView(EssentialAPIsViewMixin,
         dates_range = sorted([(at - datetime.timedelta(days=day)).strftime('%Y-%m-%d')
                               for day in range(time_range_in_days)])
         access_filtering_conditions = self.get_access_zone_filtering_conditions('inside')
-        most_frequent = self.data_backend_api.get_the_most_frequent_categories(
+        most_frequent: tuple[str] = self.data_backend_api.get_the_most_frequent_categories(
             self.auth_data,
             access_filtering_conditions,
             since)
-        all_events = self.data_backend_api.get_counts_per_day_per_category(
+        all_events: dict[str, list] = self.data_backend_api.get_counts_per_day_per_category(
             self.auth_data,
             access_filtering_conditions,
             since)
@@ -1462,9 +1506,9 @@ class N6DailyEventsCountsView(EssentialAPIsViewMixin,
                 'empty_dataset': True,
             }
         else:
-            events = self._group_events_and_count_remaining(all_events,
-                                                            most_frequent,
-                                                            GROUPING_CATEGORY)
+            events: dict[str, list] = self._group_events_and_count_remaining(all_events,
+                                                                             most_frequent,
+                                                                             GROUPING_CATEGORY)
             data_sets = self._get_events_sets(events, dates_range)
             categories = list(most_frequent)
             categories.append(GROUPING_CATEGORY)
@@ -1496,12 +1540,10 @@ class N6DailyEventsCountsView(EssentialAPIsViewMixin,
 
     @staticmethod
     def _get_events_sets(events: dict[str, list], days_range: list) -> list[tuple]:
-        """
-        Creates a list of tuples with data:
-        #   1. index on which to place event into the final list
-        #   2. category of a particular event
-        #   3. number of events per category per specific day
-        """
+        # Create a list of tuples, each consisting of:
+        # 1. index in the final list
+        # 2. event category
+        # 3. number of events per category per specific day
         events_set = []
         for date, per_day_data in events.items():
             if date in days_range:
@@ -1556,10 +1598,11 @@ class N6NamesRankingView(EssentialAPIsViewMixin,
             since,
             category='vulnerable')
 
-        tables = {'bots': bots if bots else None,
-                  'amplifier': amplifier if amplifier else None,
-                  'vulnerable': vulnerable if vulnerable else None,
-                  }
+        tables = {
+            'bots': bots if bots else None,
+            'amplifier': amplifier if amplifier else None,
+            'vulnerable': vulnerable if vulnerable else None,
+        }
         return self.json_response(tables)
 
 
@@ -1584,12 +1627,14 @@ class N6ConfigHelper(ConfigHelper):
                  component_module_name,
                  auth_manage_api=None,
                  mail_notices_api=None,
+                 oidc_provider_api=None,
                  rt_client_api=None,
                  **kwargs):
         self.component_module_name = component_module_name
         self.auth_api_class = auth_api_class
         self.auth_manage_api = auth_manage_api
         self.mail_notices_api = mail_notices_api
+        self.oidc_provider_api = oidc_provider_api
         self.rt_client_api = rt_client_api
         super().__init__(**kwargs)
 
@@ -1606,10 +1651,14 @@ class N6ConfigHelper(ConfigHelper):
         pyramid_configurator.add_tween(
             'n6lib.pyramid_commons.auth_db_apis_maintenance_tween_factory',
             under=EXCVIEW)
+        pyramid_configurator.add_tween(
+            'n6lib.pyramid_commons.preflight_requests_handler_tween_factory',
+            under=EXCVIEW)
         pyramid_configurator.registry.component_module_name = self.component_module_name
         pyramid_configurator.registry.auth_api = self.auth_api_class(settings=self.settings)
         pyramid_configurator.registry.auth_manage_api = self.auth_manage_api
         pyramid_configurator.registry.mail_notices_api = self.mail_notices_api
+        pyramid_configurator.registry.oidc_provider_api = self.oidc_provider_api
         pyramid_configurator.registry.rt_client_api = self.rt_client_api
         return super().prepare_pyramid_configurator(pyramid_configurator)
 
@@ -1756,23 +1805,44 @@ class AuthTktUserAuthenticationPolicy(BaseUserAuthenticationPolicy):
     # .html#add-login-logout-and-forbidden-views
 
 
-class APIKeyOrSSLUserAuthenticationPolicy(SSLUserAuthenticationPolicy):
+class _AuthorizationHeaderAuthenticationPolicyMixin:
+
+    HTTP_AUTH_HEADER = "Authorization"
+    HTTP_AUTH_TYPE = "Bearer"
+    HTTP_AUTH_REALM = NotImplemented
+
+    def get_authorization_header_value(self, request):
+        if (self.HTTP_AUTH_HEADER in request.headers
+                and request.authorization
+                and request.authorization.authtype == self.HTTP_AUTH_TYPE):
+            try:
+                return request.authorization.params
+            except AttributeError:
+                raise self._http_unauthorized()
+        return None
+
+    @classmethod
+    def _http_unauthorized(cls):
+        www_authenticate = f'{cls.HTTP_AUTH_TYPE} realm="{cls.HTTP_AUTH_REALM}"'
+        response_exc = HTTPUnauthorized()
+        response_exc.headers['WWW-Authenticate'] = www_authenticate
+        return response_exc
+
+
+class APIKeyOrSSLUserAuthenticationPolicy(_AuthorizationHeaderAuthenticationPolicyMixin,
+                                          SSLUserAuthenticationPolicy):
 
     """
     Authentication based on an API key.
     """
 
-    HTTP_AUTH_HEADER = "Authorization"
-    HTTP_AUTH_TYPE = "Bearer"
     HTTP_AUTH_REALM = "Access to the REST API of n6"
 
     def unauthenticated_userid(self, request):
-        if (request.registry.auth_api.is_api_key_authentication_enabled()
-                and self.HTTP_AUTH_HEADER in request.headers
-                and request.authorization
-                and request.authorization.authtype == self.HTTP_AUTH_TYPE):
-            api_key = request.authorization.params
-            return f'api_key:{api_key}'
+        if request.registry.auth_api.is_api_key_authentication_enabled():
+            api_key = self.get_authorization_header_value(request)
+            if api_key is not None:
+                return f'api_key:{api_key}'
         return super().unauthenticated_userid(request)
 
     @classmethod
@@ -1790,12 +1860,94 @@ class APIKeyOrSSLUserAuthenticationPolicy(SSLUserAuthenticationPolicy):
             raise cls._http_unauthorized()
         return auth_data
 
+
+class OIDCUserAuthenticationPolicy(_AuthorizationHeaderAuthenticationPolicyMixin,
+                                   AuthTktUserAuthenticationPolicy):
+
+    """
+    Authentication based on the bearer tokens fetched from the OpenID
+    Connect Identity Provider.
+
+    If the "Authorization" HTTP header with access token is missing
+    from the request, the `AuthTktUserAuthenticationPolicy` mechanism
+    will be used.
+    """
+
+    ACCESS_TOKEN_REQUIRED_CLAIMS = {
+        'email': str,
+        'org_name': str,
+    }
+    HTTP_AUTH_REALM = "Access to N6Portal API"
+
+    def unauthenticated_userid(self, request):
+        if request.registry.oidc_provider_api.is_active:
+            access_token = self.get_authorization_header_value(request)
+            if access_token:
+                return f'access_token:{access_token}'
+        return super().unauthenticated_userid(request)
+
+    def effective_principals(self, request):
+        if (request.registry.oidc_provider_api.is_active
+                and self.HTTP_AUTH_HEADER in request.headers):
+            return BaseUserAuthenticationPolicy.effective_principals(self, request)
+        return super().effective_principals(request)
+
     @classmethod
-    def _http_unauthorized(cls):
-        www_authenticate = f'{cls.HTTP_AUTH_TYPE} realm="{cls.HTTP_AUTH_REALM}"'
-        response_exc = HTTPUnauthorized()
-        response_exc.headers['WWW-Authenticate'] = www_authenticate
-        return response_exc
+    def get_auth_data(cls, request):
+        unauthenticated_userid = request.unauthenticated_userid
+        if (request.registry.oidc_provider_api.is_active
+                and unauthenticated_userid
+                and unauthenticated_userid.startswith('access_token:')):
+            access_token = unauthenticated_userid.split(':', 1)[1]
+            if access_token:
+                return cls._get_auth_data_from_token(access_token, request)
+        return super().get_auth_data(request)
+
+    @classmethod
+    def _get_auth_data_from_token(cls, access_token, request):
+        json_web_key = cls._get_json_web_key(access_token, request)
+        try:
+            claims = request.registry.auth_api.authenticate_with_oidc_access_token(
+                    access_token,
+                    json_web_key,
+                    required_claims=cls.ACCESS_TOKEN_REQUIRED_CLAIMS,
+                    audience=request.registry.oidc_provider_api.client_id,
+            )
+        except AuthAPIUnauthenticatedError:
+            raise cls._http_unauthorized()
+        else:
+            # presence of required claims should have been
+            # checked by `jwt_decode()` function called by
+            # `authenticate_with_oidc_access_token()` method
+            assert 'org_name' in claims
+            assert 'email' in claims
+            org_id = claims['org_name']
+            user_id = claims['email']
+            with request.registry.auth_manage_api as api:
+                if api.do_nonblocked_user_and_org_exist_and_match(user_id, org_id):
+                    auth_data = dict(
+                            org_id=org_id,
+                            user_id=user_id,
+                    )
+                    return auth_data
+                elif request.route_url('/login/oidc') == request.url:
+                    # save unauthenticated credentials from the token,
+                    # so they can be used to create user account
+                    # in the `N6LoginOIDCView`
+                    cls._save_temp_credentials_to_registry(request, user_id, org_id)
+                return None
+
+    @classmethod
+    def _get_json_web_key(cls, access_token, request):
+        try:
+            return request.registry.oidc_provider_api.get_signing_key_from_token(access_token)
+        except TokenValidationError:
+            raise cls._http_unauthorized()
+
+    @staticmethod
+    def _save_temp_credentials_to_registry(request, user_id, org_id):
+        request.registry.oidc_provider_api.unauthenticated_credentials.user_id = user_id
+        request.registry.oidc_provider_api.unauthenticated_credentials.org_id = org_id
 
 
 class DevFakeUserAuthenticationPolicy(BaseUserAuthenticationPolicy):

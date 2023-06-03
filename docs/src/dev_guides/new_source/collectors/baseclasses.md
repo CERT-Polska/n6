@@ -28,7 +28,7 @@ The interface consists of four methods (two of which are abstract and have to be
   passed in as the keyword arguments to the collector constructor (when collector initialization has
   been started from the generated console command; see section _Collector command_).
   The default implementation returns an empty dictionary.
-- `run_handling` - starts a collector and takes care of exiting with `Ctrl+C`.
+- `run_collection` - starts a collector and takes care of exiting with `Ctrl+C`.
   The default implementation calls `run` method and expects that it either returns gracefully or raises `KeyboardInterrupt` exception (caused by `Ctrl+C`)
   upon which it calls the `stop` method.
 - `run` - an abstract method which should contain the main collector's activity.

@@ -24,7 +24,7 @@ We will focus only on the most important ones.
   format (corresponds to the first two parts of parser's `default_binding_key`).
 - `ASSERT_RESULTS_EQUAL` - the name of the test case method that will be used to test whether
   actual results are equal to the expected results. Defaults to `assertEqual` but can be changed,
-  for example to `assertItemsEqual` to not care about the order of the items
+  for example to `assertCountEqual` to not care about the order of the items
   inside collections.
 
 Example test case could look like so:

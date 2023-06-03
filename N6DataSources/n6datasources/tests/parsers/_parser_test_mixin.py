@@ -1,8 +1,9 @@
-# Copyright (c) 2014-2022 NASK. All rights reserved.
+# Copyright (c) 2014-2023 NASK. All rights reserved.
 
 import datetime
 import functools
 import json
+import re
 from unittest.mock import (
     patch,
     sentinel,
@@ -26,8 +27,24 @@ from n6lib.unit_test_helpers import TestCaseMixin
 class ParserTestMixin(TestCaseMixin):
 
     # Prevent pytest *from treating* those subclasses of this class that
-    # are base/mixin (abstract) classes *as concrete test classes*.
-    __test__ = FalseIfOwnerClassNameMatchesRegex(r'\A(_.*Base|.*ParserTestMix[Ii]n\Z)')
+    # are mixin/base (abstract) classes *as concrete test classes*.
+    __test__ = FalseIfOwnerClassNameMatchesRegex(re.compile(r'''
+        \A
+        (?:
+            .*
+            ParserTestMix[Ii]n
+        |
+            _
+            .*
+            Base
+            (?:
+                \Z
+            |
+                [^a-z]
+            )
+            .*
+        )
+        \Z''', re.VERBOSE))
 
 
     MESSAGE_TIMESTAMP = 1389348840  # '2014-01-10 10:14:00'

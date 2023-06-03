@@ -10,6 +10,8 @@ const UserSettingsMfaConfig = AsyncLoader(
 );
 const Incidents = AsyncLoader(() => import('components/pages/incidents/Incidents'));
 const Login = AsyncLoader(() => import('components/pages/login/Login'));
+const LoginKeycloak = AsyncLoader(() => import('components/pages/login/LoginKeycloak'));
+const LoginKeycloakSummary = AsyncLoader(() => import('components/pages/login/LoginKeycloakSummary'));
 const ForgotPassword = AsyncLoader(() => import('components/pages/forgotPassword/ForgotPassword'));
 const NoAccess = AsyncLoader(() => import('components/pages/noAccess/NoAccess'));
 const NotFound = AsyncLoader(() => import('components/pages/notFound/NotFound'));
@@ -19,6 +21,8 @@ const KnowledgeBase = AsyncLoader(() => import('components/pages/knowledgeBase/K
 
 export const publicRoutes: IRouteElem[] = [
   { path: routeList.login, component: <Login /> },
+  { path: routeList.loginKeycloak, component: <LoginKeycloak /> },
+  { path: routeList.loginKeycloakSummary, component: <LoginKeycloakSummary /> },
   { path: routeList.forgotPassword, component: <ForgotPassword /> },
   { path: routeList.signUp, component: <SignUp /> },
   { path: routeList.noAccess, component: <NoAccess /> },

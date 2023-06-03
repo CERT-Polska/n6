@@ -22,7 +22,7 @@ const ApiLoader: FC<IProps> = ({ status, children, error, noError }) => {
 
   switch (status) {
     case 'error':
-      if (error?.response?.status === 403) {
+      if (error?.response?.status === 403 || error?.response?.status === 401) {
         return noError ? <>{children}</> : <Redirect to={routeList.noAccess} />;
       } else {
         return <ApiLoaderFallback />;

@@ -25,6 +25,7 @@ export const dictionary = {
     login_username_label: 'Login',
     login_password_label: 'Hasło',
     login_button: 'Zaloguj się',
+    login_oidc_button: 'Zaloguj się u dostawcy tożsamości OpenID Connect',
     login_forgot_password_btn_label: 'Nie pamiętasz hasła?',
     forgot_password_title: 'Zresetuj hasło',
     forgot_password_description: 'Wpisz adres e-mail powiązany z Twoim kontem',
@@ -113,9 +114,6 @@ export const dictionary = {
     signup_btn_cancel: 'Anuluj',
     signup_btn_next: 'Dalej',
     signup_btn_submit: 'Wyślij',
-    signup_intro:
-      'Dostęp i prawo do korzystania z Systemu wymaga zaakceptowania Regulaminu. Regulamin obowiązuje wszystkich odwiedzających i użytkowników Systemu.',
-    signup_terms_header: 'Regulamin',
     signup_terms_checkbox_label: 'Akceptuję warunki regulaminu',
     signup_domain_label: 'Domena organizacji',
     signup_domain_tooltip: 'Oficjalna nazwa domeny organizacji',
@@ -314,7 +312,7 @@ export const dictionary = {
     organization_card_title_tor: 'Węzeł Tor',
     organization_card_title_vulnerable: 'Podatna usługa',
     organization_card_title_webinject: 'Webinject',
-    organization_card_title_all_remaining: 'Pozostałe',
+    organization_card_title_all: 'Wszystkie zdarzenia',
     organization_card_tooltip_amplifier:
       'Niepoprawnie skonfigurowana usługa, która może być wykorzystana do przeprowadzenia odbitego rozproszonego ataku odmowy dostępu (distributed reflected denial of service).',
     organization_card_tooltip_bots: 'Komputer lub inne urządzenie zainfekowane przez szkodliwe oprogramowanie.',
@@ -345,7 +343,7 @@ export const dictionary = {
     organization_card_tooltip_vulnerable: 'Adres podanego urządzenia lub usługi.',
     organization_card_tooltip_webinject:
       'Treść wstrzykiwana w strony WWW przez trojany zainstalowane na zainfekowanych komputerach.',
-    organization_card_tooltip_all_remaining: 'Pozostałe incydenty/zagrożenia.',
+    organization_card_tooltip_all: 'Wszystkie incydenty/zagrożenia.',
     organization_events_table_header_number: 'Lp.',
     organization_events_table_header_name: 'Nazwa',
     organization_events_table_header_events_count: 'Liczba zdarzeń',
@@ -402,6 +400,7 @@ export const dictionary = {
     login_username_label: 'Login',
     login_password_label: 'Password',
     login_button: 'Log in',
+    login_oidc_button: 'Log in with External OpenID Connect Identity Provider',
     login_forgot_password_btn_label: 'Forgot password?',
     forgot_password_title: 'Reset password',
     forgot_password_description: 'Enter the email address associated with your account',
@@ -490,9 +489,6 @@ export const dictionary = {
     signup_btn_cancel: 'Cancel',
     signup_btn_next: 'Next',
     signup_btn_submit: 'Submit',
-    signup_intro:
-      'Your access to the Service is conditioned on your acceptance of and compliance with these Terms. These Terms apply to all users of the Service.',
-    signup_terms_header: 'Terms and Conditions',
     signup_terms_checkbox_label: 'I accept the Terms and Conditions',
     signup_domain_label: 'Organization domain',
     signup_domain_tooltip: "Official organization's domain",
@@ -688,7 +684,7 @@ export const dictionary = {
     organization_card_title_tor: 'Tor node',
     organization_card_title_vulnerable: 'Vulnerable service',
     organization_card_title_webinject: 'Webinject',
-    organization_card_title_all_remaining: 'All remaining',
+    organization_card_title_all: 'All events/threats',
     organization_card_tooltip_amplifier:
       'A misconfigured server that can be abused for a distributed reflected denial of service (DRDoS).',
     organization_card_tooltip_bots: 'A computer or other device infected by malware.',
@@ -718,7 +714,7 @@ export const dictionary = {
     organization_card_tooltip_tor: '',
     organization_card_tooltip_vulnerable: 'An address of a vulnerable device or service.',
     organization_card_tooltip_webinject: 'An inject used by banking trojans or similar malware.',
-    organization_card_tooltip_all_remaining: 'Remaining security events/threats.',
+    organization_card_tooltip_all: 'All security events/threats.',
     organization_events_table_header_number: 'No.',
     organization_events_table_header_name: 'Name',
     organization_events_table_header_events_count: 'Events count',
@@ -751,21 +747,35 @@ export const dictionary = {
   }
 };
 
-export const signup_terms: Record<string, { version: string; content: string[] }> = {
+export const signup_terms: Record<string, { version: string; content: string }> = {
   pl: {
     version: '20210903.1010.PL.0f840560c6c0c093acb91c6990ca3d53d2035872',
-    content: [
-      'Platforma n6 udostępnia uczestnikom informacje o zdarzeniach bezpieczeństwa dotyczących sieci, których są właścicielami.',
-      'Źródłem danych dla platformy n6 są zewnętrzne systemy i organizacje dostarczające informacji o zdarzeniach bezpieczeństwa.',
-      'Administrator Systemu nie odpowiada za jakość danych. Dane są przekazywane w postaci nieprzetworzonej i mogą zawierać fałszywe alarmy. Weryfikacja danych zależy od odbiorcy.'
-    ]
+    content:
+      '# Regulamin\n' +
+      '\n' +
+      '**Dostęp i prawo do korzystania z Systemu wymaga zaakceptowania Regulaminu. Regulamin ' +
+      'obowiązuje wszystkich odwiedzających i użytkowników Systemu.**\n' +
+      '\n' +
+      '* Platforma n6 udostępnia uczestnikom informacje o zdarzeniach bezpieczeństwa dotyczących ' +
+      'sieci, których są właścicielami.\n' +
+      '* Źródłem danych dla platformy n6 są zewnętrzne systemy i organizacje dostarczające ' +
+      'informacji o zdarzeniach bezpieczeństwa.\n' +
+      '* Administrator Systemu nie odpowiada za jakość danych. Dane są przekazywane w postaci ' +
+      'nieprzetworzonej i mogą zawierać fałszywe alarmy. Weryfikacja danych zależy od odbiorcy.'
   },
   en: {
     version: '20210903.1010.EN.bf5c3f53f4a744a846b208885803dd603246d852',
-    content: [
-      'The n6 platform provides network administrators with information about security events and incidents in their networks.',
-      'Data in n6 come from various external sources.',
-      'System administrator is not responsible for the quality of data. Data is distributed as-is and may contain false alerts. We do not recommend taking direct actions based on the data, without further verification.'
-    ]
+    content:
+      '# Terms and Conditions\n' +
+      '\n' +
+      '**Your access to and use of the Service is conditioned on your acceptance of and ' +
+      'compliance with these Terms. These Terms apply to all users of the Service**\n' +
+      '\n' +
+      '* The n6 platform provides network administrators with information about security events ' +
+      'and incidents in their networks.\n' +
+      '* Data in n6 come from various external sources.\n' +
+      '* System administrator is not responsible for the quality of data. Data is distributed ' +
+      'as-is and may contain false alerts. We do not recommend taking direct actions based on ' +
+      'the data, without further verification.'
   }
 };

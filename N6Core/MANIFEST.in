@@ -1,4 +1,0 @@
-include *.txt *.rst requirements
-recursive-include n6 *--data
-recursive-include n6/data *
-recursive-include n6/tests/mocks/fixtures *

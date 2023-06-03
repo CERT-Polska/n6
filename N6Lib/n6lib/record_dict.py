@@ -746,7 +746,7 @@ class RecordDict(collections_abc.MutableMapping):
         make_adjuster_applying_callable(str))
 
     # special custom field adjuster
-    # (see the comment in the code of n6.utils.enrich.Enricher.enrich())
+    # (see the comment in the code of n6datapipeline.enrich.Enricher.enrich())
     adjust_enriched = make_adjuster_using_data_spec('enriched')
 
     # custom field adjusters
@@ -760,6 +760,8 @@ class RecordDict(collections_abc.MutableMapping):
         make_adjuster_using_data_spec(
             'alternative_fqdns',
             on_too_long=trim_domain_seq))
+
+    adjust_artemis_uuid = make_adjuster_using_data_spec('artemis_uuid')
 
     adjust_block = make_adjuster_using_data_spec('block')
     adjust_description = make_adjuster_using_data_spec(
@@ -778,6 +780,8 @@ class RecordDict(collections_abc.MutableMapping):
 
     adjust_sender = make_adjuster_using_data_spec(
         'sender', on_too_long=trim)
+
+    adjust_snitch_uuid = make_adjuster_using_data_spec('snitch_uuid')
 
     adjust_botid = make_adjuster_using_data_spec(
         'botid', on_too_long=trim)

@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2022 NASK. All rights reserved.
+# Copyright (c) 2019-2023 NASK. All rights reserved.
 
 import sys
 import threading
@@ -6,14 +6,10 @@ from collections.abc import (
     Callable,
     Mapping,
 )
+from typing import Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import NoResultFound
-from typing import (
-    Literal,
-    Optional,
-    Union,
-)
 
 from n6lib.auth_db import models
 from n6lib.auth_db.config import SQLAuthDBConnector
@@ -32,14 +28,16 @@ class BaseBrokerAuthManagerMaker:
         self._db_connector = SQLAuthDBConnector(settings=settings)
         self._manager_creation_lock = threading.Lock()
 
-    def __call__(self, params: Mapping[str, str]) -> 'BaseBrokerAuthManager':
+    def __call__(self, params: Mapping[str, str],
+                 *, need_authentication: bool = False,
+                 ) -> 'BaseBrokerAuthManager':
         # Note: `params` is expected to be a mapping containing the HTTP
         # request params, already deduplicated+validated by the view code.
         force_exit_on_any_remaining_entered_contexts(self._db_connector)
         # Note: we guarantee thread-safety of *auth manager* creation.
         with self._manager_creation_lock:
-            manager_factory = self.get_manager_factory(params)
-            manager_factory_kwargs = self.get_manager_factory_kwargs(params)
+            manager_factory = self.get_manager_factory(params, need_authentication)
+            manager_factory_kwargs = self.get_manager_factory_kwargs(params, need_authentication)
             manager = manager_factory(**manager_factory_kwargs)
         assert isinstance(manager, BaseBrokerAuthManager)
         return manager
@@ -48,6 +46,7 @@ class BaseBrokerAuthManagerMaker:
     # Abstract method (*must* be implemented in concrete subclasses)
 
     def get_manager_factory(self, params: Mapping[str, str], /,
+                            need_authentication: bool,
                             ) -> Callable[..., 'BaseBrokerAuthManager']:
         # (ad `params`: see the relevant comment in `__call__()`)
         raise NotImplementedError
@@ -57,28 +56,34 @@ class BaseBrokerAuthManagerMaker:
     # (depending on what `get_manager_factory()` returns)
 
     def get_manager_factory_kwargs(self, params: Mapping[str, str], /,
+                                   need_authentication: bool,
                                    ) -> KwargsDict:
         # (ad `params`: see the relevant comment in `__call__()`)
         return dict(db_connector=self._db_connector,
-                    params=params)
+                    params=params,
+                    need_authentication=need_authentication)
 
 
 class BaseBrokerAuthManager:
 
-    def __init__(self,
+    def __init__(self, *,
                  db_connector: SQLAuthDBConnector,
-                 params: Mapping[str, str]):
+                 params: Mapping[str, str],
+                 need_authentication: bool):
         if 'username' not in params:
             raise ValueError("param 'username' not given")  # view code should have ensured that
+        if need_authentication and 'password' not in params:
+            raise ValueError("param 'password' not given")  # view code should have ensured that
         self.db_connector: SQLAuthDBConnector = db_connector
         self.params: Mapping[str, str] = params   # request params (already deduplicated+validated)
+        self.need_authentication = need_authentication
         self.db_session: Optional[Session] = None
-        self.client_obj: Optional[Union[models.User, models.Component]] = None
+        self.user_obj: Optional[models.User] = None
 
     def __enter__(self) -> 'BaseBrokerAuthManager':
         self.db_session = self.db_connector.__enter__()
         try:
-            self.client_obj = self._verify_and_get_client_obj()
+            self.user_obj = self._verify_and_get_non_blocked_user_obj()
             return self
         except:
             self.__exit__(*sys.exc_info())
@@ -90,16 +95,14 @@ class BaseBrokerAuthManager:
         finally:
             self.db_session = None
 
-    def _verify_and_get_client_obj(self) -> Optional[Union[models.User, models.Component]]:
+    def _verify_and_get_non_blocked_user_obj(self) -> Optional[models.User]:
         self._check_presence_of_db_session()
-        client_obj = None
-        if self.should_try_to_verify_client():
-            client_obj = self.verify_and_get_user_obj()
-            if client_obj is None:
-                client_obj = self.verify_and_get_component_obj()
-            elif client_obj.is_blocked:
-                client_obj = None
-        return client_obj
+        user_obj = None
+        if self.should_try_to_verify_user():
+            user_obj = self.verify_and_get_user_obj(self.need_authentication)
+            if user_obj is not None and user_obj.is_blocked:
+                user_obj = None
+        return user_obj
 
     def _check_presence_of_db_session(self) -> None:
         if self.db_session is None:
@@ -128,31 +131,19 @@ class BaseBrokerAuthManager:
         return self.params.get('permission')
 
     @property
-    def client_verified(self) -> bool:
+    def user_verified(self) -> bool:
         # may be relevant to any view
-        return (self.client_obj is not None)
+        return (self.user_obj is not None)
 
     @property
-    def client_type(self) -> Optional[Literal['user', 'component']]:
-        if not self.client_verified:
-            return None
-        assert self.client_obj is not None
-        if isinstance(self.client_obj, models.User):
-            return 'user'
-        if isinstance(self.client_obj, models.Component):
-            return 'component'
-        raise TypeError(f'the client object {self.client_obj!a} '
-                        f'is an instance of a wrong class')
-
-    @property
-    def client_is_admin_user(self) -> bool:
-        if self.client_type != 'user':
+    def user_is_admin(self) -> bool:
+        if not self.user_verified:
             return False
-        assert self.client_verified and self.client_obj is not None
+        assert self.user_obj is not None
         self._check_presence_of_db_session()
         admins_group = self._get_admins_group()
         if admins_group is not None:
-            return admins_group in self.client_obj.system_groups
+            return admins_group in self.user_obj.system_groups
         return False
 
     def _get_admins_group(self) -> Optional[models.SystemGroup]:
@@ -167,14 +158,15 @@ class BaseBrokerAuthManager:
     #
     # Abstract methods (*must* be implemented in concrete subclasses)
 
-    # * Client verification methods:
+    # * User verification/authentication method:
 
-    def verify_and_get_user_obj(self) -> Optional[models.User]:
-        """Try to verify user (for given params); get its Auth DB model instance or None."""
-        raise NotImplementedError
-
-    def verify_and_get_component_obj(self) -> Optional[models.Component]:
-        """Try to verify component (for given params); get its Auth DB model instance or None."""
+    def verify_and_get_user_obj(self, need_authentication: bool) -> Optional[models.User]:
+        """
+        Try to verify the user and get their Auth DB model instance or None.
+        If `need_authentication` is true, the verification **must** include
+        authentication (which should, in particular, make use of `self.password`);
+        otherwise, it **must not**.
+        """
         raise NotImplementedError
 
     # * Authorization methods:
@@ -202,6 +194,6 @@ class BaseBrokerAuthManager:
     #
     # A hook than *can* be overridden/extended in subclasses (if needed)
 
-    def should_try_to_verify_client(self) -> bool:
-        """Whether the method(s) `verify_and_get_..._obj()` should be called."""
+    def should_try_to_verify_user(self) -> bool:
+        """Whether the method `verify_and_get_user_obj()` should be called."""
         return True

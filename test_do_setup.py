@@ -669,6 +669,12 @@ class Test__main(unittest.TestCase):
                 Call('os.getcwd'),
                 Call('os.chdir', self.THIS_SCRIPT_DIR),
 
+                ] + ([
+                    Call('do_setup.command', 'pip install importlib-metadata==2.1.3'),
+                    Call('do_setup.LOGGER.info', "'importlib-metadata==2.1.3' installed"),
+                ] if do_setup.PY2 else [
+                ]) + [
+
                 Call('os.chdir', self.THIS_SCRIPT_DIR + '/N6SDK'),
                 Call('do_setup.command', 'python setup.py install'),
                 Call('do_setup.LOGGER.info', "%r setup done", 'N6SDK'),
@@ -715,6 +721,8 @@ class Test__main(unittest.TestCase):
                 Call('do_setup.LOGGER.info',
                      "the following external commands "
                      "have been successfully executed:"
+                     + ("\n* <mocked memo: 'pip install importlib-metadata==2.1.3'>"
+                        if do_setup.PY2 else "") +
                      "\n* <mocked memo: 'python setup.py install'>"
                      "\n* <mocked memo: 'python setup.py install'>"
                      "\n* <mocked memo: 'python setup.py install'>"
@@ -756,6 +764,12 @@ class Test__main(unittest.TestCase):
                 Call('do_setup.LOGGER.info', ("'pip', 'setuptools' and 'wheel' "
                                               "updated (if possible)")),
 
+                ] + ([
+                    Call('do_setup.command', 'pip install importlib-metadata==2.1.3'),
+                    Call('do_setup.LOGGER.info', "'importlib-metadata==2.1.3' installed"),
+                    ] if do_setup.PY2 else [
+                ]) + [
+
                 Call('os.chdir', self.THIS_SCRIPT_DIR + '/spaaam'),
                 Call('do_setup.command', 'python setup.py develop'),
                 Call('do_setup.LOGGER.info', "%r setup done", 'spaaam'),
@@ -766,6 +780,8 @@ class Test__main(unittest.TestCase):
                      "the following external commands have "
                      "been successfully executed:"
                      "\n* <mocked memo: 'pip install --upgrade pip setuptools wheel'>"
+                     + ("\n* <mocked memo: 'pip install importlib-metadata==2.1.3'>"
+                        if do_setup.PY2 else "") +
                      "\n* <mocked memo: 'python setup.py develop'>")
             ])
 
