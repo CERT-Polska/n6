@@ -19,32 +19,36 @@ Fixed generation of the docs by upgrading `mkdocs` to the version `1.2.4`.
 
 Among others:
 
-- the *n6 Portal* gained support for OpenID-Connect-based *single
-  sign-on* (SSO) authentication;
+- the *n6 Portal* gained support for
+  [OpenID Connect](https://openid.net/foundation/how-connect-works/)-based
+  *single sign-on* ([SSO](https://en.wikipedia.org/wiki/Single_sign-on))
+  authentication;
 
-- the *n6 Stream API* (STOMP-based) now supports authentication based on
-  API keys (the same ones that have already been accepted by the *n6 REST
-  API*); the new mechanism replaces the previously used one (based on
-  X.509 client certificates);
+- the *n6 Stream API* ([STOMP](https://stomp.github.io/)-based) now
+  supports authentication based on API keys (those which have already been
+  accepted by the *n6 REST API*); the new mechanism replaces the
+  previously used one (based on X.509 client certificates);
 
-- added a bunch of new components which obtain and process security
-  data from external sources: 26 *collectors* and 86 *parsers*; now,
-  in total, we have in `N6DataSources` 35 *collectors* and 91 *parsers*;
+- added a significant number of components obtaining and processing
+  security event data from external sources: 26 *collectors* and 86
+  *parsers*; now, in total, we have 35 *collectors* and 91 *parsers*
+  (see the `N6DataSources` package);
 
-- got rid of the legacy, *Python-2-only*, stuff (most of which were
+- got rid of the Python-2-compatible legacy code (most of which were
   Python 2 versions of *collectors* and *parsers*) that used to reside in
-  `N6Core` and `N6CoreLib` (all other *Python-2-only* stuff -- `N6Lib-py2`
-  and `N6SDK-py2` -- has also been removed); note: the components related
-  to active data sources have been migrated to Python 3 (8 *collectors* and
-  7 *parsers* -- now they reside in `N6DataSources`); therefore, *n6* is
-  now  *Python-3-only* (finally!);
+  `N6Core` (the accompanying Python 2 packages: `N6CoreLib`, `N6Lib-py2`
+  and `N6SDK-py2` -- have also been removed); note: the components related
+  to active data sources have been migrated to Python 3 (8 *collectors*
+  and 7 *parsers* -- now they reside in `N6DataSources`); therefore, *n6*
+  is now *Python-3-only* (finally!);
 
-- significant optimizations have been accomplished: certain kinds of data
-  queries (via the *n6 REST API* or *n6 Portal*) are much faster and
-  `n6aggretator`'s memory consumption has been considerably reduced;
+- significant performance improvements have been accomplished: certain
+  kinds of data queries (via the *n6 REST API* or *n6 Portal*) has become
+  much  faster, and `n6aggretator`'s memory consumption has been
+  considerably reduced;
 
 - also, many minor improvements, a bunch of fixes, some refactorization
-  and various cleanups have been made...
+  and various cleanups have been made.
 
 Note that some of the changes are *not* backwards-compatible.
 
