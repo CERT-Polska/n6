@@ -32,12 +32,12 @@ Among others:
   in total, we have in `N6DataSources` 35 *collectors* and 91 *parsers*;
 
 - got rid of the legacy, *Python-2-only*, stuff (most of which were
-  Python 2 versions *collectors* and *parsers*) that used to reside in
-  `N6Core` and `N6CoreLib` (the *Python-2-only* variants of `N6Lib` and
-  `N6SDK` have also been removed); note that the components related to
-  active data sources has been migrated to Python 3 (8 *collectors* and
-  7 *parsers* -- now they reside in `N6DataSources`); therefore, now *n6*
-  is *Python-3-only* (finally!);
+  Python 2 versions of *collectors* and *parsers*) that used to reside in
+  `N6Core` and `N6CoreLib` (all other *Python-2-only* stuff -- `N6Lib-py2`
+  and `N6SDK-py2` -- has also been removed); note: the components related
+  to active data sources have been migrated to Python 3 (8 *collectors* and
+  7 *parsers* -- now they reside in `N6DataSources`); therefore, *n6* is
+  now  *Python-3-only* (finally!);
 
 - significant optimizations have been accomplished: certain kinds of data
   queries (via the *n6 REST API* or *n6 Portal*) are much faster and
