@@ -128,13 +128,13 @@ values - based on the pattern: `<event type>.<pipeline stage>.*.*`, where:
 * **"category"**: Incident category label (some examples: "bots", "phish", "scanning"...).
 * **"confidence"**: Data confidence qualifier. One of: "high", "medium" or "low".
 * **"restriction"**: Data distribution restriction qualifier. One of: "public", "need-to-know" or "internal".
-* **"rid"**: Raw message identifier (given be *Collector*).
+* **"rid"**: Raw message identifier (given by *Collector*).
 * **"source"**: Incident data source identifier.
 * **"address"**: Set of network addresses related to the returned incident.
 * **"dport"**: TCP/UDP destination port.
 * **"name"**: Threat's exact name, such as "virut", "Potential SSH Scan".
 * **"time"**: Incident *occurrence* time (**not** *when-stored-in-the-database*).
-* **"id"**: Unique event identifier (given be *Parser*).
+* **"id"**: Unique event identifier (given by *Parser*).
 
 #### EXAMPLES:
 
