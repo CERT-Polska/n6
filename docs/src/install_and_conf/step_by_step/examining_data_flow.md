@@ -1,6 +1,6 @@
 # Examining Data Flow
 
-### This document uses `abuse_ch.feodotracker` source to present *n6* data flow.
+This document uses `abuse_ch.feodotracker` source to present *n6* data flow.
 
 !!! tip
 
@@ -16,43 +16,43 @@
     queues (in the RabbitMQ web management panel).
 
 
-### To examine the *n6* data flow (see: [n6 Architecture and Data Flow Overview](../../data_flow_overview.md)) do the following:
+To examine the *n6* data flow (see: [n6 Architecture and Data Flow Overview](../../data_flow_overview.md)) do the following:
 
-* (1) Create the source-dedicated queue by temporarily running the respective parser (note this: the source-specific collector's output queue is created by running the corresponding parser).
+(A) Create the source-dedicated queue by temporarily running the respective parser (note this: the source-specific collector's output queue is created by running the corresponding parser).
 
-  ```bash
-  (env_py3k)$ n6parser_abusechfeodotracker202110
-  ```
+```bash
+(env_py3k)$ n6parser_abusechfeodotracker202110
+```
 
-  * Check the created exchange message and the available exchange queues in the RabbitMQ Web Management panel. Available exchange queues should be as follows:
+Then check the created exchange message and the available exchange queues in the RabbitMQ Web Management panel. Available exchange queues should be as follows:
 
-  ```text
-  abuse-ch.feodotracker.202110
-  dead_queue
-  ```
+```text
+abuse-ch.feodotracker.202110
+dead_queue
+```
 
-  * Kill the parser process (by pressing `CTRL+C`) so that it will not consume the data from the source-dedicated queue.
+Finally, kill the parser process (by pressing `CTRL+C`) so that it will not consume the data from the source-dedicated queue.
 
 
-* (2) Run the corresponding collector and watch as new messages arrive at the `abuse-ch.feodotracker.202110` queue. The collector collects the data and then finishes.
+(B) Run the corresponding collector and watch as new messages arrive at the `abuse-ch.feodotracker.202110` queue. The collector collects the data and then finishes.
 
-  ```bash
-  (env_py3k)$ n6collector_abusechfeodotracker
-  ```
+```bash
+(env_py3k)$ n6collector_abusechfeodotracker
+```
 
 !!! tip
 
     The lack of events in the source-dedicated queue means that the source is unavailable (check *n6* logs for more information...).
 
 
-* (3) Look up events
+(C) Look up events
 
-  1. Log into the *RabbitMQ Web Management* panel to check message queues.
-  2. Click on the queue name: *abuse-ch.feodotracker.202110*.
-  3. Go to the *Get messages* tab, and set the appropriate number of messages.
-  4. Click the *Get Message(s)* button. In the *Payload* section, you can read the contents of the queue, which changes with the invocation of the next _n6_ component.
-  5. Log into the *n6 Portal* and query the *n6* database using the search form.
-  6. Query the *n6 REST API* (you can use _curl_, a web browser, etc.).
+1. Log into the *RabbitMQ Web Management* panel to check message queues.
+2. Click on the queue name: *abuse-ch.feodotracker.202110*.
+3. Go to the *Get messages* tab, and set the appropriate number of messages.
+4. Click the *Get Message(s)* button. In the *Payload* section, you can read the contents of the queue, which changes with the invocation of the next _n6_ component.
+5. Log into the *n6 Portal* and query the *n6* database using the search form.
+6. Query the *n6 REST API* (you can use _curl_, a web browser, etc.).
 
 
 ### Data flow
@@ -72,6 +72,7 @@ same as the parser input queue's *binding key* -- which, typically, is
 the value of the `default_binding_key` attribute of the parser class
 (the queue's name is also set to the value of that attribute). This key
 consists of two or three segments separated by dots:
+
 * `<source provider>.<source channel>` (e.g., `abuse-ch.feodotracker`), *or*
 * `<source provider>.<source channel>.<version tag>` (e.g., `abuse-ch.feodotracker.202110`);
   the `<version tag>` segment is added when the format of data downloaded
@@ -110,14 +111,17 @@ Further components of the *normalized data* pipeline are:
 The input queues of those components have their *binding keys* set to appropriate
 values - based on the pattern: `<event type>.<pipeline stage>.*.*`, where:
 
-* `<event type>` is one of: `event`, `hifreq`, `bl`;
-* `<pipeline stage>` is one of:
-  * `parsed` - matching events coming from *Parsers*,
-  * `aggregated` - matching events coming from *Aggregator*,
-  * `enriched` - matching events coming from *Enricher*,
-  * `compared` - matching events coming from *Comparator*,
-  * `filtered` - matching events coming from *Filter*;
-* `*` means that any non-`.` characters will match.
+`<event type>` is one of: `event`, `hifreq`, `bl`;
+
+`<pipeline stage>` is one of:
+
+* `parsed` - matching events coming from *Parsers*,
+* `aggregated` - matching events coming from *Aggregator*,
+* `enriched` - matching events coming from *Enricher*,
+* `compared` - matching events coming from *Comparator*,
+* `filtered` - matching events coming from *Filter*;
+
+`*` means that any non-`.` characters will match.
 
 #### Attributes of the parsed events (names correspond to columns in the *event database*):
 
@@ -134,7 +138,7 @@ values - based on the pattern: `<event type>.<pipeline stage>.*.*`, where:
 
 #### EXAMPLES:
 
-1. A *raw* message downloaded from the `abuse-ch.feodotracker.202110` queue.
+(1) A *raw* message downloaded from the `abuse-ch.feodotracker.202110` queue.
 
 ```text
 Exchange: raw
@@ -156,7 +160,7 @@ Payload
 "2021-01-17 07:44:46","101.102.103.104","4321","online","2022-02-21","Foo Bar"
 ```
 
-2. The first of 636 *normalized event* messages from the `enrichment` queue
+(2) The first of 636 *normalized event* messages from the `enrichment` queue
 (with the payload in the JSON format).
 
 ```text
