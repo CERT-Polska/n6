@@ -55,6 +55,7 @@ how you can interact with it.
 - [System Preparation](system.md)
 - [Installation of _n6_ Components](installation.md)
 - [Configuration of _n6_ Pipeline](pipeline_config.md)
+- [Examination of _n6_ data flow](examining_data_flow.md)
 - [Certificates](certificates.md)
 - [Configuration of _n6_ Web Components](web_components_config.md)
 - [Supervisor](supervisor.md)

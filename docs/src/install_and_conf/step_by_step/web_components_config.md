@@ -28,7 +28,7 @@ Copy (as root) the Apache2 config from `/home/dataman/n6/etc/apache2/sites-avail
 to `/etc/apache2/sites-available/`.
 
 ```bash
-$ cp /home/dataman/n6/etc/apache2/sites-available/n6-api.conf /etc/apache2/sites-available/
+$ cp /home/dataman/n6/etc/apache2/sites-available/n6-api.conf /etc/apache2/sites-enabled/
 ```
 
 Add the `ServerName` option in `/etc/apache2/sites-available/n6-api.conf` with your server's name
@@ -105,6 +105,7 @@ Install dependencies and build GUI application:
 # Important: commands should be launched in virtualenv
 (env_py3k)$ cd /home/dataman/n6/N6Portal/react_app
 (env_py3k)$ yarn
+(env_py3k)$ npm_config_yes=true npx yarn-audit-fix
 (env_py3k)$ yarn build
 ```
 
@@ -159,7 +160,7 @@ mfa.server_secret = <secret string>
 api_key_based_auth.server_secret = <secret string>
 ```
 
-Copy (as `root`) the Apache2 config from `n6/etc/apache2/sites-available/n6-portal.conf`
+Copy (as `root`) the Apache2 config from `/home/dataman/n6/etc/apache2/sites-available/n6-portal.conf`
 to `/etc/apache2/sites-available/` and edit the file:
 
 ```bash

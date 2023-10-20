@@ -4,7 +4,7 @@ Starting with the 4.0.0 release, all notable changes to the
 [code of _n6_](https://github.com/CERT-Polska/n6) are continuously
 documented here.
 
-Some features of this document's format are based on
+Significant features of this document's format are inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
@@ -26,8 +26,9 @@ Among others:
 
 - the *n6 Stream API* ([STOMP](https://stomp.github.io/)-based) now
   supports authentication based on API keys (those which have already been
-  accepted by the *n6 REST API*); the new mechanism replaces the
-  previously used one (based on X.509 client certificates);
+  accepted by the *n6 REST API*); the new mechanism, implemented as a part
+  of the `N6BrokerAuthApi` package, replaces the previously used mechanism
+  (which was based on X.509 client certificates);
 
 - added a significant number of components obtaining and processing
   security event data from external sources: 26 *collectors* and 86
@@ -36,15 +37,15 @@ Among others:
 
 - got rid of the Python-2-compatible legacy code (most of which were
   Python 2 versions of *collectors* and *parsers*) that used to reside in
-  `N6Core` (the accompanying Python 2 packages: `N6CoreLib`, `N6Lib-py2`
-  and `N6SDK-py2` -- have also been removed); note: the components related
-  to active data sources have been migrated to Python 3 (8 *collectors*
-  and 7 *parsers* -- now they reside in `N6DataSources`); therefore, *n6*
-  is now *Python-3-only* (finally!);
+  `N6Core`; the accompanying Python 2 packages (`N6CoreLib`, `N6Lib-py2`
+  and `N6SDK-py2`) have also been removed; note that the components
+  related to active data sources have been migrated to Python 3
+  (8 *collectors* and 7 *parsers* -- now they reside in `N6DataSources`);
+  therefore, *n6* is now Python-3-only (finally!);
 
 - significant performance improvements have been accomplished: certain
-  kinds of data queries (via the *n6 REST API* or *n6 Portal*) has become
-  much  faster, and `n6aggretator`'s memory consumption has been
+  kinds of data queries (via the *n6 REST API* or *n6 Portal*) have become
+  much faster, and `n6aggregator`'s memory consumption has been
   considerably reduced;
 
 - also, many minor improvements, a bunch of fixes, some refactorization
@@ -79,7 +80,7 @@ Note that many of the changes are *not* backwards-compatible.
 Also, note that most of the main elements of *n6* -- namely:
 `N6DataPipeline`, `N6DataSources`, `N6Portal`, `N6RestApi`,
 `N6AdminPanel`, `N6BrokerAuthApi`, `N6Lib` and `N6SDK` -- are now
-*Python-3-only* (more precisely: are compatible with CPython 3.9).
+Python-3-only (more precisely: are compatible with CPython 3.9).
 
 
 [4.0.1]: https://github.com/CERT-Polska/n6/compare/v4.0.0...v4.0.1

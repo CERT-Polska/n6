@@ -46,7 +46,7 @@ $ ./generate_ca.sh
 + touch n6-CA/index.txt
 + touch n6-CA/index.txt.attr
 + echo 12
-+ openssl req -x509 -config openssl.cnf -newkey rsa:2048 -days 1365 -out n6-CA/cacert.pem -outform PEM -subj /CN=n6-CA/ -nodes
++ openssl req -x509 -config openssl.cnf -newkey rsa:2048 -days 1365 -out generated_certs/n6-CA/cacert.pem -outform PEM -subj /CN=n6-CA/ -nodes
 Generating a RSA private key
 .................+++++
 ....................................+++++
@@ -63,13 +63,13 @@ $ ./generate_certs.sh
 + ORG=example.com
 + OPENSSL_CNF=openssl.cnf
 + echo 12
-+ openssl genrsa -out key.pem 2048
++ openssl genrsa -out generated_certs/key.pem 2048
 Generating RSA private key, 2048 bit long modulus (2 primes)
 ........................+++++
 ............+++++
 e is 65537 (0x010001)
-+ openssl req -new -key key.pem -out req.csr -outform PEM -subj /CN=login@example.com/O=example.com/ -nodes
-+ openssl ca -config openssl.cnf -in req.csr -out cert.pem -days 1365 -notext -batch -extensions server_and_client_ca_extensions
++ openssl req -new -key key.pem -out generated_certs/req.csr -outform PEM -subj /CN=login@example.com/O=example.com/ -nodes
++ openssl ca -config openssl.cnf -in generated_certs/req.csr -out generated_certs/cert.pem -days 1365 -notext -batch -extensions server_and_client_ca_extensions
 Using configuration from openssl.cnf
 Check that the request matches the signature
 Signature ok

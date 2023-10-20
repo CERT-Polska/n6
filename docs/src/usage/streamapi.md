@@ -12,22 +12,17 @@ The stream API is based on STOMP (Simple Text Oriented Message Protocol).
 Connections are authenticated by the following credentials:
 
 * `username` -- the *n6* user's **login** (being an e-mail address);
-* `password` -- the *n6* user's **API key** (the same which can be used
+* `passcode` -- the *n6* user's **API key** (the same which can be used
   to authenticate to the *n6* REST API; a user can generate their *n6*
   API key by their own via the *n6* Portal).
 
-!!! warning "TODO note"
-
-    Here more technical details on the authentication at the level of STOMP
-    need to be described...
-
-Address of the STOMP server: **n6stream.cert.pl:61614**
+Address of the STOMP server: **n6stream-new.cert.pl:61614**
 
 Supported STOMP versions: 1.0, 1.1, 1.2. TLS is mandatory. We recommend to
 use the most recent version of the protocol (1.2) and the OpenSSL cryptographic
 library.
 
-To receive data from n6, the client must subscribe to an appropriate STOMP
+To receive data from *n6*, the client must subscribe to an appropriate STOMP
 destination. The client uses the destination header to define which of the available
 events should be delivered through the connection. The format is as follows (ABNF
 syntax):
@@ -39,13 +34,13 @@ category "." source-provider "." source-channel
 
 Meaning of the variables:
 
-- **id**: n6 client organization identifier (the user organization's domain name
-  registered in the n6 system)
+- **id**: *n6* client organization identifier (the user organization's domain name
+  registered in the *n6* system)
 - **resource**: analogous to the REST API resource, can take one of the following
   values
-- **inside**: events that occurred within the client’s network
-- **threats**: data on threats relevant to the recipient, might not be present
-  in the client’s network (e.g. command and control servers)
+  - `inside`: events that occurred within the client’s network
+  - `threats`: data on threats relevant to the recipient, might not be present
+    in the client’s network (e.g. command and control servers)
 - **category**: equal to value of the category field in events
 - **source-provider** and **source-channel**: the two components of the
   identifier of the source of the information (*source provider*: the
@@ -57,7 +52,7 @@ any value.
 
 ## Data format
 
-Each STOMP message corresponds to a single n6 event in JSON format. All
+Each STOMP message corresponds to a single *n6* event in JSON format. All
 attributes described in the REST API documentation are available in the stream
 API with identical semantics.
 
@@ -70,13 +65,6 @@ Additionally, there is a **type** attribute that can take following values:
 - bl-delist: removal of a blacklist entry
 
 ## Examples
-
-!!! warning "TODO note"
-
-    The following examples need to be updated regarding the
-    authentication-related stuff, as client-certificate-based authentication
-    is no longer supported; instead of it, authentication based on user API
-    keys is available.
 
 ### Example 1
 
@@ -100,6 +88,7 @@ Message from the server (lines wrapped for readability):
 MESSAGE
 destination:/exchange/clients/inside.bots.hidden.48
 message-id:Q_/exchange/nask.pl/inside.#@@session-FOUv4xFVkvfMtmK_4A@@1
+redelivered:false
 n6-client-id:nask.pl
 persistent:1
 content-length:263
@@ -121,22 +110,23 @@ destination:/exchange/nask.pl/inside.bots.*.*
 
 ### Example 3
 
-Connecting to the server using OpenSSL command line tools:
+Connecting to the server using OpenSSL command line tools, authenticate and subscribe:
 
 ```
-openssl s_client -cert [CLIENT CERTIFICATE] -key [PRIVATE KEY] \
--CAfile [n6 CA BUNDLE] -host n6stream.cert.pl -port 61614
+openssl s_client -connect n6stream-new.cert.pl:61614
+
+CONNECT
+login:<login@domain.com>
+passcode:<APIKEY_generated_from_n6Portal>
+
+^@
+
+SUBSCRIBE
+destination:/exchange/domain.com/*.*.*.*
+
+^@
 ```
+!!! tip
 
-If you get no errors, than the TLS connection is working. This example can be
-extended to create the most basic command line STOMP client:
+    You have few seconds to send CONNECT frame before connection close automatically.
 
-```
-(echo -e "SUBSCRIBE\ndestination:/exchange/CLIENT-ID/*.*.*.*\n\n\0"; \
-read) | openssl s_client -cert [CLIENT CERTIFICATE] -key [PRIVATE KEY] \
--CAfile [n6 CA BUNDLE] -host n6stream.cert.pl -port 61614
-```
-
-!!! note
-
-    The example above must be adapted to suit your client id and file paths.

@@ -19,21 +19,21 @@ nav:
           - System Preparation: install_and_conf/step_by_step/system.md
           - Installation of n6 Components: install_and_conf/step_by_step/installation.md
           - Configuration of n6 Pipeline: install_and_conf/step_by_step/pipeline_config.md
+          - Examining Data Flow: install_and_conf/step_by_step/examining_data_flow.md
           - Certificates: install_and_conf/step_by_step/certificates.md
           - Configuration of n6 Web Components: install_and_conf/step_by_step/web_components_config.md
           - Supervisor: install_and_conf/step_by_step/supervisor.md
-#          - Examining Data Flow: install_and_conf/step_by_step/examining_data_flow.md
       - Optional Features (selected topics):
-          - Optional Features (selected topics): install_and_conf/optional.md
+          - Optional Features (selected topics): install_and_conf/opt/index.md
           - Running IntelMQ Bots in n6 Pipeline:
-              - Running IntelMQ Bots in n6 Pipeline: install_and_conf/intelmq/index.md
-              - Installation and Configuration: install_and_conf/intelmq/config.md
-              - Running IntelMQ Bots and Message Format Adapters: install_and_conf/intelmq/running.md
+              - Running IntelMQ Bots in n6 Pipeline: install_and_conf/opt/intelmq/index.md
+              - Installation and Configuration: install_and_conf/opt/intelmq/config.md
+              - Running IntelMQ Bots and Message Format Adapters: install_and_conf/opt/intelmq/running.md
           - Knowledge Base in n6 Portal:
-              - Knowledge Base in n6 Portal: install_and_conf/knowledge_base/index.md
-              - Initialization and Configuration: install_and_conf/knowledge_base/config.md
-              - Content Management: install_and_conf/knowledge_base/management.md
-              - Backend API: install_and_conf/knowledge_base/backend_api.md
+              - Knowledge Base in n6 Portal: install_and_conf/opt/knowledge_base/index.md
+              - Initialization and Configuration: install_and_conf/opt/knowledge_base/config.md
+              - Content Management: install_and_conf/opt/knowledge_base/management.md
+              - Backend API: install_and_conf/opt/knowledge_base/backend_api.md
 #  - Developer Guides:
 #      - Implementing a New Data Source:
 #          - Implementing a New Data Source: dev_guides/new_source/index.md

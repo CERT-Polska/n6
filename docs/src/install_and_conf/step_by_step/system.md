@@ -32,10 +32,14 @@ $ sudo apt-get update && \
         libgeoip1 \
         libsqlite3-dev \
         libssl-dev \
+        libmariadb-dev \
+        libbz2-dev \
+        libffi-dev \
         libyajl2 \
         python3 \
         python3-dev \
         python3-venv \
+        python3-stemmer \
         rsyslog \
         ssh \
         supervisor \
@@ -77,13 +81,17 @@ solution.
 
 ```bash
 $ curl -1sLf "https://keys.openpgp.org/vks/v1/by-fingerprint/0A9AF2115F4687BD29803A206B73A36E6026DFCA" | sudo gpg --dearmor | sudo tee /usr/share/keyrings/com.rabbitmq.team.gpg > /dev/null
-$ curl -1sLf https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-erlang/gpg.E495BB49CC4BBE5B.key | sudo gpg --dearmor | sudo tee /usr/share/keyrings/io.cloudsmith.rabbitmq.E495BB49CC4BBE5B.gpg > /dev/null
-$ curl -1sLf https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-server/gpg.9F4587F226208342.key | sudo gpg --dearmor | sudo tee /usr/share/keyrings/io.cloudsmith.rabbitmq.9F4587F226208342.gpg > /dev/null
+$ curl -1sLf https://ppa.novemberain.com/gpg.E495BB49CC4BBE5B.key | sudo gpg --dearmor | sudo tee /usr/share/keyrings/rabbitmq.E495BB49CC4BBE5B.gpg > /dev/null
+$ curl -1sLf https://ppa.novemberain.com/gpg.9F4587F226208342.key | sudo gpg --dearmor | sudo tee /usr/share/keyrings/rabbitmq.9F4587F226208342.gpg > /dev/null
 $ sudo tee /etc/apt/sources.list.d/rabbitmq.list <<EOF
-deb [signed-by=/usr/share/keyrings/io.cloudsmith.rabbitmq.E495BB49CC4BBE5B.gpg] https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-erlang/deb/debian buster main
-deb-src [signed-by=/usr/share/keyrings/io.cloudsmith.rabbitmq.E495BB49CC4BBE5B.gpg] https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-erlang/deb/debian buster main
-deb [signed-by=/usr/share/keyrings/io.cloudsmith.rabbitmq.9F4587F226208342.gpg] https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-server/deb/debian buster main
-deb-src [signed-by=/usr/share/keyrings/io.cloudsmith.rabbitmq.9F4587F226208342.gpg] https://dl.cloudsmith.io/public/rabbitmq/rabbitmq-server/deb/debian buster main
+deb [signed-by=/usr/share/keyrings/rabbitmq.E495BB49CC4BBE5B.gpg] https://ppa1.novemberain.com/rabbitmq/rabbitmq-erlang/deb/ubuntu jammy main
+deb-src [signed-by=/usr/share/keyrings/rabbitmq.E495BB49CC4BBE5B.gpg] https://ppa1.novemberain.com/rabbitmq/rabbitmq-erlang/deb/ubuntu jammy main
+deb [signed-by=/usr/share/keyrings/rabbitmq.E495BB49CC4BBE5B.gpg] https://ppa2.novemberain.com/rabbitmq/rabbitmq-erlang/deb/ubuntu jammy main
+deb-src [signed-by=/usr/share/keyrings/rabbitmq.E495BB49CC4BBE5B.gpg] https://ppa2.novemberain.com/rabbitmq/rabbitmq-erlang/deb/ubuntu jammy main
+deb [signed-by=/usr/share/keyrings/rabbitmq.9F4587F226208342.gpg] https://ppa1.novemberain.com/rabbitmq/rabbitmq-server/deb/ubuntu jammy main
+deb-src [signed-by=/usr/share/keyrings/rabbitmq.9F4587F226208342.gpg] https://ppa1.novemberain.com/rabbitmq/rabbitmq-server/deb/ubuntu jammy main
+deb [signed-by=/usr/share/keyrings/rabbitmq.9F4587F226208342.gpg] https://ppa2.novemberain.com/rabbitmq/rabbitmq-server/deb/ubuntu jammy main
+deb-src [signed-by=/usr/share/keyrings/rabbitmq.9F4587F226208342.gpg] https://ppa2.novemberain.com/rabbitmq/rabbitmq-server/deb/ubuntu jammy main
 EOF
 $ sudo apt-get update -y
 $ sudo apt-get install -y erlang-base \
@@ -169,8 +177,9 @@ default user: guest
 default password: guest
 ```
 
-Or you can create a new user, allow them to use the _Management GUI_ and
-give them read/write permissions to resources within `/` vhost:
+If you copied configuration file create a new user, allow them to use the _Management GUI_ and
+give them read/write permissions to resources within `/` vhost.
+Replace <username> in script below with `login@example.com`:
 
 ```bash
 $ sudo rabbitmqctl add_user <username> <password>
@@ -183,6 +192,19 @@ To make the new user an administrator, set him the `administrator` tag:
 ```bash
 $ sudo rabbitmqctl set_user_tags <username> administrator
 ```
+
+## Troubleshooting: [ERROR] rabbitmq-server failing to start
+
+In case of issue with rabbitmq-server copy certificate files to different location, for example 
+to /etc/rabbitmq, run chmod and change paths in `/etc/rabbitmq/rabbitmq.conf` accordingly:
+```bash
+$ sudo mkdir -p /etc/rabbitmq/certs/
+$ sudo cp /home/dataman/n6/etc/ssl/generated_certs/n6-CA/cacert.pem /etc/rabbitmq/certs/
+$ sudo cp /home/dataman/n6/etc/ssl/generated_certs/cert.pem /etc/rabbitmq/certs/
+$ sudo cp /home/dataman/n6/etc/ssl/generated_certs/key.pem /etc/rabbitmq/certs/
+$ sudo chmod -R 664 /etc/rabbitmq/certs/
+```
+
 
 ## MariaDB
 
@@ -309,7 +331,7 @@ restart the server manually.
 $ sudo ./scripts/mysql_install_db --user=mysql
 ```
 
-If you want MariaDB to start automatically when you boot your machine, you can copy
+To start MariaDB automatically when you boot your machine, copy
 `support-files/mysql.server` and `support-files/systemd/mariadb.service` to the location where
 your system has its startup files.
 
@@ -423,11 +445,18 @@ Installation steps below are based on
 [Install MongoDB Community Edition on Debian](https://docs.mongodb.com/manual/tutorial/install-mongodb-on-debian/)
 solution.
 
+Install libssl1.1
+
+```bash
+$ wget http://deb.debian.org/debian/pool/main/o/openssl/libssl1.1_1.1.0j-1~deb9u1_amd64.deb
+$ sudo dpkg -i libssl1.1_1.1.0j-1~deb9u1_amd64.deb
+$ rm -i libssl1.1_1.1.0j-1~deb9u1_amd64.deb
+```
+
 To install MongoDB, do the following (as `root`):
 
 ```bash
 $ wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
-$ echo "deb http://repo.mongodb.org/apt/debian buster/mongodb-org/4.2 main" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
 $ sudo apt-get update
 $ sudo apt-get install -y mongodb-org
 ```
@@ -529,7 +558,7 @@ and set appropriate permissions:
 ```bash
 $ sudo /usr/sbin/usermod -a -G dataman www-data
 $ mkdir -p /home/dataman/env_py3k/.python-eggs
-$ sudo chown dataman:www-data /home/dataman/env_py3k/.python-eggs
+$ sudo chown -R dataman:www-data /home/dataman/env_py3k
 $ sudo chmod 775 /home/dataman/env_py3k/.python-eggs
 $ sudo chown -R www-data:www-data /etc/apache2/sites-available/
 ```
