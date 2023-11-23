@@ -35,6 +35,7 @@ from n6lib.class_helpers import get_class_name
 from n6lib.common_helpers import (
     FilePagedSequence,
     PlainNamespace,
+    as_unicode,
     ipv4_to_str,
 )
 from n6lib.config import (
@@ -1406,6 +1407,73 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
                 b"{\"'\": \"'\", '\"': '\"', '\"\\'': '\"\\'', '\\'\"': '\\'\"', '\\\\': '\\\\', '\\x00': '\\n'},"     # noqa
                 b"{\"'\": \"'\", '\"': '\"', '\"\\'': '\"\\'', '\\'\"': '\\'\"', '\\\\': '\\\\', '\\x00': '\\n'}"      # noqa
             ),
+            # containing the 'name' key
+            (
+                {
+                    'source': 'foo.bar',
+                    'category': 'bots',
+                    # pure ASCII str:
+                    'name': '\x01 ????.\x00tralala: ?',
+                },
+                b'category,bots\n'
+                b'name,\x01 ????.\x00tralala: ?\n'
+                b'source,foo.bar'
+            ),
+            (
+                {
+                    'source': 'foo.bar',
+                    'category': 'bots',
+                    # pure ASCII bytes:
+                    'name': b'\x01 ????.\x00tralala: ?',
+                },
+                b'category,bots\n'
+                b'name,\x01 ????.\x00tralala: ?\n'
+                b'source,foo.bar'
+            ),
+            (
+                {
+                    'source': 'foo.bar',
+                    'category': 'cnc',
+                    # non-ASCII str:
+                    'name': '\x01 żółć.\x00tralala: \U0010ffff',
+                },
+                b'category,cnc\n'
+                b'name,\x01 \xc5\xbc\xc3\xb3\xc5\x82\xc4\x87.\x00tralala: \xf4\x8f\xbf\xbf\n'
+                b'source,foo.bar'
+            ),
+            (
+                {
+                    'source': 'foo.bar',
+                    'category': 'cnc',
+                    # non-ASCII (UTF-8) bytes:
+                    'name': b'\x01 \xc5\xbc\xc3\xb3\xc5\x82\xc4\x87.\x00tralala: \xf4\x8f\xbf\xbf',
+                },
+                b'category,cnc\n'
+                b'name,\x01 \xc5\xbc\xc3\xb3\xc5\x82\xc4\x87.\x00tralala: \xf4\x8f\xbf\xbf\n'
+                b'source,foo.bar'
+            ),
+            (
+                {
+                    'category': 'other',
+                    'source': b'foo.bar',
+                    # non-ASCII str containing a surrogate:
+                    'name': '\x01 ŻÓŁĆ.\x00tralala: \udcdd',
+                },
+                b'category,other\n'
+                b'name,\x01 \xc5\xbb\xc3\x93\xc5\x81\xc4\x86.\x00tralala: \xed\xb3\x9d\n'
+                b'source,foo.bar'
+            ),
+            (
+                {
+                    'category': 'other',
+                    'source': b'foo.bar',
+                    # non-ASCII (UTF-8-like) bytes containing a surrogate
+                    # -- not a valid `name` => *not* being set!
+                    'name': b'\x01 \xc5\xbb\xc3\x93\xc5\x81\xc4\x86.\x00tralala: \xed\xb3\x9d',
+                },
+                b'category,other\n'
+                b'source,foo.bar'
+            ),
         ]
 
     @foreach(_parsed_content_and_expected_hash_base_cases_for__get_output_message_id)
@@ -1415,6 +1483,8 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
             optional_keys = RecordDict.optional_keys | {'key1', 'key2'}
         parser = BaseParser.__new__(BaseParser)
         record_dict = _RecordDict(parsed_content)
+        if 'name' in record_dict:
+            assert record_dict['name'] == as_unicode(parsed_content['name'])
         expected_result = hashlib.md5(expected_hash_base, usedforsecurity=False).hexdigest()
 
         result = parser.get_output_message_id(record_dict)
@@ -1481,22 +1551,45 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
 
     @foreach(
         param(
-            parsed_content={'source': 'provider.channel'},
-            expected_result=[('source', 'provider.channel')]
+            parsed_content={'category': 'cnc'},
+            expected_result=[('category', 'cnc')]
         ),
         param(
-            parsed_content={'source': 'provider.channel',
-                            'time': '2023-01-10 11:12:13',
-                            '_do_not_resolve_fqdn_to_ip': True,
-                            '_group': 'whatever'},
+            parsed_content={
+                'source': 'provider.channel',
+                'category': 'bots',
+            },
             expected_result=[
-                    ('source', 'provider.channel'),
-                    ('time', '2023-01-10 11:12:13')
+                ('category', 'bots'),
+                ('source', 'provider.channel'),
+            ]
+        ),
+        param(
+            parsed_content={
+                'source': 'provider.channel',
+                'time': '2023-01-10 11:12:13',
+                'category': 'other',
+                '_do_not_resolve_fqdn_to_ip': True,
+                '_group': 'whatever',
+            },
+            expected_result=[
+                ('category', 'other'),
+                ('source', 'provider.channel'),
+                ('time', '2023-01-10 11:12:13')
             ]
         )
     )
-    def test__iter_output_id_base_items(self, parsed_content, expected_result):
+    @foreach(
+        param(add_nonascii_name=False),
+        param(add_nonascii_name=True),
+    )
+    def test__iter_output_id_base_items(self, parsed_content, expected_result, add_nonascii_name):
         parsed = RecordDict(parsed_content)
+        if add_nonascii_name:
+            input_name = 20 * 'zażółć - jaźń!\n\x00\U0010ffff'
+            parsed['name'] = input_name
+            self.assertEqual(parsed['name'], input_name[:255])
+            expected_result = expected_result + [('name', input_name[:255])]
 
         result = self.meth.iter_output_id_base_items(parsed)
         result_as_list = list(result)

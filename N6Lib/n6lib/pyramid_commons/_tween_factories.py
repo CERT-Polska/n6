@@ -1,12 +1,12 @@
-# Copyright (c) 2021 NASK. All rights reserved.
+# Copyright (c) 2021-2023 NASK. All rights reserved.
 
 """
-This modules provides custom Pyramid-compliant *tweens* (see:
+This module provides custom Pyramid-compliant *tweens* (see:
 https://docs.pylonsproject.org/projects/pyramid/en/stable/narr/hooks.html#registering-tweens).
 """
 
-import collections
 import sys
+from collections.abc import Iterator
 
 from pyramid.response import Response
 
@@ -95,7 +95,7 @@ def auth_api_context_tween_factory(handler, registry):
         try:
             response = handler(request)
             unwrapped_app_iter = getattr(response, 'app_iter', None)
-            if isinstance(unwrapped_app_iter, collections.Iterator):
+            if isinstance(unwrapped_app_iter, Iterator):
                 response.app_iter = _auth_api_exiting_app_iter(unwrapped_app_iter)
             return response
         finally:

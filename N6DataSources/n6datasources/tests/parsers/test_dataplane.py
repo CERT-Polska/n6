@@ -39,7 +39,8 @@ class _BaseDataplaneParserTestCase(ParserTestMixin, unittest.TestCase):
                 b"# addresses seen in the current report. \n"
                 b"#\n"
                 b"174 | Example name 1 | 1.1.1.1  | 2021-05-20 20:17:02 | sshpwauth\n"
-                b"174 | Example name 2 | 2.2.2.2  | 2021-05-17 03:02:55 | telnetlogin \n"
+                # with a `,` in the `ASname` field
+                b"174 | Example, name 2 | 2.2.2.2  | 2021-05-17 03:02:55 | telnetlogin \n"
                 b"174 | Example name 3 | wrong.ip.address  | 2021-05-17 03:02:55 | telnetlogin \n",
                 [
                     dict(
@@ -63,7 +64,8 @@ class _BaseDataplaneParserTestCase(ParserTestMixin, unittest.TestCase):
                 b"# addresses seen in the current report. \n"
                 b"#\n"
                 b"174 | Example name 1 | 1.1.1.1  | 2021-05-20 20:17:02 | category\n"
-                b"174 | Example name 2 | 2.2.2.2  | 2021-05-17 03:02:55 | category \n"
+                # with a `,` in the `ASname` field
+                b"174 | Example, name 2 | 2.2.2.2  | 2021-05-17 03:02:55 | category \n"
                 b"174 | Example name 3 | wrong.ip.address  | 2021-05-17 03:02:55 | category \n",
                 [
                     dict(

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import collections
 import os
@@ -10,8 +10,13 @@ from dns.exception import DNSException
 from geoip2 import database, errors
 
 from n6datapipeline.base import LegacyQueuedBase
-from n6lib.common_helpers import replace_segment, is_ipv4
+from n6lib.common_helpers import (
+    ipv4_to_int,
+    ipv4_to_str,
+    replace_segment,
+)
 from n6lib.config import ConfigMixin
+from n6lib.const import LACK_OF_IPv4_PLACEHOLDER_AS_INT
 from n6lib.log_helpers import get_logger, logging_configured
 from n6lib.record_dict import RecordDict
 from n6sdk.addr_helpers import IPv4Container
@@ -25,7 +30,7 @@ class Enricher(ConfigMixin, LegacyQueuedBase):
     input_queue = {
         'exchange': 'event',
         'exchange_type': 'topic',
-        'queue_name': 'enrichement',
+        'queue_name': 'enrichment',
         'accepted_event_types': [
             'event',
             'bl',
@@ -126,38 +131,42 @@ class Enricher(ConfigMixin, LegacyQueuedBase):
         ip_from_url = fqdn_from_url = None
         url = data.get('url')
         if url is not None:
-            _fqdn_or_ip = self.url_to_fqdn_or_ip(url)
-            # ^ note: the returned _fqdn_or_ip *can* be an empty string
-            ## but it should not be None; added the following condition for debug
-            if _fqdn_or_ip is None:
-                LOGGER.error(
-                    '_fqdn_or_ip is None, source: %a, url: %a',
-                    data['source'],
-                    url)
-            if is_ipv4(_fqdn_or_ip):
-                ip_from_url = _fqdn_or_ip
-            elif _fqdn_or_ip:
-                fqdn_from_url = _fqdn_or_ip
+            hostname = self.url_to_hostname(url)
+            if hostname is not None:
+                try:
+                    ip_from_url = ipv4_to_str(hostname)
+                except ValueError:
+                    # Note: FQDN validation + normalization will be done in
+                    # `_maybe_set_fqdn()` (see below) by `RecordDict`'s stuff.
+                    fqdn_from_url = hostname
         return ip_from_url, fqdn_from_url
 
     def _maybe_set_fqdn(self, fqdn_from_url, data, enriched_keys):
         if data.get('fqdn') is None and fqdn_from_url:
             data['fqdn'] = fqdn_from_url
-            enriched_keys.append('fqdn')
+            # (the value might be rejected by `RecordDict.adjust_fqdn()`)
+            if 'fqdn' in data:
+                enriched_keys.append('fqdn')
 
     def _maybe_set_address_ips(self, ip_from_url, data, ip_to_enriched_address_keys):
         if not data.get('address'):
             if data.get('fqdn') is None:
-                if ip_from_url:
+                if ip_from_url and not self._is_no_ip_placeholder(ip_from_url):
                     data['address'] = [{'ip': ip_from_url}]
                     ip_to_enriched_address_keys[ip_from_url].append('ip')
             elif not data.get('_do_not_resolve_fqdn_to_ip'):
                 _address = []
                 for ip in self.fqdn_to_ip(data.get('fqdn')):
-                    _address.append({'ip': ip})
-                    ip_to_enriched_address_keys[ip].append('ip')
+                    if not self._is_no_ip_placeholder(ip):
+                        _address.append({'ip': ip})
+                        ip_to_enriched_address_keys[ip].append('ip')
                 if _address:
                     data['address'] = _address
+
+    def _is_no_ip_placeholder(self, ip):
+        # (note: anyway, it would be rejected by `RecordDict`'s
+        # `adjust_enrich()` and `adjust_address()`)
+        return ipv4_to_int(ip) == LACK_OF_IPv4_PLACEHOLDER_AS_INT
 
     def _filter_out_excluded_ips(self, data, ip_to_enriched_address_keys):
         assert 'address' in data
@@ -237,29 +246,37 @@ class Enricher(ConfigMixin, LegacyQueuedBase):
                 for addr in data.get('address', ())}
             assert all(
                 name in data
-                for name in enriched_keys)
+                for name in enriched_keys), enriched_keys
             assert all(
                 set(addr_keys).issubset(ip_to_addr[ip])
-                for ip, addr_keys in ip_to_enriched_address_keys.items())
+                for ip, addr_keys in ip_to_enriched_address_keys.items()), (
+                    ip_to_enriched_address_keys, ip_to_addr)
 
     #
     # Resolution helpers
 
-    def url_to_fqdn_or_ip(self, url):
+    def url_to_hostname(self, url):
+        assert isinstance(url, str)
         parsed_url = urllib.parse.urlparse(url)
         if parsed_url.netloc.endswith(':'):
             # URL is probably wrong -- something like: "http://http://..."
-            return ''
-        return parsed_url.hostname
+            return None
+        hostname = parsed_url.hostname
+        if hostname is None or hostname == '':
+            return None
+        assert isinstance(hostname, str) and hostname
+        return hostname
 
     def fqdn_to_ip(self, fqdn):
         try:
-            dns_result = self._resolver.query(fqdn, 'A')
+            dns_result = self._resolver.resolve(fqdn, 'A', search=True)
         except DNSException:
             return []
         ip_set = set()
-        for i in dns_result:
-            ip_set.add(str(i))
+        for res in dns_result:
+            ip = str(res)
+            ip_normalized = ipv4_to_str(ip)  # (typically unnecessary, but does not hurt...)
+            ip_set.add(ip_normalized)
         return sorted(ip_set)
 
     def ip_to_asn(self, ip):

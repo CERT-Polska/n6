@@ -1,6 +1,6 @@
 # n6
 
-[*n6* (Network Security Incident eXchange)](https://www.cert.pl/en/posts/2018/06/n6-released-as-open-source/)
+[*n6* (Network Security Incident eXchange)](https://cert.pl/en/n6/)
 is a system to collect, manage and distribute security information on a
 large scale. Distribution is realized through a simple REST API and a
 [web interface](https://n6portal.cert.pl/) that authorized users can use
@@ -13,7 +13,7 @@ and incidents in their networks.
 - **Home page:** [github.com/CERT-Polska/n6](https://github.com/CERT-Polska/n6)
 - **Documentation:** [n6.readthedocs.io](https://n6.readthedocs.io)
 
-The project is developed for [CERT Polska](https://www.cert.pl/en/).
+The project is developed by [CERT Polska](https://www.cert.pl/en/).
 Contact us via e-mail: [n6@cert.pl](mailto:n6@cert.pl).
 
 

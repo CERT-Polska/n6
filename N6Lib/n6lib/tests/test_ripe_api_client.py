@@ -1,4 +1,4 @@
-# Copyright (c) 2022 NASK. All rights reserved.
+# Copyright (c) 2022-2023 NASK. All rights reserved.
 
 import unittest
 from unittest.mock import (
@@ -23,6 +23,217 @@ from n6lib.ripe_api_client import RIPEApiClient
 # ASN part
 
 DEFAULT_ASN__ADMINC_TECHC_ROLE_EXAMPLE = {
+    'build_version': 'live.2022.2.1.69',
+    'cached': False,
+    'data': {
+        'authorities': ['ripe'],
+        'irr_records': [],
+        'query_time': '2000-01-01T00:00:00',
+        'records': [[
+            {
+                'details_link': 'https://stat.ripe.net/AS11111',
+                'key': 'aut-num',
+                'value': '11111',
+            },
+            {
+                'details_link': None,
+                'key': 'as-name',
+                'value': 'Example-Cloud_1',
+            },
+            {
+                'details_link': None,
+                'key': 'remarks',
+                'value': 'Example-Cloud_Network_1',
+            },
+            {
+                'details_link': None,
+                'key': 'remarks',
+                'value': 'Example Company details: http://as11111.example_domain.com',
+            },
+            {
+                'details_link': None,
+                'key': 'import',
+                'value': 'from AS2222222222 accept ANY',
+            },
+            {
+                'details_link': None,
+                'key': 'export',
+                'value': 'to AS62222222222 action community .= { 6777:6777 }; '
+                         'announce AS-ASSA-EUUE',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/person-role/ZXCV-EXMPL-RIPE',
+                'key': 'admin-c',
+                'value': 'ZXCV-EXMPL-RIPE',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/person-role/ASDF-EXMPL-RIPE',
+                'key': 'tech-c',
+                'value': 'ASDF-EXMPL-RIPE',
+            },
+            {
+                'details_link': None,
+                'key': 'status',
+                'value': 'ASSIGNED',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/mntner/RIPE-BEG-END-MNT',
+                'key': 'mnt-by',
+                'value': 'RIPE-BEG-END-MNT',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/mntner/EXMP-CODE',
+                'key': 'mnt-by',
+                'value': 'EXMP-CODE',
+            },
+            {
+                'details_link': None,
+                'key': 'created',
+                'value': '2000-01-01T00:00:00Z',
+            },
+            {
+                'details_link': None,
+                'key': 'last-modified',
+                'value': '2000-01-01T00:00:00Z',
+            },
+            {
+                'details_link': None,
+                'key': 'source',
+                'value': 'RIPE',
+            },
+        ]],
+        'resource': '11111',
+    },
+    'data_call_name': 'whois',
+    'data_call_status': 'supported - connecting to ursa',
+    'messages': [],
+    'process_time': 50,
+    'query_id': '20220202082341-2a1a5670-d197-4530-bd32-491d312deffb',
+    'see_also': [],
+    'server_id': 'app134',
+    'status': 'ok',
+    'status_code': 200,
+    'time': '2000-01-01T00:00:00Z',
+    'version': '4.1',
+}
+
+DEFAULT_ASN__ADMINC_TECHC_PERSON_EXAMPLE = {
+    'build_version': 'live.2022.1.19.68',
+    'cached': False,
+    'data': {
+        'authorities': ['ripe'],
+        'irr_records': [],
+        'query_time': '2022-02-01T09:19:00',
+        'records': [[
+            {
+                'details_link': 'https://stat.ripe.net/AS11111111',
+                'key': 'aut-num',
+                'value': '11111111',
+            },
+            {
+                'details_link': None,
+                'key': 'as-name',
+                'value': 'MAGICRETAIL',
+            },
+            {
+                'details_link': None,
+                'key': 'import',
+                'value': 'from AS333333333333 accept ANY',
+            },
+            {
+                'details_link': None,
+                'key': 'import',
+                'value': 'from AS444444444444 accept ANY',
+            },
+            {
+                'details_link': None,
+                'key': 'import',
+                'value': 'from AS555555555555 accept ANY',
+            },
+            {
+                'details_link': None,
+                'key': 'import',
+                'value': 'from AS666666666666 accept ANY',
+            },
+            {
+                'details_link': None,
+                'key': 'export',
+                'value': 'to AS777777777777 announce AS11111111',
+            },
+            {
+                'details_link': None,
+                'key': 'export',
+                'value': 'to AS8888888888 announce AS11111111',
+            },
+            {
+                'details_link': None,
+                'key': 'export',
+                'value': 'to AS9999 announce AS11111111',
+            },
+            {
+                'details_link': None,
+                'key': 'export',
+                'value': 'to AS99999999999 announce AS11111111',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/person-role/XXXX_PERSON-RIPE',
+                'key': 'admin-c',
+                'value': 'XXXX_PERSON-RIPE',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/person-role/XXXX_PERSON-RIPE',
+                'key': 'tech-c',
+                'value': 'XXXX_PERSON-RIPE',
+            },
+            {
+                'details_link': None,
+                'key': 'status',
+                'value': 'ASSIGNED',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/mntner/RIPE-BEG-END-MNT',
+                'key': 'mnt-by',
+                'value': 'RIPE-BEG-END-MNT',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/mntner/mnt-pl-example1-1',
+                'key': 'mnt-by',
+                'value': 'mnt-pl-example1-1',
+            },
+            {
+                'details_link': None,
+                'key': 'created',
+                'value': '2000-01-01T00:00:00Z',
+            },
+            {
+                'details_link': None,
+                'key': 'last-modified',
+                'value': '2000-01-01T00:00:00Z',
+            },
+            {
+                'details_link': None,
+                'key': 'source',
+                'value': 'RIPE',
+            },
+        ]],
+        'resource': '11111111',
+    },
+    'data_call_name': 'whois',
+    'data_call_status': 'supported - connecting to ursa',
+    'messages': [],
+    'process_time': 47,
+    'query_id': '11111111111111-4444444-11111-4a4a-1234-ababababab01010101',
+    'see_also': [],
+    'server_id': 'app125',
+    'status': 'ok',
+    'status_code': 200,
+    'time': '2022-02-01T09:19:20.153279',
+    'version': '4.1',
+}
+
+# The same as `DEFAULT_ASN__ADMINC_TECHC_ROLE_EXAMPLE`
+# but this time we have key 'org'
+DEFAULT_ASN__ROLE__ORG_EXAMPLE = {
     'build_version': 'live.2022.2.1.69',
     'cached': False,
     'data': {
@@ -122,125 +333,6 @@ DEFAULT_ASN__ADMINC_TECHC_ROLE_EXAMPLE = {
     'version': '4.1',
 }
 
-DEFAULT_ASN__ADMINC_TECHC_PERSON_EXAMPLE = {
-    'build_version': 'live.2022.1.19.68',
-    'cached': False,
-    'data': {
-        'authorities': ['ripe'],
-        'irr_records': [],
-        'query_time': '2022-02-01T09:19:00',
-        'records': [[
-            {
-                'details_link': 'https://stat.ripe.net/AS11111111',
-                'key': 'aut-num',
-                'value': '11111111',
-            },
-            {
-                'details_link': None,
-                'key': 'as-name',
-                'value': 'MAGICRETAIL',
-            },
-            {
-                'details_link': None,
-                'key': 'org',
-                'value': 'ORG-MRS11-RIPE',
-            },
-            {
-                'details_link': None,
-                'key': 'import',
-                'value': 'from AS333333333333 accept ANY',
-            },
-            {
-                'details_link': None,
-                'key': 'import',
-                'value': 'from AS444444444444 accept ANY',
-            },
-            {
-                'details_link': None,
-                'key': 'import',
-                'value': 'from AS555555555555 accept ANY',
-            },
-            {
-                'details_link': None,
-                'key': 'import',
-                'value': 'from AS666666666666 accept ANY',
-            },
-            {
-                'details_link': None,
-                'key': 'export',
-                'value': 'to AS777777777777 announce AS11111111',
-            },
-            {
-                'details_link': None,
-                'key': 'export',
-                'value': 'to AS8888888888 announce AS11111111',
-            },
-            {
-                'details_link': None,
-                'key': 'export',
-                'value': 'to AS9999 announce AS11111111',
-            },
-            {
-                'details_link': None,
-                'key': 'export',
-                'value': 'to AS99999999999 announce AS11111111',
-            },
-            {
-                'details_link': 'https://rest.db.ripe.net/ripe/person-role/XXXX_PERSON-RIPE',
-                'key': 'admin-c',
-                'value': 'XXXX_PERSON-RIPE',
-            },
-            {
-                'details_link': 'https://rest.db.ripe.net/ripe/person-role/XXXX_PERSON-RIPE',
-                'key': 'tech-c',
-                'value': 'XXXX_PERSON-RIPE',
-            },
-            {
-                'details_link': None,
-                'key': 'status',
-                'value': 'ASSIGNED',
-            },
-            {
-                'details_link': 'https://rest.db.ripe.net/ripe/mntner/RIPE-BEG-END-MNT',
-                'key': 'mnt-by',
-                'value': 'RIPE-BEG-END-MNT',
-            },
-            {
-                'details_link': 'https://rest.db.ripe.net/ripe/mntner/mnt-pl-example1-1',
-                'key': 'mnt-by',
-                'value': 'mnt-pl-example1-1',
-            },
-            {
-                'details_link': None,
-                'key': 'created',
-                'value': '2000-01-01T00:00:00Z',
-            },
-            {
-                'details_link': None,
-                'key': 'last-modified',
-                'value': '2000-01-01T00:00:00Z',
-            },
-            {
-                'details_link': None,
-                'key': 'source',
-                'value': 'RIPE',
-            },
-        ]],
-        'resource': '11111111',
-    },
-    'data_call_name': 'whois',
-    'data_call_status': 'supported - connecting to ursa',
-    'messages': [],
-    'process_time': 47,
-    'query_id': '11111111111111-4444444-11111-4a4a-1234-ababababab01010101',
-    'see_also': [],
-    'server_id': 'app125',
-    'status': 'ok',
-    'status_code': 200,
-    'time': '2022-02-01T09:19:20.153279',
-    'version': '4.1',
-}
-
 DEFAULT_ASN__ABUSE_CONTACT_REQUEST = {
     'build_version': 'live.2022.2.1.69',
     'cached': True,
@@ -286,6 +378,104 @@ DEFAULT_IP_NETWORK__ADMINC_TECHC_ROLE_EXAMPLE = {
                 'key': 'as-name',
                 'value': 'Example-Cloud_1',
             },
+            {
+                'details_link': None,
+                'key': 'remarks',
+                'value': 'Example-Cloud_Network_1',
+            },
+            {
+                'details_link': None,
+                'key': 'remarks',
+                'value': 'Example Company details: http://1.1.1.1/24.example_domain.com',
+            },
+            {
+                'details_link': None,
+                'key': 'import',
+                'value': 'from AS2222222222 accept ANY',
+            },
+            {
+                'details_link': None,
+                'key': 'export',
+                'value': 'to AS62222222222 action community .= { 6777:6777 }; '
+                         'announce AS-ASSA-EUUE',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/person-role/AAAA-EXMPL-RIPE',
+                'key': 'admin-c',
+                'value': 'AAAA-EXMPL-RIPE',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/person-role/BBBB-EXMPL-RIPE',
+                'key': 'tech-c',
+                'value': 'BBBB-EXMPL-RIPE',
+            },
+            {
+                'details_link': None,
+                'key': 'status',
+                'value': 'ASSIGNED',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/mntner/RIPE-BEG-END-MNT',
+                'key': 'mnt-by',
+                'value': 'RIPE-BEG-END-MNT',
+            },
+            {
+                'details_link': 'https://rest.db.ripe.net/ripe/mntner/EXMP-CODE',
+                'key': 'mnt-by',
+                'value': 'EXMP-CODE',
+            },
+            {
+                'details_link': None,
+                'key': 'created',
+                'value': '2000-01-01T00:00:00Z',
+            },
+            {
+                'details_link': None,
+                'key': 'last-modified',
+                'value': '2000-01-01T00:00:00Z',
+            },
+            {
+                'details_link': None,
+                'key': 'source',
+                'value': 'RIPE',
+            },
+        ]],
+        'resource': '11111',
+    },
+    'data_call_name': 'whois',
+    'data_call_status': 'supported - connecting to ursa',
+    'messages': [],
+    'process_time': 50,
+    'query_id': '20220202082341-2a1a5670-d197-4530-bd32-491d312deffb',
+    'see_also': [],
+    'server_id': 'app134',
+    'status': 'ok',
+    'status_code': 200,
+    'time': '2000-01-01T00:00:00Z',
+    'version': '4.1',
+}
+
+# The same as `DEFAULT_IP_NETWORK__ADMINC_TECHC_ROLE_EXAMPLE`
+# but this time we have key 'org'
+DEFAULT_IP_NETWORK__ROLE__ORG_EXAMPLE = {
+    'build_version': 'live.2022.2.1.69',
+    'cached': False,
+    'data': {
+        'authorities': ['ripe'],
+        'irr_records': [],
+        'query_time': '2000-01-01T00:00:00',
+        'records': [[
+            {
+                'details_link': 'https://stat.ripe.net/1.1.1.1/24',
+                'key': 'aut-num',
+                'value': '11111',
+            },
+            {
+                'details_link': None,
+                'key': 'as-name',
+                'value': 'Example-Cloud_1',
+            },
+
             {
                 'details_link': None,
                 'key': 'remarks',
@@ -385,11 +575,6 @@ DEFAULT_IP_NETWORK__ADMINC_TECHC_PERSON_EXAMPLE = {
                 'details_link': None,
                 'key': 'as-name',
                 'value': 'MAGICRETAIL',
-            },
-            {
-                'details_link': None,
-                'key': 'org',
-                'value': 'ORG-MRS11-RIPE',
             },
             {
                 'details_link': None,
@@ -512,12 +697,132 @@ DEFAULT_IP_NETWORK__ABUSE_CONTACT_REQUEST = {
 
 
 #
-# ASN - case #1
+# ASN - case #1, #2
 
-DEFAULT_ASN__PERSON_URL_1 = 'https://rest.db.ripe.net/ripe/role/ASDF-EXMPL-RIPE.json'
-DEFAULT_ASN__ROLE_URL_1 = 'https://rest.db.ripe.net/ripe/role/ZXCV-EXMPL-RIPE.json'
-DEFAULT_ASN__PERSON_URL_2 = 'https://rest.db.ripe.net/ripe/person/ASDF-EXMPL-RIPE.json'
-DEFAULT_ASN__ROLE_URL_2 = 'https://rest.db.ripe.net/ripe/person/ZXCV-EXMPL-RIPE.json'
+DEFAULT__ORG_URL_1 = 'https://rest.db.ripe.net/ripe/organisation/ORG-EXAMPLE-RIPE.json?unfiltered'
+DEFAULT_ASN__PERSON_URL_1 = 'https://rest.db.ripe.net/ripe/role/ASDF-EXMPL-RIPE.json?unfiltered'
+DEFAULT_ASN__ROLE_URL_1 = 'https://rest.db.ripe.net/ripe/role/ZXCV-EXMPL-RIPE.json?unfiltered'
+DEFAULT_ASN__PERSON_URL_2 = 'https://rest.db.ripe.net/ripe/person/ASDF-EXMPL-RIPE.json?unfiltered'
+DEFAULT_ASN__ROLE_URL_2 = 'https://rest.db.ripe.net/ripe/person/ZXCV-EXMPL-RIPE.json?unfiltered'
+DEFAULT_ASN__ORG_DETAILS_REQUEST_1 = {
+    'objects': {
+        'object': [
+            {'attributes': {
+                'attribute': [
+                    {
+                        'name': 'organisation',
+                        'value': 'ORG-EXAMPLE-RIPE',
+                    },
+                    {
+                        'name': 'org-name',
+                        'value': 'Example-Org-Name',
+                    },
+                    {
+                        'name': 'country',
+                        'value': 'EX',
+                    },
+                    {
+                        'name': 'org-type',
+                        'value': 'EXMPL',
+                    },
+                    {
+                        'name': 'address',
+                        'value': 'Some Imagined Street',
+                     },
+                    {
+                        'name': 'address',
+                        'value': 'Milano',
+                    },
+                    {
+                        'name': 'address',
+                        'value': 'ITALY',
+                    },
+                    {
+                        'name': 'phone',
+                        'value': '+11 11 11111111',
+                    },
+                    {
+                        'name': 'fax-no',
+                        'value': '+11 11 11111112',
+                    },
+                    {
+                        'name': 'e-mail',
+                        'value': 'example@example-org-domain.ex',
+                    },
+                    {
+                        'link': {
+                            'href': 'https://rest.db.ripe.net/ripe/mntner/AS11111-MNT',
+                            'type': 'locator',
+                        },
+                        'name': 'mnt-ref',
+                        'referenced-type': 'mntner',
+                        'value': 'AS12345-MNT',
+                    },
+                    {
+                        'link': {
+                            'href': 'https://rest.db.ripe.net/ripe/person/EX11111-RIPE',
+                            'type': 'locator',
+                        },
+                        'name': 'admin-c',
+                        'referenced-type': 'person',
+                        'value': 'EX11111-RIPE',
+                    },
+                    {
+                        'link': {
+                            'href': 'https://rest.db.ripe.net/ripe/mntner/RIPE-EMP-EX-MNT',
+                            'type': 'locator',
+                        },
+                        'name': 'mnt-by',
+                        'referenced-type': 'mntner',
+                        'value': 'RIPE-EMP-EX-MNT',
+                    },
+                    {
+                        'link': {
+                            'href': 'https://rest.db.ripe.net/ripe/mntner/AS11111-MNT',
+                            'type': 'locator',
+                        },
+                        'name': 'mnt-by',
+                        'referenced-type': 'mntner',
+                        'value': 'AS11111-MNT-MNT',
+                    },
+                    {
+                        'name': 'created',
+                        'value': '2000-01-01T00:00:00Z',
+                    },
+                    {
+                        'name': 'last-modified',
+                        'value': '2022-01-01T00:00:00Z',
+                    },
+                    {
+                        'name': 'source',
+                        'value': 'RIPE',
+                    }
+                ]
+            },
+                'primary-key': {
+                    'attribute': [
+                        {
+                            'name': 'nic-hdl',
+                            'value': 'AAAA-EXMPL-RIPE',
+                        }
+                    ],
+                },
+                'source': {'id': 'ripe'},
+                'type': 'role',
+            }
+        ],
+    },
+    'terms-and-conditions': {
+        'href': 'http://www.ripe.net/db/support/db-terms-conditions.pdf',
+        'type': 'locator',
+    },
+    'version': {
+        'commit-id': '111a11a',
+        'timestamp': '2000-01-01T00:00:00Z',
+        'version': '1.102.2',
+    },
+}
+
 DEFAULT_ASN__ROLE_DETAILS_REQUEST_1 = {
     'objects': {
         'object': [{
@@ -726,12 +1031,12 @@ DEFAULT_ASN__ROLE_DETAILS_REQUEST_4 = None
 
 
 #
-# ASN - case #2
+# ASN - case #3
 
 DEFAULT_ASN__ABUSE_CONTACT_URL_1 = (
     'https://stat.ripe.net/data/abuse-contact-finder/data.json?resource=as22222')
-DEFAULT_ASN__PERSON_URL_3 = 'https://rest.db.ripe.net/ripe/person/XXXX_PERSON-RIPE.json'
-DEFAULT_ASN__ROLE_URL_3 = 'https://rest.db.ripe.net/ripe/role/XXXX_PERSON-RIPE.json'
+DEFAULT_ASN__PERSON_URL_3 = 'https://rest.db.ripe.net/ripe/person/XXXX_PERSON-RIPE.json?unfiltered'
+DEFAULT_ASN__ROLE_URL_3 = 'https://rest.db.ripe.net/ripe/role/XXXX_PERSON-RIPE.json?unfiltered'
 DEFAULT_ASN__PERSON_DETAILS_REQUEST_1 = {
     'objects': {
         'object': [{
@@ -811,12 +1116,134 @@ DEFAULT_ASN__PERSON_DETAILS_REQUEST_2 = None
 
 
 #
-# IP networks input - case #1
+# IP networks input - case #1, #2
 
-DEFAULT_IP_NETWORK__PERSON_URL_1 = 'https://rest.db.ripe.net/ripe/role/AAAA-EXMPL-RIPE.json'
-DEFAULT_IP_NETWORK__ROLE_URL_1 = 'https://rest.db.ripe.net/ripe/role/BBBB-EXMPL-RIPE.json'
-DEFAULT_IP_NETWORK__PERSON_URL_2 = 'https://rest.db.ripe.net/ripe/person/AAAA-EXMPL-RIPE.json'
-DEFAULT_IP_NETWORK__ROLE_URL_2 = 'https://rest.db.ripe.net/ripe/person/BBBB-EXMPL-RIPE.json'
+# Note, that we use `DEFAULT__ORG_URL_1` which is the same for ASN/IP Networks, but just to show
+# that it is being used here...
+# DEFAULT__ORG_URL_1 = 'https://rest.db.ripe.net/ripe/organisation/ORG-EXAMPLE-RIPE.json?unfiltered'
+DEFAULT_IP_NETWORK__PERSON_URL_1 = 'https://rest.db.ripe.net/ripe/role/AAAA-EXMPL-RIPE.json?unfiltered'
+DEFAULT_IP_NETWORK__ROLE_URL_1 = 'https://rest.db.ripe.net/ripe/role/BBBB-EXMPL-RIPE.json?unfiltered'
+DEFAULT_IP_NETWORK__PERSON_URL_2 = 'https://rest.db.ripe.net/ripe/person/AAAA-EXMPL-RIPE.json?unfiltered'
+DEFAULT_IP_NETWORK__ROLE_URL_2 = 'https://rest.db.ripe.net/ripe/person/BBBB-EXMPL-RIPE.json?unfiltered'
+DEFAULT_IP_NETWORK__ORG_DETAILS_REQUEST_1 = {
+    'objects': {
+        'object': [
+            {'attributes': {
+                'attribute': [
+                    {
+                        'name': 'organisation',
+                        'value': 'ORG-EXAMPLE-RIPE',
+                    },
+                    {
+                        'name': 'org-name',
+                        'value': 'Example-Org-Name',
+                    },
+                    {
+                        'name': 'country',
+                        'value': 'EX',
+                    },
+                    {
+                        'name': 'org-type',
+                        'value': 'EXMPL',
+                    },
+                    {
+                        'name': 'address',
+                        'value': 'Some Imagined Street',
+                     },
+                    {
+                        'name': 'address',
+                        'value': 'Milano',
+                    },
+                    {
+                        'name': 'address',
+                        'value': 'ITALY',
+                    },
+                    {
+                        'name': 'phone',
+                        'value': '+11 11 11111111',
+                    },
+                    {
+                        'name': 'fax-no',
+                        'value': '+11 11 11111112',
+                    },
+                    {
+                        'name': 'e-mail',
+                        'value': 'example@example-org-domain.ex',
+                    },
+                    {
+                        'link': {
+                            'href': 'https://rest.db.ripe.net/ripe/mntner/1.1.1.1/24-MNT',
+                            'type': 'locator',
+                        },
+                        'name': 'mnt-ref',
+                        'referenced-type': 'mntner',
+                        'value': 'AS12345-MNT',
+                    },
+                    {
+                        'link': {
+                            'href': 'https://rest.db.ripe.net/ripe/person/EX11111-RIPE',
+                            'type': 'locator',
+                        },
+                        'name': 'admin-c',
+                        'referenced-type': 'person',
+                        'value': 'EX11111-RIPE',
+                    },
+                    {
+                        'link': {
+                            'href': 'https://rest.db.ripe.net/ripe/mntner/RIPE-EMP-EX-MNT',
+                            'type': 'locator',
+                        },
+                        'name': 'mnt-by',
+                        'referenced-type': 'mntner',
+                        'value': 'RIPE-EMP-EX-MNT',
+                    },
+                    {
+                        'link': {
+                            'href': 'https://rest.db.ripe.net/ripe/mntner/1.1.1.1/24-MNT',
+                            'type': 'locator',
+                        },
+                        'name': 'mnt-by',
+                        'referenced-type': 'mntner',
+                        'value': '1.1.1.1/24-MNT-MNT',
+                    },
+                    {
+                        'name': 'created',
+                        'value': '2000-01-01T00:00:00Z',
+                    },
+                    {
+                        'name': 'last-modified',
+                        'value': '2022-01-01T00:00:00Z',
+                    },
+                    {
+                        'name': 'source',
+                        'value': 'RIPE',
+                    }
+                ]
+            },
+                'primary-key': {
+                    'attribute': [
+                        {
+                            'name': 'nic-hdl',
+                            'value': 'AAAA-EXMPL-RIPE',
+                        }
+                    ],
+                },
+                'source': {'id': 'ripe'},
+                'type': 'role',
+            }
+        ],
+    },
+    'terms-and-conditions': {
+        'href': 'http://www.ripe.net/db/support/db-terms-conditions.pdf',
+        'type': 'locator',
+    },
+    'version': {
+        'commit-id': '111a11a',
+        'timestamp': '2000-01-01T00:00:00Z',
+        'version': '1.102.2',
+    },
+}
+
 DEFAULT_IP_NETWORK__ROLE_DETAILS_REQUEST_1 = {
     'objects': {
         'object': [{
@@ -1025,12 +1452,12 @@ DEFAULT_IP_NETWORK__ROLE_DETAILS_REQUEST_4 = None
 
 
 #
-# IP networks input - case #2
+# IP networks input - case #3
 
 DEFAULT_IP_NETWORK__ABUSE_CONTACT_URL_1 = (
     'https://stat.ripe.net/data/abuse-contact-finder/data.json?resource=1.1.1.1/24')
-DEFAULT_IP_NETWORK__PERSON_URL_3 = 'https://rest.db.ripe.net/ripe/person/XXXX_PERSON-RIPE.json'
-DEFAULT_IP_NETWORK__ROLE_URL_3 = 'https://rest.db.ripe.net/ripe/role/XXXX_PERSON-RIPE.json'
+DEFAULT_IP_NETWORK__PERSON_URL_3 = 'https://rest.db.ripe.net/ripe/person/XXXX_PERSON-RIPE.json?unfiltered'
+DEFAULT_IP_NETWORK__ROLE_URL_3 = 'https://rest.db.ripe.net/ripe/role/XXXX_PERSON-RIPE.json?unfiltered'
 DEFAULT_IP_NETWORK__PERSON_DETAILS_REQUEST_1 = {
     'objects': {
         'object': [{
@@ -1129,7 +1556,7 @@ class TestRipeApiClient(unittest.TestCase):
                 DEFAULT_ASN__ROLE_DETAILS_REQUEST_3,
                 DEFAULT_ASN__ROLE_DETAILS_REQUEST_4,
             ],
-            asn_and_ip_network_to_unique_details_urls={
+            marker_to_details_urls={
                 'ASN': {
                     '11111': {
                         DEFAULT_ASN__ROLE_URL_1,
@@ -1142,9 +1569,89 @@ class TestRipeApiClient(unittest.TestCase):
             },
             expected_attrs=[
                 [
-                    ('Data for', '11111'),
+                    ('Unfiltered data for', '11111'),
                     ('Abuse Contact Emails',
                      ['example_contact_email@example_domain.com']),
+                    ('role', 'XXXX_ROLE'),
+                    ('address', 'Example Company'),
+                    ('address', '0001 Example Street_1'),
+                    ('phone', '+11 111 1111 1111'),
+                    ('admin-c', 'ZXCV-EXMPL-RIPE'),
+                    ('tech-c', 'ZXCV-EXMPL-RIPE'),
+                    ('nic-hdl', 'ASDF-EXMPL-RIPE'),
+                    ('remarks', '************* PLEASE NOTE **************'),
+                    ('remarks', '********* EXAMPLE REMARKS HERE *********'),
+                    ('abuse-mailbox', 'example_email@example_domain.com'),
+                    ('mnt-by', 'EXMP-CODE'),
+                    ('created', '2000-01-01T00:00:00Z'),
+                    ('last-modified', '2000-01-01T00:00:00Z'),
+                    ('source', 'RIPE'),
+                    ('', ''),
+                    ('role', 'Example Cloud - Example Administration'),
+                    ('address', 'Example Company Name'),
+                    ('address', 'Example Street_2'),
+                    ('address', 'Example City'),
+                    ('address', 'GB'),
+                    ('admin-c', 'SOME-PRSN-RIPE'),
+                    ('tech-c', 'ASDF-EXMPL-RIPE'),
+                    ('nic-hdl', 'ZXCV-EXMPL-RIPE'),
+                    ('created', '2000-01-01T00:00:00Z'),
+                    ('last-modified', '2000-01-01T00:00:00Z'),
+                    ('source', 'RIPE'),
+                    ('mnt-by', 'EXMP-CODE'),
+                    ('', ''),
+                ],
+            ],
+        ),
+
+        # ASN Admin-C/Tech-C Role Example -- with 'org' (organisation) key
+        param(
+            asn_seq=['11111'],
+            perform_request_mocked_responses=[
+                DEFAULT_ASN__ROLE__ORG_EXAMPLE,
+                DEFAULT_ASN__ABUSE_CONTACT_REQUEST,
+                DEFAULT_ASN__ORG_DETAILS_REQUEST_1,
+                DEFAULT_ASN__ROLE_DETAILS_REQUEST_1,
+                DEFAULT_ASN__ROLE_DETAILS_REQUEST_2,
+                DEFAULT_ASN__ROLE_DETAILS_REQUEST_3,
+                DEFAULT_ASN__ROLE_DETAILS_REQUEST_4,
+            ],
+            marker_to_details_urls={
+                'ASN': {
+                    '11111': {
+                        DEFAULT__ORG_URL_1,
+                        DEFAULT_ASN__ROLE_URL_1,
+                        DEFAULT_ASN__ROLE_URL_2,
+                        DEFAULT_ASN__PERSON_URL_1,
+                        DEFAULT_ASN__PERSON_URL_2,
+                    },
+                },
+                'IP Network': {},
+            },
+            expected_attrs=[
+                [
+                    ('Unfiltered data for', '11111'),
+                    ('Abuse Contact Emails',
+                     ['example_contact_email@example_domain.com']),
+                    ('organisation', 'ORG-EXAMPLE-RIPE'),
+                    ('org-name', 'Example-Org-Name'),
+                    ('country', 'EX'),
+                    ('org-type', 'EXMPL'),
+                    ('address', 'Some Imagined Street'),
+                    ('address', 'Milano'),
+                    ('address', 'ITALY'),
+                    ('phone', '+11 11 11111111'),
+                    ('fax-no', '+11 11 11111112'),
+                    ('e-mail', 'example@example-org-domain.ex'),
+                    ('mnt-ref', 'AS12345-MNT'),
+                    ('admin-c', 'EX11111-RIPE'),
+                    ('mnt-by', 'RIPE-EMP-EX-MNT'),
+                    ('mnt-by', 'AS11111-MNT-MNT'),
+                    ('created', '2000-01-01T00:00:00Z'),
+                    ('last-modified', '2022-01-01T00:00:00Z'),
+                    ('source', 'RIPE'),
+                    ('', ''),
+
                     ('role', 'XXXX_ROLE'),
                     ('address', 'Example Company'),
                     ('address', '0001 Example Street_1'),
@@ -1186,7 +1693,7 @@ class TestRipeApiClient(unittest.TestCase):
                 DEFAULT_ASN__PERSON_DETAILS_REQUEST_1,
                 DEFAULT_ASN__PERSON_DETAILS_REQUEST_2,
             ],
-            asn_and_ip_network_to_unique_details_urls={
+            marker_to_details_urls={
                 'ASN': {
                     '22222': {
                         DEFAULT_ASN__PERSON_URL_3,
@@ -1197,7 +1704,7 @@ class TestRipeApiClient(unittest.TestCase):
             },
             expected_attrs=[
                 [
-                    ('Data for', '22222'),
+                    ('Unfiltered data for', '22222'),
                     ('Abuse Contact Emails',
                      ['example_contact_email@example_domain.com']),
                     ('person', 'Example Person_1'),
@@ -1229,7 +1736,7 @@ class TestRipeApiClient(unittest.TestCase):
                 DEFAULT_ASN__PERSON_DETAILS_REQUEST_1,
                 DEFAULT_ASN__PERSON_DETAILS_REQUEST_2,
             ],
-            asn_and_ip_network_to_unique_details_urls={
+            marker_to_details_urls={
                 'ASN': {
                     '11111': {
                         DEFAULT_ASN__ROLE_URL_1,
@@ -1246,7 +1753,7 @@ class TestRipeApiClient(unittest.TestCase):
             },
             expected_attrs=[
                 [
-                    ('Data for', '11111'),
+                    ('Unfiltered data for', '11111'),
                     ('Abuse Contact Emails',
                      ['example_contact_email@example_domain.com']),
                     ('role', 'XXXX_ROLE'),
@@ -1279,7 +1786,7 @@ class TestRipeApiClient(unittest.TestCase):
                     ('', ''),
                 ],
                 [
-                    ('Data for', '22222'),
+                    ('Unfiltered data for', '22222'),
                     ('Abuse Contact Emails',
                      ['example_contact_email@example_domain.com']),
                     ('person', 'Example Person_1'),
@@ -1299,7 +1806,7 @@ class TestRipeApiClient(unittest.TestCase):
     def test_run_asn_input(self,
                            asn_seq,
                            perform_request_mocked_responses,
-                           asn_and_ip_network_to_unique_details_urls,
+                           marker_to_details_urls,
                            expected_attrs):
         with patch(
                 "n6lib.ripe_api_client.RIPEApiClient._perform_single_request",
@@ -1310,8 +1817,8 @@ class TestRipeApiClient(unittest.TestCase):
             attrs = ripe_api_client._get_attrs_data_from_unique_details_urls()
             self.assertEqual(attrs, expected_attrs)
             self.assertEqual(
-                ripe_api_client.asn_ip_network_to_details_urls,
-                asn_and_ip_network_to_unique_details_urls,
+                ripe_api_client.marker_to_details_urls,
+                marker_to_details_urls,
             )
 
     @foreach(
@@ -1326,7 +1833,7 @@ class TestRipeApiClient(unittest.TestCase):
                 DEFAULT_IP_NETWORK__ROLE_DETAILS_REQUEST_3,
                 DEFAULT_IP_NETWORK__ROLE_DETAILS_REQUEST_4,
             ],
-            asn_and_ip_network_to_unique_details_urls={
+            marker_to_details_urls={
                 'ASN': {},
                 'IP Network': {
                     '1.1.1.1/24': {
@@ -1339,9 +1846,88 @@ class TestRipeApiClient(unittest.TestCase):
             },
             expected_attrs=[
                 [
-                    ('Data for', '1.1.1.1/24'),
+                    ('Unfiltered data for', '1.1.1.1/24'),
                     ('Abuse Contact Emails',
                      ['example_contact_email@example_domain.com']),
+                    ('role', 'XXXX_ROLE'),
+                    ('address', 'Example Company'),
+                    ('address', '0001 Example Street_1'),
+                    ('phone', '+11 111 1111 1111'),
+                    ('admin-c', 'BBBB-EXMPL-RIPE'),
+                    ('tech-c', 'BBBB-EXMPL-RIPE'),
+                    ('nic-hdl', 'AAAA-EXMPL-RIPE'),
+                    ('remarks', '************* PLEASE NOTE **************'),
+                    ('remarks', '********* EXAMPLE REMARKS HERE *********'),
+                    ('abuse-mailbox', 'example_email@example_domain.com'),
+                    ('mnt-by', 'EXMP-CODE'),
+                    ('created', '2000-01-01T00:00:00Z'),
+                    ('last-modified', '2000-01-01T00:00:00Z'),
+                    ('source', 'RIPE'),
+                    ('', ''),
+                    ('role', 'Example Cloud - Example Administration'),
+                    ('address', 'Example Company Name'),
+                    ('address', 'Example Street_2'),
+                    ('address', 'Example City'),
+                    ('address', 'GB'),
+                    ('admin-c', 'SOME-PRSN-RIPE'),
+                    ('tech-c', 'AAAA-EXMPL-RIPE'),
+                    ('nic-hdl', 'BBBB-EXMPL-RIPE'),
+                    ('created', '2000-01-01T00:00:00Z'),
+                    ('last-modified', '2000-01-01T00:00:00Z'),
+                    ('source', 'RIPE'),
+                    ('mnt-by', 'EXMP-CODE'),
+                    ('', ''),
+                ],
+            ],
+        ),
+
+        # IP Network Admin-C/Tech-C Role Example -- with 'org' (organisation) key
+        param(
+            ip_network_seq=['1.1.1.1/24'],
+            perform_request_mocked_responses=[
+                DEFAULT_IP_NETWORK__ROLE__ORG_EXAMPLE,
+                DEFAULT_IP_NETWORK__ABUSE_CONTACT_REQUEST,
+                DEFAULT_IP_NETWORK__ORG_DETAILS_REQUEST_1,
+                DEFAULT_IP_NETWORK__ROLE_DETAILS_REQUEST_1,
+                DEFAULT_IP_NETWORK__ROLE_DETAILS_REQUEST_2,
+                DEFAULT_IP_NETWORK__ROLE_DETAILS_REQUEST_3,
+                DEFAULT_IP_NETWORK__ROLE_DETAILS_REQUEST_4,
+            ],
+            marker_to_details_urls={
+                'ASN': {},
+                'IP Network': {
+                    '1.1.1.1/24': {
+                        DEFAULT__ORG_URL_1,
+                        DEFAULT_IP_NETWORK__ROLE_URL_1,
+                        DEFAULT_IP_NETWORK__ROLE_URL_2,
+                        DEFAULT_IP_NETWORK__PERSON_URL_1,
+                        DEFAULT_IP_NETWORK__PERSON_URL_2,
+                    },
+                },
+            },
+            expected_attrs=[
+                [
+                    ('Unfiltered data for', '1.1.1.1/24'),
+                    ('Abuse Contact Emails',
+                     ['example_contact_email@example_domain.com']),
+                    ('organisation', 'ORG-EXAMPLE-RIPE'),
+                    ('org-name', 'Example-Org-Name'),
+                    ('country', 'EX'),
+                    ('org-type', 'EXMPL'),
+                    ('address', 'Some Imagined Street'),
+                    ('address', 'Milano'),
+                    ('address', 'ITALY'),
+                    ('phone', '+11 11 11111111'),
+                    ('fax-no', '+11 11 11111112'),
+                    ('e-mail', 'example@example-org-domain.ex'),
+                    ('mnt-ref', 'AS12345-MNT'),
+                    ('admin-c', 'EX11111-RIPE'),
+                    ('mnt-by', 'RIPE-EMP-EX-MNT'),
+                    ('mnt-by', '1.1.1.1/24-MNT-MNT'),
+                    ('created', '2000-01-01T00:00:00Z'),
+                    ('last-modified', '2022-01-01T00:00:00Z'),
+                    ('source', 'RIPE'),
+                    ('', ''),
                     ('role', 'XXXX_ROLE'),
                     ('address', 'Example Company'),
                     ('address', '0001 Example Street_1'),
@@ -1383,7 +1969,7 @@ class TestRipeApiClient(unittest.TestCase):
                 DEFAULT_ASN__PERSON_DETAILS_REQUEST_1,
                 DEFAULT_ASN__PERSON_DETAILS_REQUEST_2,
             ],
-            asn_and_ip_network_to_unique_details_urls={
+            marker_to_details_urls={
                 'ASN': {},
                 'IP Network': {
                     '2.2.2.2/24': {
@@ -1394,7 +1980,7 @@ class TestRipeApiClient(unittest.TestCase):
             },
             expected_attrs=[
                 [
-                    ('Data for', '2.2.2.2/24'),
+                    ('Unfiltered data for', '2.2.2.2/24'),
                     ('Abuse Contact Emails',
                      ['example_contact_email@example_domain.com']),
                     ('person', 'Example Person_1'),
@@ -1426,7 +2012,7 @@ class TestRipeApiClient(unittest.TestCase):
                 DEFAULT_IP_NETWORK__PERSON_DETAILS_REQUEST_1,
                 DEFAULT_IP_NETWORK__PERSON_DETAILS_REQUEST_2,
             ],
-            asn_and_ip_network_to_unique_details_urls={
+            marker_to_details_urls={
                 'ASN': {},
                 'IP Network': {
                     '1.1.1.1/24': {
@@ -1443,7 +2029,7 @@ class TestRipeApiClient(unittest.TestCase):
             },
             expected_attrs=[
                 [
-                    ('Data for', '1.1.1.1/24'),
+                    ('Unfiltered data for', '1.1.1.1/24'),
                     ('Abuse Contact Emails',
                      ['example_contact_email@example_domain.com']),
                     ('role', 'XXXX_ROLE'),
@@ -1476,7 +2062,7 @@ class TestRipeApiClient(unittest.TestCase):
                     ('', ''),
                 ],
                 [
-                    ('Data for', '2.2.2.2/24'),
+                    ('Unfiltered data for', '2.2.2.2/24'),
                     ('Abuse Contact Emails',
                      ['example_contact_email@example_domain.com']),
                     ('person', 'Example Person_1'),
@@ -1496,7 +2082,7 @@ class TestRipeApiClient(unittest.TestCase):
     def test_run_ip_network_input(self,
                                   ip_network_seq,
                                   perform_request_mocked_responses,
-                                  asn_and_ip_network_to_unique_details_urls,
+                                  marker_to_details_urls,
                                   expected_attrs):
         with patch(
                 "n6lib.ripe_api_client.RIPEApiClient._perform_single_request",
@@ -1507,8 +2093,8 @@ class TestRipeApiClient(unittest.TestCase):
             attrs = ripe_api_client._get_attrs_data_from_unique_details_urls()
             self.assertEqual(attrs, expected_attrs)
             self.assertEqual(
-                ripe_api_client.asn_ip_network_to_details_urls,
-                asn_and_ip_network_to_unique_details_urls,
+                ripe_api_client.marker_to_details_urls,
+                marker_to_details_urls,
             )
 
     @foreach(

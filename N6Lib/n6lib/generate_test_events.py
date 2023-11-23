@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import copy
 import datetime
@@ -8,19 +8,36 @@ import re
 import socket
 import string
 import urllib.parse
+from collections.abc import (
+    Iterator,
+    Mapping,
+)
+from typing import Optional
 
 import radar
 
+from n6lib.class_helpers import attr_required
 from n6lib.common_helpers import as_bytes
-from n6lib.config import ConfigMixin
+from n6lib.config import (
+    ConfigError,
+    ConfigMixin,
+    ConfigSection,
+    combined_config_spec,
+)
 from n6lib.const import (
     CATEGORY_ENUMS,
     CONFIDENCE_ENUMS,
+    LACK_OF_IPv4_PLACEHOLDER_AS_INT,
     ORIGIN_ENUMS,
     PROTO_ENUMS,
     STATUS_ENUMS,
 )
+from n6lib.data_spec.typing_helpers import (
+    ParamsDict,
+    ResultDict,
+)
 from n6lib.log_helpers import get_logger
+from n6lib.typing_helpers import AccessZone
 
 
 LOGGER = get_logger(__name__)
@@ -33,7 +50,46 @@ class AttributeCreationError(Exception):
     """
 
 
-class RandomEvent(ConfigMixin):
+class RandomEventGeneratorConfigMixin(ConfigMixin):
+
+    # This attribute *must* be set in concrete
+    # subclasses to a config section name.
+    generator_config_section: str = None
+
+    # This attribute *may* (but does not need to)
+    # be extended in subclasses by overriding it
+    # with another `combined_config_spec(...)`.
+    config_spec_pattern = combined_config_spec('''
+        [{generator_config_section}]
+
+        possible_event_attributes :: list_of_str
+        required_event_attributes :: list_of_str
+        dip_categories :: list_of_str
+        port_attributes :: list_of_str
+        md5_attributes :: list_of_str
+
+        possible_cc_in_address :: list_of_str
+        possible_client :: list_of_str
+        possible_fqdn :: list_of_str
+        possible_url :: list_of_str
+        possible_name :: list_of_str
+        possible_source :: list_of_str
+        possible_restriction :: list_of_str
+        possible_target :: list_of_str
+
+        seconds_max = 180000 :: int
+        expires_days_max = 8 :: int
+        random_ips_max = 5 :: int
+    ''')
+
+    @attr_required('generator_config_section', 'config_spec_pattern')
+    def obtain_config(self, settings: Optional[Mapping] = None) -> ConfigSection:
+        return self.get_config_section(
+            settings,
+            generator_config_section=self.generator_config_section)
+
+
+class RandomEvent(RandomEventGeneratorConfigMixin):
 
     """
     A class used to generate random events.
@@ -55,9 +111,9 @@ class RandomEvent(ConfigMixin):
     `_POSSIBLE_VALS_PREFIX`, containing a list of possible values.
     Event will include randomly chosen value from the list.
 
-    * By adding the attribute's name to the `port_values` list in
-     the config, if it is a port number, or the `md5_values` list, if
-     it is an MD5 hash value. A proper value will be returned
+    * By adding the attribute's name to the `port_attributes` list in
+     the config, if it is a port number, or the `md5_attributes` list,
+     if it is an MD5 hash value. A proper value will be returned
      for this kind of attribute.
 
     In last two cases, values in `_params`, if available, have
@@ -70,48 +126,36 @@ class RandomEvent(ConfigMixin):
     By default, it is randomly chosen, based on the
     `_RANDOM_CHOICE_CRITERION`, if an attribute will be
     included in an event. To force it to be always included,
-    add it to the `required_attributes` list in the config.
+    add it to the `required_event_attributes` list in the config.
     """
 
-    config_spec = '''
-    [generator_rest_api]
-    possible_event_attributes :: json
-    required_attributes :: json
-    dip_categories :: json
-    port_values :: json
-    md5_values :: json
-    possible_cc_codes :: json
-    possible_client :: json
-    possible_domains :: json
-    possible_url :: json
-    possible_restriction :: json
-    possible_source :: json
-    possible_target :: json
-    event_name=test event
-    seconds_max :: int
-    expires_days_max :: int
-    random_ips_max :: int
-    '''
+    generator_config_section = 'generator_rest_api'
+
     _GETTER_PREFIX = '_get_'
     _POSSIBLE_VALS_PREFIX = '_possible_'
     _RANDOM_CHOICE_CRITERION = (True, True, False)
     # regexes used for a simple validation of an input data from
     # special parameters (fqdn.sub and url.sub)
-    _LEGAL_FQDN_REGEX = re.compile(r'[a-zA-Z0-9\.-]*', re.ASCII)
-    _LEGAL_URL_REGEX = re.compile(r'[a-zA-Z0-9\.-\/:]*', re.ASCII)
+    _LEGAL_FQDN_REGEX = re.compile(r'[a-zA-Z0-9.-]*', re.ASCII)
+    _LEGAL_URL_REGEX = re.compile(r'[a-zA-Z0-9.-/:]*', re.ASCII)
 
-    @staticmethod
-    def generate_multiple_event_data(num_of_events,
-                                     settings=None,
-                                     access_zone=None,
-                                     client_id=None,
-                                     params=None):
+    @classmethod
+    def generate_multiple_event_data(cls,
+                                     num_of_events: int,
+                                     *,
+                                     settings: Optional[Mapping] = None,
+                                     access_zone: Optional[AccessZone] = None,
+                                     client_id: Optional[str] = None,
+                                     params: Optional[ParamsDict] = None,
+                                     **kwargs) -> Iterator[ResultDict]:
         """
         Generate a given number of random events.
 
         Args/kwargs:
             `num_of_events`:
-               A number of random events to generate.
+                A number of random events to generate.
+
+        Kwargs (keyword-only):
             `settings` (optional; default: None):
                 A dict containing Pyramid-like settings,
                 that will override a configuration from config files,
@@ -122,46 +166,104 @@ class RandomEvent(ConfigMixin):
                 Name of a client making the request.
             `params` (optional; default: None):
                 Parameters from the request.
+            Any extra keyword arguments:
+                To be passed (together with most of the above arguments)
+                to the main constructor. Note that the `RandomEvent`'s
+                one does *not* accept any extra keyword arguments (yet
+                hypothetical subclasses may add support for some...).
 
         Yields:
-            Generated random events.
+            Generated random events (as dicts).
         """
+        ready_config = cls(settings=settings).config
         for _ in range(num_of_events):
-            yield RandomEvent(
-                params=params,
-                settings=settings,
+            yield cls(
+                ready_config=ready_config,
                 access_zone=access_zone,
-                client_id=client_id).event
+                client_id=client_id,
+                params=params,
+                **kwargs,
+            ).event
 
-    def __init__(self, settings=None, params=None, access_zone=None, client_id=None):
-        self._config_init(settings)
-        self._params = {}
-        if params is not None:
-            self._params = copy.deepcopy(params)
+    def __init__(self, *,
+                 ready_config: Optional[ConfigSection] = None,
+                 settings: Optional[Mapping] = None,
+                 access_zone: Optional[AccessZone] = None,
+                 client_id: Optional[str] = None,
+                 params: Optional[ParamsDict] = None,
+                 **kwargs):
+        """
+        Kwargs (keyword-only):
+            `ready_config` (optional; default: None):
+                If not `None`, it should be ready `ConfigSection`
+                mapping; then `settings` must be omitted or `None`.
+            Other keyword arguments:
+                See: all keyword-only arguments accepted by the
+                `generate_multiple_event_data()` class method.
+        """
+
+        # (note: in the case of the `RandomEvent` class itself, the
+        # `kwargs` dict needs to be empty, yet hypothetical subclasses
+        # may support additional keyword arguments...)
+        super().__init__(**kwargs)
+
+        self._config_init(ready_config, settings)
         self._access_zone = access_zone
         self._client_id = client_id
+        self._params = copy.deepcopy(params) if params is not None else {}
+        self._min_ip = 1           # 0.0.0.1
+        assert self._min_ip > LACK_OF_IPv4_PLACEHOLDER_AS_INT
         self._max_ip = 0xfffffffe  # 255.255.255.254
         self._current_datetime = datetime.datetime.utcnow()
         self._attributes_init()
 
-    def _config_init(self, settings):
-        self.config = self.get_config_section(settings)
-        self._possible_attrs = self.config.get('possible_event_attributes')
-        self._required_attrs = self.config.get('required_attributes')
-        self._event_name = self.config.get('event_name')
-        self._dip_categories = self.config.get('dip_categories')
-        self._possible_cc_codes = self.config.get('possible_cc_codes')
-        self._possible_client = self.config.get('possible_client')
-        self._possible_domains = self.config.get('possible_domains')
-        self._possible_url = self.config.get('possible_url')
-        self._possible_source = self.config.get('possible_source')
-        self._possible_restriction = self.config.get('possible_restriction')
-        self._possible_target = self.config.get('possible_target')
-        self._port_values = self.config.get('port_values')
-        self._md5_values = self.config.get('md5_values')
-        self._seconds_max = self.config.get('seconds_max')
-        self._expires_days_max = self.config.get('expires_days_max')
-        self._random_ips_max = self.config.get('random_ips_max')
+    def _config_init(self,
+                     ready_config: Optional[ConfigSection],
+                     settings: Optional[Mapping]) -> None:
+
+        if ready_config is not None:
+            if settings is not None:
+                raise TypeError('specifying both `ready_config` and `settings` is not supported')
+            self.config = ready_config
+        else:
+            self.config = self.obtain_config(settings)
+
+        self._possible_attrs = list(self.config['possible_event_attributes'])
+        for needed_attr in ['url', 'time', 'category']:   # <- needed when creating other attrs
+            self._move_attr_to_beginning_if_present(needed_attr)
+
+        self._required_attrs = frozenset(self.config['required_event_attributes'])
+        if illegal := self._required_attrs.difference(self._possible_attrs):
+            listing = ', '.join(sorted(map(ascii, illegal)))
+            raise ConfigError(
+                f'`required_event_attributes` should be a subset of '
+                f'`possible_event_attributes` (the items present in '
+                f'the former and not in the latter are: {listing})')
+
+        self._dip_categories = frozenset(self.config['dip_categories'])
+        self._port_attributes = frozenset(self.config['port_attributes'])
+        self._md5_attributes = frozenset(self.config['md5_attributes'])
+
+        self._possible_cc_in_address = list(self.config['possible_cc_in_address'])
+        self._possible_client = list(self.config['possible_client'])
+        self._possible_fqdn = list(self.config['possible_fqdn'])
+        self._possible_url = list(self.config['possible_url'])
+        self._possible_name = list(self.config['possible_name'])
+        self._possible_source = list(self.config['possible_source'])
+        self._possible_restriction = list(self.config['possible_restriction'])
+        self._possible_target = list(self.config['possible_target'])
+
+        self._seconds_max = self.config['seconds_max']
+        self._expires_days_max = self.config['expires_days_max']
+        self._random_ips_max = self.config['random_ips_max']
+
+    def _move_attr_to_beginning_if_present(self, attr):
+        try:
+            self._possible_attrs.remove(attr)
+        except ValueError:
+            pass
+        else:
+            self._possible_attrs.insert(0, attr)
 
     def _attributes_init(self):
         self._possible_category = CATEGORY_ENUMS
@@ -175,8 +277,10 @@ class RandomEvent(ConfigMixin):
             try:
                 output_attribute = self._create_attribute(attr)
             except AttributeCreationError:
-                LOGGER.warning("No method could be assigned for attribute: '%s' and no values "
-                               "were provided in request params.", attr)
+                LOGGER.warning(
+                    'No method of value generation could be found '
+                    'for attribute %a and no values were provided '
+                    'for it in request params (if any).', attr)
             if output_attribute is not None:
                 self.event[attr] = output_attribute
 
@@ -210,9 +314,9 @@ class RandomEvent(ConfigMixin):
         # should be included
         if not self._include_in_event(attr):
             return None
-        if attr in self._port_values:
+        if attr in self._port_attributes:
             return self._get_value_for_port_attr()
-        if attr in self._md5_values:
+        if attr in self._md5_attributes:
             return self._get_value_for_md5_attr()
         possible_vals = getattr(self, self._POSSIBLE_VALS_PREFIX + attr, None)
         # if there is no specific method for a current attribute
@@ -270,7 +374,7 @@ class RandomEvent(ConfigMixin):
             if param_ip_list:
                 ip = random.choice(param_ip_list)
             else:
-                ip = self._int_to_ip(random.randint(1, self._max_ip))
+                ip = self._int_to_ip(random.randint(self._min_ip, self._max_ip))
             asn = None
             cc = None
             # do not include asn or cc if opt.primary param is True
@@ -290,7 +394,7 @@ class RandomEvent(ConfigMixin):
                 if param_cc_list:
                     cc = random.choice(param_cc_list)
                 else:
-                    cc = random.choice(self._possible_cc_codes)
+                    cc = random.choice(self._possible_cc_in_address)
             address_item = {
                 key: value for key, value in [('ip', ip), ('asn', asn), ('cc', cc)]
                 if value is not None}
@@ -304,6 +408,7 @@ class RandomEvent(ConfigMixin):
         # assigned only to him
         attr_name = 'client'
         if self._access_zone == 'inside':
+            # XXX: shouldn't it be checked if `self._client_id` is not None?
             return [self._client_id]
         if self._attr_in_params(attr_name):
             return self._params[attr_name]
@@ -317,16 +422,25 @@ class RandomEvent(ConfigMixin):
             if self._attr_in_params(attr_name):
                 return random.choice(self._params[attr_name])
             if self._include_in_event(attr_name):
-                return self._int_to_ip(random.randint(1, self._max_ip))
+                return self._int_to_ip(random.randint(self._min_ip, self._max_ip))
         return None
 
+    @staticmethod
+    def _get_enriched():
+        # maybe TODO later: implement it in a more interesting way?
+        return [[], {}]
+
     def _get_expires(self):
+        # XXX: shouldn't it be done is such a way that: it is set only
+        #      for bl events (obligatorily!) and then (and only then!)
+        #      also `status` + optionally `replaces` would be set?
         max_expires = self._current_datetime + datetime.timedelta(days=self._expires_days_max)
         if self._include_in_event('expires'):
             return radar.random_datetime(self._current_datetime, max_expires)
         return None
 
     def _get_fqdn(self):
+        # XXX: is it justified that `fqdn` is not included when `opt.primary` is set?
         if self.event['category'] in self._dip_categories or self._is_opt_primary():
             return None
         if self._attr_in_params('fqdn'):
@@ -334,12 +448,13 @@ class RandomEvent(ConfigMixin):
         if self._attr_in_params('fqdn.sub'):
             sub = random.choice(self._params['fqdn.sub'])
             cleaned_sub = self._clean_input_value(sub, self._LEGAL_FQDN_REGEX)
-            return self._get_matching_values(cleaned_sub, self._possible_domains)
+            return self._get_matching_values(cleaned_sub, self._possible_fqdn)
+        # XXX: is it justified that `fqdn` is not included when `opt.primary` is set?
         if self._is_opt_primary() or not self._include_in_event('fqdn'):
             return None
         if self._attr_in_params('url'):
             return self._url_to_domain(self.event['url'])
-        return random.choice(self._possible_domains)
+        return random.choice(self._possible_fqdn)
 
     def _get_modified(self):
         if self._include_in_event('modified'):
@@ -351,7 +466,7 @@ class RandomEvent(ConfigMixin):
         if self._attr_in_params(attr_name):
             return random.choice(self._params[attr_name])
         if self._include_in_event(attr_name):
-            return self._event_name
+            return random.choice(self._possible_name)
         return None
 
     def _get_proto(self):
@@ -372,6 +487,7 @@ class RandomEvent(ConfigMixin):
             time_max = self._current_datetime
         if self._attr_in_params('time.min'):
             time_min = self._params['time.min'][0]
+        # XXX: is this logic related to `time.until` valid?
         elif self._attr_in_params('time.until'):
             time_min = self._params['time.min'][0] + hour
         else:
@@ -381,6 +497,7 @@ class RandomEvent(ConfigMixin):
         return None
 
     def _get_url(self):
+        # XXX: is it justified that `url` is not included when `opt.primary` is set?
         if self.event["category"] in self._dip_categories or self._is_opt_primary():
             return None
         if self._attr_in_params('url'):

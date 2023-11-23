@@ -1488,7 +1488,10 @@ class _DataPreparer(object):
             asn_seq = list(map(int, get_attr_value_list(org, 'n6asn')))
             cc_seq = list(get_attr_value_list(org, 'n6cc'))
             fqdn_seq = list(get_attr_value_list(org, 'n6fqdn'))
-            ip_min_max_seq = list(map(ip_network_tuple_to_min_max_ip,
+            convert_to_min_max_ip = functools.partial(
+                ip_network_tuple_to_min_max_ip,
+                force_min_ip_greater_than_zero=True)
+            ip_min_max_seq = list(map(convert_to_min_max_ip,
                                       map(ip_network_as_tuple,
                                           get_attr_value_list(org, 'n6ip-network'))))
             url_seq = list(get_attr_value_list(org, 'n6url'))
@@ -1840,7 +1843,9 @@ class _DataPreparer(object):
             if name == 'ip-network':
                 for ip_network_str in value_list:
                     ip_network_tuple = ip_network_as_tuple(ip_network_str)
-                    min_ip, max_ip = ip_network_tuple_to_min_max_ip(ip_network_tuple)
+                    min_ip, max_ip = ip_network_tuple_to_min_max_ip(
+                        ip_network_tuple,
+                        force_min_ip_greater_than_zero=True)
                     column = cond_builder['ip']
                     yield column.between(min_ip, max_ip)
             else:

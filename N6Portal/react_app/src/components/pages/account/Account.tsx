@@ -70,7 +70,7 @@ const Account: FC = () => {
                   <div className="d-flex flex-column account-card">
                     <div className="d-flex align-items-center title-wrapper">
                       <img src={EmailNotificationsIcon} alt="" />
-                      <h2 className="ml-3 mb-0">{messages['account_email_notigications']}</h2>
+                      <h2 className="ml-3 mb-0">{messages['account_email_notifications']}</h2>
                     </div>
                     {data.email_notifications.email_notification_language && (
                       <div className="account-info-item">

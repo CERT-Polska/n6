@@ -14,8 +14,6 @@ RUN apt-get update && \
         mariadb-plugin-tokudb \
         libjemalloc1
 
-#Fixes db creation condition in line 181
-RUN sed -i.bak 's%"$DATADIR/mysql"%"$DATADIR/mysql/$@"%g' /usr/local/bin/docker-entrypoint.sh
 
 RUN ["/bin/bash", "-c", "rm -rf /etc/mysql/conf.d/*"]
 COPY ./etc/mysql/conf.d/mariadb.cnf /etc/mysql/conf.d/mariadb.cnf

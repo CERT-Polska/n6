@@ -54,8 +54,8 @@ def iter_unzip_from_bytes(zipped,
             (without dir parts) we are interested in. If given (and
             not `None`) then only the specified files will be extracted,
             ignoring non-existent ones. Each filename will be, firstly,
-            coerced to `str` using the `os.fspath()` helper and then
-            the `as_unicode()` helper from `n6lib.common_helpers`.
+            coerced to `str` (using the `os.fspath()` helper and then
+            the `as_unicode()` helper from `n6lib.common_helpers`).
         `yielding_with_dirs` (default: False):
             If False -- dir names will be stripped off from yielded file names.
             If True -- file names will be yielded as found in the archive

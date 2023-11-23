@@ -206,10 +206,10 @@ def _patching_method(method_name, patcher_maker, target_autocompletion=True):
     True
     >>> m.reset_mock()
 
-    >>> t.do_patch()
+    >>> t.do_patch()                                # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    TypeError: do_patch() missing 1 required positional argument: 'target'
+    TypeError: ...do_patch() missing 1 required positional argument: 'target'
 
     >>> t.do_patch('spam', sentinel.arg, kwarg=sentinel.kwarg)
     sentinel.mock_thing
@@ -587,6 +587,10 @@ class TestCaseMixin(SDKTestCaseMixin):
 
     #
     # Other helper methods
+
+    @staticmethod
+    def raise_exc(exc):
+        raise exc
 
     @staticmethod
     def regex_search(regex, text):
@@ -977,20 +981,20 @@ class AnyDictIncluding(_ExpectedObjectPlaceholder):
 
     >>> any_dict_including_foobar == any_dict_including_foobar
     True
-    >>> any_dict_including_foobar == AnyDictIncluding(foo=u'bar')
+    >>> any_dict_including_foobar == AnyDictIncluding(foo='bar')
     True
     >>> any_dict_including_foobar != any_dict_including_foobar
     False
-    >>> any_dict_including_foobar != AnyDictIncluding(foo=u'bar')
+    >>> any_dict_including_foobar != AnyDictIncluding(foo='bar')
     False
 
-    >>> any_dict_including_foobar == AnyDictIncluding(foo=u'barrrrr')
+    >>> any_dict_including_foobar == AnyDictIncluding(foo='barrrrr')
     False
-    >>> AnyDictIncluding(foo=u'barrrrr') == any_dict_including_foobar
+    >>> AnyDictIncluding(foo='barrrrr') == any_dict_including_foobar
     False
-    >>> any_dict_including_foobar != AnyDictIncluding(foo=u'barrrrr')
+    >>> any_dict_including_foobar != AnyDictIncluding(foo='barrrrr')
     True
-    >>> AnyDictIncluding(foo=u'barrrrr') != any_dict_including_foobar
+    >>> AnyDictIncluding(foo='barrrrr') != any_dict_including_foobar
     True
     """
 
@@ -1059,46 +1063,46 @@ class JSONWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
     >>> json1 == b'{"key": 42}'
     True
 
-    >>> json1 == u'{"key": 42}'
+    >>> json1 == '{"key": 42}'
     True
     >>> b'{"key": 42}' == json1
     True
-    >>> u'{"key": 42}' == json1
+    >>> '{"key": 42}' == json1
     True
     >>> json1 != b'{"key": 42}'
     False
-    >>> json1 != u'{"key": 42}'
+    >>> json1 != '{"key": 42}'
     False
     >>> b'{"key": 42}' != json1
     False
-    >>> u'{"key": 42}' != json1
+    >>> '{"key": 42}' != json1
     False
 
     >>> json2 = JSONWhoseContentIsEqualTo([42, 'spam', {'key': 42}])
     >>> json2 == b'[42, "spam", {"key": 42}]'
     True
-    >>> json2 == u'[42, "spam", {"key": 42}]'
+    >>> json2 == '[42, "spam", {"key": 42}]'
     True
     >>> b'[42, "spam", {"key": 42}]' == json2
     True
-    >>> u'[42, "spam", {"key": 42}]' == json2
+    >>> '[42, "spam", {"key": 42}]' == json2
     True
     >>> json2 != b'[42, "spam", {"key": 42}]'
     False
-    >>> json2 != u'[42, "spam", {"key": 42}]'
+    >>> json2 != '[42, "spam", {"key": 42}]'
     False
     >>> b'[42, "spam", {"key": 42}]' != json2
     False
-    >>> u'[42, "spam", {"key": 42}]' != json2
+    >>> '[42, "spam", {"key": 42}]' != json2
     False
 
     >>> json1 == b'{"another-key": 42}'
     False
-    >>> json1 == u'{"key": 444442}'
+    >>> json1 == '{"key": 444442}'
     False
     >>> json1 == b'[{"key": 42}]'
     False
-    >>> json1 == u'"key"'
+    >>> json1 == '"key"'
     False
     >>> json1 == b'foo'
     False
@@ -1110,11 +1114,11 @@ class JSONWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
     False
     >>> b'{"another-key": 42}' == json1
     False
-    >>> u'{"key": 444442}' == json1
+    >>> '{"key": 444442}' == json1
     False
     >>> b'[{"key": 42}]' == json1
     False
-    >>> u'"key"' == json1
+    >>> '"key"' == json1
     False
     >>> b'foo' == json1
     False
@@ -1127,11 +1131,11 @@ class JSONWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
 
     >>> json1 != b'{"another-key": 42}'
     True
-    >>> json1 != u'{"key": 444442}'
+    >>> json1 != '{"key": 444442}'
     True
     >>> json1 != b'[{"key": 42}]'
     True
-    >>> json1 != u'"key"'
+    >>> json1 != '"key"'
     True
     >>> json1 != b'foo'
     True
@@ -1141,11 +1145,11 @@ class JSONWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
     True
     >>> b'{"another-key": 42}' != json1
     True
-    >>> u'{"key": 444442}' != json1
+    >>> '{"key": 444442}' != json1
     True
     >>> b'[{"key": 42}]' != json1
     True
-    >>> u'"key"' != json1
+    >>> '"key"' != json1
     True
     >>> b'foo' != json1
     True
@@ -1156,24 +1160,24 @@ class JSONWhoseContentIsEqualTo(_ExpectedObjectPlaceholder):
 
     >>> json1 == json1
     True
-    >>> json1 == JSONWhoseContentIsEqualTo(data={u'key': 42})
+    >>> json1 == JSONWhoseContentIsEqualTo(data={'key': 42})
     True
-    >>> JSONWhoseContentIsEqualTo(data={u'key': 42}) == json1
+    >>> JSONWhoseContentIsEqualTo(data={'key': 42}) == json1
     True
     >>> json1 != json1
     False
-    >>> json1 != JSONWhoseContentIsEqualTo(data={u'key': 42})
+    >>> json1 != JSONWhoseContentIsEqualTo(data={'key': 42})
     False
-    >>> JSONWhoseContentIsEqualTo(data={u'key': 42}) != json1
+    >>> JSONWhoseContentIsEqualTo(data={'key': 42}) != json1
     False
 
-    >>> json1 == JSONWhoseContentIsEqualTo(data={u'key': 444442})
+    >>> json1 == JSONWhoseContentIsEqualTo(data={'key': 444442})
     False
-    >>> JSONWhoseContentIsEqualTo(data={u'key': 444442}) == json1
+    >>> JSONWhoseContentIsEqualTo(data={'key': 444442}) == json1
     False
-    >>> json1 != JSONWhoseContentIsEqualTo(data={u'key': 444442})
+    >>> json1 != JSONWhoseContentIsEqualTo(data={'key': 444442})
     True
-    >>> JSONWhoseContentIsEqualTo(data={u'key': 444442}) != json1
+    >>> JSONWhoseContentIsEqualTo(data={'key': 444442}) != json1
     True
 
     >>> json1 == json2

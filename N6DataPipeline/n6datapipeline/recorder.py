@@ -13,6 +13,7 @@ import sys
 
 import MySQLdb.cursors
 import sqlalchemy.event
+from MySQLdb import MySQLError
 from sqlalchemy import (
     create_engine,
     text as sqla_text,
@@ -24,7 +25,12 @@ from sqlalchemy.exc import (
 )
 
 from n6datapipeline.base import LegacyQueuedBase
-from n6lib.common_helpers import str_to_bool
+from n6lib.common_helpers import (
+    ascii_str,
+    make_exc_ascii_str,
+    replace_segment,
+    str_to_bool,
+)
 from n6lib.config import Config
 from n6lib.data_backend_api import (
     N6DataBackendAPI,
@@ -43,11 +49,6 @@ from n6lib.log_helpers import (
 from n6lib.record_dict import (
     RecordDict,
     BLRecordDict,
-)
-from n6lib.common_helpers import (
-    ascii_str,
-    make_exc_ascii_str,
-    replace_segment,
 )
 
 
@@ -115,6 +116,13 @@ class Recorder(LegacyQueuedBase):
     _MIN_WAIT_TIMEOUT = 3600
     _MAX_WAIT_TIMEOUT = _DEFAULT_WAIT_TIMEOUT = 28800
 
+    _DEFAULT_FATAL_DB_API_ERROR_CODES = (
+        # A *string* (not a sequence of strings!) that contains DB API
+        # error codes, comma-separated (the string will be converted
+        # with `n6lib.config.Config.BASIC_CONVERTERS['list_of_int']`).
+        '1021,'  # <- ER_DISK_FULL (see: https://mariadb.com/kb/en/mariadb-error-codes/)
+    )
+
     input_queue = {
         "exchange": "event",
         "exchange_type": "topic",
@@ -139,6 +147,7 @@ class Recorder(LegacyQueuedBase):
         LOGGER.info("Recorder Start")
         config = Config(required={"recorder": ("uri",)})
         self.config = config["recorder"]
+        self._fatal_db_api_error_codes = self._get_fatal_db_api_error_codes_from_config()
         self.record_dict = None
         self.records = None
         self.routing_key = None
@@ -156,6 +165,11 @@ class Recorder(LegacyQueuedBase):
         self.FROM_JSON = 0
         self.HANDLE_EVENT = 1
         super(Recorder, self).__init__(**kwargs)
+
+    def _get_fatal_db_api_error_codes_from_config(self):
+        conv = Config.BASIC_CONVERTERS['list_of_int']
+        return frozenset(conv(
+            self.config.get('fatal_db_api_error_codes', self._DEFAULT_FATAL_DB_API_ERROR_CODES)))
 
     def _setup_db(self):
         wait_timeout = int(self.config.get("wait_timeout", self._DEFAULT_WAIT_TIMEOUT))
@@ -446,6 +460,17 @@ class Recorder(LegacyQueuedBase):
         return '.'.join(parts_rk)
 
     def input_callback(self, routing_key, body, properties):
+        try:
+            self._input_callback(routing_key, body, properties)
+        except Exception as exc:
+            error_code = self._get_db_api_error_code(exc)
+            if error_code in self._fatal_db_api_error_codes:
+                raise SystemExit(
+                    f'Fatal DB API error code: {error_code!a} '
+                    f'(from {make_exc_ascii_str(exc)})') from exc
+            raise
+
+    def _input_callback(self, routing_key, body, properties):
         """ Channel callback method """
         # first let's try ping mysql server
         self.ping_connection()
@@ -471,6 +496,21 @@ class Recorder(LegacyQueuedBase):
         LOGGER.debug("source: %a", self.record_dict['source'])
         LOGGER.debug("properties: %a", properties)
         #LOGGER.debug("body: %a", body)
+
+    @staticmethod
+    def _get_db_api_error_code(exc):
+        while isinstance(exc, SQLAlchemyError):
+            orig = getattr(exc, 'orig', None)
+            if orig is exc:
+                break
+            exc = orig
+        if isinstance(exc, MySQLError):
+            exc_args = getattr(exc, 'args', None)
+            if isinstance(exc_args, tuple) and exc_args:
+                error_code = exc_args[0]
+                if isinstance(error_code, int):
+                    return error_code
+        return None
 
     def json_to_record(self, rows):
         """

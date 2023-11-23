@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import json
 import unittest
@@ -139,9 +139,9 @@ class TestFilter(unittest.TestCase):
         d['address'][0]['asn'] = '1'
         d['address'][1]['asn'] = '1'
         d['address'][2]['asn'] = '1'
-        d['address'][0]['ip'] = '0.0.0.0'
-        d['address'][1]['ip'] = '0.0.0.1'
-        d['address'][2]['ip'] = '0.0.0.2'
+        d['address'][0]['ip'] = '0.0.0.1'
+        d['address'][1]['ip'] = '0.0.0.2'
+        d['address'][2]['ip'] = '1.0.0.0'
         return d
 
     def test__get_client_and_urls_matched__1(self):
@@ -404,7 +404,7 @@ class TestFilter(unittest.TestCase):
                 '77.4.0.0',
                 '1.2.3.4',
                 '10.20.30.40',
-                '0.0.0.0',
+                '0.0.0.1',
                 '255.255.255.255',
         ]:
             data['address'][0]['ip'] = other_ip

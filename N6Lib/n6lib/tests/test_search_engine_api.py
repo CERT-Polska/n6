@@ -1,7 +1,8 @@
-# Copyright (c) 2022 NASK. All rights reserved.
+# Copyright (c) 2022-2023 NASK. All rights reserved.
 
 import unittest
 
+import pytest
 from unittest_expander import (
     expand,
     foreach,
@@ -95,6 +96,7 @@ class TestSearcheEngine(unittest.TestCase):
             str(context.exception),
         )
 
+    @pytest.mark.slow
     def test_index_document_correct(self):
         self.assertEqual(self.search_engine.index, {})
         document_1 = SearchedDocument(1, "zawartość dokumentu")
@@ -117,6 +119,7 @@ class TestSearcheEngine(unittest.TestCase):
             },
         )
 
+    @pytest.mark.slow
     def test_search_correct(self):
         for document in [SearchedDocument(1, "zawartość dokumentu"),
                          SearchedDocument(2, "zawartość artykułu")]:
@@ -131,6 +134,7 @@ class TestSearcheEngine(unittest.TestCase):
             self.search_engine.search("dokument")
         self.assertEqual("index not set", str(context.exception))
 
+    @pytest.mark.slow
     def test_search_error_wrong_search_type(self):
         with self.assertRaises(SearchEngineError) as context:
             self.search_engine.index_document(SearchedDocument(1, "dokument"))

@@ -1,4 +1,4 @@
-# Copyright (c) 2014-2022 NASK. All rights reserved.
+# Copyright (c) 2014-2023 NASK. All rights reserved.
 
 import collections
 import contextlib
@@ -850,8 +850,8 @@ class TestAuthAPI___get_inside_criteria(_AuthAPILdapDataBasedMethodTestMixIn,
                     'n6asn': ['12', '34'],
                     'n6cc': ['PL', 'US'],
                     'n6fqdn': ['example.com', 'xyz.example.net'],
-                    'n6ip-network': ['1.2.3.4/16', '101.102.103.104/32'],
-                    'n6url': ['exp.pl', 'bank.pl/auth.php', u'Łódź'],
+                    'n6ip-network': ['0.10.20.30/8', '1.2.3.4/16', '101.102.103.104/32'],
+                    'n6url': ['example.info', 'institution.example.pl/auth.php', 'Łódź'],
                 }),
                 ('o=o2,ou=orgs,dc=n6,dc=cert,dc=pl', {
                     'n6asn': ['1234567'],
@@ -870,8 +870,12 @@ class TestAuthAPI___get_inside_criteria(_AuthAPILdapDataBasedMethodTestMixIn,
                     'asn_seq': [12, 34],
                     'cc_seq': ['PL', 'US'],
                     'fqdn_seq': ['example.com', 'xyz.example.net'],
-                    'ip_min_max_seq': [(16908288, 16973823), (1701209960, 1701209960)],
-                    'url_seq': ['exp.pl', 'bank.pl/auth.php', u'Łódź'],
+                    'ip_min_max_seq': [
+                        (1, 16777215),  # <- Note: here the minimum IP is 1, not 0 (see: #8861).
+                        (16908288, 16973823),
+                        (1701209960, 1701209960),
+                    ],
+                    'url_seq': ['example.info', 'institution.example.pl/auth.php', 'Łódź'],
                 },
                 {
                     'org_id': 'o2',
@@ -2194,7 +2198,7 @@ EXTREME_IP_CRITERIA = [
     {
         'org_id': 'o7',
         'ip_min_max_seq': [
-            (0, 1),
+            (1, 2),
             (102, MAX_IP),
         ],
     },
@@ -2202,8 +2206,8 @@ EXTREME_IP_CRITERIA = [
         'org_id': 'o6',
         'ip_min_max_seq': [
             (MAX_IP, MAX_IP),
-            (2, 100),
-            (0, 0),
+            (3, 100),
+            (1, 1),
         ],
     },
 ]
@@ -2218,39 +2222,40 @@ EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_EXTREME_IP_CRITERIA = [
     ]),
 
     ({'o6'}, [
-        {2},
+        {4},
+        {3},
         {50},
         {100},
-        {2, 30, 70, 100},
+        {3, 30, 70, 100},
         {30, 40, 50, 60, 70, 101},
     ]),
 
     ({'o7'}, [
-        {1},
+        {2},
         {102},
         {12345},
         {MAX_IP - 1},
         {150, 101, 12345},
-        {1, 102, 12345, MAX_IP - 1},
+        {2, 102, 12345, MAX_IP - 1},
     ]),
 
     ({'o6', 'o7'}, [
-        {0},
+        {1},
         {MAX_IP},
-        {0, MAX_IP},
-        {0, 1},
+        {1, MAX_IP},
         {1, 2},
-        {1, 50},
-        {1, 100},
-        {2, 102},
+        {2, 3},
+        {2, 50},
+        {2, 100},
+        {3, 102},
         {50, 102},
         {100, 102},
         {100, 101, 102},
-        {2, 12345},
+        {3, 12345},
         {50, 12345},
         {100, 12345},
         {100, 12345, MAX_IP},
-        {0, 50, 150, MAX_IP},
+        {1, 50, 150, MAX_IP},
     ]),
 ]
 
@@ -2305,25 +2310,25 @@ EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_COMPLEX_IP_CRITERIA = [
     #      <list of cases: each being a set of integers representing
     #       IP addresses from `address` of the given record dict>)
     (set(), [
-        {0},
+        {1},
         {5},
         {9},
-        {0, 5, 9},
+        {1, 5, 9},
         {131},
         {135},
         {138},
         {5, 135},
-        {0, 9, 131, 135, 138},
+        {1, 9, 131, 135, 138},
         {171},
         {174, 176},
         {179},
         {191},
         {12345},
         {MAX_IP},
-        {0, MAX_IP},
+        {1, MAX_IP},
         {5, 134, 175, 192},
         {5, 131, 135, 138, 171, 175, 179, 191, 12345},
-        {0, 5, 9, 131, 135, 138, 171, 175, 179, 191, 12345, MAX_IP},
+        {1, 5, 9, 131, 135, 138, 171, 175, 179, 191, 12345, MAX_IP},
     ]),
 
     ({'o8'}, [
@@ -2331,7 +2336,7 @@ EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_COMPLEX_IP_CRITERIA = [
         {130},
         {124, 125},
         {5, 124, 125, 12345},
-        {0, 5, 9, 130, 131, 135, 138, 171, 175, 179, 191, 12345, MAX_IP},
+        {1, 5, 9, 130, 131, 135, 138, 171, 175, 179, 191, 12345, MAX_IP},
     ]),
 
     ({'o9'}, [
@@ -2347,7 +2352,7 @@ EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_COMPLEX_IP_CRITERIA = [
         {168},
         {170},
         {91, 94, 99, 145, 165, 170, MAX_IP},
-        {0, 94, 145, 165, 12345},
+        {1, 94, 145, 165, 12345},
     ]),
 
     ({'o10'}, [
@@ -2385,7 +2390,7 @@ EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_COMPLEX_IP_CRITERIA = [
         {120},
         {190},
         {9, 25, 29, 120, 190, 12345},
-        {0, 121, 139, MAX_IP},
+        {1, 121, 139, MAX_IP},
     ]),
 
     ({'o9', 'o10'}, [
@@ -2402,7 +2407,7 @@ EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_COMPLEX_IP_CRITERIA = [
         {115},
         {169},
         {71, 80, 115},
-        {1, 71, 81, 169, 12345, MAX_IP},
+        {2, 71, 81, 169, 12345, MAX_IP},
         {139, 140},
     ]),
 
@@ -2435,13 +2440,15 @@ EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_COMPLEX_IP_CRITERIA = [
         {130, 138, 139, 140},
         {130, 169},
         {150, 180},
-        {3, 30, 42, 70, 100, 110},
+        {4, 30, 42, 70, 100, 110},
         {5, 10, 120, 125, 155, 170, 185, MAX_IP}
     ]),
 ]
 
 def _ip_min_max(ip_network):
-    return ip_network_tuple_to_min_max_ip(ip_network_as_tuple(ip_network))
+    return ip_network_tuple_to_min_max_ip(
+        ip_network_as_tuple(ip_network),
+        force_min_ip_greater_than_zero=True)
 _ip = ip_str_to_int
 
 SPECIFIC_IP_CRITERIA = [
@@ -2468,13 +2475,13 @@ EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_SPECIFIC_IP_CRITERIA = [
     #      <list of cases: each being a set of integers representing
     #       IP addresses from `address` of the given record dict>)
     (set(), [
-        {0},
+        {1},
         {_ip('10.10.9.255')},
         {_ip('10.10.10.152')},
         {_ip('10.10.11.0')},
         {MAX_IP},
         {
-            0,
+            1,
             _ip('10.10.9.255'),
             _ip('10.10.10.152'),
             _ip('10.10.11.0'),
@@ -2497,7 +2504,7 @@ EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_SPECIFIC_IP_CRITERIA = [
             for i in range(256)
             # (here we do not skip `...152`)
         } | {
-            0,
+            1,
             _ip('10.10.9.255'),
             _ip('10.10.11.0'),
             MAX_IP,
@@ -2979,9 +2986,9 @@ class TestInsideCriteriaResolver_initialization(TestCaseMixin, unittest.TestCase
             expected_content=(
                 [
                     -1,           # guard item
-                    0,
                     1,
                     2,
+                    3,
                     101,
                     102,
                     MAX_IP,

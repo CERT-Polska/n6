@@ -1,6 +1,12 @@
-# Copyright (c) 2015-2022 NASK. All rights reserved.
+# Copyright (c) 2015-2023 NASK. All rights reserved.
 
 """
+This module provides tools to express *data selection conditions*; by
+formulating a *condition* we specify which event data records shall be
+*selected*, that is -- depending on the context -- which ones shall be
+*chosen* (when filtering a data stream) or *searched* (when querying a
+database). See the docs of the `Cond` base class for more details.
+
 This module contains the following public stuff:
 
 * `CondBuilder`
@@ -69,7 +75,13 @@ This module contains the following public stuff:
   * `CondEqualityMergingTransformer` (base: `CondTransformer`)
   * `CondDeMorganTransformer` (base: `CondTransformer`)
 
-(For more information -- see the docs of the classes.)
+(For more information -- see the docs of those classes.)
+
+Note: some of the classes provided by this module make heavy use of
+the `n6lib.common_helpers.OPSet` class -- which is an order-preserving
+implementation of `collections.abc.Set`, i.e., such an implementation
+that remembers the element insertion order (to learn more about how it
+behaves, see the docs of `OPSet` itself).
 """
 
 import collections
@@ -103,7 +115,6 @@ from n6lib.common_helpers import (
     OPSet,
     ascii_str,
     ip_str_to_int,
-    is_pure_ascii,
     iter_altered,
 )
 
@@ -283,12 +294,12 @@ class CondBuilder:
       ...
     TypeError: the `!=` operation is not supported
 
-    The rationale is that the behavior of the SQL `!=` operator when
+    The rationale is that the behavior of the SQL `!=` operator, when
     *NULL* values are involved (with the *three-valued logic*-based
-    *NULL*-propagating behavior) is confusingly different from the
+    *NULL*-propagating behavior), is confusingly different from the
     behavior of the Python `!=` operator when `None` values are involved
     (note that even if we banned `None` as the right hand side operand
-    -- as we do for the rest of the operators -- the problem could still
+    -- as we do for all supported operators -- the problem could still
     occur for the left hand side operand, that is, when values of the
     concerned field in some records being searched through were *NULL*).
     By leaving the `!=` operator unsupported, we avoid a lot of potential
@@ -315,30 +326,30 @@ class CondBuilder:
 
         __hash__ = None
 
-        def __eq__(self, op_param: Hashable) -> 'EqualCond':
+        def __eq__(self, op_param: Hashable, /) -> 'EqualCond':
             return EqualCond._make(self._rec_key, op_param)              # noqa
 
         # (unsupported; see the rationale in the docs of `CondBuilder`...)
         def __ne__(self, _) -> NoReturn:
             raise TypeError('the `!=` operation is not supported')
 
-        def __gt__(self, op_param: Hashable) -> 'GreaterCond':
+        def __gt__(self, op_param: Hashable, /) -> 'GreaterCond':
             return GreaterCond._make(self._rec_key, op_param)            # noqa
 
-        def __ge__(self, op_param: Hashable) -> 'GreaterOrEqualCond':
+        def __ge__(self, op_param: Hashable, /) -> 'GreaterOrEqualCond':
             return GreaterOrEqualCond._make(self._rec_key, op_param)     # noqa
 
-        def __lt__(self, op_param: Hashable) -> 'LessCond':
+        def __lt__(self, op_param: Hashable, /) -> 'LessCond':
             return LessCond._make(self._rec_key, op_param)               # noqa
 
-        def __le__(self, op_param: Hashable) -> 'LessOrEqualCond':
+        def __le__(self, op_param: Hashable, /) -> 'LessOrEqualCond':
             return LessOrEqualCond._make(self._rec_key, op_param)        # noqa
 
-        def in_(self, op_param: Iterable[Hashable]) -> 'Union[InCond, EqualCond, FixedCond]':
+        def in_(self, op_param: Iterable[Hashable], /) -> 'Union[InCond, EqualCond, FixedCond]':
             return InCond._make(self._rec_key, op_param)                 # noqa
 
         @overload
-        def between(self, op_param: Iterable[Hashable]) -> 'BetweenCond':
+        def between(self, op_param: Iterable[Hashable], /) -> 'BetweenCond':
             # The basic `between()`'s call variant: `op_param`
             # specified as one positional argument -- expected
             # to be a `(<min value>, <max value>)` tuple, or an
@@ -346,7 +357,7 @@ class CondBuilder:
             ...
 
         @overload
-        def between(self, min_value: Hashable, max_value: Hashable) -> 'BetweenCond':
+        def between(self, min_value: Hashable, max_value: Hashable, /) -> 'BetweenCond':
             # Another call variant, added for convenience: the
             # `op_param` items, `<min value>` and `<max value>`,
             # specified as two separate positional arguments.
@@ -364,7 +375,7 @@ class CondBuilder:
                     f'arguments ({arg_count} given)')
             return BetweenCond._make(self._rec_key, op_param)            # noqa
 
-        def contains_substring(self, op_param: str) -> 'ContainsSubstringCond':
+        def contains_substring(self, op_param: str, /) -> 'ContainsSubstringCond':
             return ContainsSubstringCond._make(self._rec_key, op_param)  # noqa
 
         def is_null(self) -> 'IsNullCond':
@@ -1352,6 +1363,37 @@ class Cond(Hashable):
     >>> not5 in another_set or not6 in another_set or not7 in another_set
     False
 
+    >>> a_set & another_set == set()
+    True
+    >>> yet_another_set = {
+    ...     not3,
+    ...     cond_builder.true(),
+    ... }
+    >>> a_set & yet_another_set == {
+    ...     cond_builder.true(),
+    ... }
+    True
+    >>> yet_another_set & another_set == {
+    ...     not3,
+    ... }
+    True
+    >>> a_set - yet_another_set == {
+    ...     cond_builder.or_(and1, not1, simple2),
+    ... }
+    True
+    >>> another_set - yet_another_set == {
+    ...     not2, not4,
+    ...     cond_builder['count'].between(1, 100),
+    ... }
+    True
+    >>> a_set ^ another_set == a_set | another_set == a_set | another_set | yet_another_set == {
+    ...     cond_builder.or_(and1, not1, simple2),
+    ...     cond_builder.true(),
+    ...     not2, not3, not4,
+    ...     cond_builder['count'].between(1, 100),
+    ... }
+    True
+
 
     Specific features of constructors
     =================================
@@ -1589,13 +1631,13 @@ class Cond(Hashable):
                 GreaterCond._make(key, val),
                 EqualCond._make(key, val))
 
-    (Note: whereas the second and third conditions are logically
-    equivalent to each other, *none* of them is equivalent to the
-    first one!)
+    (Note: the second and third conditions are logically equivalent
+    to each other, but -- in the *general case* -- *none* of them is
+    equivalent to the first one!)
 
 
-    TODO: add info about the possibiliy of multi-value items in
-    data records and about consequences:
+    TODO: add info about the possibiliy of multi-value items in data
+    records and about the consequences of that:
          * why e.g.
            * `x == 1 AND x == 3 AND x < 1 AND x > 3` may be *TRUE*
            * `NOT (x == 1) OR NOT (x == 3)` may be *FALSE*
@@ -1642,7 +1684,7 @@ class Cond(Hashable):
 
     _adapt_init_args: Callable[..., tuple[Hashable, ...]]
 
-    __init__: Callable
+    __init__: Callable[..., None]
 
 
     #
@@ -1873,7 +1915,8 @@ class CompoundMultiCond(CompoundCond):
         assert (isinstance(subconditions, OPSet)
                 and all(isinstance(subcond, Cond) for subcond in subconditions))
 
-        # A few obvious reductions:
+        # A few obvious reductions (see the docs of `AndCond` and
+        # `OrCond`):
 
         # * skipping the *neutral* element, e.g.:
         #   * `TRUE AND x` -> `x`
@@ -1890,7 +1933,8 @@ class CompoundMultiCond(CompoundCond):
                     subcond.subconditions if isinstance(subcond, cls)
                     else (subcond,)))
 
-        # (note: *deduplication* is guaranteed thanks to using `OPSet`)
+        # (note: *deduplication* of subconditions is guaranteed thanks
+        # to using `OPSet`)
         return (subconditions,)
 
     @classmethod
@@ -1898,26 +1942,27 @@ class CompoundMultiCond(CompoundCond):
         assert (isinstance(subconditions, OPSet)
                 and all(isinstance(subcond, Cond) for subcond in subconditions))
 
-        # A few other obvious reductions:
+        # A few other obvious reductions (see the docs of `AndCond` and
+        # `OrCond`):
 
-        # * unwrapping the subcondition (if only one)
+        # * unwrapping the subcondition, if there is only one
         if len(subconditions) == 1:
             (subcond,) = subconditions
             return subcond
 
-        # * getting the *neutral* element (if no subconditions), e.g.:
+        # * getting the *neutral* element, if there are no subconditions:
         #   * `ALL of <nothing>` -> `TRUE`
         #   * `ANY of <nothing>` -> `FALSE`
         if not subconditions:
             return FixedCond._make(cls._neutral_truthness)
 
-        # * reducing to the *absorbing* element (if present), e.g.:
+        # * reducing to the *absorbing* element, if it is present:
         #   * `FALSE AND <whatever>` -> `FALSE`
         #   * `TRUE OR <whatever>` -> `TRUE`
         if FixedCond._make(cls._absorbing_truthness) in subconditions:
             return FixedCond._make(cls._absorbing_truthness)
 
-        # * making use of the *complement* law (if applicable), e.g.:
+        # * making use of the *complement* law, if applicable:
         #   * `x AND (NOT x) [AND <whatever>]` -> `FALSE`
         #   * `x OR (NOT x) [OR <whatever>]` -> `TRUE`
         negated_subconditions = OPSet(map(NotCond._make, subconditions))
@@ -1997,7 +2042,7 @@ class RecItemCond(Cond):
                 f"{cls.__qualname__}'s constructor requires `rec_key` "
                 f"being a str (got: {rec_key!r} which is an instance "
                 f"of {rec_key.__class__.__qualname__})"))
-        if not is_pure_ascii(rec_key):
+        if not rec_key.isascii():
             raise ValueError(ascii_str(
                 f"{cls.__qualname__}'s constructor requires `rec_key` "
                 f"being an ASCII-only str (got: {rec_key!r})"))

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import collections
 import copy
@@ -2321,8 +2321,8 @@ class TestIPv4Field(FieldTestMixin, unittest.TestCase):
             expected='123.45.67.8',
         )
         yield case(
-            given='0.0.0.0',
-            expected='0.0.0.0',
+            given='0.0.0.1',
+            expected='0.0.0.1',
         )
         yield case(
             given='255.255.255.255',
@@ -2411,8 +2411,8 @@ class TestIPv4Field(FieldTestMixin, unittest.TestCase):
             expected='123.45.67.8',
         )
         yield case(
-            given='0.0.0.0',
-            expected='0.0.0.0',
+            given='0.0.0.1',
+            expected='0.0.0.1',
         )
         yield case(
             given=bytearray(b'255.255.255.255'),
@@ -4399,7 +4399,7 @@ class TestURLField(FieldTestMixin, unittest.TestCase):
             '\udced\udca0'  # mess converted to surrogates
             '\x7f'          # proper code point (ascii DEL)
             '\ud800'        # surrogate '\ud800' (smallest one)
-            '\udfff'        # surrogate '\udfff' (biggest one)
+            '\udfff'        # surrogate '\udfff' (biggest one) [note: *not* merged with one above]
             '\udcee\udcbf\udcc0'  # mess converted to surrogates
             '\ue000'        # proper code point '\ue000' (bigger than biggest surr.)
             '\udce6'        # mess converted to surrogate

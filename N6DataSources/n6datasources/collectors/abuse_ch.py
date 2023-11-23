@@ -54,22 +54,7 @@ LOGGER = get_logger(__name__)
 
 class _BaseAbuseChDownloadingTimeOrderedRowsCollector(BaseDownloadingTimeOrderedRowsCollector):
 
-    row_time_legacy_state_key = None
     time_field_index = None
-
-    def load_state(self):
-        state = super().load_state()
-        if self.row_time_legacy_state_key and self.row_time_legacy_state_key in state:
-            # got `state` in a legacy form
-            row_time = self.normalize_row_time(state[self.row_time_legacy_state_key])
-            state = {
-                # note: one or a few rows (those containing this "boundary"
-                # time value) will be duplicated, but we can live with that
-                self._NEWEST_ROW_TIME_STATE_KEY: row_time,
-                self._NEWEST_ROWS_STATE_KEY: set(),
-                self._ROWS_COUNT_KEY: None,
-            }
-        return state
 
     def pick_raw_row_time(self, row):
         return extract_field_from_csv_row(row, column_index=self.time_field_index).strip()
@@ -116,7 +101,6 @@ class AbuseChSslBlacklistCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollect
 
     raw_format_version_tag = '201902'
 
-    row_time_legacy_state_key = 'time'
     time_field_index = 0
 
     def get_source(self, **processed_data) -> str:
@@ -278,17 +262,9 @@ class AbuseChUrlhausPayloadSamplesCollector(StatefulCollectorMixin,
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
         self._samples_per_run: int = self._get_samples_per_run()
-        self._state: Optional[dict] = None
         self._today: datetime.date = datetime.datetime.today().date()
-        self._payload_sample_and_headers_pairs: FilePagedSequence = FilePagedSequence(
-            page_size=self.config['max_samples_in_memory'],
-        )
-
-    def run_collection(self) -> None:
-        with self._payload_sample_and_headers_pairs:
-            super().run_collection()
+        self._state: dict = self.load_state()
 
     def _get_samples_per_run(self) -> int:
         if not 0 < self.config['samples_per_run'] <= 1000:
@@ -304,12 +280,11 @@ class AbuseChUrlhausPayloadSamplesCollector(StatefulCollectorMixin,
 
     def obtain_input_pile(self) -> Optional[Sequence[tuple[bytes, dict]]]:
         LOGGER.info("%s's main activity started", self.__class__.__name__)
-        self._state = self.load_state()
         self._maintain_state()
         all_recent_payload_summaries = self._fetch_recent_payload_summaries()
-        payload_sample_and_headers_pairs = self._payload_sample_and_headers_pairs
+        max_samples_in_memory = self.config['max_samples_in_memory']
+        payload_sample_and_headers_pairs = FilePagedSequence(page_size=max_samples_in_memory)
         payload_sample_and_headers_pairs: MutableSequence[tuple[bytes, dict]]
-        assert not payload_sample_and_headers_pairs
         for payload_summary in all_recent_payload_summaries:
             if len(payload_sample_and_headers_pairs) >= self._samples_per_run:
                 assert len(payload_sample_and_headers_pairs) == self._samples_per_run

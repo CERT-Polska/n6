@@ -148,21 +148,30 @@ export const mustBePortNumber: Validate<FormFieldValue> = (value) =>
     ? true
     : 'validation_mustBePortNumber';
 
-const validateIpAddress = (value: string) => {
-  const parts = value.split('.');
+const validateIpAddress = (value: string, isPartOfIpNetwork = false) => {
+  // Examples of IP addresses presumed invalid:
+  // - Single IP address: 0.0.0.0 (However, 0.0.0.0/0-32 is accepted as a valid IP network range)
+  // - IP addresses with leading zeros: 1.1.1.01
+  // - IP addresses exceeding the standard value range: 1.1.1.256
+  // - IP addresses with excessive digit count: 1.1.1.1111
+  // - IP addresses with too many segments: 1.1.1.1.1
 
-  const partValid = (part: string) => {
-    if (part.length > 3 || part.length === 0) return false;
+  const octets = value.split('.');
+  if (octets.length !== 4) return false;
 
-    if (part[0] === '0' && part !== '0') return false;
+  // The IP address 0.0.0.0 is accepted as a valid network address in CIDR notation
+  // (e.g., 0.0.0.0/24), but is not permissible as an individual, standalone IP address.
+  if (octets.every((octet) => octet === '0') && !isPartOfIpNetwork) return false;
+  const octetValid = (octet: string) => {
+    if (octet.length > 3 || octet.length === 0) return false;
+    if (octet.startsWith('0') && octet.length > 1) return false;
+    if (!octet.match(/^\d+$/)) return false;
 
-    if (!part.match(/^\d+$/)) return false;
-
-    const numeric = +part | 0;
+    const numeric = Number(octet);
     return numeric >= 0 && numeric <= 255;
   };
 
-  return parts.length === 4 && parts.every(partValid);
+  return octets.every(octetValid);
 };
 
 export const mustBeIpNetwork: Validate<FormFieldValue> = (value) => {
@@ -173,7 +182,7 @@ export const mustBeIpNetwork: Validate<FormFieldValue> = (value) => {
 
   const checkIpNetwork = (value: string) => {
     const result = value.match(ipNetworkRegex);
-    return result !== null && validateIpAddress(result[1]) && validateMask(result[2]);
+    return result !== null && validateIpAddress(result[1], true) && validateMask(result[2]);
   };
 
   return !value || (typeof value === 'string' && checkIpNetwork(value)) ? true : 'validation_mustBeIpNetwork';

@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2021 NASK. All rights reserved.
+# Copyright (c) 2019-2023 NASK. All rights reserved.
 
 """
 This package provides a REST API implementation intended to cooperate
@@ -51,7 +51,7 @@ class N6BrokerAuthApiConfigHelper(ConfigMixin, BasicConfigHelper):
         return auth_manager_maker
 
 
-# (see: https://github.com/rabbitmq/rabbitmq-auth-backend-http#what-must-my-web-server-do)
+# (see: https://github.com/rabbitmq/rabbitmq-server/tree/main/deps/rabbitmq_auth_backend_http#what-must-my-web-server-do)   # noqa
 RESOURCES = [
     HttpResource(
         resource_id='user',

@@ -58,9 +58,7 @@ that it will work on other systems such as Windows or Mac OS.
 
 !!! note
 
-    Make sure you are using _Docker-Compose_, not _Docker Compose_
-    as n6 currently works on _Docker-Compose v1_ not v2.
-    For more information check [this migration note](https://docs.docker.com/compose/migrate/)
+    _n6_ currently works with _Docker-Compose_. The project should build just fine with _Docker Compose_, but at this moment, we cannot guarantee that everything works on _Docker Compose V2_.
 
 ## Building the environment
 

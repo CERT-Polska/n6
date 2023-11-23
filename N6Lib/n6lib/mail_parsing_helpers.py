@@ -178,16 +178,16 @@ class ParsedEmailMessage(email.message.EmailMessage):
     * `find_content()` --
       get the content of exactly one component of the e-mail message --
       such one that matches the given filtering criteria (each optional):
-      content type(s) and/or content/filename regexes; there is also an
-      option to get stuff extracted from an attachment in the ZIP, *gzip*
-      or *bzip2* format;
+      content type(s) and/or content/filename regexes; there is also a
+      possibility to get stuff extracted from an attachment in the ZIP,
+      *gzip* or *bzip2* format;
 
     * `find_filename_content_pairs()` --
       iterate over `(filename, content)` pairs from those "leaf"
       components of the e-mail message that match the given filtering
       criteria (each optional): content type(s) and/or content/filename
-      regexes; there is also an option to include stuff extracted from
-      attachments in the ZIP, *gzip* and/or *bzip2* format(s);
+      regexes; there is also a possibility to include stuff extracted
+      from attachments in the ZIP, *gzip* and/or *bzip2* format(s);
 
     For more information, see the signatures and docs of these methods.
 
@@ -240,6 +240,10 @@ class ParsedEmailMessage(email.message.EmailMessage):
     * https://docs.python.org/3/library/email.policy.html#email.policy.EmailPolicy.content_manager
     * https://docs.python.org/3/library/email.message.html#email.message.EmailMessage.get_content
     * https://docs.python.org/3/library/email.contentmanager.html
+
+    However, note also that `<content manager instance>.get_content()`'s
+    return values are expected (by the `ParsedEmailMessage`'s machinery)
+    to be a `str` or `bytes`; otherwise a `NotImplementedError` is raised.
     """
 
 
@@ -363,8 +367,9 @@ class ParsedEmailMessage(email.message.EmailMessage):
         otherwise `None` will be returned).
 
         If the `normalize_whitespace` argument is true (it is by default)
-        then any trailing whitespace characters are removed and any other
-        series of whitespace characters are normalized to single spaces.
+        then any leading/trailing whitespace characters are removed and
+        any other series of whitespace characters are normalized to single
+        spaces.
         """
         header = self['Subject']
         if header is None:
@@ -405,7 +410,7 @@ class ParsedEmailMessage(email.message.EmailMessage):
           multiple alternatives can be given as a list; if not given at
           all, there will be no filename-regex-based filtering;
 
-          note that a message component can have no filename associated
+          note that a message component may have no filename associated
           with it -- then the filename will be considered empty (so, for
           example, the `^$` regex will match it);
 
@@ -430,7 +435,8 @@ class ParsedEmailMessage(email.message.EmailMessage):
         ***
 
         This method returns the content (*aka* payload) of the matching
-        message component.
+        message component. The returned value is as a `bytes` or `str`
+        object, or `None`.
 
         More precisely: the `find_filename_content_pairs()` method is
         called, and the first item yielded by the resultant iterator is
@@ -445,7 +451,8 @@ class ParsedEmailMessage(email.message.EmailMessage):
 
         If there are more matching components than one, a `ValueError`
         is raised -- unless the `ignore_extra_matches` argument has been
-        explicitly set to `True`.
+        explicitly set to `True` (then the content of the first matching
+        component is returned).
         """
 
         items = self.find_filename_content_pairs(
@@ -458,7 +465,7 @@ class ParsedEmailMessage(email.message.EmailMessage):
         _, content = next(items, (None, None))
 
         if (not ignore_extra_matches) and next(items, None) is not None:
-            raise ValueError(
+            raise ValueError(  # TODO: introduce a specific subclass of `ValueError`...
                 f'multiple components of the message match '
                 f'the following criteria: {content_type=!a}, '
                 f'{filename_regex=!a} {content_regex=!a}, '
@@ -497,7 +504,7 @@ class ParsedEmailMessage(email.message.EmailMessage):
           multiple alternatives can be given as a list; if not given at
           all, there will be no filename-regex-based filtering;
 
-          note that a message component can have no filename associated
+          note that a message component may have no filename associated
           with it -- then the filename will be considered empty (so, for
           example, the `^$` regex will match it);
 
@@ -742,7 +749,7 @@ class ParsedEmailMessage(email.message.EmailMessage):
             force_content_as,
         ):
             if force_content_as in (str, 'str'):
-                content = as_unicode(content, decode_error_handling='replace')
+                content = as_unicode(content, decode_error_handling='replace')   # maybe TODO: change to `surrogateescape`?
 
             assert isinstance(filename, str)
             assert (force_content_as is None and isinstance(content, (bytes, str))

@@ -7,9 +7,6 @@ n6collector_abusechurlhauspayloadsamples = n6datasources.collectors.abuse_ch:Abu
 n6collector_abusechurlhauspayloadsurls = n6datasources.collectors.abuse_ch:AbuseChUrlhausPayloadsUrlsCollector_main
 n6collector_abusechurlhausurls = n6datasources.collectors.abuse_ch:AbuseChUrlhausUrlsCollector_main
 
-## blueliv.*
-n6collector_bluelivmap = n6datasources.collectors.blueliv:BluelivMapCollector_main
-
 ## cert_pl.*
 n6collector_certplshield = n6datasources.collectors.cert_pl:CertPlShieldCollector_main
 
@@ -18,9 +15,6 @@ n6collector_cesnetczwarden = n6datasources.collectors.cesnet_cz:CesnetCzWardenCo
 
 ## dan-tv.*
 n6collector_dantvtor = n6datasources.collectors.dan_tv:DanTvTorCollector_main
-
-## darklist-de.*
-n6collector_darklistdebl = n6datasources.collectors.darklist_de:DarklistDeBlCollector_main
 
 ## dataplane.*
 n6collector_dataplanednsrd = n6datasources.collectors.dataplane:DataplaneDnsrdCollector_main
@@ -90,9 +84,6 @@ n6parser_abusechsslblacklist201902 = n6datasources.parsers.abuse_ch:AbuseChSslBl
 n6parser_abusechurlhauspayloadsurls = n6datasources.parsers.abuse_ch:AbuseChUrlhausPayloadsUrlsParser_main
 n6parser_abusechurlhausurls202001 = n6datasources.parsers.abuse_ch:AbuseChUrlhausUrls202001Parser_main
 
-## blueliv.*
-n6parser_bluelivmap = n6datasources.parsers.blueliv:BluelivMapParser_main
-
 ## cert_pl.*
 n6parser_certplshield = n6datasources.parsers.cert_pl:CertPlShieldParser_main
 
@@ -101,9 +92,6 @@ n6parser_cesnetczwarden = n6datasources.parsers.cesnet_cz:CesnetCzWardenParser_m
 
 ## dan-tv.*
 n6parser_dantvtor = n6datasources.parsers.dan_tv:DanTvTorParser_main
-
-## darklist-de.*
-n6parser_darklistdebl = n6datasources.parsers.darklist_de:DarklistDeBlParser_main
 
 ## dataplane.*
 n6parser_dataplanednsrd = n6datasources.parsers.dataplane:DataplaneDnsrdParser_main
@@ -161,9 +149,9 @@ n6parser_shadowserverldap201412 = n6datasources.parsers.shadowserver:Shadowserve
 n6parser_shadowserverldaptcp202204 = n6datasources.parsers.shadowserver:ShadowserverLdapTcp202204Parser_main
 n6parser_shadowservermdns201412 = n6datasources.parsers.shadowserver:ShadowserverMdns201412Parser_main
 n6parser_shadowservermemcached201412 = n6datasources.parsers.shadowserver:ShadowserverMemcached201412Parser_main
-n6parser_shadowservermodbus202203 = n6datasources.parsers.shadowserver:ShadowserverModbus202203Parser_main
 n6parser_shadowservermongodb201412 = n6datasources.parsers.shadowserver:ShadowserverMongodb201412Parser_main
 n6parser_shadowservermqtt202204 = n6datasources.parsers.shadowserver:ShadowserverMqtt202204Parser_main
+n6parser_shadowservermsmq202308 = n6datasources.parsers.shadowserver:ShadowserverMsmq202308Parser_main
 n6parser_shadowservermssql201412 = n6datasources.parsers.shadowserver:ShadowserverMssql201412Parser_main
 n6parser_shadowservernatpmp201412 = n6datasources.parsers.shadowserver:ShadowserverNatpmp201412Parser_main
 n6parser_shadowservernetbios201412 = n6datasources.parsers.shadowserver:ShadowserverNetbios201412Parser_main
@@ -198,12 +186,12 @@ n6parser_spamhausbots = n6datasources.parsers.spamhaus:SpamhausBotsParser_main
 n6parser_spamhausdrop = n6datasources.parsers.spamhaus:SpamhausDropParser_main
 n6parser_spamhausedrop202303 = n6datasources.parsers.spamhaus:SpamhausEdrop202303Parser_main
 
-## stopforum.*
-n6parser_stopforumspam = n6datasources.parsers.stopforum:StopForumSpamParser_main
-
 ## spam404_com.*
 n6parser_spam404comscamlist = n6datasources.parsers.spam404_com:Spam404ComScamListParser_main
 n6parser_spam404comscamlistbl = n6datasources.parsers.spam404_com:Spam404ComScamListBlParser_main
+
+## stopforum.*
+n6parser_stopforumspam = n6datasources.parsers.stopforum:StopForumSpamParser_main
 
 ## zoneh.*
 n6parser_zonehrss = n6datasources.parsers.zoneh:ZonehRssParser_main

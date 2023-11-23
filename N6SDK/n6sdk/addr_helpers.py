@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import logging
 import socket
@@ -17,8 +17,7 @@ from typing import (
 LOGGER = logging.getLogger(__name__)
 
 
-def ip_network_as_tuple(ip_network_str):
-    # type: (str) -> tuple[str, int]
+def ip_network_as_tuple(ip_network_str: str) -> tuple[str, int]:
     """
     >>> ip_network_as_tuple('10.20.30.40/24')
     ('10.20.30.40', 24)
@@ -28,8 +27,10 @@ def ip_network_as_tuple(ip_network_str):
     return ip_str, prefixlen
 
 
-def ip_network_tuple_to_min_max_ip(ip_network_tuple):
-    # type: (tuple[str, int]) -> tuple[int, int]
+def ip_network_tuple_to_min_max_ip(ip_network_tuple: tuple[str, int],
+                                   *,
+                                   force_min_ip_greater_than_zero: bool = False,
+                                   ) -> tuple[int, int]:
     """
     >>> ip_network_tuple_to_min_max_ip(('10.20.30.41', 24))
     (169090560, 169090815)
@@ -37,16 +38,67 @@ def ip_network_tuple_to_min_max_ip(ip_network_tuple):
     (169090601, 169090601)
     >>> ip_network_tuple_to_min_max_ip(('10.20.30.41', 0))
     (0, 4294967295)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.0.0', 0))
+    (0, 4294967295)
+    >>> ip_network_tuple_to_min_max_ip(('255.255.255.255', 0))
+    (0, 4294967295)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.2.0', 24))
+    (512, 767)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.1.0', 24))
+    (256, 511)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.0.0', 24))
+    (0, 255)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.0.2', 32))
+    (2, 2)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.0.1', 32))
+    (1, 1)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.0.0', 32))
+    (0, 0)
+
+    >>> ip_network_tuple_to_min_max_ip(('10.20.30.41', 24),
+    ...                                force_min_ip_greater_than_zero=True)
+    (169090560, 169090815)
+    >>> ip_network_tuple_to_min_max_ip(('10.20.30.41', 32),
+    ...                                force_min_ip_greater_than_zero=True)
+    (169090601, 169090601)
+    >>> ip_network_tuple_to_min_max_ip(('10.20.30.41', 0),
+    ...                                force_min_ip_greater_than_zero=True)   # min IP forced to 1
+    (1, 4294967295)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.0.0', 0),
+    ...                                force_min_ip_greater_than_zero=True)   # min IP forced to 1
+    (1, 4294967295)
+    >>> ip_network_tuple_to_min_max_ip(('255.255.255.255', 0),
+    ...                                force_min_ip_greater_than_zero=True)   # min IP forced to 1
+    (1, 4294967295)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.2.0', 24),
+    ...                                force_min_ip_greater_than_zero=True)
+    (512, 767)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.1.0', 24),
+    ...                                force_min_ip_greater_than_zero=True)
+    (256, 511)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.0.0', 24),
+    ...                                force_min_ip_greater_than_zero=True)   # min IP forced to 1
+    (1, 255)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.0.2', 32),
+    ...                                force_min_ip_greater_than_zero=True)
+    (2, 2)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.0.1', 32),
+    ...                                force_min_ip_greater_than_zero=True)
+    (1, 1)
+    >>> ip_network_tuple_to_min_max_ip(('0.0.0.0', 32),
+    ...                                force_min_ip_greater_than_zero=True)   # min IP forced to 1
+    (1, 0)
     """
     ip_str, prefixlen = ip_network_tuple
     ip_int = ip_str_to_int(ip_str)
     min_ip = (((1 << prefixlen) - 1) << (32 - prefixlen)) & ip_int
+    if force_min_ip_greater_than_zero and min_ip <= 0:
+        min_ip = 1
     max_ip = (((1 << (32 - prefixlen)) - 1)) | ip_int
     return min_ip, max_ip
 
 
-def ip_str_to_int(ip_str):
-    # type: (str) -> int
+def ip_str_to_int(ip_str: str) -> int:
     """
     >>> ip_str_to_int('10.20.30.41')
     169090601

@@ -1,4 +1,4 @@
-# Copyright (c) 2015-2021 NASK. All rights reserved.
+# Copyright (c) 2015-2023 NASK. All rights reserved.
 
 import datetime
 import json
@@ -36,7 +36,7 @@ class TestAnonymizer__input_callback(TestCaseMixin, unittest.TestCase):
         self.event_type = 'bl-update'
         self.event_data = {'some...': 'content...', 'id': 'some id...'}
         self.routing_key = self.event_type + '.filtered.*.*'
-        self.body = json.dumps(self.event_data)
+        self.body = json.dumps(self.event_data).encode('ascii')
         self.resource_to_org_ids = {}
 
         self.mock = MagicMock(__class__=Anonymizer)

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 
 import collections.abc as collections_abc
@@ -190,19 +190,19 @@ class FieldValueTooLongError(FieldValueError):
     ...     checked_value=['foo'], max_length=42)
     Traceback (most recent call last):
       ...
-    TypeError: __init__() missing 1 required keyword-only argument: 'field'
+    TypeError: ...__init__() missing 1 required keyword-only argument: 'field'
 
     >>> FieldValueTooLongError(   # doctest: +ELLIPSIS
     ...     field='sth', max_length=42)
     Traceback (most recent call last):
       ...
-    TypeError: __init__() missing 1 required keyword-only argument: 'checked_value'
+    TypeError: ...__init__() missing 1 required keyword-only argument: 'checked_value'
 
     >>> FieldValueTooLongError(   # doctest: +ELLIPSIS
     ...     field='sth', checked_value=['foo'])
     Traceback (most recent call last):
       ...
-    TypeError: __init__() missing 1 required keyword-only argument: 'max_length'
+    TypeError: ...__init__() missing 1 required keyword-only argument: 'max_length'
     """
 
     def __init__(self, *args,

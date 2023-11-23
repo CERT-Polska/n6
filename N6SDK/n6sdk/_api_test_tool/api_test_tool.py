@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2015-2021 NASK. All rights reserved.
+# Copyright (c) 2015-2023 NASK. All rights reserved.
 
 """
 This tool is a part of *n6sdk*.  It can analyse and verify an
@@ -14,11 +14,11 @@ import json
 import random
 import sys
 from collections import defaultdict
+from importlib.resources import files
 from urllib.parse import urlencode, urlparse
 
 import requests
 import requests.packages.urllib3
-from pkg_resources import Requirement, resource_filename, cleanup_resources
 
 from n6sdk._api_test_tool.client import APIClient
 from n6sdk._api_test_tool.data_test import DataSpecTest
@@ -30,14 +30,9 @@ from n6sdk._api_test_tool.validator_exceptions import (
 
 
 def iter_config_base_lines():
-    try:
-        filename = resource_filename(Requirement.parse('n6sdk'),
-                                     'n6sdk/_api_test_tool/config_base.ini')
-        with open(filename, 'rb') as f:
-            for line in f.read().splitlines():
-                yield line.decode('utf-8')
-    finally:
-        cleanup_resources()
+    with files('n6sdk').joinpath('_api_test_tool/config_base.ini').open('rb') as f:
+        for line in f.read().splitlines():
+            yield line.decode('utf-8')
 
 def get_config(path):
     config = configparser.RawConfigParser()
@@ -161,8 +156,8 @@ def main():
     optional_params_keys = data_range.keys() - constant_params.keys()
     optional_params_keys = ds_test.all_param_keys.intersection(optional_params_keys)
     for _ in range(MAX_RETRY):
-        rand_keys = random.sample(optional_params_keys, 2)
-        rand_vals = (random.sample(data_range[val], 1)[0] for val in rand_keys)
+        rand_keys = random.sample(list(optional_params_keys), 2)
+        rand_vals = (random.sample(list(data_range[val]), 1)[0] for val in rand_keys)
         optional_params = dict(zip(rand_keys, rand_vals))
         legal_query_url = make_url(base_url, constant_params, optional_params)
         test_legal_ok = True
@@ -200,7 +195,7 @@ def main():
     illegal_query_urls = []
     illegal_keys = data_range.keys() - ds_test.all_param_keys - composed_keys
     illegal_keys = illegal_keys.difference(additional_attributes)
-    illegal_vals = (random.sample(data_range[val], 1)[0] for val in illegal_keys)
+    illegal_vals = (random.sample(list(data_range[val]), 1)[0] for val in illegal_keys)
     illegal_params = dict(zip(illegal_keys, illegal_vals))
 
     for key, val in illegal_params.items():
@@ -243,7 +238,7 @@ def main():
     for optional_key in optional_params_keys:
         if len(data_range[optional_key]) >= MINIMUM_VALUE_NUMBER:
             keys_list.append(optional_key)
-        rand_val = random.sample(data_range[optional_key], 1)[0]
+        rand_val = random.sample(list(data_range[optional_key]), 1)[0]
         opt_param = {optional_key: rand_val}
         legal_query_url = (make_url(base_url, constant_params, opt_param))
         if args.verbose:
@@ -270,7 +265,7 @@ def main():
 
     report.section("Testing queries with a LEGAL param, using different values", 5)
     test_key = random.choice(keys_list)
-    random_val_list = random.sample(data_range[test_key], MINIMUM_VALUE_NUMBER)
+    random_val_list = random.sample(list(data_range[test_key]), MINIMUM_VALUE_NUMBER)
     test_list_legal_ok = True
     for test_value in random_val_list:
         opt_param = {test_key: test_value}

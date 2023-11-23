@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 
 # Terminology: some definitions and synonyms
@@ -146,6 +146,7 @@ from pyramid.decorator import reify
 from n6lib.const import (
     CATEGORY_ENUMS,
     CONFIDENCE_ENUMS,
+    LACK_OF_IPv4_PLACEHOLDER_AS_STR,
     ORIGIN_ENUMS,
     PROTO_ENUMS,
     RESTRICTION_ENUMS,
@@ -596,6 +597,11 @@ class N6DataSpec(DataSpec):
     # special field -- final cleaned results do *not* include it
     enriched = EnrichedFieldForN6()
 
+    ### TODO later?
+    # # fields added by the *data backend API* (not stored in Event DB)
+    # url_orig_ascii = UnicodeFieldForN6(in_result='optional')
+    # url_orig_b64 = URLBase64FieldForN6(in_result='optional')
+
     # fields related to some particular parsers
 
     # * of various specialized field types:
@@ -726,6 +732,8 @@ class N6DataSpec(DataSpec):
         'subject_common_name',
         'sysdesc',
         'tags',
+        #'url_orig_ascii',  # TODO later?
+        #'url_orig_b64',    # TODO later?
         'url_pattern',
         'urls_matched',
         'user_agent',
@@ -1071,37 +1079,56 @@ class N6DataSpec(DataSpec):
 
     ### probably must be adjusted when switching to the new DB schema
     def _preclean_address_related_items(self, result):
+        LACK_OF_IP = LACK_OF_IPv4_PLACEHOLDER_AS_STR  # noqa
         event_tag = self._get_event_tag_for_logging(result)
+
         address = result.pop('address', None)
-        address_item = {
-            key: value for key, value in [
-                ('ip', result.pop('ip', None)),
-                ('asn', result.pop('asn', None)),
-                ('cc', result.pop('cc', None))]
-            if value is not None}
+        lone_ip = result.pop('ip', None)
+        lone_asn = result.pop('asn', None)
+        lone_cc = result.pop('cc', None)
+
         if address is not None:
             if address:
-              # DEBUGGING #3141
               try:
                 new_address = [
-                    {key: value for key, value in addr.items()
-                     if value is not None}
-                    for addr in address]
-                if new_address != address:
+                    addr for addr in address
+                    if addr.get('ip') not in (None, LACK_OF_IP)]
+                if len(new_address) != len(address):
                     LOGGER.warning(
-                        'values being None in the address: %a\n%s',
+                        f'skipping address items whose `ip` values are '
+                        f'missing, None or equal to {LACK_OF_IP!a} '
+                        f'(whole original `address` was: %a)\n%s',
                         address, event_tag)
-                address = new_address
+                for i, addr in enumerate(new_address):
+                    new_address[i] = new_addr = {
+                        key: value for key, value in addr.items()
+                        if value is not None}
+                    if len(new_addr) != len(addr):
+                        LOGGER.warning(
+                            'skipping `asn`/`cc` value(s) being None '
+                            'in the address item %a (whole original '
+                            '`address` was: %a)\n%s',
+                            addr, address, event_tag)
+                address = new_address or None
+              # DEBUGGING #3141:
               except AttributeError as exc:
-                exc_str = str(exc)
-                if "no attribute 'items'" in exc_str:
-                    raise AttributeError('{0} [`address`: {1!a}]'.format(exc_str, address))
+                from n6sdk.encoding_helpers import ascii_str
+                exc_str = ascii_str(exc)
+                if ("no attribute 'get'" in exc_str) or ("no attribute 'items'" in exc_str):
+                    raise AttributeError(f'{exc_str} [{event_tag=!a}; {address=!a}]') from exc
                 else:
                     raise
             else:
                 LOGGER.warning('empty address: %a\n%s', address, event_tag)
                 address = None
-        if address_item:
+
+        if lone_ip is not None:
+            assert lone_ip != LACK_OF_IP  # (<- already guaranteed by data backend API stuff)
+            address_item = {'ip': lone_ip}
+            if lone_asn is not None:
+                address_item['asn'] = lone_asn
+            if lone_cc is not None:
+                address_item['cc'] = lone_cc
             if address is None:
                 LOGGER.warning(
                     'address does not exist but it should and it should '
@@ -1113,6 +1140,7 @@ class N6DataSpec(DataSpec):
                 LOGGER.error(
                     'data inconsistency detected: item %a is not in the '
                     'address %a\n%s', address_item, address, event_tag)
+
         if address is not None:
             result['address'] = address
 

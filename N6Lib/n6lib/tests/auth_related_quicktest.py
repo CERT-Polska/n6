@@ -580,17 +580,18 @@ def data_maker_for____TestAuthAPI___get_inside_criteria(session):
                          models.InsideFilterASN(asn=34)],
                      inside_filter_ccs=[
                          models.InsideFilterCC(cc='PL'),
-                         models.InsideFilterCC(cc=u'US')],
+                         models.InsideFilterCC(cc='US')],
                      inside_filter_fqdns=[
                          models.InsideFilterFQDN(fqdn='example.com'),
-                         models.InsideFilterFQDN(fqdn=u'xyz.example.net')],
+                         models.InsideFilterFQDN(fqdn='xyz.example.net')],
                      inside_filter_ip_networks=[
+                         models.InsideFilterIPNetwork(ip_network='0.10.20.30/8'),
                          models.InsideFilterIPNetwork(ip_network='1.2.3.4/16'),
-                         models.InsideFilterIPNetwork(ip_network=u'101.102.103.104/32')],
+                         models.InsideFilterIPNetwork(ip_network='101.102.103.104/32')],
                      inside_filter_urls=[
-                         models.InsideFilterURL(url='exp.pl'),
-                         models.InsideFilterURL(url=u'bank.pl/auth.php'),
-                         models.InsideFilterURL(url=u'Łódź')])
+                         models.InsideFilterURL(url='example.info'),
+                         models.InsideFilterURL(url='institution.example.pl/auth.php'),
+                         models.InsideFilterURL(url='Łódź')])
     yield models.Org(org_id='o2',
                      inside_filter_asns=[models.InsideFilterASN(asn=1234567)])
     yield models.Org(org_id='o3',
@@ -613,6 +614,7 @@ def _data_matching_those_from_auth_related_test_helpers(session):
             models.CriteriaASN(asn=2),
             models.CriteriaASN(asn=3)],
         criteria_ip_networks=[
+            models.CriteriaIPNetwork(ip_network='0.0.0.0/30'),
             models.CriteriaIPNetwork(ip_network='10.0.0.0/8'),
             models.CriteriaIPNetwork(ip_network='192.168.0.0/24')])
     cri2 = models.CriteriaContainer(
@@ -739,7 +741,7 @@ def _data_matching_those_from_auth_related_test_helpers(session):
     # orgs
     o1 = models.Org(
         org_id='o1',
-        actual_name=u'Actual Name Zażółć',
+        actual_name='Actual Name Zażółć',
         org_groups=[go1],
         full_access=True, stream_api_enabled=True, email_notification_enabled=True,
 

@@ -34,14 +34,12 @@ class _DataplaneBaseParser(BlackListParser):
     name_item = None
 
     def parse(self, data):
-        rows = csv.reader(data['csv_raw_rows'], delimiter=',', quotechar='"')
+        rows = csv.reader(data['csv_raw_rows'], delimiter='|', quotechar='"')
         for row in rows:
-            row = row[0]
-            if row.startswith("#"):
+            if row[0].startswith("#"):
                 continue
-
             # fields: "ASN", "ASname", "ipaddr", "lastseen", "category"
-            _, _, ip, lastseen, _ = strip_fields(split_csv_row(row, delimiter="|"))
+            _, _, ip, lastseen, _ = strip_fields(row)
 
             # we skip rows with invalid IP address
             if not self._is_ip_valid(ip):

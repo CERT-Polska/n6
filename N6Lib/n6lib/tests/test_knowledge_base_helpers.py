@@ -1,4 +1,4 @@
-# Copyright (c) 2021 NASK. All rights reserved.
+# Copyright (c) 2021-2023 NASK. All rights reserved.
 
 import contextlib
 import os
@@ -7,6 +7,7 @@ import shutil
 import unittest
 from unittest.mock import patch
 
+import pytest
 from unittest_expander import (
     expand,
     foreach,
@@ -304,6 +305,7 @@ class TestGetStructureErrors(unittest.TestCase):
 
 class TestBuildKnowledgeBaseData(unittest.TestCase):
 
+    @pytest.mark.slow
     def test_build_kb_data_correct_structure(self):
         with patch(
             "n6lib.pyramid_commons.knowledge_base_helpers.read_dir_with_subdirs",

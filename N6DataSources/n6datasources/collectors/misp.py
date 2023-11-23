@@ -20,6 +20,7 @@ from typing import (
 )
 from urllib.parse import urljoin
 
+from dateutil.tz import gettz
 from pymisp import PyMISP
 import requests
 
@@ -36,6 +37,10 @@ from n6lib.common_helpers import (
 from n6lib.config import (
     Config,
     ConfigSection,
+)
+from n6lib.datetime_helpers import (
+    ReactionToProblematicTime,
+    datetime_with_tz_to_utc,
 )
 from n6lib.log_helpers import get_logger
 from n6lib.typing_helpers import (
@@ -340,6 +345,81 @@ class MispCollector(StatefulCollectorMixin, BaseDownloadingCollector, BaseCollec
             'samples_last_proc_datetime': initial_datetime,
             'already_processed_sample_ids': set(),
         }
+
+    # (Py2-to-Py3-state-transition-related)
+    def get_py2_pickle_load_kwargs(self):
+        # We need to use the `latin1` encoding to be able to unpickle
+        # any Py2-pickled `datetime` objects (see: #8278 and #8717).
+        return dict(encoding='latin1')
+
+    # (Py2-to-Py3-state-transition-related)
+    def adjust_state_from_py2_pickle(self, py2_state: dict) -> StateDict:
+        self._check_py2_state_keys(py2_state)
+        self._check_py2_state_value_types(py2_state)
+        self._check_py2_state_datetime_values(py2_state)
+        return {
+            # Differences between Py3's vs. Py2's state dicts:
+            # * `datetime` objects are still naive (timezone-unaware),
+            #   but whereas in Py2 they represented local time, in Py3
+            #   they represent UTC time;
+            # * in Py3, a `set` (instead of a `list`) of `int` numbers
+            #   is used to store identifiers of processed samples;
+            # * state dict keys are different.
+            'events_last_proc_datetime': self.__as_utc(py2_state['events_publishing_datetime']),
+            'samples_last_proc_datetime': self.__as_utc(py2_state['samples_publishing_datetime']),
+            'already_processed_sample_ids': set(py2_state['last_published_samples']),
+        }
+
+    def _check_py2_state_keys(self, py2_state: dict) -> None:
+        if py2_state.keys() != {
+            'events_publishing_datetime',
+            'samples_publishing_datetime',
+            'last_published_samples',
+        }:
+            raise NotImplementedError(
+                f"unexpected set of Py2 state keys: "
+                f"{', '.join(map(ascii, py2_state.keys()))}")
+
+    def _check_py2_state_value_types(self, py2_state: dict) -> None:
+        if not isinstance(py2_state['events_publishing_datetime'], datetime):
+            raise NotImplementedError(
+                f"unexpected {type(py2_state['events_publishing_datetime'])=!a}")
+        if not isinstance(py2_state['samples_publishing_datetime'], datetime):
+            raise NotImplementedError(
+                f"unexpected {type(py2_state['samples_publishing_datetime'])=!a}")
+        if not isinstance(py2_state['last_published_samples'], list):
+            raise NotImplementedError(
+                f"unexpected {type(py2_state['last_published_samples'])=!a}")
+        if not all(isinstance(sample_id, int)
+                   for sample_id in py2_state['last_published_samples']):
+            raise NotImplementedError(
+                f"unexpected non-int value(s) found in "
+                f"{py2_state['last_published_samples']=!a}")
+
+    def _check_py2_state_datetime_values(self, py2_state: dict) -> None:
+        if py2_state['events_publishing_datetime'].tzinfo is not None:
+            raise NotImplementedError(
+                f"unexpected non-None tzinfo of "
+                f"{py2_state['events_publishing_datetime']=!a}")
+        if py2_state['samples_publishing_datetime'].tzinfo is not None:
+            raise NotImplementedError(
+                f"unexpected non-None tzinfo of "
+                f"{py2_state['samples_publishing_datetime']=!a}")
+
+    @staticmethod
+    def __as_utc(naive_local_dt: datetime) -> datetime:
+        # Let's obtain the local timezone (hopefully, the same in which
+        # `naive_local_dt` was made in Py2 using `datetime.now()`...).
+        tz = gettz()
+        if tz is None:
+            raise RuntimeError('could not get the local timezone')
+        naive_utc_dt = datetime_with_tz_to_utc(
+            naive_local_dt,
+            tz,  # (<- its DST, if any, will be applied as appropriate)
+            on_ambiguous_time=ReactionToProblematicTime.PICK_THE_EARLIER,
+            on_non_existent_time=ReactionToProblematicTime.PICK_THE_EARLIER)
+        assert naive_utc_dt.tzinfo is None
+        return naive_utc_dt
 
     # * Activity phase #1: preparations and event collection:
 

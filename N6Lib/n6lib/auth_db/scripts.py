@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2023 NASK. All rights reserved.
 
 import argparse
 import ast
@@ -14,9 +14,13 @@ import sqlalchemy.exc
 import sqlalchemy.orm
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from pkg_resources import (
-    Requirement,
-    resource_filename,
+from importlib_resources import (
+    # Note: `importlib_resources-5.12` provides backport of Python-3.12's
+    # version of `importlib.resources` whose implementation of `as_file()`
+    # supports directory trees (which is a feature needed by us in this
+    # module).
+    as_file,
+    files,
 )
 
 from n6lib.auth_db import (
@@ -382,15 +386,13 @@ class CreateAndInitializeAuthDB(DropDatabaseIfExistsMixin, BaseAuthDBScript):
         self.msg(
             'Invoking appropriate Alembic tools to stamp the auth database '
             'as being at the `{}` Alembic revision...'.format(revision))
-        alembic_ini_path = resource_filename(
-            Requirement.parse('n6lib'),
-            'n6lib/auth_db/alembic.ini')
-        with self.patched_os_environ_var(
+        with as_file(files('n6lib.auth_db')) as alembic_conf_dir_path, \
+             self.patched_os_environ_var(
                 ALEMBIC_DB_CONFIGURATOR_SETTINGS_DICT_ENVIRON_VAR_NAME,
                 self._prepare_alembic_db_configurator_settings_dict_raw()), \
-             self.changed_working_dir(osp.dirname(alembic_ini_path)), \
+             self.changed_working_dir(alembic_conf_dir_path), \
              self.suppressed_stderr(suppress_only_if_quiet=True):
-            alembic_cfg = AlembicConfig(alembic_ini_path)
+            alembic_cfg = AlembicConfig(alembic_conf_dir_path / 'alembic.ini')
             command.stamp(alembic_cfg, revision)
 
     def _prepare_alembic_db_configurator_settings_dict_raw(self):
@@ -399,7 +401,7 @@ class CreateAndInitializeAuthDB(DropDatabaseIfExistsMixin, BaseAuthDBScript):
             alembic_db_configurator_settings_dict_raw = repr(alembic_db_configurator_settings_dict)
             try:
                 ast.literal_eval(alembic_db_configurator_settings_dict_raw)
-            except Exception:
+            except Exception as exc:
                 self.msg_error(
                     'when none of the -A or -o options are used, the '
                     'auth database configurator settings dict, if '
@@ -407,7 +409,7 @@ class CreateAndInitializeAuthDB(DropDatabaseIfExistsMixin, BaseAuthDBScript):
                     'only keys and values representable as pure Python '
                     'literals (got: {!a})'.format(
                         alembic_db_configurator_settings_dict))
-                raise ValueError('settings dict not representable as pure literal')
+                raise ValueError('settings dict not representable as pure literal') from exc
         else:
             alembic_db_configurator_settings_dict_raw = None
         return alembic_db_configurator_settings_dict_raw
@@ -445,28 +447,91 @@ class PopulateAuthDB(BaseAuthDBScript):
 
     ANONYMIZED_SOURCE_PREFIX = 'hidden.'
     DEFAULT_SOURCES = [
-        'abuse-ch.spyeye-doms',
-        'abuse-ch.spyeye-ips',
-        'abuse-ch.zeus-doms',
-        'abuse-ch.zeus-ips',
-        'abuse-ch.zeustracker',
-        'abuse-ch.palevo-doms',
-        'abuse-ch.palevo-ips',
         'abuse-ch.feodotracker',
-        'abuse-ch.ransomware',
         'abuse-ch.ssl-blacklist',
-        'abuse-ch.ssl-blacklist-dyre',
         'abuse-ch.urlhaus-urls',
         'abuse-ch.urlhaus-payloads-urls',
-        'abuse-ch.urlhaus-payloads',
-        'badips-com.server-exploit-list',
+        'abuse-ch.urlhaus-payload-samples',
+        'cesnet-cz.warden',
+        'cert-pl.shield',
         'circl-lu.misp',
-        'dns-bh.malwaredomainscom',
+        'dan-tv.tor',
+        'dataplane.dnsrd',
+        'dataplane.dnsrdany',
+        'dataplane.dnsversion',
+        'dataplane.sipinvitation',
+        'dataplane.sipquery',
+        'dataplane.sipregistration',
+        'dataplane.smtpdata',
+        'dataplane.smtpgreet',
+        'dataplane.sshclient',
+        'dataplane.sshpwauth',
+        'dataplane.telnetlogin',
+        'dataplane.vncrfb',
         'greensnow-co.list-txt',
-        'packetmail-net.list',
-        'packetmail-net.ratware-list',
-        'packetmail-net.others-list',
+        'malwarepatrol.malurl',
+        'openphish.web-bl',
+        'sblam.spam',
+        'shadowserver.adb',
+        'shadowserver.afp',
+        'shadowserver.amqp',
+        'shadowserver.ard',
+        'shadowserver.chargen',
+        'shadowserver.ciscosmartinstall',
+        'shadowserver.coap',
+        'shadowserver.compromisedwebsite',
+        'shadowserver.cwmp',
+        'shadowserver.darknet',
+        'shadowserver.db2',
+        'shadowserver.dvrdhcpdiscover',
+        'shadowserver.elasticsearch',
+        'shadowserver.exchange',
+        'shadowserver.ftp',
+        'shadowserver.hadoop',
+        'shadowserver.http',
+        'shadowserver.ics',
+        'shadowserver.ipmi',
+        'shadowserver.ipp',
+        'shadowserver.isakmp',
+        'shadowserver.ldap',
+        'shadowserver.ldaptcp',
+        'shadowserver.mdns',
+        'shadowserver.memcached',
+        'shadowserver.mongodb',
+        'shadowserver.mqtt',
+        'shadowserver.mssql',
+        'shadowserver.natpmp',
+        'shadowserver.netbios',
+        'shadowserver.netis',
+        'shadowserver.ntpmonitor',
+        'shadowserver.ntpversion',
+        'shadowserver.openresolver',
+        'shadowserver.portmapper',
+        'shadowserver.qotd',
+        'shadowserver.radmin',
+        'shadowserver.rdp',
+        'shadowserver.rdpeudp',
+        'shadowserver.redis',
+        'shadowserver.rsync',
+        'shadowserver.sandboxurl',
+        'shadowserver.sinkhole',
+        'shadowserver.sinkholehttp',
+        'shadowserver.smb',
+        'shadowserver.smtp',
+        'shadowserver.snmp',
+        'shadowserver.ssdp',
+        'shadowserver.sslfreak',
+        'shadowserver.sslpoodle',
+        'shadowserver.telnet',
+        'shadowserver.tftp',
+        'shadowserver.ubiquiti',
+        'shadowserver.vnc',
+        'shadowserver.xdmcp',
+        'spamhaus.drop',
+        'spamhaus.edrop',
+        'spamhaus.spam',
         'spam404-com.scam-list',
+        'stopforum.spam',
         'zoneh.rss',
     ]
 

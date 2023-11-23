@@ -12,7 +12,7 @@ CREATE TABLE n6.event (
     origin ENUM('c2','dropzone','proxy','p2p-crawler','p2p-drone','sinkhole','sandbox','honeypot','darknet','av','ids','waf'),
     restriction ENUM('public','need-to-know','internal') NOT NULL,
     confidence ENUM('low','medium','high') NOT NULL,
-    category ENUM('bots','cnc','dos-victim','malurl','phish','proxy','sandbox-url','scanning','server-exploit','spam','other','spam-url','amplifier','tor','dos-attacker','vulnerable','backdoor','dns-query','flow','flow-anomaly','fraud','leak','webinject','malware-action','deface', 'scam') NOT NULL,
+    category ENUM('bots','cnc','dos-victim','malurl','phish','proxy','sandbox-url','scanning','server-exploit','spam','other','spam-url','amplifier','tor','dos-attacker','vulnerable','backdoor','dns-query','flow','flow-anomaly','fraud','leak','webinject','malware-action','deface','scam') NOT NULL,
     time DATETIME NOT NULL,
     name VARCHAR(255),
     md5 BINARY(16),
@@ -51,7 +51,6 @@ CREATE TABLE n6.event (
          PARTITION p2033_2036 VALUES LESS THAN ('2036-01-01'),
          PARTITION p_max VALUES LESS THAN MAXVALUE
     );
-
 
 CREATE TABLE n6.client_to_event (
     id Binary(16) NOT NULL,

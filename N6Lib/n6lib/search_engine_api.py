@@ -1,4 +1,4 @@
-# Copyright (c) 2022 NASK. All rights reserved.
+# Copyright (c) 2022-2023 NASK. All rights reserved.
 
 """
 The module provides functionality of searching any text through
@@ -23,9 +23,10 @@ case of not supported language or not specified "stopwords" for the
 language, class `Analyzer` raises exception `AnalyzerError`.
 
 Example of use:
->>> se = SearchEngine("pl")
->>> se.index_document(SearchedDocument(1, "tekst dokumentu"))
->>> result = se.search("dokument")
+
+    se = SearchEngine("pl")
+    se.index_document(SearchedDocument(1, "tekst dokumentu"))
+    result = se.search("dokument")
 
 Module is inspired by the article
 https://bart.degoe.de/building-a-full-text-search-engine-150-lines-of-code/

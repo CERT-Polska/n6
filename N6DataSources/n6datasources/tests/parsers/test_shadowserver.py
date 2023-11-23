@@ -11,8 +11,8 @@ from n6datasources.parsers.base import (
     BlackListParser,
 )
 from n6datasources.parsers.shadowserver import (
-    ShadowserverVnc201412Parser,
     _BaseShadowserverParser,
+    ShadowserverVnc201412Parser,
     ShadowserverCompromisedWebsite201412Parser,
     ShadowserverIpmi201412Parser,
     ShadowserverChargen201412Parser,
@@ -47,7 +47,6 @@ from n6datasources.parsers.shadowserver import (
     ShadowserverSinkholeHttp202203Parser,
     ShadowserverSinkhole202203Parser,
     ShadowserverDarknet202203Parser,
-    ShadowserverModbus202203Parser,
     ShadowserverIcs202204Parser,
     ShadowserverCoap202204Parser,
     ShadowserverUbiquiti202204Parser,
@@ -68,15 +67,17 @@ from n6datasources.parsers.shadowserver import (
     ShadowserverExchange202204Parser,
     ShadowserverSmtp202204Parser,
     ShadowserverAmqp202204Parser,
+    ShadowserverMsmq202308Parser,
 )
 from n6datasources.tests.parsers._parser_test_mixin import ParserTestMixin
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 
 
 
-class TestShadowserverIpmi201412Parse(ParserTestMixin, unittest.TestCase):
+class TestShadowserverIpmi201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ipmi'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverIpmi201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -109,11 +110,12 @@ class TestShadowserverIpmi201412Parse(ParserTestMixin, unittest.TestCase):
         )
 
 
-class TestShadowserverCompromisedWebsiteParser(ParserTestMixin, unittest.TestCase):
+class TestShadowserverCompromisedWebsite201412Parser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
     PARSER_SOURCE = 'shadowserver.compromised-website'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverCompromisedWebsite201412Parser
     PARSER_BASE_CLASS = BlackListParser
     PARSER_CONSTANT_ITEMS = {
@@ -236,16 +238,65 @@ class TestShadowserverCompromisedWebsiteParser(ParserTestMixin, unittest.TestCas
 class TestShadowserverChargen201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.chargen'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverChargen201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'chargen',
     }
 
     def cases(self):
+        yield (
+            b'"timestamp","ip","protocol","port","hostname","tag","size","asn",'
+            b'"geo","region","city"\n'
+            
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2014-03-24 04:16:38","1.1.1.1","udp","19",'
+            b'"example.pl","cve-2000-111111","","11111","PL",'
+            b'"EXAMPLE_LOCATION_1","EXAMPLE_LOCATION_2"\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2014-03-24 04:16:38","2.2.2.2","udp","19",'
+            b'"example.pl","CVE-2000-222222","","22222","PL",'
+            b'"EXAMPLE_LOCATION_3","EXAMPLE_LOCATION_4"\n'
+            ,
+            [
+                dict(
+                    category='amplifier',
+                    name='chargen',
+                    time='2014-03-24 04:16:38',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=19,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-111111',
+                    time='2014-03-24 04:16:38',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=19,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='chargen',
+                    time='2014-03-24 04:16:38',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=19,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-222222',
+                    time='2014-03-24 04:16:38',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=19,
+                    proto='udp',
+                ),
+            ]
+        )
         yield (
             b'"timestamp","ip","protocol","port","hostname","tag","size","asn",'
             b'"geo","region","city"\n'
@@ -255,12 +306,13 @@ class TestShadowserverChargen201412Parser(ParserTestMixin, unittest.TestCase):
             ,
             [
                 dict(
+                    category='amplifier',
+                    name='chargen',
                     time='2014-03-24 04:16:38',
                     address=[{'ip': '1.1.1.1'}],
                     dport=19,
                     proto='udp',
                 ),
-
             ]
         )
 
@@ -268,6 +320,7 @@ class TestShadowserverChargen201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverMemcached201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.memcached'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverMemcached201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -297,9 +350,10 @@ class TestShadowserverMemcached201412Parser(ParserTestMixin, unittest.TestCase):
         )
 
 
-class TestShadowserverMongodbParser(ParserTestMixin, unittest.TestCase):
+class TestShadowserverMongodb201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.mongodb'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverMongodb201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -333,6 +387,7 @@ class TestShadowserverMongodbParser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverNatpmp201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.natpmp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverNatpmp201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -362,13 +417,12 @@ class TestShadowserverNatpmp201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverMssql201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.mssql'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverMssql201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'mssql',
     }
 
     def cases(self):
@@ -381,8 +435,72 @@ class TestShadowserverMssql201412Parser(ParserTestMixin, unittest.TestCase):
             b'"WHATEVER","INSERTGT",2283,"\\WHATEVER\\example",310,"6.89"\n',
             [
                 dict(
+                    category='amplifier',
+                    name='mssql',
                     time='2015-03-14 06:38:42',
                     address=[{'ip': '1.1.1.1'}],
+                    dport=1434,
+                    proto='udp',
+                ),
+            ]
+        )
+        yield (
+            b'"timestamp","ip","protocol","port","hostname","tag","version","asn","geo","region",'
+            b'"city","naics","sic","server_name","instance_name","tcp_port","named_pipe",'
+            b'"response_length","amplification"\n'
+
+            b'"2015-03-14 06:38:42","1.1.1.1","udp",1434,"example.pl",'
+            b'"mssql","10.10.2500.10",11111,"PL","ExampleLoc1","ExampleLoc2",111111,222222,'
+            b'"WHATEVER","INSERTGT",2283,"\\WHATEVER\\example",310,"6.89"\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2015-03-14 06:38:42","2.2.2.2","udp",1434,"example.pl",'
+            b'"cve-2000-111111","10.10.2500.10",22222,"PL","ExampleLoc3","ExampleLoc4",333333,444444,'
+            b'"WHATEVER","INSERTGT",2283,"\\WHATEVER\\example",310,"6.89"\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2015-03-14 06:38:42","3.3.3.3","udp",1434,"example.pl",'
+            b'"cve-2000-222222","10.10.2500.10",33333,"PL","ExampleLoc5","ExampleLoc6",555555,666666,'
+            b'"WHATEVER","INSERTGT",2283,"\\WHATEVER\\example",310,"6.89"\n',
+            [
+                dict(
+                    category='amplifier',
+                    name='mssql',
+                    time='2015-03-14 06:38:42',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=1434,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='mssql',
+                    time='2015-03-14 06:38:42',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=1434,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-111111',
+                    time='2015-03-14 06:38:42',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=1434,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='mssql',
+                    time='2015-03-14 06:38:42',
+                    address=[{'ip': '3.3.3.3'}],
+                    dport=1434,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-222222',
+                    time='2015-03-14 06:38:42',
+                    address=[{'ip': '3.3.3.3'}],
                     dport=1434,
                     proto='udp',
                 ),
@@ -393,13 +511,12 @@ class TestShadowserverMssql201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverNetbios201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.netbios'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverNetbios201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'netbios',
     }
 
     def cases(self):
@@ -412,6 +529,8 @@ class TestShadowserverNetbios201412Parser(ParserTestMixin, unittest.TestCase):
             ,
             [
                 dict(
+                    category='amplifier',
+                    name='netbios',
                     time='2014-04-22 00:12:57',
                     address=[{'ip': '1.1.1.1'}],
                     dport=137,
@@ -422,10 +541,66 @@ class TestShadowserverNetbios201412Parser(ParserTestMixin, unittest.TestCase):
             ]
         )
 
+        yield (
+            b'"timestamp","ip","protocol","port","hostname","tag","mac_address","asn","geo",'
+            b'"region","city","workgroup","machine_name","username"\n'
+            
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2014-04-22 00:12:57","1.1.1.1","udp",137,"example.pl","cve-2000-11111",'
+            b'"00-00-00-00-00-00",111111,"PL","ExampleLoc1","ExampleLoc2","WORKGROUP",'
+            b'"Example-ABC12345",\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2014-04-22 00:12:57","2.2.2.2","udp",137,"example.pl","CVE-2000-22222",'
+            b'"00-00-00-00-00-00",222222,"PL","ExampleLoc2","ExampleLoc3","WORKGROUP",'
+            b'"Example-ABC12345",\n'
+            ,
+            [
+                dict(
+                    category='amplifier',
+                    name='netbios',
+                    time='2014-04-22 00:12:57',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=137,
+                    mac_address='00-00-00-00-00-00',
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-11111',
+                    time='2014-04-22 00:12:57',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=137,
+                    mac_address='00-00-00-00-00-00',
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='netbios',
+                    time='2014-04-22 00:12:57',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=137,
+                    mac_address='00-00-00-00-00-00',
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-22222',
+                    time='2014-04-22 00:12:57',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=137,
+                    mac_address='00-00-00-00-00-00',
+                    proto='udp',
+                ),
+            ]
+        )
+
 
 class TestShadowserverNetis201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.netis'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverNetis201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -454,13 +629,14 @@ class TestShadowserverNetis201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverNtpVersion201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ntp-version'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverNtpVersion201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
-        'restriction': 'need-to-know',
-        'confidence': 'medium',
         'category': 'amplifier',
         'name': 'ntp',
+        'restriction': 'need-to-know',
+        'confidence': 'medium',
     }
 
     def cases(self):
@@ -474,6 +650,36 @@ class TestShadowserverNtpVersion201412Parser(ParserTestMixin, unittest.TestCase)
             b'"2.2.2.2","0xABCDEF01.23456789","0.000","0.000",,,4,"UNIX",,10\n',
             [
                 dict(
+                    category='amplifier',
+                    name='ntp',
+                    time='2014-03-24 02:14:37',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=123,
+                    proto='udp',
+                ),
+            ]
+        )
+        # this source still does not provide `tag` field, but we can accept it nevertheless
+        yield (
+            b'"timestamp","ip","protocol","port","hostname","asn","geo","region","city","version",'
+            b'"clk_wander","clock","error","frequency","jitter","leap","mintc","noise","offset",'
+            b'"peer","phase","poll","precision","processor","refid","reftime","rootdelay",'
+            b'"rootdispersion","stability","state","stratum","system","tai","tc","tag"\n'
+            b'"2014-03-24 02:14:37","1.1.1.1","udp",123,,11111,"PL","ExampleLoc1","ExampleLoc2",'
+            b'4,"0.000","0x01234567.89ABCDEF",,"0.000","0.000",0,3,,"0.000",,,,"-10","unknown",'
+            b'"2.2.2.2","0xABCDEF01.23456789","0.000","0.000",,,4,"UNIX",,10, "cve-2000-11111\n',
+            [
+                dict(
+                    category='amplifier',
+                    name='ntp',
+                    time='2014-03-24 02:14:37',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=123,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-11111',
                     time='2014-03-24 02:14:37',
                     address=[{'ip': '1.1.1.1'}],
                     dport=123,
@@ -483,16 +689,16 @@ class TestShadowserverNtpVersion201412Parser(ParserTestMixin, unittest.TestCase)
         )
 
 
+
 class TestShadowserverQotd201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.qotd'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverQotd201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'qotd',
     }
 
     def cases(self):
@@ -503,8 +709,68 @@ class TestShadowserverQotd201412Parser(ParserTestMixin, unittest.TestCase):
             b'"qotd","Example_Example" ??",1111,"PL",ExampleLoc","ExampleLoc"\n',
             [
                 dict(
+                    category='amplifier',
+                    name='qotd',
                     time='2014-12-01 12:09:00',
                     address=[{'ip': '1.1.1.1'}],
+                    dport=17,
+                    proto='udp',
+                ),
+            ]
+        )
+        yield (
+            b'"timestamp","ip","protocol","port","hostname","tag","quote","asn","geo","region",'
+            b'"city"\n'
+
+            b'"2014-12-01 12:09:00","1.1.1.1","udp",17,"example-host.example.com",'
+            b'"qotd","Example_Example" ??",1111,"PL",ExampleLoc","ExampleLoc"\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2014-12-01 12:09:00","2.2.2.2","udp",17,"example-host.example.com",'
+            b'"CVE-2020-222222","Example_Example" ??",2222,"PL",ExampleLoc","ExampleLoc"\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2014-12-01 12:09:00","3.3.3.3","udp",17,"example-host.example.com",'
+            b'"CVE-2020-333333","Example_Example" ??",3333,"PL",ExampleLoc","ExampleLoc"\n',
+            [
+                dict(
+                    category='amplifier',
+                    name='qotd',
+                    time='2014-12-01 12:09:00',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=17,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='qotd',
+                    time='2014-12-01 12:09:00',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=17,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2020-222222',
+                    time='2014-12-01 12:09:00',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=17,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='qotd',
+                    time='2014-12-01 12:09:00',
+                    address=[{'ip': '3.3.3.3'}],
+                    dport=17,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2020-333333',
+                    time='2014-12-01 12:09:00',
+                    address=[{'ip': '3.3.3.3'}],
                     dport=17,
                     proto='udp',
                 ),
@@ -515,6 +781,7 @@ class TestShadowserverQotd201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverRedis201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.redis'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverRedis201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -548,6 +815,7 @@ class TestShadowserverRedis201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverSmb201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.smb'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverSmb201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -602,6 +870,7 @@ class TestShadowserverSmb201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverSnmp201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.snmp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverSnmp201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -628,18 +897,44 @@ class TestShadowserverSnmp201412Parser(ParserTestMixin, unittest.TestCase):
                 ),
             ]
         )
+        # this source still does not provide `tag` field, but we can accept it nevertheless
+        yield (
+            b'"timestamp","ip","protocol","port","hostname","sysdesc","sysname","asn","geo",'
+            b'"region","city","version","tag"\n'
+            b'"2014-03-24 04:13:12","1.1.1.1","udp","10448","1.1.1.1.example.com'
+            b'-example","EX-Example1234","","11111","PL",ExampleLoc","ExampleLoc","2","cve-2000-11111\n',
+            [
+                dict(
+                    time='2014-03-24 04:13:12',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=10448,
+                    proto='udp',
+                    sysdesc='EX-Example1234',
+                    version='2',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-11111',
+                    time='2014-03-24 04:13:12',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=10448,
+                    proto='udp',
+                    sysdesc='EX-Example1234',
+                    version='2',
+                ),
+            ]
+        )
 
 
-class TestShadowserverSsdpParser(ParserTestMixin, unittest.TestCase):
+class TestShadowserverSsdp201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ssdp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverSsdp201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'ssdp',
     }
 
     def cases(self):
@@ -653,8 +948,80 @@ class TestShadowserverSsdpParser(ParserTestMixin, unittest.TestCase):
             b'asdasdasasadevice",,,\n',
             [
                 dict(
+                    category='amplifier',
+                    name='ssdp',
                     time='2014-12-02 09:12:54',
                     address=[{'ip': '1.1.1.1'}],
+                    dport=1900,
+                    proto='udp',
+                    header='HTTP/1.1 200 OK',
+                ),
+            ]
+        )
+        yield (
+            b'"timestamp","ip","protocol","port","hostname","tag","header","asn","geo","region",'
+            b'"city","systime","cache_control","location","server","search_target",'
+            b'"unique_service_name","host","nts","nt"\n'
+            
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2014-12-02 09:12:54","1.1.1.1","udp",1900,"example.pl",'
+            b'"cve-2000-111111","HTTP/1.1 200 OK",1111,"PL","SL","EXAMPLE_CITY",,"max-age=1200","http://1.1.1.1.'
+            b'example.com,"qwertyuiopASDFGHJKLzxcvbnm","upnp:rootdevice","'
+            b'asdasdasasadevice",,,\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2014-12-02 09:12:54","2.2.2.2","udp",1900,"example.pl",'
+            b'"CVE-2000-222222","HTTP/1.1 200 OK",2222,"PL","SL","EXAMPLE_CITY",,"max-age=1200","http://2.2.2.2.'
+            b'example.com,"qwertyuiopASDFGHJKLzxcvbnm","upnp:rootdevice","'
+            b'asdasdasasadevice",,,\n'
+
+            b'"2014-12-02 09:12:54","3.3.3.3","udp",1900,"example.pl",'
+            b'"ssdp","HTTP/1.1 200 OK",33333,"PL","SL","EXAMPLE_CITY",,"max-age=1200","http://3.3.3.3.'
+            b'example.com,"qwertyuiopASDFGHJKLzxcvbnm","upnp:rootdevice","'
+            b'asdasdasasadevice",,,\n',
+            [
+                dict(
+                    category='amplifier',
+                    name='ssdp',
+                    time='2014-12-02 09:12:54',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=1900,
+                    proto='udp',
+                    header='HTTP/1.1 200 OK',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-111111',
+                    time='2014-12-02 09:12:54',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=1900,
+                    proto='udp',
+                    header='HTTP/1.1 200 OK',
+                ),
+                dict(
+                    category='amplifier',
+                    name='ssdp',
+                    time='2014-12-02 09:12:54',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=1900,
+                    proto='udp',
+                    header='HTTP/1.1 200 OK',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-222222',
+                    time='2014-12-02 09:12:54',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=1900,
+                    proto='udp',
+                    header='HTTP/1.1 200 OK',
+                ),
+                dict(
+                    category='amplifier',
+                    name='ssdp',
+                    time='2014-12-02 09:12:54',
+                    address=[{'ip': '3.3.3.3'}],
                     dport=1900,
                     proto='udp',
                     header='HTTP/1.1 200 OK',
@@ -666,6 +1033,7 @@ class TestShadowserverSsdpParser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverSslPoodle201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ssl-poodle'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverSslPoodle201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -710,6 +1078,7 @@ class TestShadowserverSslPoodle201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverSandboxUrl201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.sandbox-url'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverSandboxUrl201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -759,6 +1128,7 @@ class TestShadowserverSandboxUrl201412Parser(ParserTestMixin, unittest.TestCase)
 class TestShadowserverOpenResolver201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.open-resolver'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverOpenResolver201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -798,12 +1168,52 @@ class TestShadowserverOpenResolver201412Parser(ParserTestMixin, unittest.TestCas
                 ),
             ]
         )
+        # this source still does not provide `tag` field, but we can accept it nevertheless
+        yield (
+            b'"timestamp","ip","asn","geo","region","city","port","protocol",'
+            b'"hostname","min_amplification","dns_version","p0f_genre","p0f_detail","tag"\n'
 
+            b'"2013-08-22 00:00:00","1.1.1.1",11111,"PL","ExampleLoc","ExampleLoc",53,"udp",'
+            b',"1.3810","DNS_VERSION",,,cve-2000-111111\n'
+
+            b'"2013-08-22 00:00:01","2.2.2.2",22222,"PL","ExampleLoc","ExampleLoc",53,"udp",'
+            b'"host.example.pl","1.3810",,,\n'
+            ,
+            [
+                dict(
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=53,
+                    proto='udp',
+                    min_amplification='1.3810',
+                    dns_version='DNS_VERSION',
+                    time='2013-08-22 00:00:00',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-111111',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=53,
+                    proto='udp',
+                    min_amplification='1.3810',
+                    dns_version='DNS_VERSION',
+                    time='2013-08-22 00:00:00',
+                ),
+                dict(
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=53,
+                    fqdn='host.example.pl',
+                    proto='udp',
+                    min_amplification='1.3810',
+                    time='2013-08-22 00:00:01',
+                ),
+            ]
+        )
 
 
 class TestShadowserverElasticsearch201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.elasticsearch'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverElasticsearch201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -844,6 +1254,7 @@ class TestShadowserverElasticsearch201412Parser(ParserTestMixin, unittest.TestCa
 class TestShadowserverSslFreak201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ssl-freak'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverSslFreak201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -933,6 +1344,7 @@ class TestShadowserverSslFreak201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverNtpMonitor201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ntp-monitor'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverNtpMonitor201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -978,6 +1390,31 @@ class TestShadowserverNtpMonitor201412Parser(ParserTestMixin, unittest.TestCase)
                 ),
             ]
         )
+        # this source still does not provide `tag` field, but we can accept it nevertheless
+        yield (
+            b'"timestamp","ip","protocol","port","hostname","packets","size","asn","geo","region",'
+            b'"city","naics","sic","tag"\n'
+
+            b'"2015-09-23 06:09:24","1.1.1.1","udp",123,"example.pl",'
+            b'80,11111,1111,"PL","ExampleLoc","ExampleLoc",111111,222222,"cve-2000-11111"\n'
+            ,
+            [
+                dict(
+                    time='2015-09-23 06:09:24',
+                    address=[{'ip': '1.1.1.1'}, ],
+                    proto='udp',
+                    dport=123,
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-11111',
+                    time='2015-09-23 06:09:24',
+                    address=[{'ip': '1.1.1.1'}, ],
+                    proto='udp',
+                    dport=123,
+                ),
+            ]
+        )
         yield (
             b'bad_data\n'
             b'row\n'
@@ -989,13 +1426,12 @@ class TestShadowserverNtpMonitor201412Parser(ParserTestMixin, unittest.TestCase)
 class TestShadowserverPortmapper201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.portmapper'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverPortmapper201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'portmapper',
     }
     MESSAGE_EXTRA_HEADERS = {'meta': {'mail_time': '2016-02-03 08:21:13'}}
 
@@ -1008,21 +1444,70 @@ class TestShadowserverPortmapper201412Parser(ParserTestMixin, unittest.TestCase)
             b'"portmapper",11111,"PL","ExampleLoc","ExampleLoc",0,0,"100000 2 111/udp; 100000 2 '
             b'111/udp; 100003 2 100003 1 333/udp; 100004 1 333/udp; 100011 1 222/udp; 100011 2 '
             b'333/udp; 100011 1 777/udp; 100011 2 777/udp;",789,"/ 3.3.3.3;"\n'
+            
+            # no proto at all, we assume it's udp 
+            b'"2015-10-03 04:11:31","2.2.2.2","",111,"example.net",'
+            b'"portmapper",11111,"PL","ExampleLoc","ExampleLoc",0,0,"100000 2 111/udp; 100000 2 '
+            b'111/udp; 100003 2 100003 1 333/udp; 100004 1 333/udp; 100011 1 222/udp; 100011 2 '
+            b'333/udp; 100011 1 777/udp; 100011 2 777/udp;",789,"/ 3.3.3.3;"\n'
+            
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2015-10-03 04:11:32","4.4.4.4","udp",111,"example.net",'
+            b'"cve-2000-444444",444444,"PL","ExampleLoc","ExampleLoc",0,0,"100000 2 111/udp; 100000 2 '
+            b'111/udp; 100004 1 54321/udp; 100004 1 56789/udp;",,\n'
 
-            b'"2015-10-03 04:11:32","2.2.2.2","udp",111,"example.net",'
-            b'"portmapper",44444,"PL","ExampleLoc","ExampleLoc",0,0,"100000 2 111/udp; 100000 2 '
+            # we have cve match in tag field -> we yield 2 events
+            b'"2015-10-03 04:11:32","5.5.5.5","udp",111,"example.net",'
+            b'"CVE-2000-555555",555555,"PL","ExampleLoc","ExampleLoc",0,0,"100000 2 111/udp; 100000 2 '
             b'111/udp; 100004 1 54321/udp; 100004 1 56789/udp;",,\n'
             ,
             [
                 dict(
+                    category='amplifier',
+                    name='portmapper',
                     time='2015-10-03 04:11:31',
                     address=[{'ip': '1.1.1.1'}, ],
                     proto='udp',
                     dport=111,
                 ),
                 dict(
-                    time='2015-10-03 04:11:32',
+                    category='amplifier',
+                    name='portmapper',
+                    time='2015-10-03 04:11:31',
                     address=[{'ip': '2.2.2.2'}, ],
+                    proto='udp',
+                    dport=111,
+                ),
+                dict(
+                    category='amplifier',
+                    name='portmapper',
+                    time='2015-10-03 04:11:32',
+                    address=[{'ip': '4.4.4.4'}, ],
+                    proto='udp',
+                    dport=111,
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-444444',
+                    time='2015-10-03 04:11:32',
+                    address=[{'ip': '4.4.4.4'}, ],
+                    proto='udp',
+                    dport=111,
+                ),
+                dict(
+                    category='amplifier',
+                    name='portmapper',
+                    time='2015-10-03 04:11:32',
+                    address=[{'ip': '5.5.5.5'}, ],
+                    proto='udp',
+                    dport=111,
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-555555',
+                    time='2015-10-03 04:11:32',
+                    address=[{'ip': '5.5.5.5'}, ],
                     proto='udp',
                     dport=111,
                 ),
@@ -1039,13 +1524,12 @@ class TestShadowserverPortmapper201412Parser(ParserTestMixin, unittest.TestCase)
 class TestShadowserverMdns201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.mdns'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverMdns201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'mdns',
     }
     MESSAGE_EXTRA_HEADERS = {'meta': {'mail_time': '2016-02-10 19:00:03'}}
 
@@ -1060,21 +1544,68 @@ class TestShadowserverMdns201412Parser(ParserTestMixin, unittest.TestCase):
             b'"2016-03-21 07:38:47","1.1.1.1","udp",5353,"example.com","mdns",11111,'
             b'"PL","Example","Example",0,0,,,,"_workstation._tcp.local.;",,,,,,,,,,,\n'
 
-            b'"2016-03-21 07:38:48","2.2.2.2","udp",5353,,"mdns",22222,"PL","ExampleLoc",'
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2016-03-21 07:38:48","2.2.2.2","udp",5353,,"cve-2000-222222",22222,"PL","ExampleLoc",'
             b'"Example ExampleA",0,0,,,,"_workstation._tcp.local.; _http._tcp.local.; '
             b'_smb._tcp.local.; _qdiscover._tcp.local.;",,,,,,,,,,,\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2016-03-21 07:38:48","3.3.3.3","udp",5353,,"CVE-2000-333333",333333,"PL","ExampleLoc",'
+            b'"Example ExampleA",0,0,,,,"_workstation._tcp.local.; _http._tcp.local.; '
+            b'_smb._tcp.local.; _qdiscover._tcp.local.;",,,,,,,,,,,\n'
+
+            # protocol other than UDP (should be nevertheless acknowledged)
+            b'"2016-03-21 07:38:47","4.4.4.4","tcp",5353,"example.com","mdns",11111,'
+            b'"PL","Example","Example",0,0,,,,"_workstation._tcp.local.;",,,,,,,,,,,\n'
             ,
             [
                 dict(
+                    category='amplifier',
+                    name='mdns',
                     time='2016-03-21 07:38:47',
                     address=[{'ip': '1.1.1.1'}],
                     proto='udp',
                     dport=5353,
                 ),
                 dict(
+                    category='amplifier',
+                    name='mdns',
                     time='2016-03-21 07:38:48',
                     address=[{'ip': '2.2.2.2'}, ],
                     proto='udp',
+                    dport=5353,
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-222222',
+                    time='2016-03-21 07:38:48',
+                    address=[{'ip': '2.2.2.2'}, ],
+                    proto='udp',
+                    dport=5353,
+                ),
+                dict(
+                    category='amplifier',
+                    name='mdns',
+                    time='2016-03-21 07:38:48',
+                    address=[{'ip': '3.3.3.3'}, ],
+                    proto='udp',
+                    dport=5353,
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-333333',
+                    time='2016-03-21 07:38:48',
+                    address=[{'ip': '3.3.3.3'}, ],
+                    proto='udp',
+                    dport=5353,
+                ),
+                dict(
+                    category='amplifier',
+                    name='mdns',
+                    time='2016-03-21 07:38:47',
+                    address=[{'ip': '4.4.4.4'}],
+                    proto='tcp',
                     dport=5353,
                 ),
             ]
@@ -1090,13 +1621,12 @@ class TestShadowserverMdns201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverXdmcp201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.xdmcp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverXdmcp201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'xdmcp',
     }
     MESSAGE_EXTRA_HEADERS = {'meta': {'mail_time': '2016-05-03 11:00:03'}}
 
@@ -1109,29 +1639,65 @@ class TestShadowserverXdmcp201412Parser(ParserTestMixin, unittest.TestCase):
             b'"xdmcp",111111,"PL","example","example",0,0,"example","example4238","0 user, '
             b'load: 0.00, 0.00, 0.00",48\n'
 
-            b'"2016-07-21 02:10:43","1.1.1.1","udp",177,"1-1-1-1.example.net",'
-            b'"xdmcp",1111111,"PL","example","example",0,0,"example","linux-example",'
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2016-07-21 02:10:43","2.2.2.2","udp",177,"2.2.2.2.example.net",'
+            b'"cve-2000-222222",222222,"PL","example","example",0,0,"example","linux-example",'
             b'"Linux 1.2.345-6.78-abc",49\n'
 
-            # 3rd case - protocol other than UDP (should be
-            # nevertheless acknowledged)
+            # we have cve match in tag field -> we yield 2 events
+            b'"2016-07-21 02:10:43","3.3.3.3","udp",177,"3.3.3.3.example.net",'
+            b'"cve-2000-333333",333333,"PL","example","example",0,0,"example","linux-example",'
+            b'"Linux 1.2.345-6.78-abc",49\n'
+
+            # protocol other than UDP (should be nevertheless acknowledged)
             b'"2016-07-21 02:10:43","1.1.1.1","tcp",177,"1-1-1-1.example.net",'
             b'"xdmcp",111111,"PL","example","example",0,0,"example","linux-example",'
             b'"Linux 1.2.345-6.78-abc",49\n',
             [
                 dict(
+                    category='amplifier',
+                    name='xdmcp',
                     time='2016-07-21 02:10:01',
                     address=[{'ip': '1.1.1.1'}],
                     proto='udp',
                     dport=177,
                 ),
                 dict(
+                    category='amplifier',
+                    name='xdmcp',
                     time='2016-07-21 02:10:43',
-                    address=[{'ip': '1.1.1.1'}],
+                    address=[{'ip': '2.2.2.2'}],
                     proto='udp',
                     dport=177,
                 ),
                 dict(
+                    category='vulnerable',
+                    name='cve-2000-222222',
+                    time='2016-07-21 02:10:43',
+                    address=[{'ip': '2.2.2.2'}],
+                    proto='udp',
+                    dport=177,
+                ),
+                dict(
+                    category='amplifier',
+                    name='xdmcp',
+                    time='2016-07-21 02:10:43',
+                    address=[{'ip': '3.3.3.3'}],
+                    proto='udp',
+                    dport=177,
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-333333',
+                    time='2016-07-21 02:10:43',
+                    address=[{'ip': '3.3.3.3'}],
+                    proto='udp',
+                    dport=177,
+                ),
+                dict(
+                    category='amplifier',
+                    name='xdmcp',
                     time='2016-07-21 02:10:43',
                     address=[{'ip': '1.1.1.1'}],
                     proto='tcp',
@@ -1150,6 +1716,7 @@ class TestShadowserverXdmcp201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverDb2201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.db2'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverDb2201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1198,6 +1765,7 @@ class TestShadowserverDb2201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverRdp201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.rdp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverRdp201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1288,6 +1856,7 @@ class TestShadowserverRdp201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverTftp201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.tftp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverTftp201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1336,6 +1905,7 @@ class TestShadowserverTftp201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverIsakmp201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.isakmp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverIsakmp201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1406,6 +1976,7 @@ class TestShadowserverIsakmp201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverTelnet201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.telnet'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverTelnet201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1450,6 +2021,7 @@ class TestShadowserverTelnet201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverCwmp201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.cwmp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverCwmp201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1498,6 +2070,7 @@ class TestShadowserverCwmp201412Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverLdap201412Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ldap'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverLdap201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1599,6 +2172,7 @@ class TestShadowserverLdap201412Parser(ParserTestMixin, unittest.TestCase):
 
 class TestShadowserverVnc201412Parser(ParserTestMixin, unittest.TestCase):
     PARSER_SOURCE = 'shadowserver.vnc'
+    PARSER_RAW_FORMAT_VERSION_TAG = '201412'
     PARSER_CLASS = ShadowserverVnc201412Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1639,6 +2213,7 @@ class TestShadowserverVnc201412Parser(ParserTestMixin, unittest.TestCase):
 
 class TestShadowserverSinkholeHttp202203Parser(ParserTestMixin, unittest.TestCase):
     PARSER_SOURCE = 'shadowserver.sinkhole-http'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202203'
     PARSER_CLASS = ShadowserverSinkholeHttp202203Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1677,8 +2252,9 @@ class TestShadowserverSinkholeHttp202203Parser(ParserTestMixin, unittest.TestCas
         )
 
 
-class TestShadowserverSinkholeParser(ParserTestMixin, unittest.TestCase):
+class TestShadowserverSinkhole202203Parser(ParserTestMixin, unittest.TestCase):
     PARSER_SOURCE = 'shadowserver.sinkhole'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202203'
     PARSER_CLASS = ShadowserverSinkhole202203Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1714,6 +2290,7 @@ class TestShadowserverSinkholeParser(ParserTestMixin, unittest.TestCase):
 
 class TestShadowserverDarknet202203Parser(ParserTestMixin, unittest.TestCase):
     PARSER_SOURCE = 'shadowserver.darknet'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202203'
     PARSER_CLASS = ShadowserverDarknet202203Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1747,42 +2324,9 @@ class TestShadowserverDarknet202203Parser(ParserTestMixin, unittest.TestCase):
         )
 
 
-class TestShadowserverModbus202203Parser(ParserTestMixin, unittest.TestCase):
-    PARSER_SOURCE = 'shadowserver.modbus'
-    PARSER_CLASS = ShadowserverModbus202203Parser
-    PARSER_BASE_CLASS = _BaseShadowserverParser
-    PARSER_CONSTANT_ITEMS = {
-        'restriction': 'need-to-know',
-        'confidence': 'medium',
-        'category': 'vulnerable',
-        'name': 'modbus',
-    }
-
-    def cases(self):
-        yield (
-        b'"timestamp","ip","protocol","port","hostname","tag","asn","geo","region","city","naics",'
-        b'"sic","unit_id","vendor","revision","product_code","function_code","conformity_level",'
-        b'"object_count","response_length","raw_response","sector"\n'
-        b'"2022-02-20 02:30:40","1.1.1.1","tcp",1111,"1.1.1.1.example.com","modbus",11111,"PL",'
-        b'"EXAMPLE VOIVODESHIP","EXAMPLE CITY",,,0,"Example Company","v2.2","ABC DEF 1234",43,129,3,50,'
-        b'"AaaAa1a1a1aAAa1a1aaaaAAAaaaA11","Communications, Service Provider, and Hosting Service"'
-            ,
-            [
-                dict(
-                    time='2022-02-20 02:30:40',
-                    address=[{'ip': '1.1.1.1'}],
-                    dport=1111,
-                    proto='tcp',
-                    vendor='Example Company',
-                    revision='v2.2',
-                    product_code='ABC DEF 1234',
-                ),
-            ]
-        )
-
-
 class TestShadowserverIcs202204Parser(ParserTestMixin, unittest.TestCase):
     PARSER_SOURCE = 'shadowserver.ics'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverIcs202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -1820,25 +2364,66 @@ class TestShadowserverIcs202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverCoap202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.coap'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverCoap202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'coap',
     }
 
     def cases(self):
         yield (
             b'"timestamp","ip","protocol","port","hostname","tag","asn","geo","region","city","naics","sic","response"\n'
-            b'"2021-05-18 01:28:59","1.1.1.1","udp",1111,,"coap",11111,"PL","STATE","CITY",,,"</api>..."'
+
+            b'"2021-05-18 01:28:59","1.1.1.1","udp",1111,,"coap",11111,"PL","STATE","CITY",,,"</api>..."\n'
+            
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2021-05-18 01:28:59","2.2.2.2","udp",2222,,"cve-2000-222222",222222,"PL","STATE","CITY",,,"</api>..."\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2021-05-18 01:28:59","3.3.3.3","udp",3333,,"CVE-2000-333333",333333,"PL","STATE","CITY",,,"</api>..."\n'
             ,
             [
                 dict(
+                    category='amplifier',
+                    name='coap',
                     time='2021-05-18 01:28:59',
                     address=[{'ip': '1.1.1.1'}],
                     dport=1111,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='coap',
+                    time='2021-05-18 01:28:59',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=2222,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-222222',
+                    time='2021-05-18 01:28:59',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=2222,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='coap',
+                    time='2021-05-18 01:28:59',
+                    address=[{'ip': '3.3.3.3'}],
+                    dport=3333,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-333333',
+                    time='2021-05-18 01:28:59',
+                    address=[{'ip': '3.3.3.3'}],
+                    dport=3333,
                     proto='udp',
                 ),
             ]
@@ -1848,27 +2433,70 @@ class TestShadowserverCoap202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverUbiquiti202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ubiquiti'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverUbiquiti202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'ubiquiti',
     }
 
     def cases(self):
         yield (
             b'"timestamp","ip","protocol","port","hostname","tag","asn","geo","region","city",'
             b'"naics","sic","mac","radioname","essid","modelshort","modelfull","firmware","size"\n'
-            b'"2021-05-18 01:19:39","1.1.1.1","udp",1111,,"ubiquiti",11111,"PL","WIELKOPOLSKIE",'
-            b'"EXAMPLE",,,"111111111111","test1","test2","ABC",,"AA1.aa111.v1.0.1.1111.111111.1111",123'
+            
+            b'"2021-05-18 01:19:39","1.1.1.1","udp",1111,,"ubiquiti",11111,"PL","eXampleLoc",'
+            b'"EXAMPLE",,,"111111111111","test1","test2","ABC",,"AA1.aa111.v1.0.1.1111.111111.1111",123\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2021-05-18 01:19:39","2.2.2.2","udp",2222,,"cve-2000-222222",222222,"PL","eXampleLoc",'
+            b'"EXAMPLE",,,"222222222222","test1","test2","ABC",,"AA1.aa111.v1.0.1.1111.111111.1111",123\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2021-05-18 01:19:39","3.3.3.3","udp",3333,,"CVE-2000-333333",333333,"PL","eXampleLoc",'
+            b'"EXAMPLE",,,"333333333333","test1","test2","ABC",,"AA1.aa111.v1.0.1.1111.111111.1111",123\n'
             ,
             [
                 dict(
+                    category='amplifier',
+                    name='ubiquiti',
                     time='2021-05-18 01:19:39',
                     address=[{'ip': '1.1.1.1'}],
                     dport=1111,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='ubiquiti',
+                    time='2021-05-18 01:19:39',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=2222,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-222222',
+                    time='2021-05-18 01:19:39',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=2222,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='ubiquiti',
+                    time='2021-05-18 01:19:39',
+                    address=[{'ip': '3.3.3.3'}],
+                    dport=3333,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-333333',
+                    time='2021-05-18 01:19:39',
+                    address=[{'ip': '3.3.3.3'}],
+                    dport=3333,
                     proto='udp',
                 ),
             ]
@@ -1878,27 +2506,70 @@ class TestShadowserverUbiquiti202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverArd202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ard'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverArd202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'ard',
     }
 
     def cases(self):
         yield (
             b'"timestamp","ip","protocol","port","hostname","tag","asn","geo",'
             b'"region","city","naics","sic","machine_name","response_size"\n'
+            
             b'"2021-05-18 10:20:52","1.1.1.1","udp",1111,"1.1.1.1.example.com",'
-            b'"ard",11111,"PL","SOMEWHERE","SOME CITY",111111,,"Serwer",1006'
+            b'"ard",11111,"PL","SOMEWHERE","SOME CITY",111111,,"Serwer",1006\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2021-05-18 10:20:52","2.2.2.2","udp",2222,"2.2.2.2.example.com",'
+            b'"cve-2000-222222",22222,"PL","SOMEWHERE","SOME CITY",222222,,"Serwer",1006\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2021-05-18 10:20:52","3.3.3.3","udp",3333,"3.3.3.3.example.com",'
+            b'"CVE-2000-333333",33333,"PL","SOMEWHERE","SOME CITY",333333,,"Serwer",1006\n'
             ,
             [
                 dict(
+                    category='amplifier',
+                    name='ard',
                     time='2021-05-18 10:20:52',
                     address=[{'ip': '1.1.1.1'}],
                     dport=1111,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='ard',
+                    time='2021-05-18 10:20:52',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=2222,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-222222',
+                    time='2021-05-18 10:20:52',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=2222,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='ard',
+                    time='2021-05-18 10:20:52',
+                    address=[{'ip': '3.3.3.3'}],
+                    dport=3333,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-333333',
+                    time='2021-05-18 10:20:52',
+                    address=[{'ip': '3.3.3.3'}],
+                    dport=3333,
                     proto='udp',
                 ),
             ]
@@ -1908,25 +2579,66 @@ class TestShadowserverArd202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverRdpeudp202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.rdpeudp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverRdpeudp202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'rdpeudp',
     }
 
     def cases(self):
         yield (
             b'"timestamp","ip","protocol","port","hostname","tag","asn","geo","region","city","naics","sic","sessionid"\n'
-            b'"2021-05-18 13:18:31","1.1.1.1","udp",1111,"test.example.com","rdpeudp",11111,"PL","STATE","CITY",111111,,"01234567"'
+
+            b'"2021-05-18 13:18:31","1.1.1.1","udp",1111,"test.example1.com","rdpeudp",11111,"PL","STATE","CITY",111111,,"01234567"\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2021-05-18 13:18:31","2.2.2.2","udp",2222,"test.example2.com","cve-2000-222222",22222,"PL","STATE","CITY",222222,,"01234567"\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2021-05-18 13:18:31","3.3.3.3","udp",3333,"test.example3.com","CVE-2000-333333",33333,"PL","STATE","CITY",333333,,"01234567"\n'
             ,
             [
                 dict(
+                    category='amplifier',
+                    name='rdpeudp',
                     time='2021-05-18 13:18:31',
                     address=[{'ip': '1.1.1.1'}],
                     dport=1111,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='rdpeudp',
+                    time='2021-05-18 13:18:31',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=2222,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-222222',
+                    time='2021-05-18 13:18:31',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=2222,
+                    proto='udp',
+                ),
+                dict(
+                    category='amplifier',
+                    name='rdpeudp',
+                    time='2021-05-18 13:18:31',
+                    address=[{'ip': '3.3.3.3'}],
+                    dport=3333,
+                    proto='udp',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-333333',
+                    time='2021-05-18 13:18:31',
+                    address=[{'ip': '3.3.3.3'}],
+                    dport=3333,
                     proto='udp',
                 ),
             ]
@@ -1936,13 +2648,12 @@ class TestShadowserverRdpeudp202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverDvrDhcpdiscover202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.dvr-dhcpdiscover'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverDvrDhcpdiscover202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
-        'category': 'amplifier',
-        'name': 'dvr-dhcpdiscover',
     }
 
     def cases(self):
@@ -1954,24 +2665,95 @@ class TestShadowserverDvrDhcpdiscover202204Parser(ParserTestMixin, unittest.Test
             b'"alarm_output_channels","remote_video_input_channels","mac_address","ipv4_address",'
             b'"ipv4_gateway","ipv4_subnet_mask","ipv4_dhcp_enable","ipv6_address","ipv6_link_local",'
             b'"ipv6_gateway","ipv6_dhcp_enable"\n'
+
             b'"2022-04-20 13:29:33","1.1.1.1","udp",1111,"host-1-1-1-1.example.com","dvrdhcpdiscover",'
-            b'11111,"PL","STATE","CITY",,,,"Private","ABC","ABC1234-5DE6","1.111.111A001.0",'
-            b'"1234","1A111AAAAAA1AA1","ABC","Private","client.notifyDevInfo",80,22222,0,0,0,0,4,'
+            b'11111,"PL","STATE","CITY",,,,"Private","ABC","ABC1111-5DE6","1.111.111A001.0",'
+            b'"1111","1A111AAAAAA1AA1","ABC","Private","client.notifyDevInfo",80,22222,0,0,0,0,4,'
             b'"00:00:00:00:00:00","1.1.1.1","2.2.2.2","3.3.3.3",0,"/1",'
-            b'"0000::0000:0000:0000:0000/64",,'
+            b'"0000::0000:0000:0000:0000/64",,\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            # cve (all characters lowered)
+            b'"2022-04-20 13:29:33","4.4.4.4","udp",4444,"host-4-4-4-4.example.com","cve-2000-444444",'
+            b'4444,"PL","STATE","CITY",,,,"Private","ABC","ABC4444-5DE6","4.444.444A001.0",'
+            b'"4444","1A111AAAAAA1AA1","ABC","Private","client.notifyDevInfo",80,4444,0,0,0,0,4,'
+            b'"00:00:00:00:00:00","4.4.4.4","5.5.5.5","6.6.6.6",0,"/1",'
+            b'"0000::0000:0000:0000:0000/64",,\n'
+
+            # we have cve match in tag field -> we yield 2 events
+            b'"2022-04-20 13:29:33","7.7.7.7","udp",7777,"host-7-7-7-7.example.com","CVE-2000-777777",'
+            b'11111,"PL","STATE","CITY",,,,"Private","ABC","ABC7777-5DE6","7.777.777A001.0",'
+            b'"7777","1A111AAAAAA1AA1","ABC","Private","client.notifyDevInfo",80,7777,0,0,0,0,4,'
+            b'"00:00:00:00:00:00","7.7.7.7","8.8.8.8","9.9.9.9",0,"/1",'
+            b'"0000::0000:0000:0000:0000/64",,\n'
             ,
             [
                 dict(
+                    category='amplifier',
+                    name='dvr-dhcpdiscover',
                     time='2022-04-20 13:29:33',
                     address=[{'ip': '1.1.1.1'}],
                     dport=1111,
                     proto='udp',
                     device_vendor='Private',
                     device_type='ABC',
-                    device_model='ABC1234-5DE6',
+                    device_model='ABC1111-5DE6',
                     device_version='1.111.111A001.0',
-                    device_id='1234',
+                    device_id='1111',
                 ),
+                dict(
+                    category='amplifier',
+                    name='dvr-dhcpdiscover',
+                    time='2022-04-20 13:29:33',
+                    address=[{'ip': '4.4.4.4'}],
+                    dport=4444,
+                    proto='udp',
+                    device_vendor='Private',
+                    device_type='ABC',
+                    device_model='ABC4444-5DE6',
+                    device_version='4.444.444A001.0',
+                    device_id='4444',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-444444',
+                    time='2022-04-20 13:29:33',
+                    address=[{'ip': '4.4.4.4'}],
+                    dport=4444,
+                    proto='udp',
+                    device_vendor='Private',
+                    device_type='ABC',
+                    device_model='ABC4444-5DE6',
+                    device_version='4.444.444A001.0',
+                    device_id='4444',
+                ),
+                dict(
+                    category='amplifier',
+                    name='dvr-dhcpdiscover',
+                    time='2022-04-20 13:29:33',
+                    address=[{'ip': '7.7.7.7'}],
+                    dport=7777,
+                    proto='udp',
+                    device_vendor='Private',
+                    device_type='ABC',
+                    device_model='ABC7777-5DE6',
+                    device_version='7.777.777A001.0',
+                    device_id='7777',
+                ),
+                dict(
+                    category='vulnerable',
+                    name='cve-2000-777777',
+                    time='2022-04-20 13:29:33',
+                    address=[{'ip': '7.7.7.7'}],
+                    dport=7777,
+                    proto='udp',
+                    device_vendor='Private',
+                    device_type='ABC',
+                    device_model='ABC7777-5DE6',
+                    device_version='7.777.777A001.0',
+                    device_id='7777',
+                ),
+
             ]
         )
 
@@ -1979,6 +2761,7 @@ class TestShadowserverDvrDhcpdiscover202204Parser(ParserTestMixin, unittest.Test
 class TestShadowserverHttp202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.http'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverHttp202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2012,6 +2795,7 @@ class TestShadowserverHttp202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverFtp202204Parserr(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ftp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverFtp202204Parser
     PARSER_BASE_CLASS = BaseParser
     PARSER_CONSTANT_ITEMS = {
@@ -2067,6 +2851,7 @@ class TestShadowserverFtp202204Parserr(ParserTestMixin, unittest.TestCase):
 class TestShadowserverMqtt202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.mqtt'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverMqtt202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2109,6 +2894,7 @@ class TestShadowserverMqtt202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverShadowserverLdapTcp202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ldap-tcp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverLdapTcp202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2144,6 +2930,7 @@ class TestShadowserverShadowserverLdapTcp202204Parser(ParserTestMixin, unittest.
 class TestShadowserverRsync202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.rsync'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverRsync202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2172,6 +2959,7 @@ class TestShadowserverRsync202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverRadmin202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.radmin'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverRadmin202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2200,6 +2988,7 @@ class TestShadowserverRadmin202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverAdb202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.adb'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverAdb202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2235,6 +3024,7 @@ class TestShadowserverAdb202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverAfp202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.afp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverAfp202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2270,6 +3060,7 @@ class TestShadowserverAfp202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverCiscoSmartInstall202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.cisco-smart-install'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverCiscoSmartInstall202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2298,6 +3089,7 @@ class TestShadowserverCiscoSmartInstall202204Parser(ParserTestMixin, unittest.Te
 class TestShadowserverIpp202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ipp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverIpp202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2337,6 +3129,7 @@ class TestShadowserverIpp202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverHadoop202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.hadoop'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverHadoop202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2369,6 +3162,7 @@ class TestShadowserverHadoop202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverExchange202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.exchange'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverExchange202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2397,6 +3191,7 @@ class TestShadowserverExchange202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverSmtp202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.smtp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverSmtp202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2425,6 +3220,7 @@ class TestShadowserverSmtp202204Parser(ParserTestMixin, unittest.TestCase):
 class TestShadowserverAmqp202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.amqp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202204'
     PARSER_CLASS = ShadowserverAmqp202204Parser
     PARSER_BASE_CLASS = _BaseShadowserverParser
     PARSER_CONSTANT_ITEMS = {
@@ -2450,6 +3246,37 @@ class TestShadowserverAmqp202204Parser(ParserTestMixin, unittest.TestCase):
             [
                 dict(
                     time='2022-04-20 13:56:51',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=1111,
+                    proto='tcp',
+                ),
+            ]
+        )
+
+
+class TestShadowserverMsmq202308Parser(ParserTestMixin, unittest.TestCase):
+
+    PARSER_SOURCE = 'shadowserver.msmq'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202308'
+    PARSER_CLASS = ShadowserverMsmq202308Parser
+    PARSER_BASE_CLASS = _BaseShadowserverParser
+    PARSER_CONSTANT_ITEMS = {
+        'restriction': 'need-to-know',
+        'confidence': 'medium',
+        'category': 'vulnerable',
+        'name': 'msmq',
+    }
+
+    def cases(self):
+        yield (
+            b'"timestamp","ip","protocol","port","hostname","tag","asn","geo","region",'
+            b'"city","naics","sector","response_size"\n'
+            b'"2023-08-10 01:01:55","1.1.1.1","tcp",1111,"example.com","msmq",11111,"PL","STATE",'
+            b'"EXMPL CITY",,,111'
+            ,
+            [
+                dict(
+                    time='2023-08-10 01:01:55',
                     address=[{'ip': '1.1.1.1'}],
                     dport=1111,
                     proto='tcp',

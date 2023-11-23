@@ -209,7 +209,7 @@ class RipePopupBase extends PopupBase {
     _buildResultTable(data) {
         // the script requests only one value at the time from RIPE API
         // client, so the first item of result list is being handled
-        const resultList = this._getListsOfSeparatePersonData(data[0]);
+        const resultList = this._getListsOfSeparatePersonOrOrgData(data[0]);
         // every item of `resultList` will be used to create separate table
         for (const result of resultList) {
             const resultTable = document.createElement('table');
@@ -235,31 +235,35 @@ class RipePopupBase extends PopupBase {
         }
     }
 
-    _getListsOfSeparatePersonData(items) {
-        const resultList = [];
-        let currentList = [];
-        resultList.push(currentList);
-        for (const item of items) {
-            const [key, val] = item;
-            // single list-item containing both empty strings serves
-            // as a separator between each result set
-            if (!key && !val) {
-                if (currentList.length) resultList.push(currentList);
+    _getListsOfSeparatePersonOrOrgData(items) {
+    const resultList = [];
+    let currentList = [];
+    for (const item of items) {
+        const [key, val] = item;
+        // single list-item containing both empty strings serves
+        // as a separator between each result set
+        if (!key && !val) {
+            if (currentList.length) {
+                resultList.push(currentList);
                 currentList = [];
-            } else {
-                // each item of the new list will be a 2-element list,
-                // where its first item is a key, and second - a list
-                // of values; there will be no key duplicates
-                const elIndex = currentList.findIndex(el => el[0] === key);
-                const valList = Array.isArray(val) ? val : [val];
-                if (elIndex !== -1) {
-                    currentList[elIndex][1].push(...valList);
-                } else {
-                    currentList.push([key, valList]);
-                }
             }
+            continue;
         }
-        return resultList;
+
+        const elIndex = currentList.findIndex(el => el[0] === key);
+        const valList = Array.isArray(val) ? val : [val];
+        if (elIndex !== -1) {
+            currentList[elIndex][1].push(...valList);
+        } else {
+            currentList.push([key, valList]);
+        }
+    }
+
+    if (currentList.length) {
+        resultList.push(currentList);
+    }
+
+    return resultList;
     }
 }
 

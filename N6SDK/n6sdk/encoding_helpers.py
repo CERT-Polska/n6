@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 #
 # For some parts of the source code of the
 # `provide_custom_unicode_error_handlers()` function:
@@ -233,8 +233,8 @@ def as_unicode(obj, decode_error_handling='strict'):  # TODO: rename to `as_str`
     ...     def __bytes__(self): return b'never used'
     ...     def __repr__(self): return 'foo'
     ...
-    >>> as_unicode(Hard())
-    'foo'
+    >>> as_unicode(Hard()) == 'foo'
+    True
     """
 
     if isinstance(obj, memoryview):
@@ -246,6 +246,84 @@ def as_unicode(obj, decode_error_handling='strict'):  # TODO: rename to `as_str`
             s = str(obj)
         except ValueError:
             s = repr(obj)
+    return s
+
+
+def as_str_with_minimum_esc(obj):
+    r"""
+    Similar to `as_unicode`, except that:
+
+    * if a :class:`bytes`/:class:`bytearray`/:class:`memoryview`
+      object is given then it is always decoded to `str` using the
+      `backslashreplace` error handler, i.e., any non-UTF-8 bytes
+      (including those belonging to encoded surrogate codepoints)
+      are escaped using the `\x...` notation;
+
+    * if a :class:`str` or any other object is given then the string
+      obtained by calling `as_unicode()` is additionally processed in
+      such a way that any surrogates it contains are escaped using the
+      `\u...` notation;
+
+    * additionaly, in both cases, any backslashes present in the
+      original text are escaped -- by doubling them (i.e., each `\`
+      becomes `\\`).
+
+    >>> as_str_with_minimum_esc('')
+    ''
+    >>> as_str_with_minimum_esc(b'')
+    ''
+
+    >>> as_str_with_minimum_esc('\\Wy\u0142\xf3w \udcdd!') == '\\\\Wy\u0142\xf3w \\udcdd!'
+    True
+    >>> as_str_with_minimum_esc(ValueError('Wy\u0142\xf3w \udcdd!')) == 'Wy\u0142\xf3w \\udcdd!'
+    True
+
+    >>> as_str_with_minimum_esc(b'\\Wy\xc5\x82\xc3\xb3w \xdd!') == '\\\\Wy\u0142\xf3w \\xdd!'
+    True
+    >>> as_str_with_minimum_esc(bytearray(b'\xc5\x82\xc3\xb3w \xdd!')) == '\u0142\xf3w \\xdd!'
+    True
+    >>> as_str_with_minimum_esc(memoryview(b'\\Wy \xdd!')) == '\\\\Wy \\xdd!'
+    True
+
+    >>> as_str_with_minimum_esc(42) == '42'
+    True
+    >>> as_str_with_minimum_esc([{True: bytearray(b'abc')}]) == "[{True: bytearray(b'abc')}]"
+    True
+    >>> as_str_with_minimum_esc('\\') == r'\\'
+    True
+    >>> as_str_with_minimum_esc(b'\\') == r'\\'
+    True
+    >>> as_str_with_minimum_esc(['\\']) == r"['\\\\']"
+    True
+    >>> as_str_with_minimum_esc([b'\\']) == r"[b'\\\\']"
+    True
+    >>> str([''' '" ''']) == r'''[' \'" ']'''
+    True
+    >>> as_str_with_minimum_esc([''' '" ''']) == r'''[' \\'" ']'''
+    True
+    >>> str([b''' '" ''']) == r'''[b' \'" ']'''
+    True
+    >>> as_str_with_minimum_esc([b''' '" ''']) == r'''[b' \\'" ']'''
+    True
+
+    >>> class Hard(object):
+    ...     def __str__(self): raise UnicodeError
+    ...     def __bytes__(self): return b'never used'
+    ...     def __repr__(self): return 'foo \udcdd bar \\ spam \udbff\udfff'
+    ...
+    >>> as_str_with_minimum_esc(Hard()) == 'foo \\udcdd bar \\\\ spam \\udbff\\udfff'
+    True
+    """
+    if isinstance(obj, memoryview):
+        obj = bytes(obj)
+    if isinstance(obj, (bytes, bytearray)):
+        bin = obj.replace(b'\\', b'\\\\')
+        s = bin.decode('utf-8', 'backslashreplace')
+    else:
+        s = as_unicode(obj)
+        s = s.replace('\\', '\\\\')
+        bin = s.encode('utf-8', 'backslashreplace')
+        s = bin.decode('utf-8')
     return s
 
 
@@ -359,34 +437,65 @@ def ascii_py_identifier_str(obj):
     return s
 
 
-def try_to_normalize_surrogate_pairs_to_proper_codepoints(s):
+def replace_surrogate_pairs_with_proper_codepoints(s):
     r"""
-    Do our best to ensure that representation of non-BMP characters
-    is consistent.
+    Make representation of non-BMP characters consistent, by replacing
+    surrogate pairs with the actual corresponding non-BMP codepoints.
+    Lone (unpaired) surrogates are left intact.
 
-    >>> s = '\ud800' + '\udfff'
-    >>> s
-    '\ud800\udfff'
-    >>> try_to_normalize_surrogate_pairs_to_proper_codepoints(s)
-    '\U000103ff'
+    >>> s = '\ud83c' + '\udf40'
+    >>> print(ascii(s))
+    '\ud83c\udf40'
+    >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
+    >>> print(ascii(res))
+    '\U0001f340'
 
-    >>> s = '\U000103ff'
-    >>> s
-    '\U000103ff'
-    >>> try_to_normalize_surrogate_pairs_to_proper_codepoints(s)
-    '\U000103ff'
+    >>> s = '\ud800' + '\udc00' + '\ud800' + '\udfff' + '\udbff' + '\udc00' + '\udbff' + '\udfff'
+    >>> print(ascii(s))
+    '\ud800\udc00\ud800\udfff\udbff\udc00\udbff\udfff'
+    >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
+    >>> print(ascii(res))
+    '\U00010000\U000103ff\U0010fc00\U0010ffff'
 
-    Lone surrogates are left intact:
+    Any already-non-BMP codepoints are, obviously, left intact:
 
-    >>> s = '\ud800'
-    >>> s
-    '\ud800'
-    >>> try_to_normalize_surrogate_pairs_to_proper_codepoints(s)
-    '\ud800'
+    >>> s = '\U0001f340'
+    >>> print(ascii(s))
+    '\U0001f340'
+    >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
+    >>> print(ascii(res))
+    '\U0001f340'
+
+    Lone/not-properly-paired surrogates are left intact we well:
+
+    >>> s = '\ud83c'
+    >>> print(ascii(s))
+    '\ud83c'
+    >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
+    >>> print(ascii(res))
+    '\ud83c'
+
+    >>> s = '\udf40' + '\ud83c'  # not a proper surrogate pair (wrong order)
+    >>> print(ascii(s))
+    '\udf40\ud83c'
+    >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
+    >>> print(ascii(res))
+    '\udf40\ud83c'
+
+    >>> s = 'asdfghj' + '\ud83c' + '\udf40' + '\udf40' + '\ud83c' + '\U0001f340' + 'qwertyu'
+    >>> print(ascii(s))
+    'asdfghj\ud83c\udf40\udf40\ud83c\U0001f340qwertyu'
+    >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
+    >>> print(ascii(res))
+    'asdfghj\U0001f340\udf40\ud83c\U0001f340qwertyu'
     """
     if not isinstance(s, str):
-        raise TypeError('{!a} is not a `str`'.format(s))
-    return s.encode('utf-16', 'surrogatepass').decode('utf-16', 'surrogatepass')
+        raise TypeError(f'{s!a} is not a `str`')
+    res = s.encode('utf-16', 'surrogatepass').decode('utf-16', 'surrogatepass')
+    assert not _PROPER_SURROGATE_PAIR.search(res)
+    return res
+
+_PROPER_SURROGATE_PAIR = re.compile('[\uD800-\uDBFF][\uDC00-\uDFFF]')
 
 
 def provide_custom_unicode_error_handlers(
@@ -503,7 +612,7 @@ def provide_custom_unicode_error_handlers(
     ...     u'\udced\udca0'  # mess converted to surrogates
     ...     u'\x7f'          # proper code point (ascii DEL)
     ...     u'\ud800'        # surrogate '\ud800' (smallest one)
-    ...     u'\udfff'        # surrogate '\udfff' (biggest one)
+    ...     u'\udfff'        # surrogate '\udfff' (biggest one) [note: *not* merged with one above]
     ...     u'\udcee\udcbf\udcc0'  # mess converted to surrogates
     ...     u'\ue000'        # proper code point '\ue000' (bigger than biggest surrogate)
     ...     u'\udce6'        # mess converted to surrogate

@@ -1,4 +1,4 @@
-# Copyright (c) 2022 NASK. All rights reserved.
+# Copyright (c) 2022-2023 NASK. All rights reserved.
 
 import json
 from typing import Optional
@@ -80,19 +80,19 @@ class RIPEApiClient:
 
       * Creates unique URLs using each ASN/IP network,
       * Requests data from every - previously created - URL.
-      * Search for `admin-c` and `tech-c` keys/values.
-      * Creates unique URLs using values from `admin-c` and `tech-c` keys.
-        Usually there is more than one created URL, but not all of them
-        are valid.
+      * Search for `admin-c`, `tech-c` and `org` keys/values.
+      * Creates unique URLs using values from `admin-c` and `tech-c`
+        and `org` keys. Usually there is more than one created URL,
+        but not all of them are valid.
 
     Phase III (obtaining *attrs_data* from *unique details URLs*
     and abuse contact finder):
 
       * Downloads content - as we use to call it in code, the
         `attrs_data` - from any URL created based on the data
-        contained in the `admin-c` and `tech-c` keys. Note that
-        not every URL is valid, in case of a 404 error the URL
-        is skipped.
+        contained in the `admin-c`, `tech-c` and `org` keys.
+        Note that not every URL is valid, in case of a 404 error
+        the URL is skipped.
 
     ***
 
@@ -123,7 +123,9 @@ class RIPEApiClient:
 
     DETAILS_ROLE_URL_PATTERN = 'https://rest.db.ripe.net/ripe/role/'
     DETAILS_PERSON_URL_PATTERN = 'https://rest.db.ripe.net/ripe/person/'
+    DETAILS_ORGANISATION_URL_PATTERN = 'https://rest.db.ripe.net/ripe/organisation/'
     DETAILS_EXTENSION = '.json'
+    DETAILS_UNFILTERED_EXTENSION = '?unfiltered'
 
     _UNIQUE_ASN_MARKER = 'ASN'
     _UNIQUE_IP_NETWORK_MARKER = 'IP Network'
@@ -139,7 +141,7 @@ class RIPEApiClient:
                  ) -> None:
         self.asn_seq = self._get_validated_as_numbers(asn_seq)
         self.ip_network_seq = self._get_validated_ip_networks(ip_network_seq)
-        self.asn_ip_network_to_details_urls = dict()
+        self.marker_to_details_urls = dict()
         if not (self.asn_seq or self.ip_network_seq):
             raise ValueError('ASN or IP Network should be provided.')
         if self.asn_seq and self.ip_network_seq:
@@ -188,7 +190,7 @@ class RIPEApiClient:
 
     def _set_asn_and_ip_network_to_unique_details_urls_structure(self) -> None:
         for marker in (self._UNIQUE_ASN_MARKER, self._UNIQUE_IP_NETWORK_MARKER):
-            self.asn_ip_network_to_details_urls[marker] = dict()
+            self.marker_to_details_urls[marker] = dict()
 
 
     #
@@ -246,41 +248,76 @@ class RIPEApiClient:
         if response["data"]["records"]:
             for record in response["data"]["records"][0]:
                 if record['key'] in ('admin-c', 'tech-c'):
-                    if asn:
-                        self._provide_asn_or_ip_network_to_unique_details_urls(
-                            value=record['value'],
-                            marker=self._UNIQUE_ASN_MARKER,
-                            asn_ip_network=asn,
-                        )
-                    if ip_network:
-                        self._provide_asn_or_ip_network_to_unique_details_urls(
-                            value=record['value'],
-                            marker=self._UNIQUE_IP_NETWORK_MARKER,
-                            asn_ip_network=ip_network,
-                        )
+                    self._provide_marker_to_unique_details_urls(
+                        value=record['value'],
+                        asn=asn,
+                        ip_network=ip_network,
+                    )
+                if record['key'] == 'org':
+                    self._provide_marker_to_unique_details_urls(
+                        value=record['value'],
+                        asn=asn,
+                        ip_network=ip_network,
+                        org=True,
+                    )
 
-    def _provide_asn_or_ip_network_to_unique_details_urls(self,
-                                                          value: str,
-                                                          marker: str,
-                                                          asn_ip_network: str,
-                                                          ) -> None:
-        assert marker is not None
-        if not self.asn_ip_network_to_details_urls[marker].get(asn_ip_network):
-            self.asn_ip_network_to_details_urls[marker][asn_ip_network] = set()
-        self.asn_ip_network_to_details_urls[marker][asn_ip_network].update((
-            f'{self.DETAILS_PERSON_URL_PATTERN}{value}{self.DETAILS_EXTENSION}',
-            f'{self.DETAILS_ROLE_URL_PATTERN}{value}{self.DETAILS_EXTENSION}',
-        ))
+    def _provide_marker_to_unique_details_urls(self,
+                                               value: str,
+                                               asn: str = None,
+                                               ip_network: str = None,
+                                               org: bool = False,
+                                               ) -> None:
+        if asn is not None:
+            assert ip_network is None
+            self._provide_asn_to_unique_details_urls(asn=asn,
+                                                     value=value,
+                                                     org=org)
+        if ip_network is not None:
+            assert asn is None
+            self._provide_ip_network_to_unique_details_urls(ip_network=ip_network,
+                                                            value=value,
+                                                            org=org)
+
+    def _provide_asn_to_unique_details_urls(self,
+                                            asn: str,
+                                            value: str,
+                                            org: bool = False,
+                                            ) -> None:
+        if not self.marker_to_details_urls[self._UNIQUE_ASN_MARKER].get(asn):
+            self.marker_to_details_urls[self._UNIQUE_ASN_MARKER][asn] = set()
+        if org:
+            self.marker_to_details_urls[self._UNIQUE_ASN_MARKER][asn].add(
+                f'{self.DETAILS_ORGANISATION_URL_PATTERN}{value}{self.DETAILS_EXTENSION}{self.DETAILS_UNFILTERED_EXTENSION}'
+            )
+        else:
+            self.marker_to_details_urls[self._UNIQUE_ASN_MARKER][asn].update((
+                f'{self.DETAILS_PERSON_URL_PATTERN}{value}{self.DETAILS_EXTENSION}{self.DETAILS_UNFILTERED_EXTENSION}',
+                f'{self.DETAILS_ROLE_URL_PATTERN}{value}{self.DETAILS_EXTENSION}{self.DETAILS_UNFILTERED_EXTENSION}',
+            ))
+
+    def _provide_ip_network_to_unique_details_urls(self,
+                                                   ip_network: str,
+                                                   value: str,
+                                                   org: bool = False,
+                                                   ):
+        if not self.marker_to_details_urls[self._UNIQUE_IP_NETWORK_MARKER].get(ip_network):
+            self.marker_to_details_urls[self._UNIQUE_IP_NETWORK_MARKER][ip_network] = set()
+        if org:
+            self.marker_to_details_urls[self._UNIQUE_IP_NETWORK_MARKER][ip_network].add(
+                f'{self.DETAILS_ORGANISATION_URL_PATTERN}{value}{self.DETAILS_EXTENSION}{self.DETAILS_UNFILTERED_EXTENSION}'
+            )
+        else:
+            self.marker_to_details_urls[self._UNIQUE_IP_NETWORK_MARKER][ip_network].update((
+                f'{self.DETAILS_PERSON_URL_PATTERN}{value}{self.DETAILS_EXTENSION}{self.DETAILS_UNFILTERED_EXTENSION}',
+                f'{self.DETAILS_ROLE_URL_PATTERN}{value}{self.DETAILS_EXTENSION}{self.DETAILS_UNFILTERED_EXTENSION}',
+            ))
 
 
     # * Phase III - Obtaining data from unique *details* URLs + abuse contact finder:
 
     def _get_attrs_data_from_unique_details_urls(self) -> list:
         attrs_data_from_details_urls = []
-        for (
-                marker,
-                asn_or_ip_network_to_urls
-        ) in self.asn_ip_network_to_details_urls.items():
+        for (marker, asn_or_ip_network_to_urls) in self.marker_to_details_urls.items():
             if asn_or_ip_network_to_urls:
                 self._provide_attrs_data(attrs_data_from_details_urls,
                                          marker,
@@ -293,7 +330,7 @@ class RIPEApiClient:
                             asn_or_ip_network_to_urls: dict,
                             ) -> None:
         for asn_or_ip_network, unique_urls in asn_or_ip_network_to_urls.items():
-            adjusted_attributes = [('Data for', str(asn_or_ip_network))]
+            adjusted_attributes = [('Unfiltered data for', str(asn_or_ip_network))]
             contact_url = self._obtain_abuse_url(asn_or_ip_network, marker)
             response = self._perform_single_request(contact_url)
             abuse_contact_emails = response['data']['abuse_contacts']

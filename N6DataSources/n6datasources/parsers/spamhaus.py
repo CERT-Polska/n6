@@ -37,10 +37,10 @@ class _BaseSpamhausBlacklistParser(BlackListParser):
 
     EXPIRES_DAYS = 2
 
-    bl_current_time_regex = re.compile(r"(?:Last-Modified:[ ]*)"
+    bl_current_time_regex = re.compile(r"Last-Modified:[ ]*"
                                        r"(?P<datetime>\w{3},[ ]*\d{1,2}[ ]*\w{3}[ ]*"
                                        r"\d{4}[ ]*(\d{2}:?){3}[ ]*GMT)",
-                                       re.VERBOSE | re.IGNORECASE)
+                                       re.ASCII | re.IGNORECASE)
     bl_current_time_format = "%a, %d %b %Y %H:%M:%S GMT"
 
     def parse(self, data):

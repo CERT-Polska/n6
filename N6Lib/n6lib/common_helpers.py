@@ -45,8 +45,6 @@ from typing import (
     Union,
 )
 
-from pkg_resources import cleanup_resources
-
 # for backward-compatibility and/or for convenience, the following
 # constants and functions importable from some of the n6sdk.* modules
 # are also accessible via this module:
@@ -58,9 +56,10 @@ from n6sdk.addr_helpers import (
 from n6sdk.encoding_helpers import (
     ascii_str,
     ascii_py_identifier_str,
+    as_str_with_minimum_esc,
     as_unicode,
     str_to_bool,
-    try_to_normalize_surrogate_pairs_to_proper_codepoints,
+    replace_surrogate_pairs_with_proper_codepoints,
 )
 from n6sdk.regexes import (
     CC_SIMPLE_REGEX,
@@ -428,7 +427,13 @@ class FilePagedSequence(MutableSequence):
     Temporary files are created lazily. No disk (filesystem) operations
     are performed at all if all data fit on one page.
 
-    The implementation is *not* thread-safe.
+    Normally, when an instance of this class is garbage-collected or
+    when the program exits in an undisturbed way (*also* if it exits
+    due to an unhandled exception), the instance's temporary files
+    are automatically removed (thanks to a `weakref.finalize()`-based
+    mechanism used internally by the class).
+
+    The implementation of `FilePagedSequence` is *not* thread-safe.
 
     >>> seq = FilePagedSequence([1, 'foo', {'a': None}, ['b']], page_size=3)
     >>> seq
@@ -919,7 +924,7 @@ class FilePagedSequence(MutableSequence):
     >>> FilePagedSequence(b'abcdef', page_size=4) == bytearray(b'abcdef')
     False
 
-    >>> seq._filesystem_used()   # (it's a *non-public method*, never use it in real code!)
+    >>> '_dir' in seq.__dict__    # (here we use a *non-public stuff*, never do that in real code!)
     True
     >>> _dir = seq._dir      # (it's a *non-public descriptor*, never use it in real code!)
     >>> osp.exists(_dir)
@@ -933,16 +938,16 @@ class FilePagedSequence(MutableSequence):
     FilePagedSequence(<0 items...>, page_size=3)
     >>> list(seq)
     []
-    >>> seq._filesystem_used()
+    >>> '_dir' in seq.__dict__    # (filesystem no longer used)
     False
     >>> osp.exists(_dir)
     False
 
     >>> with seq as cm_target:       # (note: reusing the same instance)
     ...     seq is cm_target
-    ...     not seq._filesystem_used()
+    ...     '_dir' not in seq.__dict__   # (filesystem not used yet)
     ...     seq.extend(map(int, '1234567890'))
-    ...     seq._filesystem_used()
+    ...     '_dir' in seq.__dict__       # (filesystem used)
     ...     seq == [1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
     ...     repr(seq) == 'FilePagedSequence(<10 items...>, page_size=3)'
     ...     _dir2 = seq._dir
@@ -962,7 +967,7 @@ class FilePagedSequence(MutableSequence):
     FilePagedSequence(<0 items...>, page_size=3)
     >>> list(seq)
     []
-    >>> seq._filesystem_used()
+    >>> '_dir' in seq.__dict__   # (filesystem no longer used)
     False
     >>> osp.exists(_dir2)
     False
@@ -1005,10 +1010,10 @@ class FilePagedSequence(MutableSequence):
     >>> seq2 = FilePagedSequence('abc', page_size=3)
     >>> list(seq2)
     ['a', 'b', 'c']
-    >>> seq2._filesystem_used()   # all items in current page -> no disk op.
+    >>> '_dir' in seq2.__dict__   # all items in current page -> no disk op.
     False
     >>> seq2.extend('d')          # (now page 0 must be saved)
-    >>> seq2._filesystem_used()
+    >>> '_dir' in seq2.__dict__   # new page created -> filesystem used
     True
     >>> _dir = seq2._dir
     >>> osp.exists(_dir)
@@ -1033,7 +1038,7 @@ class FilePagedSequence(MutableSequence):
     >>> sorted(os.listdir(_dir))
     ['0', '1', '2']
     >>> seq2.close()
-    >>> seq2._filesystem_used()
+    >>> '_dir' in seq2.__dict__   # (filesystem no longer used)
     False
     >>> osp.exists(_dir)
     False
@@ -1041,14 +1046,14 @@ class FilePagedSequence(MutableSequence):
     []
 
     >>> seq3 = FilePagedSequence(page_size=3)
-    >>> seq3._filesystem_used()
+    >>> '_dir' in seq3.__dict__   # (filesystem not used yet)
     False
     >>> seq3.close()
-    >>> seq3._filesystem_used()
+    >>> '_dir' in seq3.__dict__   # (filesystem still not used at all)
     False
 
     >>> with FilePagedSequence(page_size=3) as seq4:
-    ...     not seq4._filesystem_used()
+    ...     '_dir' not in seq4.__dict__   # (filesystem not used yet)
     ...     seq4.append(('foo', 1))
     ...     list(seq4) == [('foo', 1)]
     ...     seq4[0] = 'bar', 2
@@ -1057,9 +1062,9 @@ class FilePagedSequence(MutableSequence):
     ...     seq4.append({'x'})
     ...     seq4.append({'z': 3})
     ...     list(seq4) == [('bar', 2), {'x'}, {'z': 3}]
-    ...     not seq4._filesystem_used()
+    ...     '_dir' not in seq4.__dict__   # (filesystem still not used, yet)
     ...     seq4.append(['d'])
-    ...     seq4._filesystem_used()
+    ...     '_dir' in seq4.__dict__       # (filesystem used)
     ...     _dir = seq4._dir
     ...     osp.exists(_dir)
     ...     sorted(os.listdir(_dir)) == ['0']
@@ -1080,7 +1085,7 @@ class FilePagedSequence(MutableSequence):
     True
     True
     True
-    >>> seq4._filesystem_used()
+    >>> '_dir' in seq4.__dict__   # (filesystem no longer used)
     False
     >>> osp.exists(_dir)
     False
@@ -1091,6 +1096,8 @@ class FilePagedSequence(MutableSequence):
         self._cur_len = 0
         self._cur_page_no = None
         self._cur_page_data = []
+        self._dir_lifecycle_op_rlock = threading.RLock()
+        self._dir_finalizer = lambda: None
         self.extend(iterable)
 
     def __repr__(self):
@@ -1181,24 +1188,43 @@ class FilePagedSequence(MutableSequence):
 
     def close(self):
         self.clear()
-        if self._filesystem_used():
-            self._do_filesystem_cleanup()
+        self._dir_clear()
 
     #
     # Non-public stuff
 
     @functools.cached_property
     def _dir(self):
+        dir_rlock = self._dir_lifecycle_op_rlock
+        with dir_rlock:
+            temp_dir = self.__dict__.get('_dir')
+            if temp_dir is None:
+                temp_dir = self._make_temp_dir()
+                self._dir_finalizer = weakref.finalize(
+                    self,
+                    self._do_filesystem_cleanup,
+                    temp_dir,
+                    dir_rlock)
+                # Note: the machinery of `weakref.finalize()` automatically
+                # ensures that the finalizer will be called at program exit
+                # if it is not called earlier.
+                assert self._dir_finalizer.atexit
+            return temp_dir
+
+    def _dir_clear(self):
+        with self._dir_lifecycle_op_rlock:
+            self.__dict__.pop('_dir', None)
+            self._dir_finalizer()
+
+    def _make_temp_dir(self):
         return tempfile.mkdtemp(prefix='n6-FilePagedSequence-tmp')
 
-    def _filesystem_used(self):
-        return '_dir' in self.__dict__
-
-    def _do_filesystem_cleanup(self):
-        for filename in os.listdir(self._dir):
-            os.remove(osp.join(self._dir, filename))
-        os.rmdir(self._dir)
-        del self._dir  # noqa
+    @staticmethod
+    def _do_filesystem_cleanup(temp_dir, dir_rlock):
+        with dir_rlock:
+            for filename in os.listdir(temp_dir):
+                os.remove(osp.join(temp_dir, filename))
+            os.rmdir(temp_dir)
 
     def _local_index(self, index):
         if isinstance(index, slice):
@@ -1305,17 +1331,12 @@ class FilePagedSequence(MutableSequence):
 
         class _FakeFilePagedSequence(FilePagedSequence):  # noqa
 
-            def __init__(self, *args, **kwargs):
-                self.__fake_filesystem = {}
-                super().__init__(*args, **kwargs)
+            def _make_temp_dir(self):
+                return f'<temp dir path placeholder no. {next(path_placeholder_counter)}>'
 
-            @functools.cached_property
-            def _dir(self, __counter=itertools.count()):
-                return f'<temp dir path placeholder no. {next(__counter)}>'
-
-            def _do_filesystem_cleanup(self):
-                self.__fake_filesystem.clear()
-                del self._dir  # noqa
+            @staticmethod
+            def _do_filesystem_cleanup(*_):
+                fake_filesystem.clear()
 
             @contextlib.contextmanager
             def _writable_page_file(self, filename):
@@ -1324,16 +1345,18 @@ class FilePagedSequence(MutableSequence):
                         yield f
                     finally:
                         pickled_page = f.getvalue()
-                        self.__fake_filesystem[filename] = pickled_page
+                        fake_filesystem[filename] = pickled_page
 
             @contextlib.contextmanager
             def _readable_page_file(self, filename):
-                pickled_page = self.__fake_filesystem.get(filename)
+                pickled_page = fake_filesystem.get(filename)
                 if pickled_page is None:
                     raise FileNotFoundError(errno.ENOENT, 'No such file or directory', filename)
                 with io.BytesIO(pickled_page) as f:
                     yield f
 
+        path_placeholder_counter = itertools.count()
+        fake_filesystem = {}
         obj = _FakeFilePagedSequence(iterable, page_size)
 
         #
@@ -4878,30 +4901,13 @@ def limit_str(s, char_limit, cut_indicator='[...]', middle_cut=False):
     return s
 
 
-# TODO: docs + tests
-def is_pure_ascii(s):
-    if isinstance(s, str):
-        return s == s.encode('ascii', 'ignore').decode('ascii', 'ignore')
-    elif isinstance(s, (bytes, bytearray)):
-        return s == s.decode('ascii', 'ignore').encode('ascii', 'ignore')
-    else:
-        raise TypeError('{!a} is neither a `str` nor a `bytes`/`bytearray`'.format(s))
-
-
-# TODO: docs + tests
-def lower_if_pure_ascii(s):
-    if is_pure_ascii(s):
-        return s.lower()
-    return s
-
-
 def as_bytes(obj, encode_error_handling='surrogatepass'):
     r"""
     Convert the given object to `bytes`.
 
     If the given object is a `str` -- encode it using `utf-8` with the
     error handler specified as the second argument, `encode_error_handling`
-    (whose default value is `'surrogatepass'`).                                # TODO: change the default to 'strict' (adjusting client code where needed...)
+    (whose default value is `'surrogatepass'`).
 
     If the given object is a `bytes`, `bytearray` or `memoryview`,
     or an object whose type provides the `__bytes__()` special method
@@ -4943,30 +4949,31 @@ def as_bytes(obj, encode_error_handling='surrogatepass'):
     raise TypeError('{!a} cannot be converted to bytes'.format(obj))
 
 
-# TODO: doc, tests
 ### CR: db_event (and maybe some other stuff) uses different implementation
 ### -- fix it?? (unification needed??)
 # TODO: support ipaddress.* stuff...
 def ipv4_to_int(ipv4, accept_no_dot=False):
-    """
-    Return, as int, an IPv4 address specified as a string or integer.
+    r"""
+    Return, as `int`, an IPv4 address specified as a `str` or `int`.
 
-    Args:
+    Args/kwargs:
         `ipv4`:
             IPv4 as a `str` (formatted as 4 dot-separated decimal numbers
-            or, if `accept_no_dot` is true, possible also as one decimal
+            or, if `accept_no_dot` is true, possibly also as one decimal
             number) or as an `int` number.
         `accept_no_dot` (bool, default: False):
-            If true -- accept `ipv4` as a string formatted as one decimal
-            number.
+            If true -- accept `ipv4` *also* as a `str` formatted as one
+            decimal number.
 
     Returns:
-        The IPv4 address as an int number.
+        The IPv4 address as an `int` number.
 
     Raises:
-        ValueError or TypeError.
+        `ValueError` or `TypeError`.
 
     >>> ipv4_to_int('193.59.204.91')
+    3241921627
+    >>> ipv4_to_int('193.059.0204.91')   # (for good or for bad, extra leading `0`s are ignored)
     3241921627
     >>> ipv4_to_int('193.59.204.91 ')
     3241921627
@@ -4976,8 +4983,41 @@ def ipv4_to_int(ipv4, accept_no_dot=False):
     3241921627
     >>> ipv4_to_int(3241921627)
     3241921627
+    >>> ipv4_to_int('3241921627', accept_no_dot=True)
+    3241921627
+    >>> ipv4_to_int(' 000003241921627 ', accept_no_dot=True)
+    3241921627
+    >>> ipv4_to_int('4294967295 ', accept_no_dot=True)
+    4294967295
+    >>> ipv4_to_int(4294967295)
+    4294967295
+    >>> ipv4_to_int('255.255.255.255')
+    4294967295
+    >>> from n6lib.const import (
+    ...     LACK_OF_IPv4_PLACEHOLDER_AS_INT,  # 0
+    ...     LACK_OF_IPv4_PLACEHOLDER_AS_STR,  # '0.0.0.0'
+    ... )
+    >>> ipv4_to_int(LACK_OF_IPv4_PLACEHOLDER_AS_INT) == LACK_OF_IPv4_PLACEHOLDER_AS_INT
+    True
+    >>> ipv4_to_int(LACK_OF_IPv4_PLACEHOLDER_AS_STR) == LACK_OF_IPv4_PLACEHOLDER_AS_INT
+    True
+    >>> ipv4_to_int(' 0.\t000000. 0000.0000000000 ') == LACK_OF_IPv4_PLACEHOLDER_AS_INT
+    True
+    >>> ipv4_to_int(str(LACK_OF_IPv4_PLACEHOLDER_AS_INT),
+    ...             accept_no_dot=True) == LACK_OF_IPv4_PLACEHOLDER_AS_INT
+    True
+
+    >>> ipv4_to_int(str(LACK_OF_IPv4_PLACEHOLDER_AS_INT))  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
 
     >>> ipv4_to_int('3241921627')          # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+
+    >>> ipv4_to_int('3241921627', accept_no_dot=False)  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
@@ -4992,17 +5032,32 @@ def ipv4_to_int(ipv4, accept_no_dot=False):
       ...
     ValueError: ...
 
+    >>> ipv4_to_int(-1)                    # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+
+    >>> ipv4_to_int(4294967296)            # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+
     >>> ipv4_to_int(32419216270000000)     # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
 
-    >>> ipv4_to_int('3241921627', accept_no_dot=True)
-    3241921627
-    >>> ipv4_to_int(' 3241921627 ', accept_no_dot=True)
-    3241921627
-    >>> ipv4_to_int('3241921627 ', accept_no_dot=True)
-    3241921627
+    >>> ipv4_to_int('-1',                  # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...             accept_no_dot=True)
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+
+    >>> ipv4_to_int('4294967296',          # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...             accept_no_dot=True)
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
 
     >>> ipv4_to_int('32419216270000000',   # doctest: +IGNORE_EXCEPTION_DETAIL
     ...             accept_no_dot=True)
@@ -5015,8 +5070,7 @@ def ipv4_to_int(ipv4, accept_no_dot=False):
       ...
     TypeError: ...
 
-    >>> ipv4_to_int(bytearray(b'3241921627'),
-    ...             accept_no_dot=True)               # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> ipv4_to_int(b'3241921627', accept_no_dot=True)   # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     TypeError: ...
@@ -5053,25 +5107,27 @@ def ipv4_to_int(ipv4, accept_no_dot=False):
 ### -- fix it?? (unification needed??)
 # TODO: support stuff from the `ipaddress` std lib module...
 def ipv4_to_str(ipv4, accept_no_dot=False):
-    """
+    r"""
     Return, as a `str`, the IPv4 address specified as a `str` or `int`.
 
-    Args:
+    Args/kwargs:
         `ipv4`:
             IPv4 as a `str` (formatted as 4 dot-separated decimal numbers
-            or, if `accept_no_dot` is true, possible also as one decimal
+            or, if `accept_no_dot` is true, possibly also as one decimal
             number) or as an `int` number.
         `accept_no_dot` (bool, default: False):
-            If true -- accept `ipv4` as a string formatted as one decimal
-            number.
+            If true -- accept `ipv4` *also* as a `str` formatted as one
+            decimal number.
 
     Returns:
-        The IPv4 address as a `str`.
+        The IPv4 address, in its normalized form, as a `str`.
 
     Raises:
-        ValueError or TypeError.
+        `ValueError` or `TypeError`.
 
     >>> ipv4_to_str('193.59.204.91')
+    '193.59.204.91'
+    >>> ipv4_to_str('193.059.0204.91')   # (for good or for bad, extra leading `0`s are ignored)
     '193.59.204.91'
     >>> ipv4_to_str('193.59.204.91 ')
     '193.59.204.91'
@@ -5081,8 +5137,41 @@ def ipv4_to_str(ipv4, accept_no_dot=False):
     '193.59.204.91'
     >>> ipv4_to_str(3241921627)
     '193.59.204.91'
+    >>> ipv4_to_str('3241921627', accept_no_dot=True)
+    '193.59.204.91'
+    >>> ipv4_to_str(' 000003241921627 ', accept_no_dot=True)
+    '193.59.204.91'
+    >>> ipv4_to_str('4294967295 ', accept_no_dot=True)
+    '255.255.255.255'
+    >>> ipv4_to_str(4294967295)
+    '255.255.255.255'
+    >>> ipv4_to_str('255.255.255.255')
+    '255.255.255.255'
+    >>> from n6lib.const import (
+    ...     LACK_OF_IPv4_PLACEHOLDER_AS_INT,  # 0
+    ...     LACK_OF_IPv4_PLACEHOLDER_AS_STR,  # '0.0.0.0'
+    ... )
+    >>> ipv4_to_str(LACK_OF_IPv4_PLACEHOLDER_AS_STR) == LACK_OF_IPv4_PLACEHOLDER_AS_STR
+    True
+    >>> ipv4_to_str('\t0000 .\r\n0.  00\t.000000\t') == LACK_OF_IPv4_PLACEHOLDER_AS_STR
+    True
+    >>> ipv4_to_str(LACK_OF_IPv4_PLACEHOLDER_AS_INT) == LACK_OF_IPv4_PLACEHOLDER_AS_STR
+    True
+    >>> ipv4_to_str(str(LACK_OF_IPv4_PLACEHOLDER_AS_INT),
+    ...             accept_no_dot=True) == LACK_OF_IPv4_PLACEHOLDER_AS_STR
+    True
+
+    >>> ipv4_to_str(str(LACK_OF_IPv4_PLACEHOLDER_AS_INT))  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
 
     >>> ipv4_to_str('3241921627')          # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+
+    >>> ipv4_to_str('3241921627', accept_no_dot=False)  # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
@@ -5097,17 +5186,32 @@ def ipv4_to_str(ipv4, accept_no_dot=False):
       ...
     ValueError: ...
 
+    >>> ipv4_to_str(-1)                    # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+
+    >>> ipv4_to_str(4294967296)            # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+
     >>> ipv4_to_str(32419216270000000)     # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     ValueError: ...
 
-    >>> ipv4_to_str('3241921627', accept_no_dot=True)
-    '193.59.204.91'
-    >>> ipv4_to_str(' 3241921627 ', accept_no_dot=True)
-    '193.59.204.91'
-    >>> ipv4_to_str('3241921627 ', accept_no_dot=True)
-    '193.59.204.91'
+    >>> ipv4_to_str('-1',                  # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...             accept_no_dot=True)
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
+
+    >>> ipv4_to_str('4294967296',          # doctest: +IGNORE_EXCEPTION_DETAIL
+    ...             accept_no_dot=True)
+    Traceback (most recent call last):
+      ...
+    ValueError: ...
 
     >>> ipv4_to_str('32419216270000000',   # doctest: +IGNORE_EXCEPTION_DETAIL
     ...             accept_no_dot=True)
@@ -5115,7 +5219,7 @@ def ipv4_to_str(ipv4, accept_no_dot=False):
       ...
     ValueError: ...
 
-    >>> ipv4_to_str(bytearray(b'193.59.204.91'))      # doctest: +IGNORE_EXCEPTION_DETAIL
+    >>> ipv4_to_str(b'193.59.204.91')      # doctest: +IGNORE_EXCEPTION_DETAIL
     Traceback (most recent call last):
       ...
     TypeError: ...
@@ -5135,53 +5239,6 @@ def ipv4_to_str(ipv4, accept_no_dot=False):
     numbers = [(int_value >> rot) & 0xff
                for rot in (24, 16, 8, 0)]
     return '{0}.{1}.{2}.{3}'.format(*numbers)
-
-
-# maybe TODO later: more tests
-# maybe TODO: support ipaddress.* stuff?...
-def is_ipv4(value):
-    r"""
-    Check if the given `str` value is a properly formatted IPv4 address.
-
-    Attrs:
-        `value` (str): the value to be tested.
-
-    Returns:
-        Whether the value is properly formatted IPv4 address: True or False.
-
-    >>> is_ipv4('255.127.34.124')
-    True
-    >>> is_ipv4('192.168.0.1')
-    True
-    >>> is_ipv4(' 192.168.0.1 ')
-    False
-    >>> is_ipv4('192. 168.0.1')
-    False
-    >>> is_ipv4('192.168.0.0.1')
-    False
-    >>> is_ipv4('333.127.34.124')
-    False
-    >>> is_ipv4('3241921627')
-    False
-    >>> is_ipv4('www.nask.pl')
-    False
-    >>> is_ipv4('www.jaźń\udcdd.pl')
-    False
-    """
-    fields = value.split(".")
-    if len(fields) != 4:
-        return False
-    for value in fields:
-        if not (value == value.strip() and (
-                value == '0' or value.strip().lstrip('0'))):  ## FIXME: 04.05.06.0333 etc. are accepted, should they???
-            return False
-        try:
-            intvalue = int(value)
-        except ValueError:
-            return False
-        if intvalue > 255 or intvalue < 0:
-            return False
-    return True
 
 
 def import_by_dotted_name(dotted_name):
@@ -5777,20 +5834,6 @@ def int_id_to_hex(int_id, min_digit_num=0):
     # pad with zeroes if necessary
     hex_id = hex_id.rjust(min_digit_num, '0')
     return hex_id
-
-
-def cleanup_src():
-    """
-    Delete all extracted resource files and directories,
-    logs a list of the file and directory names that could not be successfully removed.
-    [see: https://setuptools.readthedocs.io/en/latest/pkg_resources.html?highlight=cleanup_resources#resource-extraction]
-    """
-    from n6lib.log_helpers import get_logger
-    _LOGGER = get_logger(__name__)
-
-    fail_cleanup = cleanup_resources()
-    if fail_cleanup:
-        _LOGGER.warning('Fail cleanup resources: %a', fail_cleanup)
 
 
 def make_exc_ascii_str(exc=None):

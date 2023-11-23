@@ -302,44 +302,6 @@ class TestAbuseChSslBlacklistCollector(_BaseAbuseChDownloadingTimeOrderedRowsCol
             },
         )
 
-        yield param(
-            config_content='''
-                [AbuseChSslBlacklistCollector]
-                row_count_mismatch_is_fatal = False
-                url=https://www.example.com
-                download_retries=5
-            ''',
-            initial_state={
-                # legacy form of state
-                'time': '2019-08-20 02:00:00',
-            },
-            orig_data=cls.EXAMPLE_ORIG_DATA,
-            expected_publish_output_calls=[
-                call(
-                    # routing_key
-                    'abuse-ch.ssl-blacklist.201902',
-
-                    # body
-                    (
-                        b'2019-08-20 02:00:00,f0a0k0e0d0s0h0a010000000000a0a0a00000000,ExampleName3\n'
-                        b'2019-08-20 03:00:00,f0a0k0e0d0s0h0a010000000000a0a0a00000000,ExampleName4\n'
-                        b'2019-08-20 03:00:00,f0a0k0e0d0s0h0a010000000000a0a0a00000000,ExampleName5'
-                    ),
-
-                    # prop_kwargs
-                    cls.DEFAULT_PROP_KWARGS,
-                ),
-            ],
-            expected_saved_state={
-                'newest_row_time': '2019-08-20 03:00:00',
-                'newest_rows': {
-                    '2019-08-20 03:00:00,f0a0k0e0d0s0h0a010000000000a0a0a00000000,ExampleName5',
-                    '2019-08-20 03:00:00,f0a0k0e0d0s0h0a010000000000a0a0a00000000,ExampleName4'
-                },
-                'rows_count': 6
-            },
-        )
-
     @foreach(cases)
     def test(self, **kwargs):
         self._perform_test(**kwargs)

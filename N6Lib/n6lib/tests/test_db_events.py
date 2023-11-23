@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import datetime
 import socket
@@ -280,6 +280,10 @@ class Test__n6NormalizedData(unittest.TestCase):
             min_max_ips=[(169090560, 169090815)],
             result=sen.or_result),
         param(
+            value=[('0.0.0.123', 24)],
+            min_max_ips=[(1, 255)],  # <- Note: here the minimum IP is 1, not 0 (see: #8861).
+            result=sen.or_result),
+        param(
             value=[('10.20.30.441', 24), ('10.20.30.41', 32)],
             exc_type=socket.error),
         param(
@@ -383,10 +387,12 @@ class Test__n6NormalizedData(unittest.TestCase):
 
     def test__to_raw_result_dict__1(self):
         self.test_init_and_attrs_1()
+        self.obj.dip = sen.some_other_ip_addr
         d = self.obj.to_raw_result_dict()
         self.assertEqual(d, {
             'id': sen.event_id,
             'ip': sen.some_ip_addr,
+            'dip': sen.some_other_ip_addr,
             'dport': sen.some_port_number,
             'time': datetime.datetime(2014, 3, 31, 23, 7, 42),
             'client': ['c1', 'c2'],
@@ -394,9 +400,11 @@ class Test__n6NormalizedData(unittest.TestCase):
 
     def test__to_raw_result_dict__2(self):
         self.test_init_and_attrs_2()
+        self.obj.dip = '0.0.0.0'  # "no IP" placeholder
         d = self.obj.to_raw_result_dict()
         self.assertEqual(d, {
-            # note that ip='0.0.0.0' has been removed
+            # note that ip='0.0.0.0' and dip='0.0.0.0' have been removed
+            # (see: `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR`...)
             'time': datetime.datetime(2014, 3, 31, 23, 7, 42),
             'expires': datetime.datetime(2015, 3, 31, 23, 7, 43),
             ### THIS IS A PROBLEM -- TO BE SOLVED IN #3113:

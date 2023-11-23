@@ -30,7 +30,7 @@ RABBITMQ_CONFIG_SPEC_PATTERN = '''
     ...
 '''
 
-# components (subclasses of n6.base.queue.QueuedBase)
+# components (subclasses of `n6datapipeline.base.LegacyQueuedBase`)
 # which have the `input_queue` attribute set,
 # but they do not need to have the list of `binding_keys`,
 # the warning will not be logged for them

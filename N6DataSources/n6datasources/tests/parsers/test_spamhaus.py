@@ -65,6 +65,7 @@ class TestSpamhausEdrop202303Parser(ParserTestMixin, unittest.TestCase):
     RECORD_DICT_CLASS = BLRecordDict
 
     PARSER_SOURCE = 'spamhaus.edrop'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202303'
     PARSER_CLASS = SpamhausEdrop202303Parser
     PARSER_BASE_CLASS = _BaseSpamhausBlacklistParser
     PARSER_CONSTANT_ITEMS = {

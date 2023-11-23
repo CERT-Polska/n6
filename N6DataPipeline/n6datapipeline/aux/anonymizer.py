@@ -1,4 +1,4 @@
-# Copyright (c) 2015-2021 NASK. All rights reserved.
+# Copyright (c) 2015-2023 NASK. All rights reserved.
 
 """
 Anonymizer -- performs validation and anonymization of event data
@@ -22,10 +22,10 @@ LOGGER = get_logger(__name__)
 
 class Anonymizer(LegacyQueuedBase):
 
-    # note: here `resource` denotes a *Stream API resource*:
+    # Note: here `resource` denotes a *Stream API resource*:
     # "inside" (corresponding to the "inside" access zone) or
     # "threats" (corresponding to the "threats" access zone)
-    # -- see the _get_resource_to_org_ids() method below
+    # -- see the `_get_resource_to_org_ids()` method below.
     OUTPUT_RK_PATTERN = '{resource}.{category}.{anon_source}'
 
     input_queue = {
@@ -52,13 +52,13 @@ class Anonymizer(LegacyQueuedBase):
         self.data_spec = N6DataSpec()
 
     def input_callback(self, routing_key, body, properties):
-        # NOTE: we do not need to use n6lib.record_dict.RecordDict here,
+        # Note: we do not need to use `n6lib.record_dict.RecordDict` here,
         # because:
-        # * previous components (such as filter) have already done the
-        #   preliminary validation (using RecordDict's mechanisms);
-        # * we are doing the final validation anyway using
-        #   N6DataSpec.clean_result_dict() (below -- in the
-        #   _get_result_dicts_and_output_body() method)
+        # * previous components (such as `n6filter`) have already performed
+        #   the preliminary validation (using `RecordDict`'s mechanisms);
+        # * in this component we are doing the final validation anyway
+        #   using `N6DataSpec.clean_result_dict()` (below -- in the
+        #   `_get_result_dicts_and_output_body()` method).
         event_data = json.loads(body)
         with self.setting_error_event_info(event_data):
             event_type = routing_key.split('.', 1)[0]
@@ -145,7 +145,7 @@ class Anonymizer(LegacyQueuedBase):
             raw_result_dict = {
                 k: v for k, v in event_data.items()
                 if (k in self.data_spec.all_result_keys and
-                    # eliminating empty `address` and `client` sequences
+                    # Eliminating empty `address` and `client` sequences
                     # (as the data spec will not accept them empty):
                     not (k in ('address', 'client') and not v))}
             cleaned_result_dict = self.data_spec.clean_result_dict(
@@ -154,11 +154,12 @@ class Anonymizer(LegacyQueuedBase):
                 full_access=False,
                 opt_primary=False)
             cleaned_result_dict['type'] = event_type
-            # note: the output body will be a cleaned result dict,
-            # being an ordinary dict (not a RecordDict instance),
-            # with the 'type' item added, serialized to a string
-            # using n6sdk.pyramid_commons.renderers.data_dict_to_json()
-            output_body = data_dict_to_json(cleaned_result_dict)
+            # Note: the output body will be a *cleaned result dict*,
+            # being an ordinary `dict` (not a `RecordDict` instance),
+            # with the 'type' item added, then serialized to a `str`
+            # using `n6sdk.pyramid_commons.renderers.data_dict_to_json()`,
+            # and then encoded to `bytes`.
+            output_body = data_dict_to_json(cleaned_result_dict).encode('ascii')
             return (
                 raw_result_dict,
                 cleaned_result_dict,
@@ -175,7 +176,7 @@ class Anonymizer(LegacyQueuedBase):
                 ';  '.join(
                     '`{0}` org ids: {1}'.format(
                         r,
-                        ', '.join(map(repr, resource_to_org_ids[r])) or 'none')
+                        ', '.join(map(ascii, resource_to_org_ids[r])) or 'none')
                     for r in sorted(resource_to_org_ids)))
             raise
 
@@ -218,8 +219,8 @@ class Anonymizer(LegacyQueuedBase):
                             '* skipped for the org ids: {1}; '
                             '* done for the org ids: {2}'.format(
                                 r,
-                                ', '.join(map(repr, resource_to_org_ids[r])) or 'none',
-                                ', '.join(map(repr, done_resource_to_org_ids[r])) or 'none')
+                                ', '.join(map(ascii, resource_to_org_ids[r])) or 'none',
+                                ', '.join(map(ascii, done_resource_to_org_ids[r])) or 'none')
                             for r in sorted(resource_to_org_ids)))
                     raise
                 else:

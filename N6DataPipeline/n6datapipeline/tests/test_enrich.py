@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import datetime
 import hashlib
@@ -76,7 +76,7 @@ class _BaseTestEnricher(TestCaseMixin):
         Enricher._setup_dnsresolver = unittest.mock.MagicMock()
         self.enricher = Enricher()
         self.enricher._resolver = unittest.mock.MagicMock()
-        self.enricher._resolver.query = unittest.mock.MagicMock(return_value=["127.0.0.1"])
+        self.enricher._resolver.resolve = unittest.mock.MagicMock(return_value=["127.0.0.1"])
 
     def test__ip_to_asn__called_or_not(self):
         """
@@ -98,28 +98,30 @@ class _BaseTestEnricher(TestCaseMixin):
 
     def test__enrich__with_fqdn_given(self):
         data = self.enricher.enrich(RecordDict({"fqdn": "cert.pl"}))
-        self.enricher._resolver.query.assert_called_once_with("cert.pl", "A")
+        self.enricher._resolver.resolve.assert_called_once_with("cert.pl", "A", search=True)
         return data
 
     def test__enrich__with_fqdn_given__resolved_to_various_ips_with_duplicates(self):
-        self.enricher._resolver.query.return_value = [
+        self.enricher._resolver.resolve.return_value = [
             '2.2.2.2',
+            '0.0.0.0',  # equal to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR`
             '127.0.0.1',
             '13.1.2.3',
-            '1.1.1.1',
-            '127.0.0.1',  # duplicate
+            '001.1.000001.1',    # with redundant 0s in octets (see #8860...)
+            '127.00000.0000.1',  # with redundant 0s in octets, effectively duplicate of 127.0.0.1
             '13.1.2.3',  # duplicate
             '12.11.10.9',
+            '0.000.0.00',  # *equivalent* to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR`
             '13.1.2.3',  # duplicate
             '1.0.1.1',
         ]
         data = self.enricher.enrich(RecordDict({"fqdn": "cert.pl"}))
-        self.enricher._resolver.query.assert_called_once_with("cert.pl", "A")
+        self.enricher._resolver.resolve.assert_called_once_with("cert.pl", "A", search=True)
         return data
 
     def test__enrich__with_url_given(self):
         data = self.enricher.enrich(RecordDict({"url": "http://www.nask.pl/asd"}))
-        self.enricher._resolver.query.assert_called_once_with("www.nask.pl", "A")
+        self.enricher._resolver.resolve.assert_called_once_with("www.nask.pl", "A", search=True)
         return data
 
     def test__enrich__with_ip_url_given(self):
@@ -127,20 +129,29 @@ class _BaseTestEnricher(TestCaseMixin):
 
     def test__enrich__with_ip_url_given__with_nodns_flag(self):
         return self.enricher.enrich(RecordDict({
-            "url": "http://192.168.0.1/asd",
+            # A detail unrelated to the main purpose of this test
+            # method: here the `url` item contains, as the URL's
+            # hostname, a non-canonical form of IP (with redundant
+            # leading zeros; see: #8860...) -- to be normalized
+            # everywhere else (in `address` and `enriched`), except
+            # in the `url`. See also two more focused test methods
+            # added to `TestEnricherWithFullConfig`:
+            # `test__enrich__with_ip_url_given__when_ip_contains_zero_octet_with_redundant_0()` and
+            # `test__enrich__with_ip_url_given__when_ip_contains_nonzero_octet_with_redundant_0()`.
+            "url": "http://192.0168.0000.1/asd",
             "_do_not_resolve_fqdn_to_ip": True}))
 
     def test__enrich__with_fqdn_and_url_given(self):
         data = self.enricher.enrich(RecordDict({"fqdn": "cert.pl",
                                                 "url": "http://www.nask.pl/asd"}))
-        self.enricher._resolver.query.assert_called_once_with("cert.pl", "A")
+        self.enricher._resolver.resolve.assert_called_once_with("cert.pl", "A", search=True)
         return data
 
     def test__enrich__with_fqdn_and_ip_url_given(self):
         data = self.enricher.enrich(RecordDict({
             "fqdn": "cert.pl",
             "url": "http://192.168.0.1/asd"}))
-        self.enricher._resolver.query.assert_called_once_with("cert.pl", "A")
+        self.enricher._resolver.resolve.assert_called_once_with("cert.pl", "A", search=True)
         return data
 
     def test__enrich__with_address_and_fqdn_given(self):
@@ -180,7 +191,7 @@ class _BaseTestEnricher(TestCaseMixin):
         self._prepare_config_for_excluded_ips(['2.2.2.2', '3.3.3.3'])
         self.enricher.excluded_ips = self.enricher._get_excluded_ips()
         data = self.enricher.enrich(RecordDict({"url": "http://www.nask.pl/asd"}))
-        self.enricher._resolver.query.assert_called_once_with("www.nask.pl", "A")
+        self.enricher._resolver.resolve.assert_called_once_with("www.nask.pl", "A", search=True)
         return data
 
     # helper methods
@@ -293,7 +304,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         data = self.enricher.enrich(RecordDict({
             "fqdn": "cert.pl",
             "_do_not_resolve_fqdn_to_ip": True}))
-        self.assertFalse(self.enricher._resolver.query.called)
+        self.assertFalse(self.enricher._resolver.resolve.called)
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {}),
             "fqdn": "cert.pl",
@@ -310,9 +321,9 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
                               "13.1.2.3": ["asn", "cc", "ip"],
                               "2.2.2.2": ["asn", "cc", "ip"]}),
             "fqdn": "cert.pl",
-            "address": [{"ip": '1.0.1.1',  # note: *removed IP duplicates* and
-                         "asn": '1234',    #       *ordered* by IP (textually)
-                         "cc": 'PL'},
+            "address": [{"ip": '1.0.1.1',  # note: *removed IP duplicates* + anything equivalent to
+                         "asn": '1234',    #       `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR`;
+                         "cc": 'PL'},      #        and then *ordered* by IP (textually)
                         {"ip": '1.1.1.1',
                          "asn": '1234',
                          "cc": 'PL'},
@@ -343,7 +354,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         data = self.enricher.enrich(RecordDict({
             "url": "http://www.nask.pl/asd",
             "_do_not_resolve_fqdn_to_ip": True}))
-        self.assertFalse(self.enricher._resolver.query.called)
+        self.assertFalse(self.enricher._resolver.resolve.called)
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": (["fqdn"], {}),
             "url": "http://www.nask.pl/asd",
@@ -357,15 +368,33 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
             "enriched": ([], {}),
             "url": "http://http://www.nask.pl/asd"}))
 
+    def test__enrich__with_url_given__when_url_does_not_contain_hostname(self):
+        # (see: #8860)
+        data = self.enricher.enrich(RecordDict({"url": "file:///asd", "source": "a.b"}))
+        self.assertEqual(self.enricher._resolver.mock_calls, [])
+        self.assertEqualIncludingTypes(data, RecordDict({
+            "enriched": ([], {}),
+            "url": "file:///asd",
+            "source": "a.b"}))
+
+    def test__enrich__with_url_given__when_url_contains_unusable_hostname(self):
+        # (see: #8860)
+        # The URL's hostname is neither an acceptable domain name nor a valid IP.
+        data = self.enricher.enrich(RecordDict({"url": "http://111.222.333.444.555/asd"}))
+        self.assertEqual(self.enricher._resolver.mock_calls, [])
+        self.assertEqualIncludingTypes(data, RecordDict({
+            "enriched": ([], {}),
+            "url": "http://111.222.333.444.555/asd"}))
+
     def test__enrich__with_fqdn_not_resolved(self):
-        self.enricher._resolver.query = unittest.mock.MagicMock(side_effect=DNSException)
+        self.enricher._resolver.resolve = unittest.mock.MagicMock(side_effect=DNSException)
         data = self.enricher.enrich(RecordDict({"fqdn": "cert.pl"}))
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {}),
             "fqdn": "cert.pl"}))
 
     def test__enrich__with_fqdn_from_url_not_resolved(self):
-        self.enricher._resolver.query = unittest.mock.MagicMock(side_effect=DNSException)
+        self.enricher._resolver.resolve = unittest.mock.MagicMock(side_effect=DNSException)
         data = self.enricher.enrich(RecordDict({"url": "http://www.nask.pl/asd"}))
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": (["fqdn"], {}),
@@ -381,13 +410,47 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
                          "asn": '1234',
                          "cc": 'PL'}]}))
 
+    def test__enrich__with_ip_url_given__when_ip_contains_zero_octet_with_redundant_0(self):
+        # (see: #8860)
+        data = self.enricher.enrich(RecordDict({"url": "http://192.168.00.1/asd"}))
+        self.assertEqualIncludingTypes(data, RecordDict({
+            "enriched": ([], {"192.168.0.1": ["asn", "cc", "ip"]}),
+            "url": "http://192.168.00.1/asd",
+            "address": [{"ip": '192.168.0.1',
+                         "asn": '1234',
+                         "cc": 'PL'}]}))
+
+    def test__enrich__with_ip_url_given__when_ip_contains_nonzero_octet_with_redundant_0(self):
+        # (see: #8860)
+        data = self.enricher.enrich(RecordDict({"url": "http://192.0168.0.1/asd"}))
+        self.assertEqualIncludingTypes(data, RecordDict({
+            "enriched": ([], {"192.168.0.1": ["asn", "cc", "ip"]}),
+            "url": "http://192.0168.0.1/asd",
+            "address": [{"ip": '192.168.0.1',
+                         "asn": '1234',
+                         "cc": 'PL'}]}))
+
+    def test__enrich__with_ip_url_given__when_ip_is_lack_of_ip_placeholder(self):
+        # The IP in the URL is equal to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR`.
+        data = self.enricher.enrich(RecordDict({"url": "http://0.0.0.0/asd"}))
+        self.assertEqualIncludingTypes(data, RecordDict({
+            "enriched": ([], {}),
+            "url": "http://0.0.0.0/asd"}))
+
+    def test__enrich__with_ip_url_given__when_ip_is_lack_of_ip_placeholder_unnormalized(self):
+        # The IP in the URL is *equivalent* to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR`.
+        data = self.enricher.enrich(RecordDict({"url": "http://000.0.0000.00/asd"}))
+        self.assertEqualIncludingTypes(data, RecordDict({
+            "enriched": ([], {}),
+            "url": "http://000.0.0000.00/asd"}))
+
     def test__enrich__with_ip_url_given__with_nodns_flag(self):
         data = super(TestEnricherWithFullConfig,
                      self).test__enrich__with_ip_url_given__with_nodns_flag()
         self.assertEqualIncludingTypes(data, RecordDict({
             # (here the '_do_not_resolve_fqdn_to_ip' flag did *not* change behaviour)
             "enriched": ([], {"192.168.0.1": ["asn", "cc", "ip"]}),
-            "url": "http://192.168.0.1/asd",
+            "url": "http://192.0168.0000.1/asd",
             "address": [{"ip": '192.168.0.1',
                          "asn": '1234',
                          "cc": 'PL'}],
@@ -408,7 +471,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
             "fqdn": "cert.pl",
             "url": "http://www.nask.pl/asd",
             "_do_not_resolve_fqdn_to_ip": True}))
-        self.assertFalse(self.enricher._resolver.query.called)
+        self.assertFalse(self.enricher._resolver.resolve.called)
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {}),
             "url": "http://www.nask.pl/asd",
@@ -497,21 +560,21 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self.enricher.enrich(data)
         self.enricher.fqdn_to_ip.assert_called_with("cert.pl")
 
-    def test__url_to_fqdn_or_ip__called(self):
-        """Test if url_to_fqdn_or_ip is called if data does not contain address and fqdn"""
+    def test__url_to_hostname__called(self):
+        """Test if url_to_hostname is called if data does not contain address and fqdn"""
         data = RecordDict({"url": "http://www.cert.pl"})
         data.update(self.COMMON_DATA)
-        self.enricher.url_to_fqdn_or_ip = unittest.mock.MagicMock(return_value="www.cert.pl")
+        self.enricher.url_to_hostname = unittest.mock.MagicMock(return_value="www.cert.pl")
         self.enricher.enrich(data)
-        self.enricher.url_to_fqdn_or_ip.assert_called_with("http://www.cert.pl")
+        self.enricher.url_to_hostname.assert_called_with("http://www.cert.pl")
 
-    def test__url_to_fqdn_or_ip__called_for_ip_url(self):
-        """Test if url_to_fqdn_or_ip is called if data does not contain address and fqdn"""
+    def test__url_to_hostname__called_for_ip_url(self):
+        """Test if url_to_hostname is called if data does not contain address and fqdn"""
         data = RecordDict({"url": "http://192.168.0.1"})
         data.update(self.COMMON_DATA)
-        self.enricher.url_to_fqdn_or_ip = unittest.mock.MagicMock(return_value="192.168.0.1")
+        self.enricher.url_to_hostname = unittest.mock.MagicMock(return_value="192.168.0.1")
         self.enricher.enrich(data)
-        self.enricher.url_to_fqdn_or_ip.assert_called_with("http://192.168.0.1")
+        self.enricher.url_to_hostname.assert_called_with("http://192.168.0.1")
 
     def test_adding_asn_cc_if_asn_not_valid_and_cc_is_valid(self):
         """Test if asn/cc are (maybe) added"""
@@ -620,7 +683,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self.assertFalse(self.enricher.fqdn_to_ip.called)
 
     def test_routing_key_modified(self):
-        """Test if routing key after enrichement is set to "enriched.*"
+        """Test if routing key after enrichment is set to "enriched.*"
         when publishing to output queue"""
         self.enricher.publish_output = unittest.mock.MagicMock()
         data = RecordDict({
@@ -655,7 +718,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
                                                 "address": [{'ip': "127.0.0.1"}]}))
         # the 'data' field is present, so FQDN will not be resolved
         # to IP addresses
-        self.assertFalse(self.enricher._resolver.query.called)
+        self.assertFalse(self.enricher._resolver.resolve.called)
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": (["fqdn"], {}),
             "url": "http://www.nask.pl/asd",
@@ -665,7 +728,7 @@ class TestEnricherWithFullConfig(_BaseTestEnricher, unittest.TestCase):
         self._prepare_config_for_excluded_ips(['127.0.0.1', '2.2.2.2', '3.3.3.3'])
         self.enricher.excluded_ips = self.enricher._get_excluded_ips()
         data = self.enricher.enrich(RecordDict({"url": "http://www.nask.pl/asd"}))
-        self.enricher._resolver.query.assert_called_once_with("www.nask.pl", "A")
+        self.enricher._resolver.resolve.assert_called_once_with("www.nask.pl", "A", search=True)
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": (["fqdn"], {}),
             "url": "http://www.nask.pl/asd",
@@ -814,7 +877,7 @@ class TestEnricherNoASNDatabase(_BaseTestEnricher, unittest.TestCase):
 
     def test__enrich__with_fqdn_given(self):
         data = self.enricher.enrich(RecordDict({"fqdn": "cert.pl"}))
-        self.enricher._resolver.query.assert_called_once_with("cert.pl", "A")
+        self.enricher._resolver.resolve.assert_called_once_with("cert.pl", "A", search=True)
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {"127.0.0.1": ["cc", "ip"]}),
             "fqdn": "cert.pl",
@@ -832,9 +895,9 @@ class TestEnricherNoASNDatabase(_BaseTestEnricher, unittest.TestCase):
                               "13.1.2.3": ["cc", "ip"],
                               "2.2.2.2": ["cc", "ip"]}),
             "fqdn": "cert.pl",
-            "address": [{"ip": '1.0.1.1',  # note: *removed IP duplicates* and
-                         "cc": 'PL'},      # *ordered* by IP (textually)
-                        {"ip": '1.1.1.1',
+            "address": [{"ip": '1.0.1.1',  # note: *removed IP duplicates* + anything equivalent to
+                         "cc": 'PL'},      #       `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR`;
+                        {"ip": '1.1.1.1',  #        and then *ordered* by IP (textually)
                          "cc": 'PL'},
                         {"ip": '12.11.10.9',
                          "cc": 'PL'},
@@ -868,7 +931,7 @@ class TestEnricherNoASNDatabase(_BaseTestEnricher, unittest.TestCase):
         self.assertEqualIncludingTypes(data, RecordDict({
             # (here the '_do_not_resolve_fqdn_to_ip' flag did *not* change behaviour)
             "enriched": ([], {"192.168.0.1": ["cc", "ip"]}),
-            "url": "http://192.168.0.1/asd",
+            "url": "http://192.0168.0000.1/asd",
             "address": [{"ip": '192.168.0.1',
                          "cc": 'PL'}],
             "_do_not_resolve_fqdn_to_ip": True}))
@@ -1028,7 +1091,7 @@ class TestEnricherNoCCDatabase(_BaseTestEnricher, unittest.TestCase):
 
     def test__enrich__with_fqdn_given(self):
         data = self.enricher.enrich(RecordDict({"fqdn": "cert.pl"}))
-        self.enricher._resolver.query.assert_called_once_with("cert.pl", "A")
+        self.enricher._resolver.resolve.assert_called_once_with("cert.pl", "A", search=True)
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {"127.0.0.1": ["asn", "ip"]}),
             "fqdn": "cert.pl",
@@ -1046,9 +1109,9 @@ class TestEnricherNoCCDatabase(_BaseTestEnricher, unittest.TestCase):
                               "13.1.2.3": ["asn", "ip"],
                               "2.2.2.2": ["asn", "ip"]}),
             "fqdn": "cert.pl",
-            "address": [{"ip": '1.0.1.1',  # note: *removed IP duplicates* and
-                         "asn": '1234'},   #       *ordered* by IP (textually)
-                        {"ip": '1.1.1.1',
+            "address": [{"ip": '1.0.1.1',  # note: *removed IP duplicates* + anything equivalent to
+                         "asn": '1234'},   #       `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR`;
+                        {"ip": '1.1.1.1',  #        and then *ordered* by IP (textually)
                          "asn": '1234'},
                         {"ip": '12.11.10.9',
                          "asn": '1234'},
@@ -1082,7 +1145,7 @@ class TestEnricherNoCCDatabase(_BaseTestEnricher, unittest.TestCase):
         self.assertEqualIncludingTypes(data, RecordDict({
             # (here the '_do_not_resolve_fqdn_to_ip' flag did *not* change behaviour)
             "enriched": ([], {"192.168.0.1": ["asn", "ip"]}),
-            "url": "http://192.168.0.1/asd",
+            "url": "http://192.0168.0000.1/asd",
             "address": [{"ip": '192.168.0.1',
                          "asn": '1234'}],
             "_do_not_resolve_fqdn_to_ip": True}))
@@ -1241,7 +1304,7 @@ class TestEnricherNoGeoIPDatabase(_BaseTestEnricher, unittest.TestCase):
 
     def test__enrich__with_fqdn_given(self):
         data = self.enricher.enrich(RecordDict({"fqdn": "cert.pl"}))
-        self.enricher._resolver.query.assert_called_once_with("cert.pl", "A")
+        self.enricher._resolver.resolve.assert_called_once_with("cert.pl", "A", search=True)
         self.assertEqualIncludingTypes(data, RecordDict({
             "enriched": ([], {"127.0.0.1": ["ip"]}),
             "fqdn": "cert.pl",
@@ -1258,9 +1321,9 @@ class TestEnricherNoGeoIPDatabase(_BaseTestEnricher, unittest.TestCase):
                               "13.1.2.3": ["ip"],
                               "2.2.2.2": ["ip"]}),
             "fqdn": "cert.pl",
-            "address": [{"ip": '1.0.1.1'},  # note: *removed IP duplicates* and
-                        {"ip": '1.1.1.1'},   # *ordered* by IP (textually)
-                        {"ip": '12.11.10.9'},
+            "address": [{"ip": '1.0.1.1'},     # note: *removed IP duplicates* + anything equiv. to
+                        {"ip": '1.1.1.1'},     #     `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR`;
+                        {"ip": '12.11.10.9'},  #      and then *ordered* by IP (textually)
                         {"ip": '127.0.0.1'},
                         {"ip": '13.1.2.3'},
                         {"ip": '2.2.2.2'}]}))
@@ -1286,7 +1349,7 @@ class TestEnricherNoGeoIPDatabase(_BaseTestEnricher, unittest.TestCase):
         self.assertEqualIncludingTypes(data, RecordDict({
             # (here the '_do_not_resolve_fqdn_to_ip' flag did *not* change behaviour)
             "enriched": ([], {"192.168.0.1": ["ip"]}),
-            "url": "http://192.168.0.1/asd",
+            "url": "http://192.0168.0000.1/asd",
             "address": [{"ip": '192.168.0.1'}],
             "_do_not_resolve_fqdn_to_ip": True}))
 

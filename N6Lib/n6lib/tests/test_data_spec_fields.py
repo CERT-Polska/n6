@@ -10,6 +10,7 @@ from unittest_expander import (
 import n6lib.data_spec.fields as n6_fields
 import n6sdk.data_spec.fields as sdk_fields
 import n6sdk.tests.test_data_spec_fields as sdk_tests
+from n6lib.common_helpers import as_bytes
 from n6sdk.exceptions import FieldValueError
 from n6sdk.tests.test_data_spec_fields import (
     FieldTestMixin,
@@ -190,25 +191,45 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given='aHRUUDovL3d3dy50ZXN0LnBs',
-            expected=u'htTP://www.test.pl',
+            expected=b'htTP://www.test.pl',
+        )
+        yield case(
+            given='aHRUUDovL3d3dy50ZXN0LnBs\r\n',  # with trailing `\r\n`
+            expected=b'htTP://www.test.pl',
+        )
+        yield case(
+            given='aHRUUDovL3d3dy50ZXN0LnBs%0D%0A',  # with trailing `\r\n`, %-encoded
+            expected=b'htTP://www.test.pl',
+        )
+        yield case(
+            given='aHRUUDovL3d3dy50ZXN0LnBs%250D%250A',  # with trailing `\r\n`, 2 x %-encoded
+            expected=b'htTP://www.test.pl',
+        )
+        yield case(
+            given='aHRUUDovL3d3dy50ZXN0LnBs%25250D%25250A',  # with trailing `\r\n`, 3 x %-encoded
+            expected=b'htTP://www.test.pl',
         )
         yield case(
             given=u'SFR0cDovL3d3dy50ZXN0LnBsL2NnaS1iaW4vZm9vLnBsPw==',
-            expected=u'HTtp://www.test.pl/cgi-bin/foo.pl?',
+            expected=b'HTtp://www.test.pl/cgi-bin/foo.pl?',
         )
         yield case(
             given=u'aHR0cDovL3d3dy50ZXN0LcSHLnBsL2NnaS9iaW4vZm9vLnBsP2RlYnVnPTEmaWQ9MTIz',
-            expected=u'http://www.test-ć.pl/cgi/bin/foo.pl?debug=1&id=123',
+            expected=as_bytes('http://www.test-ć.pl/cgi/bin/foo.pl?debug=1&id=123'),
         )
         yield case(
-            given=(u'aHR0cDovL3d3dy5URVNULcSGLnBsL2NnaS1iaW4vYmFyLnBsP21vZGU9YnJvd3NlJm'
-                   u'FtcDtkZWJ1Zz0lMjAxMjMmYW1wO2lkPWstJTVE'),
-            expected=(u'http://www.TEST-Ć.pl/cgi-bin/bar.pl?mode=browse&amp;'
-                      u'debug=%20123&amp;id=k-%5D'),
+            given=(
+                'aHR0cDovL3d3dy5URVNULcSGLnBsL2NnaS1iaW4vYmFyLnBsP21vZGU9YnJvd3NlJm'
+                'FtcDtkZWJ1Zz0lMjAxMjMmYW1wO2lkPWstJTVE'),
+            expected=as_bytes(
+                'http://www.TEST-Ć.pl/cgi-bin/bar.pl?mode=browse&amp;'
+                'debug=%20123&amp;id=k-%5D'),
         )
         yield case(
-            given=u'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci_dP3E9z4DFk8SZwqnDn-KGkDMjdHJhbGFsYQk=',
-            expected=u'http://tęst.pl/fóó/Bar/\udcdd?q=πœę©ß←3#tralala\t',
+            given='aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci_dP3E9z4DFk8SZwqnDn-KGkDMjdHJhbGFsYQk=',
+            expected=(
+                b'http://t\xc4\x99st.pl/f\xc3\xb3\xc3\xb3/Bar/\xdd'
+                b'?q=\xcf\x80\xc5\x93\xc4\x99\xc2\xa9\xc3\x9f\xe2\x86\x903#tralala\t'),
         )
         # the same but encoded with standard Base64 (not the required URL-safe-Base64)
         yield case(
@@ -217,25 +238,25 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given=u'aHR0cDovL3Rlc3QucGw=',
-            expected=u'http://test.pl',
+            expected=b'http://test.pl',
         )
         # the same with redundant padding
         yield case(
             given='aHR0cDovL3Rlc3QucGw==',
-            expected=u'http://test.pl',
+            expected=b'http://test.pl',
         )
         yield case(
             given=u'aHR0cDovL3Rlc3QucGw===',
-            expected=u'http://test.pl',
+            expected=b'http://test.pl',
         )
         # the same with redundant padding and ignored characters after it
         yield case(
             given='aHR0cDovL3Rlc3QucGw===abcdef',
-            expected=u'http://test.pl',
+            expected=b'http://test.pl',
         )
         yield case(
             given=u'aHR0cDovL3Rlc3QucGw=========abcdef',
-            expected=u'http://test.pl',
+            expected=b'http://test.pl',
         )
         # the same with redundant padding and illegal characters after it
         yield case(
@@ -252,41 +273,49 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
-                   u'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg=='),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+            given=(
+                'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
+                '_cT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI-KJoMKywrMNCg=='),
+            expected=as_bytes(
+                'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
         )
         # the same with additional %-encoding:
         yield case(
-            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
-                   u'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg%3D%3D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+            given=(
+                'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
+                '_cT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI-KJoMKywrMNCg%3D%3D'),
+            expected=as_bytes(
+                'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
         )
         # the same with 2 x additional %-encoding (2nd is overzealous and lowercase-based):
         yield case(
-            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%48%41'
-                   u'%5fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%2dKJoMKywrMNCg%253D%253D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+            given=(
+                'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%48%41'
+                '%5fcT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI%2dKJoMKywrMNCg%253D%253D'),
+            expected=as_bytes(
+                'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
         )
         # the same with 3 x additional %-encoding (2nd is overzealous and lowercase-based):
         yield case(
-            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%2548%2541'
-                   u'%255fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%252dKJoMKywrMNCg%25253D%25253D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
+            given=(
+                'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%2548%2541'
+                '%255fcT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI%252dKJoMKywrMNCg%25253D%25253D'),
+            expected=as_bytes(
+                'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
         )
         yield case(
-            given=u'',
-            expected=u'',
+            given='',
+            expected=FieldValueError,
         )
-        # containing non-UTF-8 characters (-> to low surrogates)
+        # containing non-UTF-8 bytes
         yield case(
-            given=u'aHR0cHM6Ly9kZN3u',
-            expected=u'https://dd\udcdd\udcee',
+            given='aHR0cHM6Ly9kZN3u',
+            expected=b'https://dd\xdd\xee',
         )
         # as UTF-8 with low surrogates already encoded
         yield case(
-            given=u'aHR0cHM6Ly9kZO2zne2zrg==',
-            expected=u'https://dd\udcdd\udcee',
+            given='aHR0cHM6Ly9kZO2zne2zrg==',
+            expected=as_bytes('https://dd\udcdd\udcee'),
         )
         # the `%` character not being part of %-encoded stuff
         yield case(
@@ -294,195 +323,200 @@ class TestURLBase64FieldForN6(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given=u'aHR0cDovL3Rlc3QucGw=%a',
+            given='aHR0cDovL3Rlc3QucGw=%a',
             expected=FieldValueError,
         )
 
     def cases__clean_result_value(self):
         yield case(
-            given=b'http://www.test.pl',
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'HTtp://www.test.pl/cgi-bin/foo.pl?',
-            expected=FieldValueError,
-        )
-        yield case(
-            given=b'aHRUUDovL3d3dy50ZXN0LnBs',
-            expected=u'htTP://www.test.pl',
-        )
-        yield case(
-            given=u'SFR0cDovL3d3dy50ZXN0LnBsL2NnaS1iaW4vZm9vLnBsPw==',
-            expected=u'HTtp://www.test.pl/cgi-bin/foo.pl?',
-        )
-        yield case(
-            given=b'aHR0cDovL3d3dy50ZXN0LcSHLnBsL2NnaS9iaW4vZm9vLnBsP2RlYnVnPTEmaWQ9MTIz',
-            expected=u'http://www.test-ć.pl/cgi/bin/foo.pl?debug=1&id=123',
-        )
-        yield case(
-            given=u'aHR0cDovL3d3dy50ZXN0LcSHLnBsL2NnaS9iaW4vZm9vLnBsP2RlYnVnPTEmaWQ9MTIz',
-            expected=u'http://www.test-ć.pl/cgi/bin/foo.pl?debug=1&id=123',
-        )
-        yield case(
-            given=(b'aHR0cDovL3d3dy5URVNULcSGLnBsL2NnaS1iaW4vYmFyLnBsP21vZGU9YnJvd3NlJm'
-                   b'FtcDtkZWJ1Zz0lMjAxMjMmYW1wO2lkPWstJTVE'),
-            expected=(u'http://www.TEST-Ć.pl/cgi-bin/bar.pl?mode=browse&amp;'
-                      u'debug=%20123&amp;id=k-%5D'),
-        )
-        yield case(
-            given=(u'aHR0cDovL3d3dy5URVNULcSGLnBsL2NnaS1iaW4vYmFyLnBsP21vZGU9YnJvd3NlJm'
-                   u'FtcDtkZWJ1Zz0lMjAxMjMmYW1wO2lkPWstJTVE'),
-            expected=(u'http://www.TEST-Ć.pl/cgi-bin/bar.pl?mode=browse&amp;'
-                      u'debug=%20123&amp;id=k-%5D'),
-        )
-        yield case(
-            given=b'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci_dP3E9z4DFk8SZwqnDn-KGkDMjdHJhbGFsYQk=',
-            expected=u'http://tęst.pl/fóó/Bar/\udcdd?q=πœę©ß←3#tralala\t',
-        )
-        yield case(
-            given=u'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci_dP3E9z4DFk8SZwqnDn-KGkDMjdHJhbGFsYQk=',
-            expected=u'http://tęst.pl/fóó/Bar/\udcdd?q=πœę©ß←3#tralala\t',
-        )
-        # the same but encoded with standard Base64 (not the required URL-safe-Base64)
-        yield case(
-            given=b'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci/dP3E9z4DFk8SZwqnDn+KGkDMjdHJhbGFsYQk=',
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci/dP3E9z4DFk8SZwqnDn+KGkDMjdHJhbGFsYQk=',
-            expected=FieldValueError,
-        )
-        yield case(
-            given=b'aHR0cDovL3Rlc3QucGw=',
-            expected=u'http://test.pl',
-        )
-        yield case(
-            given=u'aHR0cDovL3Rlc3QucGw=',
-            expected=u'http://test.pl',
-        )
-        # the same with redundant padding
-        yield case(
-            given=b'aHR0cDovL3Rlc3QucGw==',
-            expected=u'http://test.pl',
-        )
-        yield case(
-            given=u'aHR0cDovL3Rlc3QucGw===',
-            expected=u'http://test.pl',
-        )
-        # the same with redundant padding and ignored characters after it
-        yield case(
-            given=b'aHR0cDovL3Rlc3QucGw===abcdef',
-            expected=u'http://test.pl',
-        )
-        yield case(
-            given=u'aHR0cDovL3Rlc3QucGw=========abcdef',
-            expected=u'http://test.pl',
-        )
-        # the same with redundant padding and illegal characters after it
-        yield case(
-            given=u'aHR0cDovL3Rlc3QucGw===ąć/'.encode('utf-8'),
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'aHR0cDovL3Rlc3QucGw=========ąć/',
-            expected=FieldValueError,
-        )
-        # the same with missing padding
-        yield case(
-            given=b'aHR0cDovL3Rlc3QucGw',
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'aHR0cDovL3Rlc3QucGw',
-            expected=FieldValueError,
-        )
-        yield case(
-            given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
-                   b'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg=='),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        yield case(
-            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
-                   u'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg=='),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        # the same with additional %-encoding:
-        yield case(
-            given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
-                   b'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg%3D%3D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        yield case(
-            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
-                   u'_cT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI-KJoMKywrMNCg%3D%3D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        # the same with 2 x additional %-encoding (2nd is overzealous and lowercase-based):
-        yield case(
-            given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%48%41'
-                   b'%5fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%2dKJoMKywrMNCg%253D%253D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        yield case(
-            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%48%41'
-                   u'%5fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%2dKJoMKywrMNCg%253D%253D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        # the same with 3 x additional %-encoding (2nd is overzealous and lowercase-based):
-        yield case(
-            given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%2548%2541'
-                   b'%255fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%252dKJoMKywrMNCg%25253D%25253D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        yield case(
-            given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%2548%2541'
-                   u'%255fcT3RgNCw0LfQvdGL0LUr0LDQstGC0L7RgNGLI%252dKJoMKywrMNCg%25253D%25253D'),
-            expected=(u'http://example.net/search.php?q=разные+авторы#≠²³\r\n'),
-        )
-        yield case(
-            given=b'',
-            expected=u'',
-        )
-        yield case(
-            given=u'',
-            expected=u'',
-        )
-        # containing non-UTF-8 characters (-> to low surrogates)
-        yield case(
-            given=b'aHR0cHM6Ly9kZN3u',
-            expected=u'https://dd\udcdd\udcee',
-        )
-        yield case(
-            given=u'aHR0cHM6Ly9kZN3u',
-            expected=u'https://dd\udcdd\udcee',
-        )
-        # as UTF-8 with low surrogates already encoded
-        yield case(
-            given=b'aHR0cHM6Ly9kZO2zne2zrg==',
-            expected=u'https://dd\udcdd\udcee',
-        )
-        yield case(
-            given=u'aHR0cHM6Ly9kZO2zne2zrg==',
-            expected=u'https://dd\udcdd\udcee',
-        )
-        # the `%` character not being part of %-encoded stuff
-        yield case(
-            given=b'%AZ',
-            expected=FieldValueError,
-        )
-        yield case(
-            given=u'aHR0cDovL3Rlc3QucGw=%a',
-            expected=FieldValueError,
-        )
-        # incorrect type
-        yield case(
-            given=123,
+            given='whatever',
             expected=TypeError,
         )
-        yield case(
-            given=None,
-            expected=TypeError,
-        )
+        ### TODO later? uncomment and adjust these test cases to the new implementation...
+        # yield case(
+        #     given=b'http://www.test.pl',
+        #     expected=FieldValueError,
+        # )
+        # yield case(
+        #     given=u'HTtp://www.test.pl/cgi-bin/foo.pl?',
+        #     expected=FieldValueError,
+        # )
+        # yield case(
+        #     given=b'aHRUUDovL3d3dy50ZXN0LnBs',
+        #     expected=u'htTP://www.test.pl',
+        # )
+        # yield case(
+        #     given=u'SFR0cDovL3d3dy50ZXN0LnBsL2NnaS1iaW4vZm9vLnBsPw==',
+        #     expected=u'HTtp://www.test.pl/cgi-bin/foo.pl?',
+        # )
+        # yield case(
+        #     given=b'aHR0cDovL3d3dy50ZXN0LcSHLnBsL2NnaS9iaW4vZm9vLnBsP2RlYnVnPTEmaWQ9MTIz',
+        #     expected=u'http://www.test-ć.pl/cgi/bin/foo.pl?debug=1&id=123',
+        # )
+        # yield case(
+        #     given=u'aHR0cDovL3d3dy50ZXN0LcSHLnBsL2NnaS9iaW4vZm9vLnBsP2RlYnVnPTEmaWQ9MTIz',
+        #     expected=u'http://www.test-ć.pl/cgi/bin/foo.pl?debug=1&id=123',
+        # )
+        # yield case(
+        #     given=(b'aHR0cDovL3d3dy5URVNULcSGLnBsL2NnaS1iaW4vYmFyLnBsP21vZGU9YnJvd3NlJm'
+        #            b'FtcDtkZWJ1Zz0lMjAxMjMmYW1wO2lkPWstJTVE'),
+        #     expected=(u'http://www.TEST-Ć.pl/cgi-bin/bar.pl?mode=browse&amp;'
+        #               u'debug=%20123&amp;id=k-%5D'),
+        # )
+        # yield case(
+        #     given=(u'aHR0cDovL3d3dy5URVNULcSGLnBsL2NnaS1iaW4vYmFyLnBsP21vZGU9YnJvd3NlJm'
+        #            u'FtcDtkZWJ1Zz0lMjAxMjMmYW1wO2lkPWstJTVE'),
+        #     expected=(u'http://www.TEST-Ć.pl/cgi-bin/bar.pl?mode=browse&amp;'
+        #               u'debug=%20123&amp;id=k-%5D'),
+        # )
+        # yield case(
+        #     given=b'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci_dP3E9z4DFk8SZwqnDn-KGkDMjdHJhbGFsYQk=',
+        #     expected=u'http://tęst.pl/fóó/Bar/\udcdd?q=πœę©ß←3#tralala\t',
+        # )
+        # yield case(
+        #     given=u'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci_dP3E9z4DFk8SZwqnDn-KGkDMjdHJhbGFsYQk=',
+        #     expected=u'http://tęst.pl/fóó/Bar/\udcdd?q=πœę©ß←3#tralala\t',
+        # )
+        # # the same but encoded with standard Base64 (not the required URL-safe-Base64)
+        # yield case(
+        #     given=b'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci/dP3E9z4DFk8SZwqnDn+KGkDMjdHJhbGFsYQk=',
+        #     expected=FieldValueError,
+        # )
+        # yield case(
+        #     given=u'aHR0cDovL3TEmXN0LnBsL2bDs8OzL0Jhci/dP3E9z4DFk8SZwqnDn+KGkDMjdHJhbGFsYQk=',
+        #     expected=FieldValueError,
+        # )
+        # yield case(
+        #     given=b'aHR0cDovL3Rlc3QucGw=',
+        #     expected=u'http://test.pl',
+        # )
+        # yield case(
+        #     given=u'aHR0cDovL3Rlc3QucGw=',
+        #     expected=u'http://test.pl',
+        # )
+        # # the same with redundant padding
+        # yield case(
+        #     given=b'aHR0cDovL3Rlc3QucGw==',
+        #     expected=u'http://test.pl',
+        # )
+        # yield case(
+        #     given=u'aHR0cDovL3Rlc3QucGw===',
+        #     expected=u'http://test.pl',
+        # )
+        # # the same with redundant padding and ignored characters after it
+        # yield case(
+        #     given=b'aHR0cDovL3Rlc3QucGw===abcdef',
+        #     expected=u'http://test.pl',
+        # )
+        # yield case(
+        #     given=u'aHR0cDovL3Rlc3QucGw=========abcdef',
+        #     expected=u'http://test.pl',
+        # )
+        # # the same with redundant padding and illegal characters after it
+        # yield case(
+        #     given=u'aHR0cDovL3Rlc3QucGw===ąć/'.encode('utf-8'),
+        #     expected=FieldValueError,
+        # )
+        # yield case(
+        #     given=u'aHR0cDovL3Rlc3QucGw=========ąć/',
+        #     expected=FieldValueError,
+        # )
+        # # the same with missing padding
+        # yield case(
+        #     given=b'aHR0cDovL3Rlc3QucGw',
+        #     expected=FieldValueError,
+        # )
+        # yield case(
+        #     given=u'aHR0cDovL3Rlc3QucGw',
+        #     expected=FieldValueError,
+        # )
+        # yield case(
+        #     given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
+        #            b'_cT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI-KJoMKywrMNCg=='),
+        #     expected=(u'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
+        # )
+        # yield case(
+        #     given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
+        #            u'_cT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI-KJoMKywrMNCg=='),
+        #     expected=(u'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
+        # )
+        # # the same with additional %-encoding:
+        # yield case(
+        #     given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
+        #            b'_cT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI-KJoMKywrMNCg%3D%3D'),
+        #     expected=(u'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
+        # )
+        # yield case(
+        #     given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5waHA'
+        #            u'_cT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI-KJoMKywrMNCg%3D%3D'),
+        #     expected=(u'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
+        # )
+        # # the same with 2 x additional %-encoding (2nd is overzealous and lowercase-based):
+        # yield case(
+        #     given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%48%41'
+        #            b'%5fcT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI%2dKJoMKywrMNCg%253D%253D'),
+        #     expected=(u'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
+        # )
+        # yield case(
+        #     given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%48%41'
+        #            u'%5fcT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI%2dKJoMKywrMNCg%253D%253D'),
+        #     expected=(u'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
+        # )
+        # # the same with 3 x additional %-encoding (2nd is overzealous and lowercase-based):
+        # yield case(
+        #     given=(b'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%2548%2541'
+        #            b'%255fcT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI%252dKJoMKywrMNCg%25253D%25253D'),
+        #     expected=(u'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
+        # )
+        # yield case(
+        #     given=(u'aHR0cDovL2V4YW1wbGUubmV0L3NlYXJjaC5wa%2548%2541'
+        #            u'%255fcT3OtM65zrHPhs6_z4HOtc-EzrnOus-Mz4IhI%252dKJoMKywrMNCg%25253D%25253D'),
+        #     expected=(u'http://example.net/search.php?q=διαφορετικός!#≠²³\r\n'),
+        # )
+        # yield case(
+        #     given=b'',
+        #     expected=u'',
+        # )
+        # yield case(
+        #     given=u'',
+        #     expected=u'',
+        # )
+        # # containing non-UTF-8 characters (-> to low surrogates)
+        # yield case(
+        #     given=b'aHR0cHM6Ly9kZN3u',
+        #     expected=u'https://dd\udcdd\udcee',
+        # )
+        # yield case(
+        #     given=u'aHR0cHM6Ly9kZN3u',
+        #     expected=u'https://dd\udcdd\udcee',
+        # )
+        # # as UTF-8 with low surrogates already encoded
+        # yield case(
+        #     given=b'aHR0cHM6Ly9kZO2zne2zrg==',
+        #     expected=u'https://dd\udcdd\udcee',
+        # )
+        # yield case(
+        #     given=u'aHR0cHM6Ly9kZO2zne2zrg==',
+        #     expected=u'https://dd\udcdd\udcee',
+        # )
+        # # the `%` character not being part of %-encoded stuff
+        # yield case(
+        #     given=b'%AZ',
+        #     expected=FieldValueError,
+        # )
+        # yield case(
+        #     given=u'aHR0cDovL3Rlc3QucGw=%a',
+        #     expected=FieldValueError,
+        # )
+        # # incorrect type
+        # yield case(
+        #     given=123,
+        #     expected=TypeError,
+        # )
+        # yield case(
+        #     given=None,
+        #     expected=TypeError,
+        # )
 
 
 # class TestURLsMatchedFieldForN6(FieldTestMixin, unittest.TestCase):

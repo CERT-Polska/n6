@@ -220,7 +220,8 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'active.min': [datetime.datetime(2015, 5, 3)],
         'url': [u'http://www.ołówek.EXAMPLĘ.com/\udcddπœ\udcffę\udcff³¢ą.py'],
         'url.sub': [u'xx' + 682 * u'\udccc'],
-        'url.b64': [u'http://www.ołówek.EXAMPLĘ.com/\udcddπœ\udcffę\udcff³¢ą.py'],
+        'url.b64': [b'http://www.o\xc5\x82\xc3\xb3wek.EXAMPL\xc4\x98.com/'
+                    b'\xdd\xcf\x80\xc5\x93\xff\xc4\x99\xed\xb3\xbf\xc2\xb3\xc2\xa2\xc4\x85.py'],
         'fqdn': ['www.test.org', 'www.xn--owek-qqa78b.xn--exampl-14a.com'],
         'fqdn.sub': ['xn--owek-qqa78b'],
         'opt.primary': [True],
@@ -267,9 +268,32 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
                 'asn': 80000,
             },
             {
+                # not a fully valid item -- to be skipped because:
+                # * `ip` is equal to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR` (see #8861)
+                'ip': '0.0.0.0',
+                'cc': 'AB',
+            },
+            {
+                # not a fully valid item -- to be skipped because:
+                # * `ip` is missing
+                'asn': 123456789,
+            },
+            {
+                # not a fully valid item -- to be skipped because:
+                # * `ip` is None
+                'ip': None,
+                'cc': 'AB',
+                'asn': 123456789,
+            },
+            {
                 'ip': '10.0.255.128',
                 'cc': 'US',
                 'asn': '65535.65535',
+            },
+            {
+                'ip': '123.123.123.123',
+                'cc': None,   # <- to be skipped
+                'asn': None,  # <- to be skipped
             },
         ],
         'dport': 1234,
@@ -300,6 +324,9 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
                 'ip': '10.0.255.128',
                 'cc': 'US',
                 'asn': 4294967295,
+            },
+            {
+                'ip': '123.123.123.123',
             },
         ],
         'dport': 1234,
@@ -455,12 +482,63 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         param(
             raw=dict(
                 raw_param_dict_base,
+                ip=['0.0.0.1']),
+            full_access=True,
+            res_limits={'request_parameters': None},
+            expected_cleaned=dict(
+                cleaned_param_dict_base,
+                ip=['0.0.0.1']),
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                ip=['0.0.0.1']),
+            full_access=False,
+            res_limits={'request_parameters': None},
+            expected_cleaned=dict(
+                cleaned_param_dict_base,
+                ip=['0.0.0.1'],
+                source=[]),
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                # 'ip' equal to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR` is illegal
+                # (see #8861)
+                ip=['0.0.0.0']),
+            full_access=True,
+            res_limits={'request_parameters': None},
+            expected_error=ParamValueCleaningError,
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                # 'ip' equal to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR` is illegal
+                # (see #8861)
+                ip=['0.0.0.0']),
+            full_access=False,
+            res_limits={'request_parameters': None},
+            expected_error=ParamValueCleaningError,
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
                 dip=['0.10.20.30']),
             full_access=True,
             res_limits={'request_parameters': None},
             expected_cleaned=dict(
                 cleaned_param_dict_base,
                 dip=['0.10.20.30']),
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                # 'dip' equal to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR` is illegal
+                # (see #8861)
+                dip=['0.0.0.0']),
+            full_access=True,
+            res_limits={'request_parameters': None},
+            expected_error=ParamValueCleaningError,
         ),
         param(
             raw=dict(
@@ -630,12 +708,63 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         param(
             raw=dict(
                 raw_param_dict_base,
+                ip=['0.0.0.1']),
+            full_access=True,
+            res_limits={'request_parameters': request_parameters},
+            expected_cleaned=dict(
+                cleaned_param_dict_base,
+                ip=['0.0.0.1']),
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                ip=['0.0.0.1']),
+            full_access=False,
+            res_limits={'request_parameters': request_parameters},
+            expected_cleaned=dict(
+                cleaned_param_dict_base,
+                ip=['0.0.0.1'],
+                source=[]),
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                # 'ip' equal to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR` is illegal
+                # (see #8861)
+                ip=['0.0.0.0']),
+            full_access=True,
+            res_limits={'request_parameters': request_parameters},
+            expected_error=ParamValueCleaningError,
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                # 'ip' equal to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR` is illegal
+                # (see #8861)
+                ip=['0.0.0.0']),
+            full_access=False,
+            res_limits={'request_parameters': request_parameters},
+            expected_error=ParamValueCleaningError,
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
                 dip=['0.10.20.30']),
             full_access=True,
             res_limits={'request_parameters': request_parameters},
             expected_cleaned=dict(
                 cleaned_param_dict_base,
                 dip=['0.10.20.30']),
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                # 'dip' equal to `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR` is illegal
+                # (see #8861)
+                dip=['0.0.0.0']),
+            full_access=True,
+            res_limits={'request_parameters': request_parameters},
+            expected_error=ParamValueCleaningError,
         ),
         param(
             raw=dict(
@@ -1108,6 +1237,9 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
                         'cc': 'US',
                         'asn': 4294967295,
                     },
+                    {
+                        'ip': '123.123.123.123',
+                    },
                 ]),
         ),
         param(
@@ -1130,6 +1262,9 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
                         'cc': 'US',
                         'asn': 4294967295,
                     },
+                    {
+                        'ip': '123.123.123.123',
+                    },
                 ]),
         ),
         param(
@@ -1143,7 +1278,10 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
             opt_primary=True,
             expected_cleaned=dict(
                 cleaned_result_dict_base,
-                address=[{'ip': '100.101.102.103'}]),
+                address=[
+                    {'ip': '100.101.102.103'},
+                    {'ip': '123.123.123.123'},
+                ]),
         ),
         param(
             raw=dict(
@@ -1156,7 +1294,10 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
             opt_primary=True,
             expected_cleaned=dict(
                 restricted_access_cleaned_result_dict_base,
-                address=[{'ip': '100.101.102.103'}]),
+                address=[
+                    {'ip': '100.101.102.103'},
+                    {'ip': '123.123.123.123'},
+                ]),
         ),
         param(
             raw=dict(
@@ -1212,6 +1353,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
                     '100.101.102.103': ['ip', 'cc', 'asn'],
                     '10.0.255.128': ['ip', 'cc', 'asn'],
                     '1.2.8.9': ['ip'],                    # '1.2.8.9' non-existent
+                    '123.123.123.123': ['ip'],
                 })),
             full_access=True,
             opt_primary=True,
@@ -1225,6 +1367,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
                 enriched=([], {
                     '100.101.102.103': ['ip', 'cc', 'asn'],
                     '10.0.255.128': ['ip', 'cc', 'asn'],
+                    '123.123.123.123': ['ip'],
                 })),
             full_access=False,
             opt_primary=True,
@@ -1238,6 +1381,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
                 enriched=(['fqdn'], {
                     '100.101.102.103': ['ip', 'cc', 'asn'],
                     '10.0.255.128': ['ip', 'cc', 'asn'],
+                    '123.123.123.123': ['ip'],
                 })),
             full_access=True,
             opt_primary=True,
@@ -1251,6 +1395,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
                 enriched=(['fqdn'], {
                     '100.101.102.103': ['ip', 'cc', 'asn'],
                     '10.0.255.128': ['ip', 'cc', 'asn'],
+                    '123.123.123.123': ['ip'],
                 })),
             full_access=False,
             opt_primary=True,
@@ -1265,7 +1410,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
                 raw_result_dict_base,
                 enriched=(['fqdn'], {
                     '100.101.102.103': ['ip', 'cc', 'asn'],
-                    '10.0.255.128': ['ip', 'cc', 'asn'],
+                    '123.123.123.123': ['ip'],
                 })),
             full_access=True,
             opt_primary=False,
@@ -1281,6 +1426,85 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
             full_access=False,
             opt_primary=False,
             expected_cleaned=dict(restricted_access_cleaned_result_dict_base),
+        ),
+
+        # not a fully valid raw result dict: no 'address', but 'ip' or 'asn' or 'cc' present...
+        param(
+            raw=dict(
+                {k: v for k, v in raw_result_dict_base.items()
+                 if k != 'address'},
+                ip='1.2.3.4',
+                asn=123,
+                cc='PL'),
+            full_access=True,
+            expected_cleaned=dict(
+                cleaned_result_dict_base,
+                address=[{
+                    'ip': '1.2.3.4',
+                    'asn': 123,
+                    'cc': 'PL',
+                }]),
+        ),
+        param(
+            raw=dict(
+                {k: v for k, v in raw_result_dict_base.items()
+                 if k != 'address'},
+                ip='1.2.3.4',
+                asn=None,
+                cc='PL'),
+            full_access=False,
+            expected_cleaned=dict(
+                restricted_access_cleaned_result_dict_base,
+                address=[{
+                    'ip': '1.2.3.4',
+                    'cc': 'PL',
+                }]),
+        ),
+        param(
+            raw=dict(
+                {k: v for k, v in raw_result_dict_base.items()
+                 if k != 'address'},
+                ip=None),
+            full_access=True,
+            expected_cleaned={
+                # `ip` is missing or None => no `address`
+                k: v for k, v in cleaned_result_dict_base.items()
+                if k != 'address'},
+        ),
+        param(
+            raw=dict(
+                {k: v for k, v in raw_result_dict_base.items()
+                 if k != 'address'},
+                ip=None,
+                cc='PL'),
+            full_access=False,
+            expected_cleaned={
+                # `ip` is missing or None => no `address`
+                k: v for k, v in restricted_access_cleaned_result_dict_base.items()
+                if k != 'address'},
+        ),
+        param(
+            raw=dict(
+                {k: v for k, v in raw_result_dict_base.items()
+                 if k != 'address'},
+                asn=123),
+            full_access=True,
+            expected_cleaned={
+                # `ip` is missing or None => no `address`
+                k: v for k, v in cleaned_result_dict_base.items()
+                if k != 'address'},
+        ),
+        param(
+            raw=dict(
+                {k: v for k, v in raw_result_dict_base.items()
+                 if k != 'address'},
+                asn=123,
+                cc='PL'),
+            full_access=False,
+            expected_cleaned={
+                # `ip` is missing or None => no `address`
+                k: v for k, v in restricted_access_cleaned_result_dict_base.items()
+                if k != 'address'},
         ),
 
         # 'urls_matched'

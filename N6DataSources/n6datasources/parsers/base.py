@@ -672,7 +672,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         Make the id of the output message (aka `id`).
 
         Args/kwargs:
-            `parsed` (dict):
+            `parsed` (a RecordDict instance):
                 As yielded by parse().
 
         Returns:
@@ -745,7 +745,7 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         Generate items to become the base for the output message id.
 
         Args/kwargs:
-            `parsed` (dict):
+            `parsed` (a RecordDict instance):
                 As yielded by parse().
 
         Yields:

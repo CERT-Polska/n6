@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import collections
 import collections.abc as collections_abc
@@ -432,7 +432,7 @@ class TestGenericAdjusters(unittest.TestCase):
             u'\udced\udca0'  # mess converted to surrogates
             u'\x7f'          # proper code point (ascii DEL)
             u'\ud800'        # surrogate '\ud800' (smallest one)
-            u'\udfff'        # surrogate '\udfff' (biggest one)
+            u'\udfff'        # surrogate '\udfff' (biggest one) [note: *not* merged with one above]
             u'\udcee\udcbf\udcc0'  # mess converted to surrogates
             u'\ue000'        # proper code point '\ue000' (bigger than biggest surrogate)
             u'\udce6'        # mess converted to surrogate
@@ -628,25 +628,56 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                      asn=1),
             ],
         )
-        self.with_url_data1 = dict(
+        self.with_url_data_1 = dict(
             self.only_required,
-            url=u'foo:bar',
+            url='foo:bar',
+            # (as set by the code of a *parser*)
             _url_data=dict(
-                # in fact it will be transformed to `_url_data_ready`...
-                # (FIXME: should'n it be tested somewhere else?)
-                url_orig=u'http://\u0106ma.eXample.COM:80/\udcdd\ud800Ala-ma-kota\U0010ffff\udccc',
-                url_norm_opts=dict(
-                    transcode1st=True,
-                    epslash=True,
-                    rmzone=True,
+                orig=(
+                    'http://\u0106ma.eXample.COM:80/'
+                    '\udcdd\ud800Ala-ma-kota\U0010ffff\udccc'),
+                norm_options=dict(
+                    merge_surrogate_pairs=True,
+                    empty_path_slash=True,
+                    remove_ipv6_zone=True,
                 ),
             ),
         )
-        self.with_url_data2 = dict(
+        self.with_url_data_2 = dict(
             self.only_required,
-            url=u'foo:bar',
+            url='foo:bar',
+            # (as set by the code of a *parser*)
+            _url_data=dict(
+                orig=(bytearray(
+                    b'http://\xc4\x86ma.eXample.COM:80/'
+                    b'\xed\xb3\x9d\xed\xa0\x80Ala-ma-kota\xf4\x8f\xbf\xbf\xcc')),
+                norm_options=dict(
+                    merge_surrogate_pairs=True,
+                    remove_ipv6_zone=True,
+                ),
+            ),
+        )
+        self.with_url_data_3 = dict(
+            self.only_required,
+            url='foo:bar',
+            # (as processed at later stages than the *parser* stage)
+            _url_data=dict(
+                orig_b64=(
+                    'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                    'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                norm_options=dict(
+                    unicode_str=True,
+                    merge_surrogate_pairs=False,
+                ),
+            ),
+        )
+        self.with_url_data_ready = dict(  # *LEGACY*, to be removed...
+            self.only_required,
+            url='foo:bar',
             _url_data_ready=dict(
-                url_orig='aHR0cDovL8SGbWEuZVhhbXBsZS5DT006ODAv7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM',
+                url_orig=(
+                    'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                    'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
                 url_norm_opts=dict(
                     transcode1st=True,
                     epslash=True,
@@ -848,33 +879,57 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                      cc='PL',
                      asn=1),
             ],
-            with_url_data1=[
+            with_url_data_1=[
                 dict(
                     self.only_required,
-                    url=u'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd',
+                    url='SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd',
                     custom=dict(
                         url_data=dict(
-                            url_orig=(
-                                'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006ODAv7bOd7aCAQWxhLW1hLWtvdGH0j7'
-                                '-_7bOM'),
-                            url_norm_opts=dict(
-                                transcode1st=True,
-                                epslash=True,
-                                rmzone=True,
-                            ),
+                            orig_b64=(
+                                'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                            norm_brief='emru',  # ('u' added automatically because orig was `str`)
                         ),
                     ),
                 ),
             ],
-            with_url_data2=[
+            with_url_data_2=[
                 dict(
                     self.only_required,
-                    url=u'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd',
+                    url='SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd',
+                    custom=dict(
+                        url_data=dict(
+                            orig_b64=(
+                                'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_zA=='),
+                            norm_brief='mr',  # ('u' not added because orig was binary)
+                        ),
+                    ),
+                ),
+            ],
+            with_url_data_3=[
+                dict(
+                    self.only_required,
+                    url='SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd',
+                    custom=dict(
+                        url_data=dict(
+                            orig_b64=(
+                                'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                            norm_brief='u',
+                        ),
+                    ),
+                ),
+            ],
+            with_url_data_ready=[  # *LEGACY*, to be removed...
+                dict(
+                    self.only_required,
+                    url='SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd',
                     custom=dict(
                         url_data=dict(
                             url_orig=(
-                                'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006ODAv7bOd7aCAQWxhLW1hLWtvdGH0j7'
-                                '-_7bOM'),
+                                'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
                             url_norm_opts=dict(
                                 transcode1st=True,
                                 epslash=True,
@@ -1226,6 +1281,10 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             [{'cc': 'PL', 'asn': 123}],
             {'ip': '100.101.102.103', 'cc': 'PL', 'asn': 123, 'xxx': 'spam'},
             [{'ip': '100.101.102.1031', 'cc': 'PL', 'asn': 123}],
+            {'ip': '0.0.0.0', 'cc': 'PL', 'asn': 123},       # (disallowed: "no IP" placeholder)
+            [{'ip': '0.00.000.0', 'cc': 'PL', 'asn': 123}],  # (disallowed: "no IP" placeholder)
+            {'ip': '00.00.00.00', 'cc': 'PL', 'asn': 123},   # (disallowed: "no IP" placeholder)
+            [{'ip': 0, 'cc': 'PL', 'asn': 123}],             # (disallowed: "no IP" placeholder)
             {'ip': '1684366951', 'cc': 'PL', 'asn': 123},
             [{'ip': None, 'cc': 'PL', 'asn': 123}],
             [
@@ -1263,7 +1322,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
 
     def test__setitem__dip(self):
         self._test_setitem_valid('dip', (
-            S(u'0.0.0.0', (0, u'0.0.0.0')),
+            S(u'0.0.0.1', (1, u'0.0.0.1')),
             S(u'0.0.0.10', (10, u'0.0.0.10')),
             S(u'100.101.102.103', (
                 u'100.101.102.103',
@@ -1277,6 +1336,9 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             '1684366951',
             '100.101.102.103.100',
             '100.101.102.1030',
+            '0.0.0.0',               # (disallowed: "no IP" placeholder)
+            '00.0.0.00',             # (disallowed: "no IP" placeholder)
+            0,                       # (disallowed: "no IP" placeholder)
             u'100.101.102',
             168436695123456789,
             ['100.101.102.103'],
@@ -1348,6 +1410,261 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         ]:
             rd['url'] = invalid
             self.assertNotIn('url', rd)
+
+    def test__setitem___url_data(self):
+        self._test_setitem_valid('_url_data', (
+            S(
+                dict(
+                    orig_b64=(
+                        'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                        'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                    norm_options=dict(
+                        unicode_str=True,  # (<- always `True` if given `orig` was a `str`)
+                        merge_surrogate_pairs=False,
+                        empty_path_slash=True,
+                    ),
+                ),
+                (
+                    # (as set by the code of a *parser*)
+                    dict(
+                        orig=(
+                            'http://\u0106ma.eXample.COM:80/'
+                            '\udcdd\ud800Ala-ma-kota\U0010ffff\udccc'),
+                        norm_options=dict(
+                            # (no need to provide `unicode_str` -- inferred from type of `orig`)
+                            merge_surrogate_pairs=False,
+                            empty_path_slash=True,
+                        ),
+                    ),
+                    dict(
+                        orig=(
+                            'http://\u0106ma.eXample.COM:80/'
+                            '\udcdd\ud800Ala-ma-kota\U0010ffff\udccc'),
+                        norm_options=dict(
+                            unicode_str=True,
+                            merge_surrogate_pairs=False,
+                            empty_path_slash=True,
+                        ),
+                    ),
+                    # (as processed at later stages than the *parser* stage)
+                    dict(
+                        orig_b64=(
+                            'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                            'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                        norm_options=CIDict(  # (<- non-`dict` mapping is OK)
+                            unicode_str=True,  # (<- here needed because of no `orig`)
+                            merge_surrogate_pairs=False,
+                            empty_path_slash=True,
+                        ),
+                    ),
+                ),
+            ),
+            S(
+                dict(
+                    orig_b64='aHR0cDovL2Zvby5iYXIv',
+                    norm_options=dict(
+                        unicode_str=False,  # (<- always `False` if given `orig` was binary)
+                    ),
+                ),
+                (
+                    # (as set by the code of a *parser*)
+                    dict(
+                        orig=b'http://foo.bar/',
+                        norm_options=dict(),  # (<- empty `norm_options` is perfectly OK)
+                        # (^ no need to provide `unicode_str` -- inferred from type of `orig`)
+                    ),
+                    dict(
+                        orig=bytearray(b'http://foo.bar/'),
+                        norm_options=dict(
+                            unicode_str=False,
+                        ),
+                    ),
+                    # (as processed at later stages than the *parser* stage)
+                    dict(
+                        orig_b64='aHR0cDovL2Zvby5iYXIv',
+                        norm_options=dict(
+                            unicode_str=False,  # (<- here needed because of no `orig`)
+                        ),
+                    ),
+                ),
+            ),
+            S(
+                dict(
+                    orig_b64=(
+                        'aHR0cMSGbWEuZVhhbXBsZS5DT006ODAv'
+                        '7bOd7aCAQWxhLW1hLWtvdGH0j7-_zA=='),
+                    norm_options=dict(
+                        unicode_str=False,  # (<- always `False` if given `orig` was binary)
+                        empty_path_slash=True,
+                    ),
+                ),
+                (
+                    # (as set by the code of a *parser*)
+                    CIDict(  # (<- non-`dict` mapping is OK)
+                        orig=(bytearray(
+                            b'http\xc4\x86ma.eXample.COM:80/'
+                            b'\xed\xb3\x9d\xed\xa0\x80Ala-ma-kota\xf4\x8f\xbf\xbf\xcc')),
+                        norm_options=dict(
+                            # (no need to provide `unicode_str` -- inferred from type of `orig`)
+                            empty_path_slash=True,
+                        ),
+                    ),
+                    dict(
+                        orig=(
+                            b'http\xc4\x86ma.eXample.COM:80/'
+                            b'\xed\xb3\x9d\xed\xa0\x80Ala-ma-kota\xf4\x8f\xbf\xbf\xcc'),
+                        norm_options=dict(
+                            unicode_str=False,
+                            empty_path_slash=True,
+                        ),
+                    ),
+                    # (as processed at later stages than the *parser* stage)
+                    dict(
+                        orig_b64=(
+                            'aHR0cMSGbWEuZVhhbXBsZS5DT006ODAv'
+                            '7bOd7aCAQWxhLW1hLWtvdGH0j7-_zA=='),
+                        norm_options=dict(
+                            unicode_str=False,  # (<- here needed because of no `orig`)
+                            empty_path_slash=True,
+                        ),
+                    ),
+                ),
+            ),
+            S(
+                dict(
+                    orig_b64=(
+                        'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                        'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_zA=='),
+                    norm_options=dict(
+                        unicode_str=False,
+                        remove_ipv6_zone=False,
+                    ),
+
+                    # Note: if `orig_b64` (rather than `orig`) is given
+                    # (that typically happens at later processing stages
+                    # than the *parser* stage) then any extra items are
+                    # passed through without error -- to ease transition
+                    # if new keys are supported in the future...
+                    extra_item='blah-blah-blah...',
+                    and_another_one=[{b'!'}],
+                ),
+                dict(
+                    orig_b64=(
+                        'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                        'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_zA=='),
+                    norm_options=dict(
+                        unicode_str=False,  # (<- here needed because of no `orig`)
+                        remove_ipv6_zone=False,
+                    ),
+                    extra_item='blah-blah-blah...',
+                    and_another_one=[{b'!'}],
+                ),
+            ),
+        ))
+        self._test_setitem_adjuster_error('_url_data', (
+            dict(),                                  # missing keys...
+            dict(orig=b'http://foo.bar/'),           # missing key: `norm_options`
+            dict(orig_b64='aHR0cDovL2Zvby5iYXIv'),   # missing key: `norm_options`
+            dict(norm_options=dict()),               # missing key: `orig` or `orig_b64`
+            dict(
+                orig=b'http://foo.bar/',             # *either* `orig` *or* `orig_b64`
+                orig_b64='aHR0cDovL2Zvby5iYXIv',     # should be present, but *not both*
+                norm_options=dict(),
+            ),
+            dict(
+                orig=b'http://foo.bar/',
+                norm_options=dict(),
+                extra_item=42,                       # <- extra (unknown) key when `orig` given
+            ),
+            dict(
+                orig='http://foo.bar/',
+                norm_options=dict(
+                    unicode_str=False,               # <- `False` is wrong when `orig` is a `str`
+                ),
+            ),
+            dict(
+                orig=b'http://foo.bar/',
+                norm_options=dict(
+                    unicode_str=True,                # <- `True` is wrong when `orig` is binary
+                ),
+            ),
+            dict(
+                orig=bytearray(b'http://foo.bar/'),
+                norm_options=dict(
+                    unicode_str=True,                # <- `True` is wrong when `orig` is binary
+                ),
+            ),
+            dict(
+                orig_b64='aHR0+DovL2Zvby/iYXIv',     # <- non-URL-safe-Base64-variant character(s)
+                norm_options=dict(),
+            ),
+            dict(
+                orig='',                             # <- empty
+                norm_options=dict(),
+            ),
+            dict(
+                orig=b'',                            # <- empty
+                norm_options=dict(),
+            ),
+            dict(
+                orig=bytearray(b''),                 # <- empty
+                norm_options=dict(),
+            ),
+            dict(
+                orig_b64='',                         # <- empty
+                norm_options=dict(),
+            ),
+            dict(
+                orig_b64=('0' * (2**17 + 4)),        # <- too long
+                norm_options=dict(),
+            ),
+            dict(
+                orig=(b'x' * (2**19)),               # <- too long
+                norm_options=dict(),
+            ),
+            dict(
+                orig=bytearray(b'x' * (2**19)),      # <- too long
+                norm_options=dict(),
+            ),
+            dict(
+                orig=('x' * (2**19)),                # <- too long
+                norm_options=dict(),
+            ),
+            dict(
+                orig={b'http://foo.bar/'},           # <- wrong type (`set` instead of: `str`,
+                norm_options=dict(),                 #                `bytes` or `bytearray`)
+            ),
+            dict(
+                orig_b64=['aHR0cDovL2Zvby5iYXIv'],   # <- wrong type (`list` instead of `str`)
+                norm_options=dict(),
+            ),
+            dict(
+                orig_b64=b'aHR0cDovL2Zvby5iYXIv',    # <- wrong type (`bytes` instead of `str`)
+                norm_options=dict(),
+            ),
+            dict(
+                orig=b'http://foo.bar/',
+                norm_options=[],                     # <- wrong type (`list` instead of `dict`)
+            ),
+            dict(
+                orig_b64='aHR0cDovL2Zvby5iYXIv',
+                norm_options='d',                    # <- wrong type (`str` instead of `dict`)
+            ),
+            dict(
+                orig=b'http://foo.bar/',
+                norm_options=dict(
+                    remove_ipv6_zone=1,              # <- wrong type (`int` instead of `bool`)
+                ),
+            ),
+            # wrong types of the whole value (should be `dict`):
+            b'http://foo.bar/',
+            'aHR0cDovL2Zvby5iYXIv',
+            [('orig', b'http://foo.bar/'), ('norm_options', dict())],
+            {'orig_b64', 'norm_options'},
+            1684366951,
+            datetime.datetime.now(),
+            None,
+        ))
 
     def test__setitem__fqdn__valid_or_too_long(self):
         self._test_setitem_valid('fqdn', (
@@ -1589,6 +1906,8 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             # wrong keys/values
             (['url'], {'1.2.3.4': ['asn', 'cc']}),
             (['fqdn'], {'1.2.3.444': ['asn', 'cc']}),
+            (['fqdn'], {'0.0.0.0': ['asn', 'cc']}),     # (disallowed: "no IP" placeholder)
+            (['fqdn'], {'0.0.0.000': ['asn', 'cc']}),   # (disallowed: "no IP" placeholder)
             (['fqdn'], {'1.2.3.4': ['url', 'cc']}),
         ))
 

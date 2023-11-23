@@ -20,11 +20,11 @@ The configuration files should have been created in `/home/dataman/.n6`.
 
 ```bash
 $ ls /home/dataman/.n6/
-00_global.conf    02_archiveraw.conf  07_aggregator.conf  09_auth_db.conf
-10_generator_stream_api.conf  11_mailing.conf   23_filter.conf    25_splunk_emitter.conf
-00_pipeline.conf  05_enrich.conf      07_comparator.conf  10_generator_rest_api.conf
-11_jinja_rendering.conf       21_recorder.conf  60_abuse_ch.conf  60_misp.conf
-60_spam404_com.conf   [...]   logging.conf
+00_global.conf  00_pipeline.conf  02_archiveraw.conf  05_enrich.conf  07_aggregator.conf
+[...]
+60_abuse_ch.conf  60_amqp.conf  60_cert_pl.conf  60_cesnet_cz.conf  60_dan_tv.conf
+[...]
+logging.conf
 ```
 
 ## Logging

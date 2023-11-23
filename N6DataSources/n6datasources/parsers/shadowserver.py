@@ -28,9 +28,9 @@
 * `shadowserver.ldap`
 * `shadowserver.mdns`
 * `shadowserver.memcached`
-* `shadowserver.modbus`
 * `shadowserver.mongodb`
 * `shadowserver.mqtt`
+* `shadowserver.msmq`
 * `shadowserver.mssql`
 * `shadowserver.natpmp`
 * `shadowserver.netbios`
@@ -63,6 +63,7 @@
 
 import csv
 import datetime
+import re
 from collections.abc import MutableMapping
 
 from n6datasources.parsers.base import (
@@ -93,8 +94,9 @@ class _ShadowserverAddressFieldsMixin(object):
 
 
 class _BaseShadowserverParser(_ShadowserverAddressFieldsMixin, BaseParser):
+
     """
-    Abstract class parsers.
+    Base class for most of the Shadowserver parsers.
 
     `parse()` method uses dictionary `n6_field_to_data_key_mapping`
     to translate field names contained in data from collector
@@ -106,6 +108,8 @@ class _BaseShadowserverParser(_ShadowserverAddressFieldsMixin, BaseParser):
     If 'time' is to be mapped to `data['properties.timestamp']`,
     do not include 'time' key in `n6_field_to_data_key_mapping`.
 
+    ***
+
     *Important*: an "address" field is a special field, containing
     other linked fields: "ip", "asn" and "cc", where the "ip"
     field is mandatory. If an "address" field maps to a single
@@ -114,20 +118,57 @@ class _BaseShadowserverParser(_ShadowserverAddressFieldsMixin, BaseParser):
     to all keys, that should be assigned to "address" field, e.g.:
     'address': {'ip': value1, 'asn': value2, 'cc': value3}
 
-    This class can be easily used
-    if the data is to be parsed in simple way,
-    i.e.: `parsed['n6_key'] = row['source_key']`.
-    If at least one field must be parsed
-    non-standard way (e.g. parsed['proto'] = 'tcp'),
-    extend `parse()` method or use standard inheriting
-    from BaseParser and implement your own `parse()` method.
+
+    *Important*: Handling of `amplifier` category events **and**
+    CVE-related data in the **tag** field.
+
+    The base parser behaves typically for most events, however, in
+    situations when the event category is `amplifier` and
+    the `SHADOWSERVER_TAG_CVE_REGEX` match (later called a "CVE
+    pattern/match") is found within the "tag" field of the data, a
+    special handling mechanism is initiated. CVE matches are identified
+    by checking if the content of the "tag" field adheres to the CVE
+    pattern.
+
+    When these conditions (the category being `amplifier` and a CVE match
+    in the "tag" field) are met, the parser generates two separate
+    events. The first event preserves the original category and data.
+    The second event has the CVE match as its name and its
+    category is updated to `vulnerable`.
+
+    This dual event generation occurs automatically when the specified
+    conditions are met. This feature is built to work seamlessly with
+    Shadowserver parsers/data, including those that do not currently
+    have a "tag" field but may introduce one in the future.
+
+    ***
+
+    This class can be easily used if the data is to be parsed in simple
+    way, i.e.: `parsed['n6_key'] = row['source_key']`. If at least one
+    field must be parsed non-standard way (e.g. parsed['proto'] =
+    'tcp') or if a different behavior is desired when encountering a CVE
+    pattern/match in the `amplifier` category, extend `parse()` method
+    or use standard inheriting from BaseParser and implement your own
+    `parse()` method.
     """
 
+    # example of shadowserver cve tag's value:
+    # `cve-2000-1234567`
+    SHADOWSERVER_TAG_CVE_REGEX = re.compile(
+        r'\b(cve|CVE)'
+        r'-'
+        r'\d{4}'
+        r'-'
+        r'\d+',
+        re.ASCII)
+
+    additional_standard_items = {}
     n6_field_to_data_key_mapping = NotImplemented
     delimiter = ','
     quotechar = '"'
 
     def parse(self, data):
+        self._verify_items_are_unique()
         rows = csv.DictReader(
             data['csv_raw_rows'],
             delimiter=self.delimiter,
@@ -135,19 +176,46 @@ class _BaseShadowserverParser(_ShadowserverAddressFieldsMixin, BaseParser):
         )
         for row in rows:
             with self.new_record_dict(data) as parsed:
-                for n6_field, data_field in self.n6_field_to_data_key_mapping.items():
-                    if n6_field == 'address':
-                        self._handle_address_field(parsed, data_field, row)
-                    else:
-                        value = row.get(data_field)
-                        if value:
-                            parsed[n6_field] = value
-                if 'time' not in self.n6_field_to_data_key_mapping:
-                    parsed['time'] = data.get('properties.timestamp')
+                self._populate_parsed(row, data, parsed)
                 yield parsed
+
+            if 'amplifier' in (self.constant_items.get('category'),
+                               self.additional_standard_items.get('category')):
+                tag = row.get('tag')
+                if tag is None:
+                    continue
+                cve_match = self.SHADOWSERVER_TAG_CVE_REGEX.search(tag)
+                if cve_match is not None:
+                    cve_id = cve_match.group()
+                    with self.new_record_dict(data) as parsed_vuln:
+                        self._populate_parsed(row, data, parsed_vuln)
+                        parsed_vuln['category'] = 'vulnerable'
+                        parsed_vuln['name'] = cve_id.lower()
+                        yield parsed_vuln
+
+    def _populate_parsed(self, row, data, parsed):
+        parsed.update(self.additional_standard_items)
+        for n6_field, data_field in self.n6_field_to_data_key_mapping.items():
+            if n6_field == 'address':
+                self._handle_address_field(parsed, data_field, row)
+            else:
+                value = row.get(data_field)
+                if value:
+                    parsed[n6_field] = value
+        if 'time' not in self.n6_field_to_data_key_mapping:
+            parsed['time'] = data.get('properties.timestamp')
+
+    def _verify_items_are_unique(self):
+        shared_keys = set(self.constant_items).intersection(self.additional_standard_items)
+        if shared_keys:
+            raise ValueError(
+                f"The following key(s): {list(shared_keys)} exist(s) in both "
+                f"`additional_standard_items` and `constant_items`. "
+                f"Fix it manually.")
 
 
 class ShadowserverFtp202204Parser(BaseParser):
+
     """
     Due to a different parsing logic, this parser does not inherit from
     the `ShadowserverBasicParserBaseClass`.
@@ -255,9 +323,13 @@ class ShadowserverIpmi201412Parser(_BaseShadowserverParser):
 class ShadowserverChargen201412Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.chargen.201412'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'chargen',
     }
@@ -273,9 +345,13 @@ class ShadowserverChargen201412Parser(_BaseShadowserverParser):
 class ShadowserverNetbios201412Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.netbios.201412'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'netbios',
     }
@@ -309,6 +385,7 @@ class ShadowserverNetis201412Parser(_BaseShadowserverParser):
 class ShadowserverNtpVersion201412Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.ntp-version.201412'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
@@ -365,9 +442,13 @@ class ShadowserverSnmp201412Parser(_BaseShadowserverParser):
 class ShadowserverQotd201412Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.qotd.201412'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'qotd',
     }
@@ -383,9 +464,13 @@ class ShadowserverQotd201412Parser(_BaseShadowserverParser):
 class ShadowserverSsdp201412Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.ssdp.201412'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'ssdp',
     }
@@ -536,9 +621,13 @@ class ShadowserverNatpmp201412Parser(_BaseShadowserverParser):
 class ShadowserverMssql201412Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.mssql.201412'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'mssql',
     }
@@ -619,6 +708,9 @@ class ShadowserverPortmapper201412Parser(_BaseShadowserverParser):
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'portmapper',
     }
@@ -630,7 +722,7 @@ class ShadowserverPortmapper201412Parser(_BaseShadowserverParser):
     }
 
     def parse(self, data):
-        parsed_gen = super(ShadowserverPortmapper201412Parser, self).parse(data)
+        parsed_gen = super().parse(data)
         for item in parsed_gen:
             item['proto'] = 'udp'
             yield item
@@ -639,9 +731,13 @@ class ShadowserverPortmapper201412Parser(_BaseShadowserverParser):
 class ShadowserverMdns201412Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.mdns.201412'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'mdns',
     }
@@ -654,7 +750,7 @@ class ShadowserverMdns201412Parser(_BaseShadowserverParser):
     }
 
     def parse(self, data):
-        parsed_gen = super(ShadowserverMdns201412Parser, self).parse(data)
+        parsed_gen = super().parse(data)
         for item in parsed_gen:
             if item['proto'].lower() != 'udp':
                 LOGGER.warning('Protocol is different from UDP - %r', item['proto'])
@@ -664,9 +760,13 @@ class ShadowserverMdns201412Parser(_BaseShadowserverParser):
 class ShadowserverXdmcp201412Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.xdmcp.201412'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'xdmcp',
     }
@@ -679,7 +779,7 @@ class ShadowserverXdmcp201412Parser(_BaseShadowserverParser):
     }
 
     def parse(self, data):
-        parsed_gen = super(ShadowserverXdmcp201412Parser, self).parse(data)
+        parsed_gen = super().parse(data)
         for item in parsed_gen:
             if item['proto'].lower() != 'udp':
                 LOGGER.warning('Protocol is different from UDP - %r', item['proto'])
@@ -891,27 +991,6 @@ class ShadowserverDarknet202203Parser(_BaseShadowserverParser):
     }
 
 
-class ShadowserverModbus202203Parser(_BaseShadowserverParser):
-
-    default_binding_key = 'shadowserver.modbus.202203'
-    constant_items = {
-        'restriction': 'need-to-know',
-        'confidence': 'medium',
-        'category': 'vulnerable',
-        'name': 'modbus',
-    }
-
-    n6_field_to_data_key_mapping = {
-        'time': 'timestamp',
-        'address': 'ip',
-        'dport': 'port',
-        'proto': 'protocol',
-        'vendor': 'vendor',
-        'revision': 'revision',
-        'product_code': 'product_code',
-    }
-
-
 class ShadowserverIcs202204Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.ics.202204'
@@ -938,9 +1017,13 @@ class ShadowserverIcs202204Parser(_BaseShadowserverParser):
 class ShadowserverCoap202204Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.coap.202204'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'coap',
     }
@@ -956,9 +1039,13 @@ class ShadowserverCoap202204Parser(_BaseShadowserverParser):
 class ShadowserverUbiquiti202204Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.ubiquiti.202204'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'ubiquiti',
     }
@@ -974,9 +1061,13 @@ class ShadowserverUbiquiti202204Parser(_BaseShadowserverParser):
 class ShadowserverArd202204Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.ard.202204'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'ard',
     }
@@ -992,9 +1083,13 @@ class ShadowserverArd202204Parser(_BaseShadowserverParser):
 class ShadowserverRdpeudp202204Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.rdpeudp.202204'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'rdpeudp',
     }
@@ -1010,9 +1105,13 @@ class ShadowserverRdpeudp202204Parser(_BaseShadowserverParser):
 class ShadowserverDvrDhcpdiscover202204Parser(_BaseShadowserverParser):
 
     default_binding_key = 'shadowserver.dvr-dhcpdiscover.202204'
+
     constant_items = {
         'restriction': 'need-to-know',
         'confidence': 'medium',
+    }
+
+    additional_standard_items = {
         'category': 'amplifier',
         'name': 'dvr-dhcpdiscover',
     }
@@ -1262,6 +1361,24 @@ class ShadowserverAmqp202204Parser(_BaseShadowserverParser):
         'confidence': 'medium',
         'category': 'vulnerable',
         'name': 'amqp',
+    }
+
+    n6_field_to_data_key_mapping = {
+        'time': 'timestamp',
+        'address': 'ip',
+        'dport': 'port',
+        'proto': 'protocol',
+    }
+
+
+class ShadowserverMsmq202308Parser(_BaseShadowserverParser):
+
+    default_binding_key = 'shadowserver.msmq.202308'
+    constant_items = {
+        'restriction': 'need-to-know',
+        'confidence': 'medium',
+        'category': 'vulnerable',
+        'name': 'msmq',
     }
 
     n6_field_to_data_key_mapping = {

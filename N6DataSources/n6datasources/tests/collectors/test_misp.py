@@ -1,10 +1,12 @@
 # Copyright (c) 2017-2023 NASK. All rights reserved.
 
 import contextlib
+import copy
 import datetime
 import inspect
 import json
 import re
+import unittest
 from collections.abc import (
     Callable,
     Generator,
@@ -19,6 +21,7 @@ from unittest.mock import (
 from urllib.parse import urlsplit
 
 import requests
+from dateutil.tz import gettz
 from unittest_expander import (
     expand,
     foreach,
@@ -38,6 +41,7 @@ from n6lib.unit_test_helpers import (
     AnyInstanceOf,
     AnyMatchingRegex,
     JSONWhoseContentIsEqualTo,
+    TestCaseMixin,
 )
 
 
@@ -1362,3 +1366,153 @@ class TestMispCollector(BaseCollectorTestCase):
             'samples_last_proc_datetime': datetime.datetime(2017, 2, 9, 12),
             'already_processed_sample_ids': {314159},
         }
+
+
+@expand
+class TestMispCollector_adjust_state_from_py2_pickle(TestCaseMixin, unittest.TestCase):  # noqa
+
+    def setUp(self):
+        self.collector = object.__new__(MispCollector)
+        self.patch('n6datasources.collectors.misp.gettz', lambda: gettz('Europe/Warsaw'))
+
+
+    _EXAMPLE_PY2_STATE = {
+        'events_publishing_datetime': datetime.datetime(2024, 1, 14, 22, 30, 59),
+        'samples_publishing_datetime': datetime.datetime(2024, 1, 14, 22, 30, 59),
+        'last_published_samples': [1, 2, 3],
+    }
+    _EXAMPLE_PY3_STATE = {
+        'events_last_proc_datetime': datetime.datetime(2024, 1, 14, 21, 30, 59),
+        'samples_last_proc_datetime': datetime.datetime(2024, 1, 14, 21, 30, 59),
+        'already_processed_sample_ids': {1, 2, 3},
+    }
+
+    @foreach(
+        param(
+            py2_state=_EXAMPLE_PY2_STATE,
+            expected_py3_state=_EXAMPLE_PY3_STATE,
+        ).label('Winter time'),
+
+        param(
+            py2_state=_EXAMPLE_PY2_STATE | {
+                'events_publishing_datetime': datetime.datetime(2024, 3, 31, 3, 30, 59),
+                'samples_publishing_datetime': datetime.datetime(2024, 3, 31, 1, 45, 1),
+            },
+            expected_py3_state=_EXAMPLE_PY3_STATE | {
+                'events_last_proc_datetime': datetime.datetime(2024, 3, 31, 1, 30, 59),
+                'samples_last_proc_datetime': datetime.datetime(2024, 3, 31, 0, 45, 1),
+            },
+        ).label('Winter-to-summer-time transition (DST start)'),
+
+        param(
+            py2_state=_EXAMPLE_PY2_STATE | {
+                'events_publishing_datetime': datetime.datetime(2023, 8, 14, 13, 30, 59),
+                'samples_publishing_datetime': datetime.datetime(2023, 8, 14, 1, 45, 1),
+            },
+            expected_py3_state=_EXAMPLE_PY3_STATE | {
+                'events_last_proc_datetime': datetime.datetime(2023, 8, 14, 11, 30, 59),
+                'samples_last_proc_datetime': datetime.datetime(2023, 8, 13, 23, 45, 1),
+            },
+        ).label('Summer time'),
+
+        param(
+            py2_state=_EXAMPLE_PY2_STATE | {
+                'events_publishing_datetime': datetime.datetime(2023, 10, 29, 3, 30, 59),
+                'samples_publishing_datetime': datetime.datetime(2023, 10, 29, 2, 45, 1),
+            },
+            expected_py3_state=_EXAMPLE_PY3_STATE | {
+                'events_last_proc_datetime': datetime.datetime(2023, 10, 29, 2, 30, 59),
+                'samples_last_proc_datetime': datetime.datetime(2023, 10, 29, 0, 45, 1),
+            },
+        ).label('Summer-to-winter-time transition (DST end)'),
+    )
+    def test_ok(self, py2_state, expected_py3_state):
+        py2_state = copy.deepcopy(py2_state)  # (<- just defensive programming)
+
+        py3_state = self.collector.adjust_state_from_py2_pickle(py2_state)
+
+        assert py3_state == expected_py3_state
+
+
+    _EX = _EXAMPLE_PY2_STATE
+
+    @foreach(
+        param(
+            py2_state=_EX | {'illegal_key': 42},
+            expected_error_msg=(
+                "unexpected set of Py2 state keys: "
+                "'events_publishing_datetime', 'samples_publishing_datetime', "
+                "'last_published_samples', 'illegal_key'"
+            ),
+        ),
+        param(
+            py2_state={
+                k: v for k, v in _EX.items()
+                if k != 'samples_publishing_datetime'
+            },
+            expected_error_msg=(
+                "unexpected set of Py2 state keys: "
+                "'events_publishing_datetime', 'last_published_samples'"
+            ),
+        ),
+        param(
+            py2_state=_EXAMPLE_PY3_STATE,
+            expected_error_msg=(
+                "unexpected set of Py2 state keys: "
+                "'events_last_proc_datetime', 'samples_last_proc_datetime', "
+                "'already_processed_sample_ids'"
+            ),
+        ),
+        param(
+            py2_state=_EX | {'events_publishing_datetime': 42},
+            expected_error_msg=(
+                "unexpected type(py2_state['events_publishing_datetime'])=<class 'int'>"
+            ),
+        ),
+        param(
+            py2_state=_EX | {'samples_publishing_datetime': '2023-10-29T02:45:01'},
+            expected_error_msg=(
+                "unexpected type(py2_state['samples_publishing_datetime'])=<class 'str'>"
+            ),
+        ),
+        param(
+            py2_state=_EX | {'last_published_samples': {1, 2, 3}},
+            expected_error_msg=(
+                "unexpected type(py2_state['last_published_samples'])=<class 'set'>"
+            ),
+        ),
+        param(
+            py2_state=_EX | {'last_published_samples': [1, '2', 3]},
+            expected_error_msg=(
+                "unexpected non-int value(s) found in "
+                "py2_state['last_published_samples']=[1, '2', 3]"
+            ),
+        ),
+        param(
+            py2_state=_EX | {
+                'events_publishing_datetime': datetime.datetime(2024, 1, 14, 22, 30, 59,
+                                                                tzinfo=datetime.timezone.utc),
+            },
+            expected_error_msg=(
+                "unexpected non-None tzinfo of py2_state['events_publishing_datetime']="
+                "datetime.datetime(2024, 1, 14, 22, 30, 59, tzinfo=datetime.timezone.utc)"
+            ),
+        ),
+        param(
+            py2_state=_EX | {
+                'samples_publishing_datetime': datetime.datetime(2024, 1, 14, 22, 30, 59,
+                                                                 tzinfo=datetime.timezone.utc),
+            },
+            expected_error_msg=(
+                "unexpected non-None tzinfo of py2_state['samples_publishing_datetime']="
+                "datetime.datetime(2024, 1, 14, 22, 30, 59, tzinfo=datetime.timezone.utc)"
+            ),
+        ),
+    )
+    def test_error_for_unexpected_py2_state_content(self, py2_state, expected_error_msg):
+        py2_state = copy.deepcopy(py2_state)  # (<- just defensive programming)
+        with self.assertRaises(NotImplementedError) as exc_context:
+
+            self.collector.adjust_state_from_py2_pickle(py2_state)
+
+        assert str(exc_context.exception) == expected_error_msg

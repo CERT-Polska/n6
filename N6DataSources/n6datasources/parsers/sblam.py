@@ -25,7 +25,7 @@ SBLAM_SPAM_DATETIME_REGEX = re.compile(r'''
         (\d{4}-\d{1,2}-\d{1,2}       # date
         [ ]
         \d{2}:\d{2}:\d{2})           # time
-        ''', re.VERBOSE)
+        ''', re.ASCII | re.VERBOSE)
 
 
 class SblamSpamParser(BlackListParser):

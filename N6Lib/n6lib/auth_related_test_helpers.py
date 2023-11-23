@@ -100,7 +100,7 @@ def fa_false_cond(condition):
 #   * 'gp8' -- which includes subsource 'p9'
 #
 # * six criteria containers:
-#   * 'c1' -- specifying criteria: asn=1|2|3 or ip-network=10.0.0.0/8|192.168.0.0/24
+#   * 'c1' -- specifying criteria: asn=1|2|3 or ip-network=0.0.0.0/30|10.0.0.0/8|192.168.0.0/24
 #   * 'c2' -- specifying criteria: asn=3|4|5
 #   * 'c3' -- specifying criteria: cc=PL
 #   * 'c4' -- specifying criteria: category=bot|cnc
@@ -763,7 +763,16 @@ EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
 EXAMPLE_SEARCH_RAW_RETURN_VALUE += [
     _Cri(1, {
         'n6asn': ['1', '2', '3'],
-        'n6ip-network': ['10.0.0.0/8', '192.168.0.0/24'],
+        'n6ip-network': [
+            # Note that -- everywhere below -- the '0.0.0.0/30' network
+            # (which includes the IP 0, i.e., `0.0.0.0`) is translated
+            # to IP ranges in such a way, that the minimum IP is 1, not
+            # 0 (because 0 is reserved as the "no IP" placeholder value;
+            # see: #8861).
+            '0.0.0.0/30',
+            '10.0.0.0/8',
+            '192.168.0.0/24',
+        ],
     }),
     _Cri(2, {
         'n6asn': ['3', '4', '5'],
@@ -792,6 +801,7 @@ P1_COND_FA_TRUE = Cond.and_(
     Cond['source'] == 'source.one',
     Cond.or_(
         Cond['asn'].in_([1, 2, 3]),
+        Cond['ip'].between(1, 3),
         Cond['ip'].between(167772160, 184549375),
         Cond['ip'].between(3232235520, 3232235775)),
     Cond.and_())
@@ -804,6 +814,7 @@ P2_COND_FA_TRUE = Cond.and_(
     Cond.and_(
         Cond.or_(
             Cond['asn'].in_([1, 2, 3]),
+            Cond['ip'].between(1, 3),
             Cond['ip'].between(167772160, 184549375),
             Cond['ip'].between(3232235520, 3232235775)),
         Cond['asn'].in_([3, 4, 5])),
@@ -866,6 +877,7 @@ P10_COND_FA_TRUE = Cond.and_(
     Cond.and_(
         Cond.not_(Cond.or_(
             Cond['asn'].in_([1, 2, 3]),
+            Cond['ip'].between(1, 3),
             Cond['ip'].between(167772160, 184549375),
             Cond['ip'].between(3232235520, 3232235775))),
         Cond.not_(Cond['category'].in_(['bots', 'cnc'])),
@@ -1066,6 +1078,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
@@ -1128,6 +1141,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1200,9 +1214,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
 
             'search': [prep_sql_str(
                 # P2:
+
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1240,6 +1256,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
@@ -1252,6 +1269,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                     AND (event.asn IN (3, 4, 5)
                          AND event.name = 'foo'
                          AND (event.asn IS NULL OR event.asn NOT IN (1, 2, 3))
+                         AND event.ip NOT BETWEEN 1 AND 3
                          AND event.ip NOT BETWEEN 167772160 AND 184549375
                          AND event.ip NOT BETWEEN 3232235520 AND 3232235775
                          AND event.category NOT IN ('bots', 'cnc')
@@ -1267,6 +1285,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
@@ -1294,6 +1313,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1327,6 +1347,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
@@ -1349,6 +1370,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
@@ -1372,6 +1394,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1407,6 +1430,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o8'] = (
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
             """,
@@ -1427,6 +1451,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o8'] = (
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
             """,
@@ -1470,6 +1495,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
@@ -1511,6 +1537,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
@@ -1518,6 +1545,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1548,6 +1576,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
@@ -1555,6 +1584,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1597,6 +1627,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1636,6 +1667,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1674,6 +1706,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
@@ -1682,6 +1715,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1728,6 +1762,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
@@ -1756,6 +1791,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1768,6 +1804,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
@@ -1800,6 +1837,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
@@ -1810,6 +1848,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     AND event.asn IN (3, 4, 5)
                     AND event.name = 'foo'
                     AND (event.asn IS NULL OR event.asn NOT IN (1, 2, 3))
+                    AND event.ip NOT BETWEEN 1 AND 3
                     AND event.ip NOT BETWEEN 167772160 AND 184549375
                     AND event.ip NOT BETWEEN 3232235520 AND 3232235775
                     AND event.category NOT IN ('bots', 'cnc')
@@ -1819,6 +1858,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1840,6 +1880,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
@@ -1869,6 +1910,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1901,6 +1943,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
@@ -1909,6 +1952,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1939,6 +1983,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
@@ -1947,6 +1992,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -1978,6 +2024,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip BETWEEN 1 AND 3
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2015,6 +2062,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o8'] = (
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
@@ -2023,6 +2071,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o8'] = (
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.asn IN (3, 4, 5)
@@ -2044,6 +2093,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o8'] = (
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
@@ -2072,6 +2122,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
@@ -2080,6 +2131,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.asn IN (3, 4, 5)
@@ -2105,6 +2157,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
@@ -2116,6 +2169,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
@@ -2124,6 +2178,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip BETWEEN 1 AND 3
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.asn IN (3, 4, 5)
@@ -2162,6 +2217,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 """,
@@ -2169,6 +2225,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2210,6 +2267,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 """,
@@ -2217,6 +2275,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2263,6 +2322,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2315,6 +2375,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2361,6 +2422,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
@@ -2369,6 +2431,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2415,6 +2478,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
@@ -2443,6 +2507,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2455,6 +2520,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
@@ -2487,6 +2553,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
@@ -2497,6 +2564,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.asn IN (3, 4, 5)
                     AND event.name IN ('foo')
                     AND NOT (event.asn IN (1, 2, 3)
+                             OR event.ip >= 1 AND event.ip <= 3
                              OR event.ip >= 167772160 AND event.ip <= 184549375
                              OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.category NOT IN ('bots', 'cnc')
@@ -2506,6 +2574,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2535,6 +2604,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
@@ -2572,6 +2642,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2608,6 +2679,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
@@ -2616,6 +2688,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2646,6 +2719,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
@@ -2654,6 +2728,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2690,6 +2765,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND (event.asn IN (1, 2, 3)
+                         OR event.ip >= 1 AND event.ip <= 3
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
@@ -2727,6 +2803,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o8'] = (
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 1 AND event.ip <= 3
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.restriction != 'internal'
@@ -2735,6 +2812,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o8'] = (
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 1 AND event.ip <= 3
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.asn IN (3, 4, 5)
@@ -2764,6 +2842,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o8'] = (
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 1 AND event.ip <= 3
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.restriction != 'internal'
@@ -2800,6 +2879,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 1 AND event.ip <= 3
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.restriction != 'internal'
@@ -2808,6 +2888,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 1 AND event.ip <= 3
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.asn IN (3, 4, 5)
@@ -2841,6 +2922,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 1 AND event.ip <= 3
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.restriction != 'internal'
@@ -2852,6 +2934,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 1 AND event.ip <= 3
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.restriction != 'internal'
@@ -2860,6 +2943,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
             """
                 event.source = 'source.one'
                 AND (event.asn IN (1, 2, 3)
+                     OR event.ip >= 1 AND event.ip <= 3
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.asn IN (3, 4, 5)

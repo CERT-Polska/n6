@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 #
 # TODO: more comments + docs
@@ -24,11 +24,10 @@ from n6lib.class_helpers import (
 )
 from n6lib.common_helpers import (
     LimitedDict,
-    ascii_str,
     as_bytes,
+    ascii_str,
     ipv4_to_str,
     make_exc_ascii_str,
-    try_to_normalize_surrogate_pairs_to_proper_codepoints,
 )
 from n6lib.const import (
     CATEGORY_TO_NORMALIZED_NAME,
@@ -43,6 +42,7 @@ from n6lib.log_helpers import get_logger
 from n6lib.url_helpers import (
     URL_SCHEME_AND_REST_LEGACY_REGEX,
     make_provisional_url_search_key,
+    prepare_norm_brief,
 )
 
 
@@ -396,7 +396,7 @@ class RecordDict(collections_abc.MutableMapping):
         # *EXPERIMENTAL* (likely to be changed or removed in the future
         # without any warning/deprecation/etc.)
         '_url_data',
-        '_url_data_ready',
+        '_url_data_ready',  # <- legacy key, to be removed...
 
         # internal keys of aggregated items
         '_group',
@@ -412,12 +412,13 @@ class RecordDict(collections_abc.MutableMapping):
         '_bl-current-time',
     }
 
-    # *EXPERIMENTAL* (likely to be changed or removed in the future
-    # without any warning/deprecation/etc.)
-    setitem_key_to_target_key = {
-        # (trick for non-idempotent adjusters...)
-        '_url_data': '_url_data_ready',
-    }
+    ### TODO later?
+    # }) - {
+    #     # (not stored in Event DB, can be added to
+    #     # query results by the *data backend API*)
+    #     'url_orig_ascii',
+    #     'url_orig_b64',
+    # }
 
     # for the following keys, if the given value is invalid,
     # AdjusterError is not propagated; instead the value is just
@@ -527,13 +528,33 @@ class RecordDict(collections_abc.MutableMapping):
     # *EXPERIMENTAL* (likely to be changed or removed in the future
     # without any warning/deprecation/etc.)
     def _prepare_url_data_items(self, item_prototype, custom_items):
-        url_data = self.get('_url_data_ready')
-        if url_data is not None:
+        _url_data = self.get('_url_data')
+        if _url_data is not None:
+            assert isinstance(_url_data, dict)
+            assert isinstance(_url_data.get('orig_b64'), str)
+            assert isinstance(_url_data.get('norm_options'), dict)
+            # Set event's `url` to an EventDB-query-searchable key:
+            url_orig_bin = base64.urlsafe_b64decode(_url_data['orig_b64'])
+            item_prototype['url'] = make_provisional_url_search_key(url_orig_bin)  # [sic]
             assert 'url_data' not in custom_items
-            assert isinstance(url_data.get('url_orig'), str)
-            url_orig = base64.urlsafe_b64decode(url_data['url_orig'])
-            item_prototype['url'] = make_provisional_url_search_key(url_orig)  # [sic]
+            # Set event's `url_data` to a dict digestible by the relevant code in
+            # `n6lib.data_backend_api._EventsQueryProcessor._preprocess_result_dict()`:
+            url_data = _url_data.copy()
+            url_data['norm_brief'] = prepare_norm_brief(**url_data.pop('norm_options'))
             custom_items['url_data'] = url_data
+        ## ------------------------------------------------------------------------
+        ## The following code fragment handles the `_url_data_ready` *LEGACY* key:
+            assert self.get('_url_data_ready') is None
+        else:
+            url_data = self.get('_url_data_ready')
+            if url_data is not None:
+                assert 'url_data' not in custom_items
+                assert isinstance(url_data.get('url_orig'), str)
+                url_orig_bin = base64.urlsafe_b64decode(url_data['url_orig'])
+                item_prototype['url'] = make_provisional_url_search_key(url_orig_bin)  # [sic]
+                custom_items['url_data'] = url_data
+        ## -- to be removed... (TODO later)
+        ## ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
     __repr__ = attr_repr('_dict')
 
@@ -556,9 +577,8 @@ class RecordDict(collections_abc.MutableMapping):
         ######## silently ignore the legacy item
         if key == '__preserved_custom_keys__': return
         ######## ^^^ (to be removed later)
-        target_key = self.setitem_key_to_target_key.get(key, key)
         try:
-            self._dict[target_key] = self._get_adjusted_value(key, value)
+            self._dict[key] = self._get_adjusted_value(key, value)
         except AdjusterError as exc:
             if key in self.without_adjuster_error:
                 LOGGER.warning('Invalid value not stored (%s)', exc)
@@ -704,25 +724,118 @@ class RecordDict(collections_abc.MutableMapping):
     adjust__do_not_resolve_fqdn_to_ip = ensure_isinstance(bool)
     adjust__parsed_old = rd_adjuster
 
-    # *EXPERIMENTAL* internal field adjusters
+    # ----------------------------------------------------------------
+    # *EXPERIMENTAL*: the `_url_data` field's adjuster
     # (likely to be changed or removed in the future
     # without any warning/deprecation/etc.)
-    adjust__url_data = make_dict_adjuster(
-        url_orig=chained(
-            unicode_surrogate_pass_and_esc_adjuster,
-            make_adjuster_applying_callable(try_to_normalize_surrogate_pairs_to_proper_codepoints),
-            make_adjuster_applying_callable(as_bytes),
-            make_adjuster_applying_callable(base64.urlsafe_b64encode),
-            unicode_adjuster,
-            ensure_validates_by_regexp(r'\A[0-9a-zA-Z\-_=]+\Z'),
-            ensure_not_longer_than(2 ** 17)),
-        url_norm_opts=make_dict_adjuster())
+
+    _MAX_URL_ORIG_B64_LENGTH = 2 ** 17
+
+    @preceded_by(make_dict_adjuster(
+        # Note: when a parser sets the `_url_data` mapping, it
+        # is required to contain only these items: `orig` and
+        # `norm_options`.
+        orig=ensure_isinstance(str, bytes, bytearray),  # (<- note: not present in adjusted dict)
+        norm_options=make_dict_adjuster(   # (see: `n6lib.url_helpers.normalize_url()`...)
+            merge_surrogate_pairs=ensure_isinstance(bool),
+            empty_path_slash=ensure_isinstance(bool),
+            remove_ipv6_zone=ensure_isinstance(bool),
+
+            # The following flag is, typically, provided automatically
+            # by the adjuster's machinery (no need to set it explicitly).
+            unicode_str=ensure_isinstance(bool),
+        ),
+
+        # The following item is, typically, provided
+        # automatically by the adjuster's machinery.
+        orig_b64=chained(
+            ensure_isinstance(str),
+            ensure_validates_by_regexp(r'\A[0-9a-zA-Z\-_=]+\Z'),  # <- URL-safe Base64 variant
+            ensure_not_longer_than(_MAX_URL_ORIG_B64_LENGTH),
+        ),
+    ))
+    def adjust__url_data(self, value):
+        assert isinstance(value, dict)
+        return self._get_adjusted_url_data(**value)
+
+    def _get_adjusted_url_data(self, *,
+                               orig=None,
+                               orig_b64=None,
+                               norm_options,
+                               **extra_items):
+        if orig is None and orig_b64 is None:
+            raise TypeError(
+                'either `orig` or `orig_b64` '
+                'needs to be present')
+        if orig is not None and orig_b64 is not None:
+            raise TypeError(
+                'either `orig` or `orig_b64` '
+                'needs to be present, '
+                'but not both')
+        assert isinstance(norm_options, dict)
+
+        if orig_b64 is None:
+            # Here we are at the *parser* pipeline processing stage.
+            assert orig is not None
+
+            if extra_items:
+                raise TypeError(f'illegal **extra_items present ({extra_items=!a})')
+
+            if isinstance(orig, (bytes, bytearray)):
+                if 'unicode_str' not in norm_options:
+                    norm_options['unicode_str'] = False
+                if norm_options['unicode_str']:
+                    raise TypeError(
+                        "`orig` is a bytes/bytearray, so "
+                        "`norm_options['unicode_str']`, "
+                        "if specified, should be False")
+            else:
+                assert isinstance(orig, str)
+                if 'unicode_str' not in norm_options:
+                    norm_options['unicode_str'] = True
+                if not norm_options['unicode_str']:
+                    raise TypeError(
+                        "`orig` is a str, so "
+                        "`norm_options['unicode_str']`, "
+                        "if specified, should be True")
+
+            if not orig:
+                raise ValueError('`orig` is empty')
+
+            url_orig_bin = as_bytes(orig, 'surrogatepass')
+            orig_b64 = base64.urlsafe_b64encode(url_orig_bin).decode('ascii')
+        else:
+            # Here, typically, we are at some later pipeline processing
+            # stage than the *parser* stage (what means that the items
+            # of `_url_data` have already been prepared at the *parser*
+            # stage -- see the `if...` branch above). Note that here we
+            # accept any `extra_items` without complaining -- to ease
+            # transition if new keys are supported in the future...
+            assert orig_b64 is not None
+            assert orig is None
+
+        assert isinstance(orig_b64, str)
+        if len(orig_b64) > self._MAX_URL_ORIG_B64_LENGTH:
+            raise ValueError(
+                f'length of `orig_b64` ({len(orig_b64)}) is greater '
+                f'than the maximum ({self._MAX_URL_ORIG_B64_LENGTH})')
+
+        return dict(
+            orig_b64=orig_b64,
+            norm_options=norm_options,
+            **extra_items,
+        )
+
+    ## *LEGACY*: the `_url_data_ready` internal field's adjuster
+    ## -- to be removed... (TODO later)
     adjust__url_data_ready = make_dict_adjuster(
         url_orig=chained(
             ensure_isinstance(str),
             ensure_validates_by_regexp(r'\A[0-9a-zA-Z\-_=]+\Z'),
-            ensure_not_longer_than(2 ** 17)),
+            ensure_not_longer_than(_MAX_URL_ORIG_B64_LENGTH)),
         url_norm_opts=make_dict_adjuster())
+
+    # ----------------------------------------------------------------
 
     # hi-freq-only internal field adjusters
     adjust__group = unicode_adjuster
@@ -1020,3 +1133,4 @@ assert _data_spec.result_field_specs('required').keys() == RecordDict.required_k
 assert _data_spec.all_result_keys == {
     key for key in _all_keys
     if key not in ('type', 'enriched') and not key.startswith('_')}
+# ^ TODO later? assert _data_spec.all_result_keys - {'url_orig_ascii', 'url_orig_b64'} == {

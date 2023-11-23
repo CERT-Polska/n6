@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import base64
 import collections
@@ -38,6 +38,7 @@ from n6lib.auth_api import ACCESS_ZONES
 from n6lib.class_helpers import singleton
 from n6lib.common_helpers import (
     ascii_str,
+    as_str_with_minimum_esc,
     iter_grouped_by_attr,
     make_exc_ascii_str,
     memoized,
@@ -70,6 +71,7 @@ from n6lib.typing_helpers import (
 from n6lib.url_helpers import (
     PROVISIONAL_URL_SEARCH_KEY_PREFIX,
     normalize_url,
+    prepare_norm_brief,
 )
 from n6lib.context_helpers import (
     NoContextToExitFrom,
@@ -1348,7 +1350,7 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
         url = result.get('url')
         if url_data is None:
             if url is not None and url.startswith(PROVISIONAL_URL_SEARCH_KEY_PREFIX):
-                LOGGER.warning(
+                LOGGER.error(
                     '`url` (%a) starts with %a but no `url_data`! '
                     '(skipping this result dict)\n%s',
                     url,
@@ -1366,35 +1368,86 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
                 PROVISIONAL_URL_SEARCH_KEY_PREFIX,
                 event_tag)
             return None
-        if (not isinstance(url_data, dict)) or url_data.keys() != {'url_orig', 'url_norm_opts'}:
+        if (not isinstance(url_data, dict)
+            # specific set of keys is required:
+            or (url_data.keys() != {'orig_b64', 'norm_brief'}
+                and url_data.keys() != {'url_orig', 'url_norm_opts'})  # <- legacy format
+            # original URL should not be empty:
+            or (not url_data.get('orig_b64')
+                and not url_data.get('url_orig'))):
             LOGGER.error(
                 '`url_data` (%a) is not valid! '
                 '(skipping this result dict)\n%s',
                 url_data,
                 event_tag)
             return None
+
         # case of `url_data`-based matching
-        url_orig = base64.urlsafe_b64decode(url_data['url_orig'])
-        url_norm_opts = url_data['url_norm_opts']
+
+        url_orig_b64 = url_data.get('orig_b64')
+        if url_orig_b64 is not None:
+            url_norm_brief = url_data['norm_brief']
+        else:
+            # dealing with legacy format (concerning older data stored in db)
+            url_orig_b64 = url_data['url_orig']
+            _legacy_url_norm_opts = url_data['url_norm_opts']
+            if _legacy_url_norm_opts != {'transcode1st': True, 'epslash': True, 'rmzone': True}:
+                raise ValueError(f'unexpected {_legacy_url_norm_opts=!a}')
+            url_norm_brief = prepare_norm_brief(
+                unicode_str=True,
+                merge_surrogate_pairs=True,
+                empty_path_slash=True,
+                remove_ipv6_zone=True)
+
+        assert isinstance(url_orig_b64, str)
+        assert isinstance(url_norm_brief, str)
+
         url_norm_cache = self._url_normalization_data_cache
-        url_norm_cache_key = tuple(sorted(url_norm_opts.items()))
-        url_norm_cache_item = url_norm_cache.get(url_norm_cache_key)
+        url_norm_cache_item = url_norm_cache.get(url_norm_brief)
         if url_norm_cache_item is not None:
             normalizer, param_urls_norm = url_norm_cache_item
         else:
-            normalizer = functools.partial(normalize_url, **url_norm_opts)
+            normalizer = functools.partial(normalize_url, norm_brief=url_norm_brief)
             param_urls = self._filtering_params.get('url.b64')
-            param_urls_norm = (frozenset(map(normalizer, param_urls))
-                               if param_urls is not None
-                               else None)
-            url_norm_cache[url_norm_cache_key] = normalizer, param_urls_norm
-        result_url_norm = normalizer(url_orig)
-        if (param_urls_norm is not None and
-              result_url_norm not in param_urls_norm):
+            if param_urls is not None:
+                call_silencing_decode_err = self._call_silencing_decode_err
+                maybe_urls = (call_silencing_decode_err(normalizer, url) for url in param_urls)
+                param_urls_norm = frozenset(url for url in maybe_urls
+                                            if url is not None)
+            else:
+                param_urls_norm = None
+            url_norm_cache[url_norm_brief] = normalizer, param_urls_norm
+
+        url_orig_bin = base64.urlsafe_b64decode(url_orig_b64)
+        url_normalized = normalizer(url_orig_bin)
+
+        if param_urls_norm is not None and url_normalized not in param_urls_norm:
             # application-level filtering
             return None
-        result['url'] = result_url_norm
+
+        result['url'] = (
+            url_normalized if isinstance(url_normalized, str)
+            else as_str_with_minimum_esc(url_normalized))
+        ## TODO later?
+        # orig_was_unicode = 'u' in url_norm_brief  # ('u' corresponds to `unicode_str=True`)
+        # if orig_was_unicode:
+        #     url_orig = url_orig_bin.decode('utf-8', 'surrogatepass')
+        #     assert isinstance(url_orig, str)
+        # else:
+        #     url_orig = url_orig_bin
+        #     assert isinstance(url_orig, bytes)
+        #
+        # result['url'] = as_str_with_minimum_esc(url_normalized)
+        # result['url_orig_ascii'] = ascii(url_orig)
+        # result['url_orig_b64'] = url_orig_b64
         return result
+
+    @staticmethod
+    def _call_silencing_decode_err(normalizer, url):
+        try:
+            return normalizer(url)
+        except UnicodeDecodeError:
+            return None
 
     @staticmethod
     def _get_event_tag_for_logging(result):

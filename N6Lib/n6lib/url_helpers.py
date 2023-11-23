@@ -1,15 +1,14 @@
-# Copyright (c) 2019-2021 NASK. All rights reserved.
+# Copyright (c) 2019-2023 NASK. All rights reserved.
 
+import collections
 import re
 import ipaddress
 
 from n6lib.common_helpers import (
     as_bytes,
     as_unicode,
-    is_pure_ascii,
     limit_str,
-    lower_if_pure_ascii,
-    try_to_normalize_surrogate_pairs_to_proper_codepoints,
+    replace_surrogate_pairs_with_proper_codepoints,
 )
 
 
@@ -81,7 +80,8 @@ def does_look_like_url(s):
 
     It only checks whether the given string starts with some letter,
     optionally followed by letter|digit|dot|plus|minus characters,
-    separated with a colon from the rest of the string.
+    separated with a colon from the rest of the string which can
+    contain anything.
 
     >>> does_look_like_url('http://www.example.com')
     True
@@ -116,9 +116,12 @@ def does_look_like_http_url_without_prefix(s):
 
 # TODO: more tests...
 def normalize_url(url,
-                  transcode1st=False,
-                  epslash=False,
-                  rmzone=False):
+                  *,
+                  unicode_str=False,
+                  merge_surrogate_pairs=False,
+                  empty_path_slash=False,
+                  remove_ipv6_zone=False,
+                  norm_brief=None):
     r"""
     Apply to the given string (or binary data blob) as much of the basic
     URL/IRI normalization as possible, provided that no semantic changes
@@ -130,46 +133,100 @@ def normalize_url(url,
             The URL (or URI, or IRI) to be normalized.
 
     Kwargs (optional):
-        `transcode1st` (bool; default: False):
-            Whether, before the actual URL normalization (see the
-            description in the steps 1-18 below...), the given `url`
+        `unicode_str` (bool; default: False):
+            Whether, *before* the actual URL normalization, the `url`,
+            if given as a `bytes`/`bytearray`, should be coerced to
+            `str` using the `utf-8` codec with the `surrogatepass`
+            error handler.
+
+            This flag is supposed to be used only in the case of URLs
+            which were originally obtained as `str` instances (which
+            later, for some reasons, might be encoded to `bytes` or
+            `bytearray` using the `surrogatepass` error handler); if
+            garbage bytes are encountered then a `UnicodeDecodeError`
+            is raised.
+
+        `merge_surrogate_pairs` (bool; default: False):
+            Whether, *before* the actual URL normalization but *after*
+            `unicode_str`-flag-related processing (if any), the `url`
             should be:
-            * if given as a bytes/bytearray instance: decoded using
-              the 'utf-8' codec with our custom error handler:
-              'utf8_surrogatepass_and_surrogateescape';
-            * otherwise (assuming a str instance): "transcoded" using
-              `try_to_normalize_surrogate_pairs_to_proper_codepoints()`
+
+            * if given as a `bytes`/`bytearray` and `unicode_str` is
+              false -- processed in the following way: first try to
+              decode it using the `utf-8` codec with the `surrogatepass`
+              error handler; it that fails then the original `url`
+              argument, intact, becomes the result (only coerced to
+              `bytes` if it was given as a `bytearray`); otherwise,
+              apply `replace_surrogate_pairs_with_proper_codepoints()`
+              to the decoded content (to ensure that representation of
+              non-BMP characters is consistent...) and encode the result
+              using the `utf-8` codec with the `surrogatepass` error
+              handler; the resultant value is a `bytes` object;
+
+            * otherwise (`url` given as a `str`, or `unicode_str` is
+              true => so, effectively, `url` is a `str`) -- processed by
+              applying `replace_surrogate_pairs_with_proper_codepoints()`
               (to ensure that representation of non-BMP characters is
-              consistent...).
-        `epslash` (bool; default: False):
+              consistent...); the resultant value is a `str` object.
+
+        `empty_path_slash` (bool; default: False):
             Whether the *path* component of the given URL should be
             replaced with `/` if the `url`'s *scheme* is `http`, `https`
             or `ftp` *and* the *path* is empty (note that, generally,
             this normalization step does not change the URL semantics,
             with the exception of an URL being the request target of an
             `OPTIONS` HTTP request; see RFC 7230, section 2.7.3).
-        `rmzone` (bool; default: False):
+
+        `remove_ipv6_zone` (bool; default: False):
             Whether the IPv6 zone identifier being a part of an IPv6
             address in the `url`'s *host* component should be removed
             (note that, generally, IPv6 zone identifier has no meaning
             outside the local system it is related to; see RFC 6874,
             section 1).
 
+        `norm_brief` (iterable or None; default: None):
+            If not `None`, it should be a string (or another iterable
+            yielding strings of length 1) whose items are first letters
+            of any (zero or more) of the other keyword-only argument
+            names -- equivalent to setting the corresponding arguments
+            to `True` (useful in contexts where brevity is important).
+            If given, no other keyword arguments can be set to `True`.
+
     Returns:
         A `str` object (`if a `str` was given) or a `bytes` object (if a
-        `bytes` or `bytearray` object was given *and* `transcode1st` was
+        `bytes` or `bytearray` object was given *and* `unicode_str` was
         false) representing the URL after a *best effort* but *keeping
         semantic equivalence* normalization (see below: the description
         of the algorithm).
 
     Raises:
-        `TypeError` if `url` is not a str or bytes/bytearray instance.
+        * `TypeError` -- if:
 
-    The algorithm of normalization consists of the following steps [the
-    `+` operator in this description means *string concatenation*]:
+          * `url` is not a `str`/`bytes`/`bytearray`,
+          * `norm_brief` is given when (an)other keyword-only argument(s)
+            is/are also given;
 
-    0. Optional `url` transcoding (see the above description of the
-       `transcode1st` argument).
+        * `UnicodeDecodeError` -- if `unicode_str` is true and `url` is
+          such a `bytes`/`bytearray` that is not decodable to `str` using
+          the `utf-8` codec with the `surrogatepass` error handler;
+
+        * `ValueError` (other than `UnicodeDecodeError`) -- if:
+
+          * `norm_brief` contains any value not being the first letter
+            of another keyword-only argument;
+          * `norm_brief` contains duplicate values.
+
+    ***
+
+    The algorithm of normalization consists of the following steps:
+
+    [Note #1: the `+` operator in this description means *string
+    concatenation*. Note #2: if a `bytes` object is processed, it is
+    treated as if it was a string; the UTF-8 encoding is then assumed
+    for character recognition and regular expression matching.]
+
+    0. Optional `url` decoding/recoding (see the above description of
+       the `unicode_str` and `merge_surrogate_pairs` arguments).
 
     1. Try to split the `url` into two parts: the `scheme` component
        (matching the `scheme` group of the regular expression
@@ -218,9 +275,9 @@ def normalize_url(url,
        incorrectness (i.e., `ipv6` could not be parsed as a valid IPv6
        address) then leave `ipv6` intact.
 
-    9. If `ipv6 zone` is *not* present, or the `rmzone` argument is
-       true, then set `ipv6 zone` to an empty string and skip to step
-       11; otherwise proceed to step 10.
+    9. If `ipv6 zone` is *not* present, or the `remove_ipv6_zone`
+       argument is true, then set `ipv6 zone` to an empty string and
+       skip to step 11; otherwise proceed to step 10.
 
     10. If `ipv6 zone` consists only of ASCII characters then convert
         it to *lowercase*; otherwise leave it intact.
@@ -250,8 +307,8 @@ def normalize_url(url,
     15. If `path` is present then leave it intact and skip to step 17;
         otherwise proceed to step 16.
 
-    16. If the `epslash` argument is true and `scheme` is one of:
-        "http", "https", "ftp" -- then set `path` to "/"; otherwise
+    16. If the `empty_path_slash` argument is true and `scheme` is one
+        of: "http", "https", "ftp" -- then set `path` to "/"; otherwise
         set `path` to an empty string.
 
     17. If `after path` is *not* present then set it to an empty
@@ -263,25 +320,106 @@ def normalize_url(url,
 
     Ad 0:
 
-    >>> normalize_url(b'\xf4\x8f\xbf\xbf')
-    b'\xf4\x8f\xbf\xbf'
-    >>> normalize_url(b'\xf4\x8f\xbf\xbf', transcode1st=True)
-    '\U0010ffff'
-    >>> normalize_url('\udbff\udfff')  # look at this!
-    '\udbff\udfff'
-    >>> normalize_url('\udbff\udfff', transcode1st=True)
-    '\U0010ffff'
     >>> normalize_url('\U0010ffff')
     '\U0010ffff'
-    >>> normalize_url('\U0010ffff', transcode1st=True)
+    >>> normalize_url('\U0010ffff', merge_surrogate_pairs=True)
     '\U0010ffff'
+    >>> normalize_url('\U0010ffff', unicode_str=True)
+    '\U0010ffff'
+    >>> normalize_url('\U0010ffff', unicode_str=True, merge_surrogate_pairs=True)
+    '\U0010ffff'
+    >>> normalize_url(b'\xf4\x8f\xbf\xbf')
+    b'\xf4\x8f\xbf\xbf'
+    >>> normalize_url(b'\xf4\x8f\xbf\xbf', merge_surrogate_pairs=True)
+    b'\xf4\x8f\xbf\xbf'
+    >>> normalize_url(b'\xf4\x8f\xbf\xbf', unicode_str=True)
+    '\U0010ffff'
+    >>> normalize_url(b'\xf4\x8f\xbf\xbf', unicode_str=True, merge_surrogate_pairs=True)
+    '\U0010ffff'
+    >>> normalize_url('\udbff\udfff')
+    '\udbff\udfff'
+    >>> normalize_url('\udbff\udfff', merge_surrogate_pairs=True)
+    '\U0010ffff'
+    >>> normalize_url('\udbff\udfff', unicode_str=True)
+    '\udbff\udfff'
+    >>> normalize_url('\udbff\udfff', unicode_str=True, merge_surrogate_pairs=True)
+    '\U0010ffff'
+    >>> normalize_url(b'\xed\xaf\xbf\xed\xbf\xbf')
+    b'\xed\xaf\xbf\xed\xbf\xbf'
+    >>> normalize_url(b'\xed\xaf\xbf\xed\xbf\xbf', merge_surrogate_pairs=True)
+    b'\xf4\x8f\xbf\xbf'
+    >>> normalize_url(b'\xed\xaf\xbf\xed\xbf\xbf', unicode_str=True)
+    '\udbff\udfff'
+    >>> normalize_url(b'\xed\xaf\xbf\xed\xbf\xbf', unicode_str=True, merge_surrogate_pairs=True)
+    '\U0010ffff'
+    >>> normalize_url('\udfff\udbff\udfff\udbff')
+    '\udfff\udbff\udfff\udbff'
+    >>> normalize_url('\udfff\udbff\udfff\udbff', merge_surrogate_pairs=True)
+    '\udfff\U0010ffff\udbff'
+    >>> normalize_url('\udfff\udbff\udfff\udbff', unicode_str=True)
+    '\udfff\udbff\udfff\udbff'
+    >>> normalize_url('\udfff\udbff\udfff\udbff', unicode_str=True, merge_surrogate_pairs=True)
+    '\udfff\U0010ffff\udbff'
+    >>> normalize_url(b'\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf')
+    b'\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf'
+    >>> normalize_url(b'\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf',
+    ...               merge_surrogate_pairs=True)
+    b'\xed\xbf\xbf\xf4\x8f\xbf\xbf\xed\xaf\xbf'
+    >>> normalize_url(b'\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf',
+    ...               unicode_str=True)
+    '\udfff\udbff\udfff\udbff'
+    >>> normalize_url(b'\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf',
+    ...               unicode_str=True,
+    ...               merge_surrogate_pairs=True)
+    '\udfff\U0010ffff\udbff'
+    >>> normalize_url(b'\xed')  # (non-UTF-8 garbage)
+    b'\xed'
+    >>> normalize_url(b'\xed', merge_surrogate_pairs=True)
+    b'\xed'
+    >>> normalize_url(b'\xed', unicode_str=True)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    UnicodeDecodeError: ...
+    >>> normalize_url(b'\xed',
+    ...               unicode_str=True,
+    ...               merge_surrogate_pairs=True)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    UnicodeDecodeError: ...
+    >>> normalize_url(b'\xed\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf')
+    b'\xed\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf'
+    >>> normalize_url(b'\xed\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf',
+    ...               merge_surrogate_pairs=True)
+    b'\xed\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf'
+    >>> normalize_url(b'\xed\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf',
+    ...               unicode_str=True)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    UnicodeDecodeError: ...
+    >>> normalize_url(b'\xed\xed\xbf\xbf\xed\xaf\xbf\xed\xbf\xbf\xed\xaf\xbf',
+    ...               unicode_str=True,
+    ...               merge_surrogate_pairs=True)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    UnicodeDecodeError: ...
 
 
     Ad 0-2:
 
     >>> normalize_url(b'Blabla-bla!@#$ %^&\xc4\x85\xcc')
     b'Blabla-bla!@#$ %^&\xc4\x85\xcc'
-    >>> normalize_url(b'Blabla-bla!@#$ %^&\xc4\x85\xcc', transcode1st=True)
+    >>> normalize_url(b'Blabla-bla!@#$ %^&\xc4\x85\xcc',
+    ...               merge_surrogate_pairs=True)
+    b'Blabla-bla!@#$ %^&\xc4\x85\xcc'
+    >>> normalize_url(b'Blabla-bla!@#$ %^&\xc4\x85\xed\xb3\x8c',
+    ...               merge_surrogate_pairs=True)
+    b'Blabla-bla!@#$ %^&\xc4\x85\xed\xb3\x8c'
+    >>> normalize_url(b'Blabla-bla!@#$ %^&\xc4\x85\xed\xb3\x8c',
+    ...               unicode_str=True)
+    'Blabla-bla!@#$ %^&\u0105\udccc'
+    >>> normalize_url(b'Blabla-bla!@#$ %^&\xc4\x85\xed\xb3\x8c',
+    ...               unicode_str=True,
+    ...               merge_surrogate_pairs=True)
     'Blabla-bla!@#$ %^&\u0105\udccc'
     >>> normalize_url('Blabla-bla!@#$ %^&\u0105\udccc')
     'Blabla-bla!@#$ %^&\u0105\udccc'
@@ -289,9 +427,20 @@ def normalize_url(url,
 
     Ad 0-1 + 3 + 5:
 
-    >>> normalize_url(b'SOME-scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc')
+    >>> normalize_url(b'Some-Scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc')
     b'some-scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc'
-    >>> normalize_url(b'SOME-scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc', transcode1st=True)
+    >>> normalize_url(b'Some-Scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc',
+    ...               merge_surrogate_pairs=True)
+    b'some-scheme:Blabla-bla!@#$ %^&\xc4\x85\xcc'
+    >>> normalize_url(b'Some-Scheme:Blabla-bla!@#$ %^&\xc4\x85\xed\xb3\x8c',
+    ...               merge_surrogate_pairs=True)
+    b'some-scheme:Blabla-bla!@#$ %^&\xc4\x85\xed\xb3\x8c'
+    >>> normalize_url(b'SOME-scheme:Blabla-bla!@#$ %^&\xc4\x85\xed\xb3\x8c',
+    ...               unicode_str=True)
+    'some-scheme:Blabla-bla!@#$ %^&\u0105\udccc'
+    >>> normalize_url(b'SOME-scheme:Blabla-bla!@#$ %^&\xc4\x85\xed\xb3\x8c',
+    ...               unicode_str=True,
+    ...               merge_surrogate_pairs=True)
     'some-scheme:Blabla-bla!@#$ %^&\u0105\udccc'
     >>> normalize_url('somE-sCHEmE:Blabla-bla!@#$ %^&\u0105\udccc')
     'some-scheme:Blabla-bla!@#$ %^&\u0105\udccc'
@@ -306,124 +455,270 @@ def normalize_url(url,
     >>> normalize_url(b'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]')
     b'http://[2001:db8:85a3::8a2e:370:7334%25en1]'
     >>> normalize_url(b'HtTP://[2001:0DB8:85A3::8A2E:0370:7334]/fooBAR',
-    ...               epslash=True)
+    ...               empty_path_slash=True)
     b'http://[2001:db8:85a3::8a2e:370:7334]/fooBAR'
     >>> normalize_url(b'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52]:80')
     b'http://[2001:db8:85a3::8a2e:370:7334]'
     >>> normalize_url(b'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334%25en1]:80',
-    ...               epslash=True)
+    ...               empty_path_slash=True)
     b'http://[2001:db8:85a3::8a2e:370:7334%25en1]/'
     >>> normalize_url(b'HtTP://[2001:DB8:85A3::8A2E:3.112.115.52]',
-    ...               rmzone=True)
+    ...               remove_ipv6_zone=True)
     b'http://[2001:db8:85a3::8a2e:370:7334]'
     >>> normalize_url(b'HtTP://[2001:0db8:85a3:0000:0000:8a2e:0370:7334%25EN1]',
-    ...               rmzone=True)
+    ...               remove_ipv6_zone=True)
     b'http://[2001:db8:85a3::8a2e:370:7334]'
     >>> normalize_url(b'HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]',
-    ...               rmzone=True, epslash=True)
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
     b'http://[2001:db8:85a3::8a2e:370:7334]/'
     >>> normalize_url(b'HtTP://[2001:0DB8:85A3::8A2E:0370:7334%25en1]:80',
-    ...               rmzone=True)
+    ...               remove_ipv6_zone=True)
     b'http://[2001:db8:85a3::8a2e:370:7334]'
     >>> normalize_url(b'HtTP://[2001:DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]:80',
-    ...               rmzone=True, epslash=True)
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
     b'http://[2001:db8:85a3::8a2e:370:7334]/'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf')
+    b'http://[2001:db8:85a3::123%25en1]#\xed\xaf\xbf\xed\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               remove_ipv6_zone=True)
+    b'http://[2001:db8:85a3::123]#\xed\xaf\xbf\xed\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               empty_path_slash=True)
+    b'http://[2001:db8:85a3::123%25en1]/#\xed\xaf\xbf\xed\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
+    b'http://[2001:db8:85a3::123]/#\xed\xaf\xbf\xed\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               merge_surrogate_pairs=True,
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
+    b'http://[2001:db8:85a3::123]/#\xf4\x8f\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               unicode_str=True,
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
+    'http://[2001:db8:85a3::123]/#\udbff\udfff'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               unicode_str=True,
+    ...               merge_surrogate_pairs=True,
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
+    'http://[2001:db8:85a3::123]/#\U0010ffff'
     >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52]')
     'http://[2001:db8:85a3::8a2e:370:7334]'
     >>> normalize_url('HtTP://[2001:0db8:85a3::8a2e:370:7334%25EN1]')
     'http://[2001:db8:85a3::8a2e:370:7334%25en1]'
     >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334FAB%25eN1]',
-    ...               epslash=True)
+    ...               empty_path_slash=True)
     'http://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334FAB%25en1]/'
     >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8a2e:3.112.115.52]',
-    ...               epslash=True)
+    ...               empty_path_slash=True)
     'http://[2001:db8:85a3::8a2e:370:7334]/'
     >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334]:80')
     'http://[2001:db8:85a3::8a2e:370:7334]'
     >>> normalize_url('HtTP://[2001:0DB8:85A3::8A2E:3.112.115.52%25en1]:80',
-    ...               epslash=True)
+    ...               empty_path_slash=True)
     'http://[2001:db8:85a3::8a2e:370:7334%25en1]/'
     >>> normalize_url('HtTP://[2001:db8:85a3:0000:0000:8A2E:0370:7334]',
-    ...               rmzone=True)
+    ...               remove_ipv6_zone=True)
     'http://[2001:db8:85a3::8a2e:370:7334]'
     >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]/fooBAR',
-    ...               rmzone=True)
+    ...               remove_ipv6_zone=True)
     'http://[2001:db8:85a3::8a2e:370:7334]/fooBAR'
     >>> normalize_url('HtTP://[2001:0DB8:85A3::8A2E:0370:7334%25en1]',
-    ...               rmzone=True, epslash=True)
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
     'http://[2001:db8:85a3::8a2e:370:7334]/'
     >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]:80',
-    ...               rmzone=True)
+    ...               remove_ipv6_zone=True)
     'http://[2001:db8:85a3::8a2e:370:7334]'
     >>> normalize_url('HtTP://[2001:0DB8:85A3:0000:0000:8A2E:0370:7334%25en1]:80',
-    ...               rmzone=True, epslash=True)
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
     'http://[2001:db8:85a3::8a2e:370:7334]/'
+    >>> normalize_url('HtTP://[2001:DB8:85A3::0123%25En1]:80#\udbff\udfff',
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
+    'http://[2001:db8:85a3::123]/#\udbff\udfff'
+    >>> normalize_url('HtTP://[2001:DB8:85A3::0123%25En1]:80#\udbff\udfff',
+    ...               merge_surrogate_pairs=True,
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
+    'http://[2001:db8:85a3::123]/#\U0010ffff'
+    >>> normalize_url('HtTP://[2001:DB8:85A3::0123%25En1]:80#\udbff\udfff',
+    ...               unicode_str=True,
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
+    'http://[2001:db8:85a3::123]/#\udbff\udfff'
+    >>> normalize_url('HtTP://[2001:DB8:85A3::0123%25En1]:80#\udbff\udfff',
+    ...               unicode_str=True,
+    ...               merge_surrogate_pairs=True,
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
+    'http://[2001:db8:85a3::123]/#\U0010ffff'
     >>> normalize_url(b'HtTPS://[2001:DB8:85A3:0000:0000:8A2E:3.112.115.52%25En1]:80')
     b'https://[2001:db8:85a3::8a2e:370:7334%25en1]:80'
     >>> normalize_url(b'HtTPS://[2001:DB8:85A3:0000:0000:8A2E:3.112.115.52%25en1]:80',
-    ...               rmzone=True)
+    ...               remove_ipv6_zone=True)
     b'https://[2001:db8:85a3::8a2e:370:7334]:80'
     >>> normalize_url(b'HtTPS://[2001:0db8:85a3::8a2E:3.112.115.52%25en1]:443',
-    ...               rmzone=True)
+    ...               remove_ipv6_zone=True)
     b'https://[2001:db8:85a3::8a2e:370:7334]'
     >>> normalize_url(b'HtTPS://[2001:DB8:85A3:0000:0000:8A2E:0370:7334%25eN\xc4\x851]:80',
-    ...               epslash=True)
+    ...               empty_path_slash=True)
     b'https://[2001:db8:85a3::8a2e:370:7334%25eN\xc4\x851]:80/'
     >>> normalize_url('HtTPS://[2001:0db8:85a3::8a2E:3.112.115.52%25En1]:443')
     'https://[2001:db8:85a3::8a2e:370:7334%25en1]'
     >>> normalize_url('HtTPS://[2001:0DB8:85A3:0000:0000:8A2E:3.112.115.52%25eN\xc4\x851]:443',
-    ...               epslash=True)
+    ...               empty_path_slash=True)
     'https://[2001:db8:85a3::8a2e:370:7334%25eN\xc4\x851]/'
     >>> normalize_url('HtTPS://[2001:0DB8:85A3::8A2E:0370:7334%25eN1]:80',
-    ...               rmzone=True, epslash=True)
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
     'https://[2001:db8:85a3::8a2e:370:7334]:80/'
     >>> normalize_url('HtTPS://[2001:0DB8:85A3::8A2E:370:7334%25eN1]:443',
-    ...               rmzone=True, epslash=True)
+    ...               remove_ipv6_zone=True,
+    ...               empty_path_slash=True)
     'https://[2001:db8:85a3::8a2e:370:7334]/'
 
 
     Ad 0-1 + 3-4 + 12-18:
 
-    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com', epslash=True)
+    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com',
+    ...               empty_path_slash=True)
     b'http://www.XyZ-\xc4\x85\xcc.example.com/'
-    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com', transcode1st=True)
-    'http://www.XyZ-\u0105\udccc.example.com'
+    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com',
+    ...               empty_path_slash=True,
+    ...               merge_surrogate_pairs=True)
+    b'http://www.XyZ-\xc4\x85\xcc.example.com/'
+    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com',
+    ...               merge_surrogate_pairs=True)
+    b'http://www.XyZ-\xc4\x85\xcc.example.com'
+    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com',
+    ...               unicode_str=True)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    UnicodeDecodeError: ...
     >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85.eXamplE.com:80/fooBAR')
     b'http://www.XyZ-\xc4\x85.example.com/fooBAR'
-    >>> normalize_url(b'HtTP://WWW.XyZ-\xc4\x85.eXamplE.com:80', epslash=True)
+    >>> normalize_url(b'HtTP://WWW.XyZ-\xc4\x85.eXamplE.com:80',
+    ...               empty_path_slash=True)
     b'http://www.XyZ-\xc4\x85.example.com/'
-    >>> normalize_url(b'HtTP://WWW.XyZ-\xc4\x85.eXamplE.com:80/fooBAR', epslash=True)
+    >>> normalize_url(b'HtTP://WWW.XyZ-\xc4\x85.eXamplE.com:80/fooBAR',
+    ...               empty_path_slash=True)
     b'http://www.XyZ-\xc4\x85.example.com/fooBAR'
-    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com', transcode1st=True)
-    'http://www.XyZ-\u0105\udccc.example.com'
+    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com',
+    ...               merge_surrogate_pairs=True)
+    b'http://www.XyZ-\xc4\x85\xcc.example.com'
+    >>> normalize_url(b'HTTP://WWW.XyZ-\xc4\x85\xcc.eXamplE.com',
+    ...               unicode_str=True)  # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    UnicodeDecodeError: ...
     >>> normalize_url('HTtp://WWW.XyZ-\u0105\udccc.eXamplE.com:80')
     'http://www.XyZ-\u0105\udccc.example.com'
     >>> normalize_url('HTtp://WWW.XyZ-\u0105.eXamplE.com:80/')
     'http://www.XyZ-\u0105.example.com/'
-    >>> normalize_url('hTTP://WWW.XyZ-\u0105.eXamplE.com:80', epslash=True)
+    >>> normalize_url('hTTP://WWW.XyZ-\u0105.eXamplE.com:80',
+    ...               empty_path_slash=True)
     'http://www.XyZ-\u0105.example.com/'
     >>> normalize_url(b'HTTPS://WWW.XyZ-\xc4\x85.eXamplE.com:80')
     b'https://www.XyZ-\xc4\x85.example.com:80'
     >>> normalize_url(b'HTTPS://WWW.XyZ-\xc4\x85.eXamplE.com:80/fooBAR')
     b'https://www.XyZ-\xc4\x85.example.com:80/fooBAR'
-    >>> normalize_url(b'HTTPs://WWW.XyZ-\xc4\x85.eXamplE.com:443', epslash=True)
+    >>> normalize_url(b'HTTPs://WWW.XyZ-\xc4\x85.eXamplE.com:443',
+    ...               empty_path_slash=True)
     b'https://www.XyZ-\xc4\x85.example.com/'
-    >>> normalize_url(b'HTTPs://WWW.XyZ-\xc4\x85.eXamplE.com:443', epslash=True, transcode1st=True)
+    >>> normalize_url(b'HTTPs://WWW.XyZ-\xc4\x85.eXamplE.com:443',
+    ...               empty_path_slash=True,
+    ...               merge_surrogate_pairs=True)
+    b'https://www.XyZ-\xc4\x85.example.com/'
+    >>> normalize_url(b'HTTPs://WWW.XyZ-\xc4\x85.eXamplE.com:443',
+    ...               empty_path_slash=True,
+    ...               unicode_str=True)
     'https://www.XyZ-\u0105.example.com/'
-    >>> normalize_url('httpS://WWW.XyZ-\u0105.eXamplE.com:80', epslash=True)
+    >>> normalize_url('httpS://WWW.XyZ-\u0105.eXamplE.com:80',
+    ...               empty_path_slash=True)
     'https://www.XyZ-\u0105.example.com:80/'
-    >>> normalize_url('httpS://WWW.XyZ-\u0105.eXamplE.com:80/fooBAR', epslash=True)
+    >>> normalize_url('httpS://WWW.XyZ-\u0105.eXamplE.com:80/fooBAR',
+    ...               empty_path_slash=True)
     'https://www.XyZ-\u0105.example.com:80/fooBAR'
     >>> normalize_url('hTtpS://WWW.XyZ-\u0105.eXamplE.com:443')
     'https://www.XyZ-\u0105.example.com'
-    >>> normalize_url('httpS://WWW.XyZ-\u0105.eXamplE.com:80/fooBAR', epslash=True,
-    ...               transcode1st=True)
+    >>> normalize_url('httpS://WWW.XyZ-\u0105.eXamplE.com:80/fooBAR',
+    ...               empty_path_slash=True,
+    ...               merge_surrogate_pairs=True)
     'https://www.XyZ-\u0105.example.com:80/fooBAR'
+    >>> normalize_url('httpS://WWW.XyZ-\u0105.eXamplE.com:80/fooBAR',
+    ...               empty_path_slash=True,
+    ...               unicode_str=True)
+    'https://www.XyZ-\u0105.example.com:80/fooBAR'
+
+    Ad use of the `norm_brief` keyword argument:
+
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               norm_brief='')
+    b'http://[2001:db8:85a3::123%25en1]#\xed\xaf\xbf\xed\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               norm_brief='r')
+    b'http://[2001:db8:85a3::123]#\xed\xaf\xbf\xed\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               norm_brief='e')
+    b'http://[2001:db8:85a3::123%25en1]/#\xed\xaf\xbf\xed\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               norm_brief='er')
+    b'http://[2001:db8:85a3::123]/#\xed\xaf\xbf\xed\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               norm_brief=['r', 'e'])
+    b'http://[2001:db8:85a3::123]/#\xed\xaf\xbf\xed\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               norm_brief=iter(['r', 'e', 'm']))
+    b'http://[2001:db8:85a3::123]/#\xf4\x8f\xbf\xbf'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               norm_brief='uer')
+    'http://[2001:db8:85a3::123]/#\udbff\udfff'
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               norm_brief='emru')
+    'http://[2001:db8:85a3::123]/#\U0010ffff'
+
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               unicode_str=True,
+    ...               norm_brief='emru')
+    Traceback (most recent call last):
+      ...
+    TypeError: when `norm_brief` is given, no other keyword arguments can be set to true
+
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               norm_brief='ueMqrb')
+    Traceback (most recent call last):
+      ...
+    ValueError: unknown flags in `norm_brief`: 'M', 'q', 'b'
+
+    >>> normalize_url(b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf',
+    ...               norm_brief='rueummur')
+    Traceback (most recent call last):
+      ...
+    ValueError: duplicate flags in `norm_brief`: 'r', 'u', 'm'
     """
+    if norm_brief is not None:
+        if unicode_str or merge_surrogate_pairs or empty_path_slash or remove_ipv6_zone:
+            raise TypeError(
+                'when `norm_brief` is given, no other '
+                'keyword arguments can be set to true')
+        (unicode_str,
+         merge_surrogate_pairs,
+         empty_path_slash,
+         remove_ipv6_zone) = _parse_norm_brief(norm_brief)
+
     if isinstance(url, bytearray):
-        url = as_bytes(url)
-    if transcode1st:
-        url = _transcode(url)
+        url = bytes(url)
+    if unicode_str and isinstance(url, bytes):
+        url = as_unicode(url, 'surrogatepass')
+    if merge_surrogate_pairs:
+        url = _merge_surrogate_pairs(url)
     scheme = _get_scheme(url)
     if scheme is None:
         # does not look like a URL at all
@@ -439,11 +734,67 @@ def normalize_url(url,
         # -> the only normalized component is *scheme*
         return scheme + rest
     before_host = _get_before_host(match)
-    host = _get_host(match, rmzone)
+    host = _get_host(match, remove_ipv6_zone)
     port = _get_port(match, scheme)
-    path = _get_path(match, scheme, epslash)
+    path = _get_path(match, scheme, empty_path_slash)
     after_path = _get_after_path(match)
     return scheme + before_host + host + port + path + after_path
+
+
+# *EXPERIMENTAL* (likely to be changed or removed in the future
+# without any warning/deprecation/etc.)
+def prepare_norm_brief(*,
+                      unicode_str=False,
+                      merge_surrogate_pairs=False,
+                      empty_path_slash=False,
+                      remove_ipv6_zone=False):
+    r"""
+    A convenience helper: prepare the `normalize_url()`'s `norm_brief`
+    keyword argument value based on any other `normalize_url()`'s
+    keyword-only arguments (see the docs of `normalize_url()`...).
+
+    It is guaranteed that characters in the returned string are sorted
+    and unique.
+
+    >>> prepare_norm_brief()
+    ''
+    >>> prepare_norm_brief(unicode_str=True)
+    'u'
+    >>> prepare_norm_brief(remove_ipv6_zone=True, empty_path_slash=True)
+    'er'
+    >>> prepare_norm_brief(unicode_str=True, merge_surrogate_pairs=True, empty_path_slash=True)
+    'emu'
+
+    >>> raw_url = b'HtTP://[2001:DB8:85A3::0123%25En1]:80#\xed\xaf\xbf\xed\xbf\xbf'
+    >>> a = normalize_url(
+    ...     raw_url,
+    ...     unicode_str=True,
+    ...     merge_surrogate_pairs=True,
+    ...     remove_ipv6_zone=True,
+    ...     empty_path_slash=True)
+    >>> my_norm_brief = prepare_norm_brief(
+    ...     unicode_str=True,
+    ...     merge_surrogate_pairs=True,
+    ...     remove_ipv6_zone=True,
+    ...     empty_path_slash=True)
+    >>> b = normalize_url(raw_url, norm_brief=my_norm_brief)
+    >>> a == b == 'http://[2001:db8:85a3::123]/#\U0010ffff'
+    True
+    >>> my_norm_brief
+    'emru'
+    """
+    def gen():
+        if unicode_str:
+            yield 'u'
+        if merge_surrogate_pairs:
+            yield 'm'
+        if empty_path_slash:
+            yield 'e'
+        if remove_ipv6_zone:
+            yield 'r'
+    norm_brief = ''.join(sorted(gen()))
+    assert norm_brief == ''.join(sorted(frozenset(norm_brief)))  # sorted and unique
+    return norm_brief
 
 
 # *EXPERIMENTAL* (likely to be changed or removed in the future
@@ -453,26 +804,73 @@ def make_provisional_url_search_key(url_orig):
     >>> mk = make_provisional_url_search_key
     >>> mk('http://\u0106ma.eXample.COM:80/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc')
     'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd'
+    >>> mk('http://\u0106ma.eXample.COM:80/\ud800\udcddAla-ma-kota\U0010FFFF\udccc')
+    'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd'
     >>> mk(b'HTTP://\xc4\x86ma.eXample.COM:/\xdd\xffAla-ma-kota\xf4\x8f\xbf\xbf\xcc')
     'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd'
     >>> mk(b'HTTP://\xc4\x86ma.eXample.COM/\xddAla-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c')
     'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd'
+    >>> mk(b'HTTP://\xc4\x86ma.eXample.COM:/\xed\xa0\x80\xed\xb3\x9dAla-ma-kota\xef\xbf\xbd\xcc')
+    'SY:http://\u0106ma.example.com/\ufffdAla-ma-kota\ufffd\ufffd'
+
+    >>> mk('')
+    Traceback (most recent call last):
+      ...
+    ValueError: given value is empty
+
+    >>> mk(b'')
+    Traceback (most recent call last):
+      ...
+    ValueError: given value is empty
     """
     if not isinstance(url_orig, (str, bytes, bytearray)):
-        raise TypeError('{!a} is neither `str` nor `bytes`/`bytearray`'.format(url_orig))
+        raise TypeError(f'{url_orig!a} is neither `str` nor `bytes`/`bytearray`')
     if not url_orig:
         raise ValueError('given value is empty')
-    url_proc = url_orig
-    url_proc = normalize_url(url_proc, transcode1st=True, epslash=True, rmzone=True)
-    assert isinstance(url_proc, str)
+
+    common_norm_options = dict(
+        empty_path_slash=True,
+        remove_ipv6_zone=True,
+    )
+    try:
+        url_proc = normalize_url(
+            url_orig,
+            unicode_str=True,
+            merge_surrogate_pairs=True,
+            **common_norm_options)
+    except UnicodeDecodeError:
+        # here we have *neither* the strict UTF-8 encoding *nor*
+        # a more "liberal" variant of it that allows surrogates
+        # -> let's replace all non-compliant bytes with lone
+        #    surrogates (considering that below they will be
+        #    replaced with `REPLACEMENT CHARACTER` anyway...)
+        url_proc = normalize_url(
+            as_unicode(url_orig, 'surrogateescape'),
+            **common_norm_options)
+
     # Let's get rid of surrogate and non-BMP code points -- because of:
+    #
     # * the mess with the MariaDB's "utf8" 3-bytes encoding,
+    #
+    # * the mess with surrogates (including those produced by the
+    #   `surrogateescape` error handler to "smuggle" non-compliant
+    #   bytes, also those which could themselves represent a part
+    #   of an already encoded surrogate...).
+    #
+    # Historically, we used to want to avoid also:
+    #
     # * the mess with differences in handling of surrogates between
-    #   Python versions (especially, 2.x vs. 3.x),
-    # * the mess with UCS-2 vs. UCS-4 builds of Python 2.x.
+    #   Python versions (especially, 2.7 vs. modern 3.x),
+    #
+    # * the mess with UCS-2 vs. UCS-4 builds of Python 2.7.
+    #
+    # Every series of surrogate and/or non-BMP character code points is
+    # replaced with exactly one `REPLACEMENT CHARACTER` (Unicode U+FFFD).
     url_proc = _SURROGATE_OR_NON_BMP_CHARACTERS_SEQ_REGEX.sub('\ufffd', url_proc)
     url_proc = limit_str(url_proc, char_limit=500)
     url_proc = PROVISIONAL_URL_SEARCH_KEY_PREFIX + url_proc
+
+    assert isinstance(url_proc, str)
     return url_proc
 
 
@@ -652,14 +1050,45 @@ _SURROGATE_OR_NON_BMP_CHARACTERS_SEQ_REGEX = re.compile('[^'
 # Non-public local helpers
 #
 
-def _transcode(url):
+def _parse_norm_brief(norm_brief):
+    opt_seq = tuple(norm_brief)
+    opts = dict.fromkeys(opt_seq, True)
+    if len(opts) < len(opt_seq):
+        duplicates = [opt for opt, n in collections.Counter(opt_seq).items() if n > 1]
+        raise ValueError(
+            f"duplicate flags in `norm_brief`: "
+            f"{', '.join(map(ascii, duplicates))}")
+    unicode_str = opts.pop('u', False)
+    merge_surrogate_pairs = opts.pop('m', False)
+    empty_path_slash = opts.pop('e', False)
+    remove_ipv6_zone = opts.pop('r', False)
+    if opts:
+        raise ValueError(
+            f"unknown flags in `norm_brief`: "
+            f"{', '.join(map(ascii, opts))}")
+    return unicode_str, merge_surrogate_pairs, empty_path_slash, remove_ipv6_zone
+
+
+def _merge_surrogate_pairs(url):
     if isinstance(url, bytes):
-        ### FIXME: for byte strings we do not ensure that representation
-        ###   of non-BMP characters is consistent! (probably we should...)
-        url = url.decode('utf-8', 'utf8_surrogatepass_and_surrogateescape')
+        try:
+            decoded = as_unicode(url, 'surrogatepass')
+        except UnicodeDecodeError:
+            # here we have *neither* the strict UTF-8 encoding *nor*
+            # a more "liberal" variant of it that allows surrogates
+            # -> let's return the given `url` intact
+            pass
+        else:
+            # let's ensure that representation of non-BMP characters is
+            # consistent (note: any unpaired surrogates are left intact)
+            with_surrogate_pairs_merged = replace_surrogate_pairs_with_proper_codepoints(decoded)
+            url = as_bytes(with_surrogate_pairs_merged, 'surrogatepass')
+        assert isinstance(url, bytes)
     else:
-        # to ensure that representation of non-BMP characters is consistent
-        url = try_to_normalize_surrogate_pairs_to_proper_codepoints(url)
+        # let's ensure that representation of non-BMP characters is
+        # consistent (note: any unpaired surrogates are left intact)
+        url = replace_surrogate_pairs_with_proper_codepoints(url)
+        assert isinstance(url, str)
     return url
 
 
@@ -669,7 +1098,7 @@ def _get_scheme(url):
     if simple_match is None:
         return None
     scheme = simple_match.group('scheme')
-    assert scheme and is_pure_ascii(scheme)
+    assert scheme and scheme.isascii()
     scheme = scheme.lower()
     return scheme
 
@@ -680,12 +1109,12 @@ def _get_before_host(match):
     return before_host
 
 
-def _get_host(match, rmzone):
+def _get_host(match, remove_ipv6_zone):
     assert match.group('host')
     if match.group('ipv6_addr'):
         before_ipv6_addr = _get_before_ipv6_addr(match)
         ipv6_addr = _get_ipv6_addr(match)
-        after_ipv6_addr = _get_after_ipv6_addr(match, rmzone)
+        after_ipv6_addr = _get_after_ipv6_addr(match, remove_ipv6_zone)
         host = before_ipv6_addr + ipv6_addr + after_ipv6_addr
     else:
         host = _get_hostname_or_ip(match)
@@ -715,7 +1144,7 @@ def _get_ipv6_addr(match):
         ipv6_addr = conv(ipv6_addr)
     except ipaddress.AddressValueError:
         ipv6_addr = match.group('ipv6_addr')
-    assert is_pure_ascii(ipv6_addr)
+    assert ipv6_addr.isascii()
     return ipv6_addr
 
 
@@ -735,13 +1164,15 @@ def _convert_ipv4_to_ipv6_suffix(ipv6_suffix_in_ipv4_format):
     return ipv6_suffix
 
 
-def _get_after_ipv6_addr(match, rmzone):
+def _get_after_ipv6_addr(match, remove_ipv6_zone):
     after_ipv6_addr = match.group('after_ipv6_addr')
     closing_bracket = _proper_conv(match)(']')
     assert after_ipv6_addr and after_ipv6_addr.endswith(closing_bracket)
-    if rmzone:
+    if remove_ipv6_zone:
         return closing_bracket
-    return lower_if_pure_ascii(after_ipv6_addr)
+    if after_ipv6_addr.isascii():
+        return after_ipv6_addr.lower()
+    return after_ipv6_addr
 
 
 def _get_hostname_or_ip(match):
@@ -750,8 +1181,10 @@ def _get_hostname_or_ip(match):
     sep_regex = (DOMAIN_LABEL_SEPARATOR_UTF8_BYTES_REGEX if isinstance(hostname_or_ip, bytes)
                  else DOMAIN_LABEL_SEPARATOR_REGEX)
     dot = _proper_conv(match)('.')
-    return dot.join(lower_if_pure_ascii(label)  # <- we do not want to touch non-pure-ASCII labels
-                    for label in sep_regex.split(hostname_or_ip))
+    return dot.join(
+        (label.lower() if label.isascii()  # we do not want to touch non-pure-ASCII labels
+         else label)
+        for label in sep_regex.split(hostname_or_ip))
 
 
 def _get_port(match, scheme):
@@ -765,10 +1198,10 @@ def _get_port(match, scheme):
     return port
 
 
-def _get_path(match, scheme, epslash):
+def _get_path(match, scheme, empty_path_slash):
     conv = _proper_conv(match)
     path = match.group('path') or conv('')
-    if (epslash
+    if (empty_path_slash
           and as_bytes(scheme) in (b'http', b'https', b'ftp')
           and not path):
         path = conv('/')

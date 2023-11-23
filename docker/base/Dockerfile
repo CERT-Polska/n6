@@ -11,6 +11,30 @@ ARG apt-proxy-nask
 # TODO: get rid of, no longer necessary, Python-2-related stuff...
 
 RUN \
+    apt-get update && \
+    apt-get install -y \
+        build-essential \
+        ca-certificates \
+        gnupg \
+        curl;
+
+RUN \
+    # Create a directory for the new repository's keyring, if it doesn't exist
+    mkdir -p /etc/apt/keyrings;
+
+RUN \
+    # Download the new repository's GPG key and save it in the keyring directory
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg;
+
+RUN \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_16.x nodistro main" \
+    | tee /etc/apt/sources.list.d/nodesource.list;
+
+RUN \
+    apt-get update && \
+    apt-get install -y nodejs;
+
+RUN \
     # install base dependencies
     echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/99AcquireRetries; \
     # apt-related: optional custom (our-organization-specific) proxy
@@ -20,6 +44,7 @@ RUN \
     apt-get update && \
     apt-get install -y \
         apache2 \
+        inotify-tools \
         build-essential \
         curl \
         default-libmysqlclient-dev \
@@ -55,8 +80,6 @@ RUN \
         libreadline-dev \
         libsqlite3-dev \
         libbz2-dev && \
-    curl -fsSL https://deb.nodesource.com/setup_14.x | bash -; \
-    apt-get install -y nodejs; \
     npm install -g npm@latest && \
     npm install node-sass && \
     bash -c "echo 'ServerName localhost' >> /etc/apache2/apache2.conf"; \
@@ -116,8 +139,7 @@ RUN set -ex; \
     virtualenv --python=/usr/bin/python2.7 env; \
     . env/bin/activate; \
     pip install --upgrade pip -i https://pypi.python.org/simple/; \
-    pip install --upgrade 'setuptools<45.0.0'; \
-    pip install --upgrade wheel; \
+    pip install --upgrade 'setuptools<45.0.0' wheel; \
     # workaround against crash during normal install of httplib2 (needed by some test tools...)
     wget https://files.pythonhosted.org/packages/92/92/478727070c62def583e645ceeba18e69df266bf78e11639bc787c2386421/httplib2-0.20.1.tar.gz; \
     tar xf httplib2-0.20.1.tar.gz; \
@@ -149,8 +171,8 @@ RUN \
     python3.9 -m venv env_py3k; \
     . env_py3k/bin/activate; \
     pip install --upgrade pip -i https://pypi.python.org/simple/; \
-    pip install --upgrade setuptools; \
-    pip install --upgrade wheel; \
+    # setuptools is locked as a part of a temporary workaround (TODO: fix it when #7792 is done + see: #8823)
+    pip install --upgrade 'setuptools<68.0.0' wheel; \
     # install tools for n6 tests
     pip install --no-cache-dir \
         unittest_expander==0.4.4 \

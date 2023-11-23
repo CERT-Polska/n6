@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 #
 # For some portions of the code (marked in the comments as copied from
 # SQLAlchemy -- which is a library licensed under the MIT license):
@@ -35,6 +35,10 @@ from n6lib.common_helpers import (
     ip_network_tuple_to_min_max_ip,
     ip_str_to_int,
 )
+from n6lib.const import (
+    LACK_OF_IPv4_PLACEHOLDER_AS_INT,
+    LACK_OF_IPv4_PLACEHOLDER_AS_STR,
+)
 from n6lib.data_spec import N6DataSpec
 from n6lib.data_spec.typing_helpers import ResultDict
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
@@ -60,17 +64,15 @@ class IPAddress(sqlalchemy.types.TypeDecorator):
 
     # `ip` cannot be NULL as it is part of the primary key
     ### XXX: but whis field is used also for `dip` -- should it??? (see: #3490)
-    NONE = 0
-    NONE_STR = '0.0.0.0'
 
     def process_bind_param(self, value, dialect):
         if value == -1:
             ## CR: remove or raise a loud error? (anything uses -1???)
-            return self.NONE
+            return LACK_OF_IPv4_PLACEHOLDER_AS_INT
         if value is None:
             ## XXX: ensure that process_bind_param() is (not?) called
             ## by the SQLAlchemy machinery when `ip` value is None
-            return self.NONE
+            return LACK_OF_IPv4_PLACEHOLDER_AS_INT
         if isinstance(value, int):
             return value
         try:
@@ -79,7 +81,7 @@ class IPAddress(sqlalchemy.types.TypeDecorator):
             raise ValueError
 
     def process_result_value(self, value, dialect):
-        if value is None or value == self.NONE:
+        if value is None or value == LACK_OF_IPv4_PLACEHOLDER_AS_INT:
             return None
         return socket.inet_ntoa(value.to_bytes(4, 'big'))
 
@@ -221,7 +223,7 @@ class n6NormalizedData(Base):
             # NULL in our SQL db; and apparently, for unknown reason,  # XXX: <- check whether that's true...
             # IPAddress.process_bind_param() is not called by the
             # SQLAlchemy machinery if the value of `ip` is just None)
-            kwargs['ip'] = IPAddress.NONE_STR
+            kwargs['ip'] = LACK_OF_IPv4_PLACEHOLDER_AS_STR
         kwargs['time'] = parse_iso_datetime_to_utc(kwargs["time"])
         kwargs['expires'] = (
             parse_iso_datetime_to_utc(kwargs.get("expires"))
@@ -261,12 +263,12 @@ class n6NormalizedData(Base):
     def url_b64_experimental_query(cls, key, value):
         # *EXPERIMENTAL* (likely to be changed or removed in the future
         # without any warning/deprecation/etc.)
-        if key != 'url.b64':
-            raise AssertionError("key != 'url.b64' (but == {!a})".format(key))
-        db_key = 'url'
-        url_search_keys = list(map(make_provisional_url_search_key, value))
-        return or_(getattr(cls, db_key).in_(value),
-                   getattr(cls, db_key).in_(url_search_keys))
+        expected_key = 'url.b64'
+        if key != expected_key:
+            raise AssertionError(f'key != {expected_key!a} (got: {key = !a})')
+        assert all(isinstance(url, bytes) for url in value)
+        url_search_keys = value + list(map(make_provisional_url_search_key, value))
+        return cls.url.in_(url_search_keys)
 
     @classmethod
     def ip_net_query(cls, key, value):
@@ -275,7 +277,9 @@ class n6NormalizedData(Base):
             raise AssertionError
         queries = []
         for val in value:
-            min_ip, max_ip = ip_network_tuple_to_min_max_ip(val)
+            min_ip, max_ip = ip_network_tuple_to_min_max_ip(
+                val,
+                force_min_ip_greater_than_zero=True)
             queries.append(and_(cls.ip >= min_ip, cls.ip <= max_ip))
         return or_(*queries)
 
@@ -324,7 +328,11 @@ _IP_COLUMN_NAMES = tuple(sorted(
 
 # possible "no IP" placeholder values (such that they
 # cause recording `ip` in db as 0) -- excluding None
-_NO_IP_PLACEHOLDERS = frozenset([IPAddress.NONE_STR, IPAddress.NONE, -1])
+_NO_IP_PLACEHOLDERS = frozenset({
+    LACK_OF_IPv4_PLACEHOLDER_AS_STR,
+    LACK_OF_IPv4_PLACEHOLDER_AS_INT,
+    -1,  # <- legacy placeholder
+})
 
 
 def make_raw_result_dict(column_values_source_object,  # getattr() will be used on it to get values

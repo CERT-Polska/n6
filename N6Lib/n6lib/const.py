@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import os.path as osp
 import re
@@ -114,6 +114,11 @@ SURICATA_SNORT_CATEGORIES = {
     'other': {'include': True, 'rep_id': 9, 'descr': 'other activities', 'score_factor': 2, 'classtype': 'misc-activity'},
 }
 
+
+# the value used in Event DB to denote lack of
+# IP address where NULL is not an option
+LACK_OF_IPv4_PLACEHOLDER_AS_INT = 0
+LACK_OF_IPv4_PLACEHOLDER_AS_STR = '0.0.0.0'
 
 # maximum length of a client organization identifier (related both to
 # items of the list being the `client` value in a RecordDict / REST API

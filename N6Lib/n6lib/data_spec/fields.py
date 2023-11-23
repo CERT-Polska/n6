@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 
 # Terminology: some definitions and synonyms
@@ -13,7 +13,10 @@ import urllib.parse
 
 from n6lib.common_helpers import ascii_str
 from n6lib.class_helpers import is_seq_or_set
-from n6lib.const import CLIENT_ORGANIZATION_MAX_LENGTH
+from n6lib.const import (
+    CLIENT_ORGANIZATION_MAX_LENGTH,
+    LACK_OF_IPv4_PLACEHOLDER_AS_STR,
+)
 from n6sdk.data_spec.fields import (
     Field,
     AddressField,
@@ -151,10 +154,27 @@ class FieldForN6(Field):
                     ', '.join(sorted(map(ascii, found_access_qual)))))
 
 
+# internal helper field class
+# (TODO later: to be merged to `IPv4Field` when SDK is merged to `n6lib`
+#       -- then its tests and tests of `AddressField` should should also
+#       include the behavior provided here, regarding `0.0.0.0`...)
+
+class _IPv4FieldExcludingLackOfPlaceholder(IPv4Field):
+    def _validate_value(self, value):
+        if value == LACK_OF_IPv4_PLACEHOLDER_AS_STR:
+            raise FieldValueError(public_message=(
+                f'IPv4 address "{LACK_OF_IPv4_PLACEHOLDER_AS_STR}" is disallowed'))
+        super()._validate_value(value)
+
+
 # n6lib versions of field classes defined in SDK:
 
 class AddressFieldForN6(AddressField, FieldForN6):
-    pass
+    key_to_subfield_factory = {
+        u'ip': _IPv4FieldExcludingLackOfPlaceholder,
+        u'cc': CCField,
+        u'asn': ASNField,
+    }
 
 class AnonymizedIPv4FieldForN6(AnonymizedIPv4Field, FieldForN6):
     pass
@@ -192,7 +212,7 @@ class IBANSimplifiedFieldForN6(IBANSimplifiedField, FieldForN6):
 class IntegerFieldForN6(IntegerField, FieldForN6):
     pass
 
-class IPv4FieldForN6(IPv4Field, FieldForN6):
+class IPv4FieldForN6(_IPv4FieldExcludingLackOfPlaceholder, FieldForN6):
     pass
 
 class IPv4NetFieldForN6(IPv4NetField, FieldForN6):
@@ -264,24 +284,34 @@ class URLBase64FieldForN6(UnicodeField, FieldForN6):
     # want the length limit; probably, in the future, the limit will
     # be removed also from URLFieldForN6)
 
-    # Note: Here the following two `bytes->str` decoding options apply
-    # *only* to an URL when it has already been *decoded* from Base64.
-    encoding = 'utf-8'
-    decode_error_handling = 'utf8_surrogatepass_and_surrogateescape'
+    encoding = 'ascii'
+    disallow_empty = True
 
     _URLSAFE_B64_VALID_CHARACTERS = frozenset(string.ascii_letters + '0123456789' + '-_=')
     assert len(_URLSAFE_B64_VALID_CHARACTERS) == 65  # 64 encoding chars and padding char '='
 
-    def _fix_value(self, value):
-        if isinstance(value, (bytes, bytearray)):
-            # (note: eventually, only a subset of ASCII will be accepted anyway...)
-            value = value.decode('utf-8', 'surrogatepass')
-        assert isinstance(value, str)     # (already guaranteed thanks to `UnicodeField`s stuff...)
+    def clean_param_value(self, value):
+        # (the input is URL-safe-Base64-encoded + possibly also %-encoded...)
+        value = super().clean_param_value(value)
+        assert isinstance(value, str)
         value = self._stubbornly_unquote(value)
+        value = value.rstrip('\r\n')  # some Base64 encoders like to append a newline...
         value = self._urlsafe_b64decode(value)
-        value = super(URLBase64FieldForN6, self)._fix_value(value)
-        assert isinstance(value, str)     # (already guaranteed thanks to `UnicodeField`s stuff...)
+        assert isinstance(value, bytes)
+        # (the output is raw/binary)
         return value
+
+    def clean_result_value(self, value):
+        raise TypeError("it's a param-only field")
+        ### TODO later?
+        # # (the input is either raw/binary or already URL-safe-Base64-encoded)
+        # if not isinstance(value, str):
+        #     value = base64.urlsafe_b64encode(value)
+        # value = super().clean_result_value(value)
+        # assert isinstance(value, str)
+        # self._urlsafe_b64decode(value)  # just validate, ignore decoding result
+        # # (the output is always URL-safe-Base64-encoded)
+        # return value
 
     def _stubbornly_unquote(self, value):
         # Note: we can assume that the value has been unquoted (from
@@ -308,19 +338,18 @@ class URLBase64FieldForN6(UnicodeField, FieldForN6):
         return value
 
     def _urlsafe_b64decode(self, value):
-        value = value.rstrip('\r\n')  # some encoders like to append a newline...
         try:
             # `base64.urlsafe_b64decode()` just ignores illegal
             # characters *but* we want to be *more strict*
             if not self._URLSAFE_B64_VALID_CHARACTERS.issuperset(value):
                 raise ValueError
             value = base64.urlsafe_b64decode(value)
-        except ValueError:
-            # (^ also `binascii.Error` may be raised but
+        except ValueError as exc:
+            # (^ also `binascii.Error` may be raised, but
             # it is a subclass of `ValueError` anyway)
             raise FieldValueError(public_message=(
-                '"{}" is not a valid URL-safe-Base64-encoded string '
-                '[see: RFC 4648, section 5]'.format(ascii_str(value))))
+                f'"{ascii_str(value)}" is not a valid URL-safe-Base64'
+                f'-encoded string [see: RFC 4648, section 5]')) from exc
         return value
 
 
@@ -367,7 +396,7 @@ class SomeFieldForN6(SomeUnicodeFieldForN6):
 
 
 # for RecordDict['enriched']
-# (see the comment in the code of n6.utils.enrich.Enricher.enrich())
+# (see the comment in the code of n6datapipeline.enrich.Enricher.enrich())
 class EnrichedFieldForN6(FieldForN6):
 
     enrich_toplevel_keys = ('fqdn',)

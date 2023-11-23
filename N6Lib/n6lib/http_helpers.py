@@ -215,7 +215,7 @@ class RequestPerformer:
         # method tries -- as the last attempt -- ISO 8601 parsing)
     )
 
-    def __init__(self,
+    def __init__(self, /,
                  method,
                  url,
                  data=None,
@@ -248,7 +248,7 @@ class RequestPerformer:
         self._chunk_size = chunk_size if stream else None
 
     @classmethod
-    def fetch(cls, *args, **kwargs):
+    def fetch(cls, /, *args, **kwargs):
         """
         Download all content at once.
 
@@ -384,4 +384,4 @@ class _HTTPAdapterForRetries(HTTPAdapter):
                              'specify `data` whose length is discoverable, '
                              'or specify `retries=0`)')
 
-        return super(_HTTPAdapterForRetries, self).send(request, *args, **kwargs)
+        return super().send(request, *args, **kwargs)

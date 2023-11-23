@@ -20,18 +20,19 @@ _SIMPLE_CONFIG = {
                                   "time", "url", "fqdn", "address", "proto", "sport", "dport",
                                   "dip", "id", "rid", "client", "replaces", "status", "md5",
                                   "origin", "sha1", "sha256", "target", "modified", "expires"],
-    "required_attributes": ["id", "rid", "source", "restriction", "confidence", "category",
-                            "time"],
+    "required_event_attributes": ["id", "rid", "source", "restriction", "confidence", "category",
+                                  "time"],
     "dip_categories": ["bots", "cnc", "dos-attacker", "scanning", "other"],
-    "port_values": ["sport", "dport"],
-    "md5_values": ["id", "rid", "replaces", "md5"],
-    "possible_cc_codes": ["PL", "US", "DE", "CA", "FR", "UK"],
-    "possible_domains": ["www.example.com", "example.net"],
+    "port_attributes": ["sport", "dport"],
+    "md5_attributes": ["id", "rid", "replaces", "md5"],
+    "possible_cc_in_address": ["PL", "US", "DE", "CA", "FR", "UK"],
+    "possible_fqdn": ["www.example.com", "example.net"],
     "possible_url": ["http://example.com/index.html", "http://www.example.com/home.html"],
+    "possible_name": ["test event"],
     "possible_source": ["source.one", "another.source", "yet.another-source"],
     "possible_restriction": ["public", "need-to-know"],
     "possible_target": ["Example Ltd.", "Random Co"],
-    "possible_client": ["Test Client 1", "Test Client 2"],
+    "possible_client": ["test.client1", "test.client2"],
     "seconds_max": 180000,
     "expires_days_max": 8,
     "random_ips_max": 5,
@@ -49,7 +50,7 @@ class TestRandomEventWithConfig(unittest.TestCase):
         event_instance = RandomEvent()
         self.event = event_instance.event
         config = event_instance.config
-        self.required_attrs = config['required_attributes']
+        self.required_attrs = config['required_event_attributes']
 
     def test_required_attrs(self):
         """
@@ -281,7 +282,7 @@ class TestExtraParams(unittest.TestCase):
     def _get_possible_vals():
         with standard_config_patch:
             random_event_config = RandomEvent().config
-        config_fqdn_vals = 'possible_domains'
+        config_fqdn_vals = 'possible_fqdn'
         config_url_vals = 'possible_url'
         possible_fqdns = random_event_config.get(config_fqdn_vals)
         possible_urls = random_event_config.get(config_url_vals)

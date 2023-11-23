@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import copy
 import unittest
@@ -17,6 +17,7 @@ from unittest_expander import (
 )
 
 from n6lib.data_backend_api import (
+    LOGGER as module_logger,
     N6DataBackendAPI,
     _EventsQueryProcessor,
 )
@@ -54,7 +55,7 @@ class Test_N6DataBackendAPI__delete_opt_prefixed_params(unittest.TestCase):
 
 
 @expand
-class Test_EventsQueryProcessor___get_key_to_query_func(unittest.TestCase):
+class Test_EventsQueryProcessor__get_key_to_query_func(unittest.TestCase):
 
     @foreach(
         param(data_spec_class=N6DataSpec),
@@ -105,7 +106,7 @@ class Test_EventsQueryProcessor___get_key_to_query_func(unittest.TestCase):
 
 
 @expand
-class Test_EventsQueryProcessor__generate_query_results(unittest.TestCase):
+class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
 
     _UTCNOW = dt(2015, 1, 3, 17, 18, 19)
 
@@ -456,176 +457,1089 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
     @paramseq
     def cases(cls):
         yield param(
+            # 'SY:'-prefixed `url`, no `custom`
+            # -> result: nothing
             raw_result_dict={
-                # 'SY:'-prefixed `url`, no `custom`/`url_data`, some data
-                # -> nothing
-                'url': u'SY:cośtam',
-                'foo': u'bar',
+                'url': 'SY:cośtam',
             },
+            expected_log_regexes=[
+                r"^ERROR:.*`url` \('SY:co\\u015btam'\) starts with 'SY:' but no `url_data`!",
+            ],
             expected_result=None,
-        )
+        ).label(
+        "(01) 'SY:'-prefixed `url`, no `custom`")
+
         yield param(
+            # 'SY:'-prefixed `url`, no `custom`, unrelated data
+            # -> result: nothing
+            #
+            # [general remark: the *unrelated data* stuff is generally
+            # irrelevant for the core logic the tests provided by this
+            # class concern; many of them include *unrelated data*, but
+            # this is done just to show that those data do not interfere
+            # with that logic, or -- when applicable -- that they are
+            # passed through without problems...]
             raw_result_dict={
-                # 'SY:'-prefixed `url`, `custom` without `url_data`, some data
-                # -> nothing
-                'custom': {'spam': 'ham'},
-                'url': u'SY:cośtam',
+                'url': 'SY:cośtam',
                 'foo': 'bar',
             },
+            expected_log_regexes=[
+                r"^ERROR:.*`url` \('SY:co\\u015btam'\) starts with 'SY:' but no `url_data`!",
+            ],
             expected_result=None,
-        )
+        ).label(
+        "(02) 'SY:'-prefixed `url`, no `custom`, unrelated data")
+
         yield param(
-            # `custom`+`url_data`, no 'url'
-            # -> nothing
+            # 'SY:'-prefixed `url`, `custom` without `url_data`
+            # -> result: nothing
             raw_result_dict={
-               'custom': {
-                   'url_data': {
-                       'url_orig': 'x',
-                       'url_norm_opts': {'x': 'y'},
-                   },
-               },
+                'custom': {'spam': 'ham'},
+                'url': 'SY:cośtam',
             },
+            expected_log_regexes=[
+                r"^ERROR:.*`url` \('SY:co\\u015btam'\) starts with 'SY:' but no `url_data`!",
+            ],
             expected_result=None,
-        )
+        ).label(
+        "(03) 'SY:'-prefixed `url`, `custom` without `url_data`")
+
         yield param(
-            # `custom`+`url_data`, some data, no 'url'
-            # -> nothing
+            # 'SY:'-prefixed `url`, `custom` without `url_data`, unrelated data
+            # -> result: nothing
             raw_result_dict={
-               'custom': {
-                   'url_data': {
-                       'url_orig': u'x',
-                       'url_norm_opts': {'x': u'y'},
-                   },
-               },
-               'foo': u'bar',
+                'custom': {'spam': 'ham'},
+                'url': 'SY:cośtam',
+                'foo': 'bar',
             },
+            expected_log_regexes=[
+                r"^ERROR:.*`url` \('SY:co\\u015btam'\) starts with 'SY:' but no `url_data`!",
+            ],
             expected_result=None,
-        )
+        ).label(
+        "(04) 'SY:'-prefixed `url`, `custom` without `url_data`, unrelated data")
+
         yield param(
-            # `url` without 'SY:' prefix, `custom`+`url_data`
-            # -> nothing
+            # `custom` with `url_data`, no 'url'
+            # -> result: nothing
             raw_result_dict={
-               'custom': {
-                   'url_data': {
-                       'url_orig': u'x',
-                       'url_norm_opts': {'x': u'y'},
-                   },
-               },
-               'url': u'foo:bar',
+                'custom': {
+                    'url_data': {
+                        'orig_b64': 'eA==',
+                        'norm_brief': 'emru',
+                    },
+                },
             },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` present.*but `url` \(None\) does not start with 'SY:'!",
+            ],
             expected_result=None,
-        )
+        ).label(
+        "(05) `custom` with `url_data`, no 'url'")
+
         yield param(
-            # `url` without 'SY:' prefix, `custom`+`url_data`, some data
-            # -> nothing
+            # [analogous to previous case, but with `url_data` in legacy format]
+            # `custom` with `url_data`, no 'url'
+            # -> result: nothing
             raw_result_dict={
-               'custom': {
-                   'url_data': {
-                       'url_orig': 'x',
-                       'url_norm_opts': {'x': 'y'},
-                   },
-               },
-               'foo': 'bar',
+                'custom': {
+                    'url_data': {
+                        'url_orig': 'eA==',
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                },
             },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` present.*but `url` \(None\) does not start with 'SY:'!",
+            ],
             expected_result=None,
-        )
+        ).label(
+        "(06) `custom` with `url_data`, no 'url' [@legacy]")
+
         yield param(
-            # `custom`+`url_data` but the latter is not valid (not a dict)
-            # -> nothing
+            # `custom` with `url_data`, unrelated data, no 'url'
+            # -> result: nothing
             raw_result_dict={
-               'custom': {
-                   'url_data': [u'something'],
-               },
-               'url': u'SY:foo:bar',
+                'custom': {
+                    'url_data': {
+                        'orig_b64': 'eA==',
+                        'norm_brief': 'emru',
+                    },
+                },
+                'foo': 'bar',
             },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` present.*but `url` \(None\) does not start with 'SY:'!",
+            ],
             expected_result=None,
-        )
+        ).label(
+        "(07) `custom` with `url_data`, unrelated data, no 'url'")
+
         yield param(
-            # `custom`+`url_data` but the latter is not valid (missing keys)
-            # -> nothing
+            # [analogous to previous case, but with `url_data` in legacy format]
+            # `custom` with `url_data`, unrelated data, no 'url'
+            # -> result: nothing
             raw_result_dict={
-               'custom': {
-                   'url_data': {
-                       'url_norm_opts': {'x': 'y'},
-                   },
-               },
-               'foo': 'bar',
+                'custom': {
+                    'url_data': {
+                        'url_orig': 'eA==',
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                },
+                'foo': 'bar',
             },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` present.*but `url` \(None\) does not start with 'SY:'!",
+            ],
             expected_result=None,
-        )
+        ).label(
+        "(08) `custom` with `url_data`, unrelated data, no 'url' [@legacy]")
+
         yield param(
-            # `custom`+`url_data` but the latter is not valid (illegal keys)
-            # -> nothing
+            # `url` without 'SY:' prefix, `custom` with `url_data`
+            # -> result: nothing
             raw_result_dict={
-               'custom': {
-                   'url_data': {
-                       'url_orig': u'x',
-                       'url_norm_opts': {'x': 'y'},
-                       'spam': 'ham',
-                   },
-               },
-               'foo': 'bar',
+                'custom': {
+                    'url_data': {
+                        'orig_b64': 'eA==',
+                        'norm_brief': 'emru',
+                    },
+                },
+               'url': 'foo:cośtam',
             },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` present.*but `url` \('foo:.*'\) does not start with 'SY:'!",
+            ],
             expected_result=None,
-        )
+        ).label(
+        "(09) `url` without 'SY:' prefix, `custom` with `url_data`")
+
         yield param(
-            # some data. no `url`, no `url_data`
-            # -> some data
+            # [analogous to previous case, but with `url_data` in legacy format]
+            # `url` without 'SY:' prefix, `custom` with `url_data`
+            # -> result: nothing
             raw_result_dict={
-               'foo': 'bar',
+                'custom': {
+                    'url_data': {
+                        'url_orig': 'eA==',
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                },
+                'url': 'foo:cośtam',
+            },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` present.*but `url` \('foo:.*'\) does not start with 'SY:'!",
+            ],
+            expected_result=None,
+        ).label(
+        "(10) `url` without 'SY:' prefix, `custom` with `url_data` [@legacy]")
+
+        yield param(
+            # `url` without 'SY:' prefix, `custom` with `url_data`, unrelated data
+            # -> result: nothing
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'orig_b64': 'eA==',
+                        'norm_brief': 'emru',
+                    },
+                },
+                'url': 'foo:cośtam',
+                'foo': 'bar',
+            },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` present.*but `url` \('foo:.*'\) does not start with 'SY:'!",
+            ],
+            expected_result=None,
+        ).label(
+        "(11) `url` without 'SY:' prefix, `custom` with `url_data`, unrelated data")
+
+        yield param(
+            # [analogous to previous case, but with `url_data` in legacy format]
+            # `url` without 'SY:' prefix, `custom` with `url_data`, unrelated data
+            # -> result: nothing
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'url_orig': 'eA==',
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                },
+                'url': 'foo:cośtam',
+                'foo': 'bar',
+            },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` present.*but `url` \('foo:.*'\) does not start with 'SY:'!",
+            ],
+            expected_result=None,
+        ).label(
+        "(12) `url` without 'SY:' prefix, `custom` with `url_data`, unrelated data [@legacy]")
+
+        yield param(
+            # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (not a dict)
+            # -> result: nothing
+            raw_result_dict={
+                'custom': {
+                    'url_data': ['something'],
+                },
+                'url': 'SY:cośtam',
+            },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` \(\['something'\]\) is not valid!",
+            ],
+            expected_result=None,
+        ).label(
+        "(13) `'SY:'-prefixed `url`, custom` with `url_data` which is not valid "
+        "(not a dict)")
+
+        yield param(
+            # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (missing keys),
+            # -> result: nothing
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'norm_brief': 'emru',
+                    },
+                },
+                'url': 'SY:cośtam',
+            },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` \(\{'norm_brief': 'emru'\}\) is not valid!",
+            ],
+            expected_result=None,
+        ).label(
+        "(14) `'SY:'-prefixed `url`, custom` with `url_data` which is not valid "
+        "(missing keys)")
+
+        yield param(
+            # [analogous to previous case, but with `url_data` in legacy format]
+            # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (missing keys)
+            # -> result: nothing
+            raw_result_dict={
+                 'custom': {
+                    'url_data': {
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                },
+                'url': 'SY:cośtam',
+            },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` \(\{'url_norm_opts': \{.*\}\}\) is not valid!",
+            ],
+            expected_result=None,
+        ).label(
+        "(15) 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid "
+        "(missing keys) [@legacy]")
+
+        yield param(
+            # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (illegal keys)
+            # -> result: nothing
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'orig_b64': 'eA==',
+                        'norm_brief': 'emru',
+                        'spam': 'ham',
+                    },
+                },
+                'url': 'SY:cośtam',
+            },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` \(\{.*\}\) is not valid!",
+            ],
+            expected_result=None,
+        ).label(
+        "(16) 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid "
+        "(illegal keys)")
+
+        yield param(
+            # [analogous to previous case, but with `url_data` in legacy format]
+            # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (illegal keys)
+            # -> result: nothing
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'url_orig': 'eA==',
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                        'spam': 'ham',
+                    },
+                },
+                'url': 'SY:cośtam',
+            },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` \(\{.*\}\) is not valid!",
+            ],
+            expected_result=None,
+        ).label(
+        "(17) 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid "
+        "(illegal keys) [@legacy]")
+
+        yield param(
+            # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (empty `orig_b64`)
+            # -> result: nothing
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'orig_b64': '',
+                        'norm_brief': 'emru',
+                    },
+                },
+                'url': 'SY:cośtam',
+            },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` \(\{.*\}\) is not valid!",
+            ],
+            expected_result=None,
+        ).label(
+        "(18) `custom` with `url_data` which is not valid "
+        "(empty `orig_b64`)")
+
+        yield param(
+            # [analogous to previous case, but with `url_data` in legacy format]
+            # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (empty `url_orig`)
+            # -> result: nothing
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        'url_orig': '',
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                },
+                'url': 'SY:cośtam',
+            },
+            expected_log_regexes=[
+                r"^ERROR:.*`url_data` \(\{.*\}\) is not valid!",
+            ],
+            expected_result=None,
+        ).label(
+        "(19) 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid "
+        "(empty `url_orig`) [@legacy]")
+
+        yield param(
+            # unrelated data, no `url`, no `custom`
+            # -> result: unrelated data
+            raw_result_dict={
+                'foo': 'bar',
             },
             expected_result={
-               'foo': 'bar',
+                'foo': 'bar',
             },
-        )
+        ).label(
+        "(20) unrelated data, no `url`, no `custom`")
+
         yield param(
-            # some data, no `url`, `custom` without `url_data`
-            # -> some data, `custom`
+            # unrelated data, no `url`, `custom` without `url_data`
+            # -> result: unrelated data, `custom`
             raw_result_dict={
-               'custom': {'spam': u'ham'},
-               'foo': u'bar',
+                'custom': {'spam': 'ham'},
+                'foo': 'bar',
             },
             expected_result={
-                'custom': {'spam': u'ham'},
-               'foo': u'bar',
+                'custom': {'spam': 'ham'},
+                'foo': 'bar',
             },
-        )
+        ).label(
+        "(21) unrelated data, no `url`, `custom` without `url_data`")
+
         yield param(
-            # `url` without 'SY:' prefix, some data, no `custom`/`url_data`
-            # -> `url`, some data
+            # `url` without 'SY:' prefix, unrelated data, no `custom`
+            # -> result: `url`, unrelated data
             raw_result_dict={
-               'url': u'something-else',
-               'foo': u'bar',
+                'url': 'something-else',
+                'foo': 'bar',
             },
             expected_result={
-               'url': u'something-else',
-               'foo': u'bar',
+                'url': 'something-else',
+                'foo': 'bar',
             },
-        )
+        ).label(
+        "(22) `url` without 'SY:' prefix, unrelated data, no `custom`")
+
         yield param(
-            # `url` without 'SY:' prefix, some data, `custom` without `url_data`
-            # -> `url`, some data, `custom`
+            # `url` without 'SY:' prefix, unrelated data, `custom` without `url_data`
+            # -> result: `url`, unrelated data, `custom`
             raw_result_dict={
-               'custom': {'spam': 'ham'},
-               'url': 'something-else',
-               'foo': 'bar',
+                'custom': {'spam': 'ham'},
+                'url': 'something-else',
+                'foo': 'bar',
             },
             expected_result={
-               'custom': {'spam': 'ham'},
-               'url': 'something-else',
-               'foo': 'bar',
+                'custom': {'spam': 'ham'},
+                'url': 'something-else',
+                'foo': 'bar',
             },
-        )
+        ).label(
+        "(23) `url` without 'SY:' prefix, unrelated data, `custom` without `url_data`")
+
         yield param(
-            # `url`, `custom`+`url_data`+other, some data
-            # *and* `url.b64` in params (some matching!)
-            # -- so: app-level matching: normalized `url_orig` matched some of `url.b64`
-            # -> `url` being normalized `url_orig`, some data, custom without `url_data`
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        matches normalized `url.b64`
+            #
+            # -> result:
+            #    `url` being `orig_b64` URL-safe-base64-decoded + normalized,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
             filtering_params={
                 'url.b64': [
-                    u'https://example.com/',
-                    u'HTTP://Ćma.EXAMPLE.cOM:80/\udcdd\ud800Ala-ma-kota\udbff\udfff\udccc',
-                    u'http://example.ORG:8080/?x=y&ą=ę',
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80/?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-Ni!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006P3E97bOd'
+                                     '7aCAJTNELSU0RC0lNUQtTmkhPyPtr7_tv7_ts4w='),
+
+                        # (`empty_path_slash`, `merge_surrogate_pairs`,
+                        #  `remove_ipv6_zone`, `unicode_str`)
+                        'norm_brief': 'emru',
+                    },
+                },
+            },
+            expected_result={
+                'url': 'http://Ćma.example.com/?q=\udcdd\ud800%3D-%4D-%5D-Ni!?#\U0010FFFF\udccc',
+                'custom': {},  # (empty `custom` is harmless, as data spec removes it later anyway)
+            },
+        ).label(
+        "(24) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(matching, 'emru')")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        matches normalized `url.b64`
+            #
+            # -> result:
+            #    `url` being `orig_b64` URL-safe-base64-decoded + normalized,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`, `unicode_str`
+            # * here lack of `remove_ipv6_zone` changes nothing, as this
+            #   URL does not contain IPv6 address
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:/?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-Ni!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006Lz9xPe2z'
+                                     'ne2ggCUzRC0lNEQtJTVELU5pIT8j7a-_7b-_7bOM'),
+
+                        # (`empty_path_slash`, `merge_surrogate_pairs`, `unicode_str`)
+                        'norm_brief': 'emu',
+                    },
+                },
+            },
+            expected_result={
+                'url': 'http://Ćma.example.com/?q=\udcdd\ud800%3D-%4D-%5D-Ni!?#\U0010FFFF\udccc',
+                'custom': {},  # (empty `custom` is harmless, as data spec removes it later anyway)
+            },
+        ).label(
+        "(25) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(matching, 'emu')")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        matches normalized `url.b64`
+            #
+            # -> result:
+            #    `url` being `orig_b64` URL-safe-base64-decoded + normalized + coerced to `str`,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`
+            # * here lack of `unicode_str` does not prevent matching
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:/?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-Ni!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006Lz9xPe2z'
+                                     'ne2ggCUzRC0lNEQtJTVELU5pIT8j7a-_7b-_7bOM'),
+
+                        # (`empty_path_slash`, `merge_surrogate_pairs`)
+                        'norm_brief': 'em',
+                    },
+                },
+            },
+            expected_result={
+                'url': (
+                    # note: lack of the `unicode_str` option means that
+                    # the result of normalization is a `bytes` object
+                    # (which is then coerced to `str`, just for the
+                    # "url" result item, by applying the helper function
+                    # `as_str_with_minimum_esc()`; the bytes which encode
+                    # unpaired surrogates are escaped by it using the
+                    # `\x...` notation)
+                    'http://Ćma.example.com/?q=\\xed\\xb3\\x9d\\xed\\xa0\\x80'
+                    '%3D-%4D-%5D-Ni!?#\U0010FFFF\\xed\\xb3\\x8c'),
+                'custom': {},  # (empty `custom` is harmless, as data spec removes it later anyway)
+            },
+        ).label(
+        "(26) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(matching, 'em')")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (but not matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        does *not* match normalized `url.b64`
+            #
+            # -> result: nothing
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`
+            # * here `merge_surrogate_pairs` is ineffective, as
+            #   both `url.b64` and `orig_b64` contain a non-UTF-8 and
+            #   non-surrogate garbage -- namely, the `\xdd` byte just
+            #   before the 'Ni!?' fragment -- which makes the binary
+            #   contents undecodable with the `utf-8` codec, even with
+            #   the `surrogatepass` error handler...
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-\xddNi!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:/?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-\xddNi!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006Lz9xPe2z'
+                                     'ne2ggCUzRC0lNEQtJTVELd1OaSE_I-2vv-2_v-2zjA=='),
+
+                        # (`empty_path_slash`, `merge_surrogate_pairs`)
+                        'norm_brief': 'em',
+                    },
+                },
+            },
+            expected_result=None,
+        ).label(
+        "(27) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(NOT matching, 'em', ...)")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        matches normalized `url.b64`
+            #
+            # -> result:
+            #    `url` being `orig_b64` URL-safe-base64-decoded + normalized + coerced to `str`,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`
+            # * here `merge_surrogate_pairs` is ineffective (as above),
+            #   but that does not prevent matching because here `url.b64`
+            #   and `orig_b64` contain same non-strict-UTF-8 bytes (i.e.,
+            #   surrogates and non-surrogate garbage)
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-\xddNi!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:/?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-\xddNi!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006Lz9xPe2z'
+                                     'ne2ggCUzRC0lNEQtJTVELd1OaSE_I-2vv-2_v-2zjA=='),
+
+                        # (`empty_path_slash`, `merge_surrogate_pairs`)
+                        'norm_brief': 'em',
+                    },
+                },
+            },
+            expected_result={
+                'url': (
+                    # note: lack of the `unicode_str` option means that
+                    # the result of normalization is a `bytes` object
+                    # (which is then coerced to `str`, just for the
+                    # "url" result item, by applying the helper function
+                    # `as_str_with_minimum_esc()`; the bytes which encode
+                    # surrogates, paired or unpaired, as well as any
+                    # other non-strict-UTF-8 ones are escaped using
+                    # the `\x...` notation)
+                    'http://Ćma.example.com/?q=\\xed\\xb3\\x9d\\xed\\xa0\\x80'
+                    '%3D-%4D-%5D-\\xddNi!?#\\xed\\xaf\\xbf\\xed\\xbf\\xbf\\xed\\xb3\\x8c'),
+                'custom': {},  # (empty `custom` is harmless, as data spec removes it later anyway)
+            },
+        ).label(
+        "(28) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(matching, 'em', ...)")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (but not matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        does *not* match normalized `url.b64`
+            #
+            # -> result: nothing
+            #
+            # remarks:
+            # * active normalization options: none
+            # * here lack of `merge_surrogate_pairs` is irrelevant, as
+            #   `url.b64` and `orig_b64` contain same non-strict-UTF-8
+            #   bytes (i.e., surrogates and non-surrogate garbage)
+            # * here lack of `empty_path_slash` causes that there is
+            #   no match, as only `url.b64` has the URL's `path` empty
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-\xddNi!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:/?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-\xddNi!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006Lz9xPe2z'
+                                     'ne2ggCUzRC0lNEQtJTVELd1OaSE_I-2vv-2_v-2zjA=='),
+
+                        # (no active normalization options)
+                        'norm_brief': '',
+                    },
+                },
+            },
+            expected_result=None,
+        ).label(
+        "(29) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(NOT matching, '', ...)")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        matches normalized `url.b64`
+            #
+            # -> result:
+            #    `url` being `orig_b64` URL-safe-base64-decoded + normalized + coerced to `str`,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options: none
+            # * here lack of `merge_surrogate_pairs` is irrelevant, as
+            #   `url.b64` and `orig_b64` contain same non-strict-UTF-8
+            #   bytes (i.e., surrogates and non-surrogate garbage)
+            # * here lack of `empty_path_slash` is irrelevant, as
+            #   `orig_b64` and `url.b64` have the same URL path
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80/?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-\xddNi!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:/?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-\xddNi!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006Lz9xPe2z'
+                                     'ne2ggCUzRC0lNEQtJTVELd1OaSE_I-2vv-2_v-2zjA=='),
+
+                        # (no active normalization options)
+                        'norm_brief': '',
+                    },
+                },
+            },
+            expected_result={
+                'url': (
+                    # note: lack of the `unicode_str` option means that
+                    # the result of normalization is a `bytes` object
+                    # (which is then coerced to `str`, just for the
+                    # "url" result item, by applying the helper function
+                    # `as_str_with_minimum_esc()`; the bytes which encode
+                    # surrogates, paired or unpaired, as well as any
+                    # other non-strict-UTF-8 ones are escaped using
+                    # the `\x...` notation)
+                    'http://Ćma.example.com/?q=\\xed\\xb3\\x9d\\xed\\xa0\\x80'
+                    '%3D-%4D-%5D-\\xddNi!?#\\xed\\xaf\\xbf\\xed\\xbf\\xbf\\xed\\xb3\\x8c'),
+                'custom': {},  # (empty `custom` is harmless, as data spec removes it later anyway)
+            },
+        ).label(
+        "(30) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(matching, '', ...)")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (but not matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        does *not* match normalized `url.b64`
+            #
+            # -> result: nothing
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `unicode_str`
+            # * here lack of `merge_surrogate_pairs` causes that there
+            #   is no match
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:/?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-Ni!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006Lz9xPe2z'
+                                     'ne2ggCUzRC0lNEQtJTVELU5pIT8j7a-_7b-_7bOM'),
+
+                        # (`empty_path_slash`, `unicode_str`)
+                        'norm_brief': 'eu',
+                    },
+                },
+            },
+            expected_result=None,
+        ).label(
+        "(31) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(NOT matching, 'eu', ...)")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (but not matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        does *not* match normalized `url.b64`
+            #
+            # -> result: nothing
+            #
+            # * normalization option set to true: `empty_path_slash`
+            # * here lack of `merge_surrogate_pairs` causes that there
+            #   is no match
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:/?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-Ni!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006Lz9xPe2z'
+                                     'ne2ggCUzRC0lNEQtJTVELU5pIT8j7a-_7b-_7bOM'),
+
+                        # (`empty_path_slash`)
+                        'norm_brief': 'e',
+                    },
+                },
+            },
+            expected_result=None,
+        ).label(
+        "(32) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(NOT matching, 'e', ...)")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (but not matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        does *not* match normalized `url.b64`
+            #
+            # -> result: nothing
+            #
+            # remarks:
+            # * active normalization options:
+            #   `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
+            # * here lack of `empty_path_slash` causes that there is
+            #   no match, as only `url.b64` has the URL's `path` empty
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:/?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-Ni!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006Lz9xPe2z'
+                                     'ne2ggCUzRC0lNEQtJTVELU5pIT8j7a-_7b-_7bOM'),
+
+                        # (`merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`)
+                        'norm_brief': 'mru',
+                    },
+                },
+            },
+            expected_result=None,
+        ).label(
+        "(33) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(NOT matching, 'mru', ...)")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (but not matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        does *not* match normalized `url.b64`
+            #
+            # -> result: nothing
+            #
+            # remarks:
+            # * active normalization options:
+            #   `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
+            # * here lack of `empty_path_slash` causes that there is
+            #   no match, as only `orig_b64` has the URL's `path` empty
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80/?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-Ni!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006P3E97bOd'
+                                     '7aCAJTNELSU0RC0lNUQtTmkhPyPtr7_tv7_ts4w='),
+
+                        # (`merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`)
+                        'norm_brief': 'mru',
+                    },
+                },
+            },
+            expected_result=None,
+        ).label(
+        "(34) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(NOT matching, 'mru', ...)")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        matches normalized `url.b64`
+            #
+            # -> result:
+            #    `url` being `orig_b64` URL-safe-base64-decoded + normalized,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options:
+            #   `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
+            # * here lack of `empty_path_slash` does not prevent matching,
+            #   as both `orig_b64` and `url.b64` have the URL's `path` empty
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-Ni!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006P3E97bOd'
+                                     '7aCAJTNELSU0RC0lNUQtTmkhPyPtr7_tv7_ts4w='),
+
+                        # (`merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`)
+                        'norm_brief': 'mru',
+                    },
+                },
+            },
+            expected_result={
+                'url': 'http://Ćma.example.com?q=\udcdd\ud800%3D-%4D-%5D-Ni!?#\U0010FFFF\udccc',
+                'custom': {},  # (empty `custom` is harmless, as data spec removes it later anyway)
+            },
+        ).label(
+        "(35) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(matching, 'mru', ...)")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data`,
+            # *and* `url.b64` in params (matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        matches normalized `url.b64`
+            #
+            # -> result:
+            #    `url` being `orig_b64` URL-safe-base64-decoded + normalized,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options:
+            #   `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
+            # * here lack of `empty_path_slash` is irrelevant, as
+            #   `orig_b64` and `url.b64` have the same URL path
+            filtering_params={
+                'url.b64': [
+                    (b'HtTp://\xc4\x86ma.ExAmPlE.cOm:80/?q=\xed\xb3\x9d\xed\xa0\x80'
+                     b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'url': 'SY:foo:cośtam/not-important',
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'htTP://\xc4\x86ma.eXample.COM:/?q=\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'%3D-%4D-%5D-Ni!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHRUUDovL8SGbWEuZVhhbXBsZS5DT006Lz9xPe2z'
+                                     'ne2ggCUzRC0lNEQtJTVELU5pIT8j7a-_7b-_7bOM'),
+
+                        # (`merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`)
+                        'norm_brief': 'mru',
+                    },
+                },
+            },
+            expected_result={
+                'url': 'http://Ćma.example.com/?q=\udcdd\ud800%3D-%4D-%5D-Ni!?#\U0010FFFF\udccc',
+                'custom': {},  # (empty `custom` is harmless, as data spec removes it later anyway)
+            },
+        ).label(
+        "(36) 'SY:'-prefixed `url`, `custom` with `url_data`, `url.b64` in params "
+        "(matching, 'mru', ...)")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data` + something else,
+            # unrelated data,
+            # *and* `url.b64` in params (some matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        matches some of normalized `url.b64`
+            #
+            # -> result:
+            #    `url` being `orig_b64` URL-safe-base64-decoded + normalized,
+            #    unrelated data,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
+            filtering_params={
+                'url.b64': [
+                    b'https://example.com/',
+                    b'ftp://\xdd-non-UTF-8-garbage',
+                    (b'HTTP://\xc4\x86ma.EXAMPLE.cOM:80/\xed\xb3\x9d\xed\xa0\x80'
+                    b'Ala-ma-kota\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'),
+                    b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
+                ],
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+
+                        # (`empty_path_slash`, `merge_surrogate_pairs`,
+                        #  `remove_ipv6_zone`, `unicode_str`)
+                        'norm_brief': 'emru',
+                    },
+                    'something_else': 123,
+                },
+                'url': 'SY:foo:cośtam/not-important',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
+            },
+            expected_result={
+                'custom': {
+                    'something_else': 123,
+                },
+                'url': 'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
+            },
+        ).label(
+        "(37) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, `url.b64` in params "
+        "(matching, 'emru')")
+
+        yield param(
+            # [analogous to previous case, but with `url_data` in legacy format]
+            #
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data` + something else,
+            # unrelated data,
+            # *and* `url.b64` in params (some matching!)
+            # -- so: `url_orig` URL-safe-base64-decoded + normalized
+            #        matches some of normalized `url.b64`
+            #
+            # -> result:
+            #    `url` being `url_orig` URL-safe-base64-decoded + normalized,
+            #    unrelated data,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
+            filtering_params={
+                'url.b64': [
+                    b'https://example.com/',
+                    b'ftp://\xdd-non-UTF-8-garbage',
+                    (b'HTTP://\xc4\x86ma.EXAMPLE.cOM:80/\xed\xb3\x9d\xed\xa0\x80'
+                     b'Ala-ma-kota\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'),
+                    b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
                 ],
             },
             raw_result_dict={
@@ -634,33 +1548,320 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                         # `url_orig` is URL-safe-base64-encoded:
                         #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
                         #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
-                        'url_orig': (u'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
-                                     u'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                        'url_orig': ('aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+
+                        # (legacy flags, translated to: `unicode_str`, `merge_surrogate_pairs`,
+                        #  `empty_path_slash`, `remove_ipv6_zone`)
                         'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
                     },
-                    'spam': 123,
+                    'something_else': 123,
                 },
-                'url': u'SY:foo:bar/not-important',
-                'some-data': u'FOO BAR !@#$%^&*()',
+                'url': 'SY:foo:cośtam/not-important',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
             },
             expected_result={
                 'custom': {
-                    'spam': 123,
+                    'something_else': 123,
                 },
-                'url': u'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
-                'some-data': u'FOO BAR !@#$%^&*()',
+                'url': 'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
             },
-        )
+        ).label(
+        "(38) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, `url.b64` in params "
+        "(matching, 'emru') [@legacy]")
+
         yield param(
-            # `url`, `custom`+`url_data`+other, some data
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data` + something else,
+            # unrelated data,
             # *and* *no* `url.b64` in params (so it does not constraints us...)
-            # -- so: *no* app-level matching
-            # -> `url` being normalized `url_orig`, some data, custom without `url_data`
+            # -- so: there is *no* application-level matching/filtering
+            #
+            # -> result:
+            #    `url` being `orig_b64` URL-safe-base64-decoded + normalized,
+            #    unrelated data,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
             filtering_params={
                 'foobar': [
-                    u'https://example.com/',
-                    u'http://example.ORG:8080/?x=y&ą=ę',
+                    b'https://example.com/',
+                    b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
                 ],
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+
+                        # (`empty_path_slash`, `merge_surrogate_pairs`,
+                        #  `remove_ipv6_zone`, `unicode_str`)
+                        'norm_brief': 'emru',
+                    },
+                    'something_else': 123,
+                },
+                'url': 'SY:foo:cośtam/not-important',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
+            },
+            expected_result={
+                'custom': {
+                    'something_else': 123,
+                },
+                'url': 'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
+            },
+        ).label(
+        "(39) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data "
+        "(matching, 'emru')")
+
+        yield param(
+            # [analogous to previous case, but with `url_data` in legacy format]
+            #
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data` + something else,
+            # unrelated data,
+            # *and* *no* `url.b64` in params (so it does not constraints us...)
+            # -- so: there is *no* application-level matching/filtering
+            #
+            # -> result:
+            #    `url` being `url_orig` URL-safe-base64-decoded + normalized,
+            #    unrelated data,
+            #    `custom` without `url_data`
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
+            filtering_params={
+                'foobar': [
+                    b'https://example.com/',
+                    b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
+                ],
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        # `url_orig` is URL-safe-base64-encoded:
+                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
+                        'url_orig': ('aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+
+                        # (legacy flags, translated to: `unicode_str`, `merge_surrogate_pairs`,
+                        #  `empty_path_slash`, `remove_ipv6_zone`)
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                    'something_else': 123,
+                },
+                'url': 'SY:foo:cośtam/not-important',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
+            },
+            expected_result={
+                'custom': {
+                    'something_else': 123,
+                },
+                'url': 'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
+            },
+        ).label(
+        "(40) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data "
+        "(matching, 'emru') [@legacy]")
+
+        yield param(
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data` + something else,
+            # unrelated data,
+            # *and* `url.b64` in params (but none matching!)
+            # -- so: `orig_b64` URL-safe-base64-decoded + normalized
+            #        does *not* match any of normalized `url.b64`
+            #
+            # -> result: nothing
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
+            filtering_params={
+                'url.b64': [
+                    b'https://example.com/',
+                    b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
+                    (b'http://\xc4\x86ma.eXample.COM:80/\xdd\xed\xa0\x80'
+                     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+
+                        # (`empty_path_slash`, `merge_surrogate_pairs`,
+                        #  `remove_ipv6_zone`, `unicode_str`)
+                        'norm_brief': 'emru',
+                    },
+                    'something_else': 123,
+                },
+                'url': 'SY:foo:cośtam/not-important',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
+            },
+            expected_result=None,
+        ).label(
+        "(41) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, `url.b64` in params "
+        "(NOT matching, 'emru')")
+
+        yield param(
+            # [analogous to previous case, but with `url_data` in legacy format]
+            #
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data` + something else,
+            # unrelated data,
+            # *and* `url.b64` in params (but none matching!)
+            # -- so: `url_orig` URL-safe-base64-decoded + normalized
+            #        does *not* match any of normalized `url.b64`
+            #
+            # -> result: nothing
+            #
+            # remarks:
+            # * active normalization options:
+            #   `empty_path_slash`, `merge_surrogate_pairs`, `remove_ipv6_zone`, `unicode_str`
+            filtering_params={
+                'url.b64': [
+                    b'https://example.com/',
+                    b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
+                    (b'http://\xc4\x86ma.eXample.COM:80/\xdd\xed\xa0\x80'
+                     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
+                ],
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        # `url_orig` is URL-safe-base64-encoded:
+                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
+                        'url_orig': ('aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+
+                        # (legacy flags, translated to: `unicode_str`, `merge_surrogate_pairs`,
+                        #  `empty_path_slash`, `remove_ipv6_zone`)
+                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                    },
+                    'something_else': 123,
+                },
+                'url': 'SY:foo:cośtam/not-important',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
+            },
+            expected_result=None,
+        ).label(
+        "(42) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, `url.b64` in params "
+        "(NOT matching, 'emru') [@legacy]")
+
+        yield param(
+            # [this example is not realistic -- yet it helps to test
+            # URL-normalization-data-cache-related machinery...]
+            #
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data` + something else,
+            # unrelated data,
+            # *and* *url_normalization_data_cache* containing some matching
+            #       (fake) stuff (even though none of `url.b64` matches)
+            # -- so: `orig_b64` URL-safe-base64-decoded + fake-normalizer-processed
+            #    matches something...
+            #
+            # -> result:
+            #    `url` being `orig_b64` URL-safe-base64-decoded + fake-normalizer-processed,
+            #    unrelated data,
+            #    `custom` without `url_data`
+            filtering_params={
+                'url.b64': [
+                    b'https://example.com/',
+                    b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
+                ],
+            },
+            url_normalization_data_cache={
+                'emru': (
+                    # "cached" normalizer (here it is fake, of course):
+                    lambda b: b.upper().decode('utf-8', 'replace'),
+
+                    # "cached" normalized `url.b64` param values (here fake, of course):
+                    [
+                        ('HTTP://ĆMA.EXAMPLE.COM:80/\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd'
+                         'ALA-MA-KOTA\U0010ffff\ufffd\ufffd\ufffd'),
+                        'foo-bar-irrelevant-val',
+                    ]
+                ),
+            },
+            raw_result_dict={
+                'custom': {
+                    'url_data': {
+                        # `orig_b64` is URL-safe-base64-encoded:
+                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
+                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
+                        'orig_b64': ('aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
+                                     'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
+                        'norm_brief': 'emru',
+                    },
+                    'something_else': 123,
+                },
+                'url': 'SY:foo:cośtam/not-important',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
+            },
+            expected_result={
+                'custom': {
+                    'something_else': 123,
+                },
+                'url': (
+                    'HTTP://ĆMA.EXAMPLE.COM:80/\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd'
+                    'ALA-MA-KOTA\U0010ffff\ufffd\ufffd\ufffd'),
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
+            },
+        ).label(
+        "(43) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, "
+        "faked normalization cache (matching, 'emru')")
+
+        yield param(
+            # [this example is not realistic -- yet it helps to test
+            # URL-normalization-data-cache-related machinery...]
+            #
+            # [analogous to previous case, but with `url_data` in legacy format]
+            #
+            # 'SY:'-prefixed `url`,
+            # `custom` with `url_data` + something else,
+            # unrelated data,
+            # *and* *url_normalization_data_cache* containing some matching
+            #       (fake) stuff (even though none of `url.b64` matches)
+            # -- so: `url_orig` URL-safe-base64-decoded + fake-normalizer-processed
+            #    matches something...
+            #
+            # -> result:
+            #    `url` being `url_orig` URL-safe-base64-decoded + fake-normalizer-processed,
+            #    unrelated data,
+            #    `custom` without `url_data`
+            filtering_params={
+                'url.b64': [
+                    b'https://example.com/',
+                    b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
+                ],
+            },
+            url_normalization_data_cache={
+                'emru': (
+                    # "cached" normalizer (here it is fake, of course):
+                    lambda b: b.upper().decode('utf-8', 'replace'),
+
+                    # "cached" normalized `url.b64` param values (here fake, of course):
+                    [
+                        ('HTTP://ĆMA.EXAMPLE.COM:80/\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd'
+                         'ALA-MA-KOTA\U0010ffff\ufffd\ufffd\ufffd'),
+                        'foo-bar-irrelevant-val',
+                    ]
+                ),
             },
             raw_result_dict={
                 'custom': {
@@ -672,106 +1873,75 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                                      'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
                         'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
                     },
-                    'spam': 123,
+                    'something_else': 123,
                 },
-                'url': 'SY:foo:bar/not-important',
-                'some-data': 'FOO BAR !@#$%^&*()',
+                'url': 'SY:foo:cośtam/not-important',
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
             },
             expected_result={
                 'custom': {
-                    'spam': 123,
+                    'something_else': 123,
                 },
-                'url': u'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
-                'some-data': 'FOO BAR !@#$%^&*()',
+                'url': (
+                    'HTTP://ĆMA.EXAMPLE.COM:80/\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd'
+                    'ALA-MA-KOTA\U0010ffff\ufffd\ufffd\ufffd'),
+                'unrelated-data': 'FOO BAR !@#$%^&*()',
             },
-        )
-        yield param(
-            # `url`, `custom`+`url_data`+other, some data
-            # *and* `url.b64` in params (but none matching!)
-            # -- so: app-level matching: normalized `url_orig` did *not* matched any of `url.b64`
-            # -> nothing
-            filtering_params={
-                'url.b64': [
-                    u'https://example.com/',
-                    u'http://example.ORG:8080/?x=y&ą=ę',
-                ],
-            },
-            raw_result_dict={
-                'custom': {
-                    'url_data': {
-                        # `url_orig` is URL-safe-base64-encoded:
-                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
-                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
-                        'url_orig': (u'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
-                                     u'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
-                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
-                    },
-                    'spam': 123,
-                },
-                'url': u'SY:foo:bar/not-important',
-                'some-data': u'FOO BAR !@#$%^&*()',
-            },
-            expected_result=None,
-        )
-        yield param(
-            # `url`, `custom`+`url_data`+other, some data
-            # *and* (although none of `url.b64` matches in params) *url_normalization_data_cache*
-            # containing some matching (fake) stuff...
-            # -- so: app-level matching: fake-normalizer-processed `url_orig` matched something...
-            # -> `url` being fake-normalizer-processed `url_orig`, etc. ...
-            filtering_params={
-                'url.b64': [
-                    u'https://example.com/',
-                    u'http://example.ORG:8080/?x=y&ą=ę',
-                ],
-            },
-            url_normalization_data_cache={
-                (('epslash', True), ('rmzone', True), ('transcode1st', True)): (
-                    # "cached" normalizer (here it is fake, of course):
-                    bytes.upper,
+        ).label(
+        "(44) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, "
+        "faked normalization cache (matching, 'emru') [@legacy]")
 
+        yield param(
+            # [this example is not realistic -- yet it helps to test
+            # URL-normalization-data-cache-related machinery...]
+            #
+            # similar situation but even *without* the `url.b64` params (but
+            # that does not matter, as what is important is the cache!)
+            url_normalization_data_cache={
+                'emru': (
+                    # "cached" normalizer (here it is fake, of course):
+                    lambda b: b.title().decode('utf-8'),
                     # "cached" normalized `url.b64` param values (here fake, of course):
                     [
-                        b'HTTP://\xc4\x86MA.EXAMPLE.COM:80/\xed\xb3\x9d\xed\xa0\x80'
-                        b'ALA-MA-KOTA\xf4\x8f\xbf\xbf\xed\xb3\x8c',
+                        'Https://Example.Com:',
                     ]
                 ),
             },
             raw_result_dict={
                 'custom': {
                     'url_data': {
-                        # `url_orig` is URL-safe-base64-encoded:
-                        #     b'http://\xc4\x86ma.eXample.COM:80/\xed\xb3\x9d\xed\xa0\x80'
-                        #     b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'
-                        'url_orig': (u'aHR0cDovL8SGbWEuZVhhbXBsZS5DT006OD'
-                                     u'Av7bOd7aCAQWxhLW1hLWtvdGH0j7-_7bOM'),
-                        'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
+                        # `orig_b64` is URL-safe-base64-encoded: b`https://example.com:`
+                        'orig_b64': ('aHR0cHM6Ly9leGFtcGxlLmNvbTo='),
+                        'norm_brief': 'emru',
                     },
-                    'spam': 123,
+                    'something_else': 123,
                 },
-                'url': u'SY:foo:bar/not-important',
-                'some-data': u'FOO BAR !@#$%^&*()',
+                'url': 'SY:foo:cośtam/not-important',
+                'unrelated-data': b'FOO BAR !@#$%^&*()',
             },
             expected_result={
                 'custom': {
-                    'spam': 123,
+                    'something_else': 123,
                 },
-                # note: still bytes because of the above fake normalizer (`bytes.upper`)...
-                'url': (b'HTTP://\xc4\x86MA.EXAMPLE.COM:80/\xed\xb3\x9d\xed\xa0\x80'
-                        b'ALA-MA-KOTA\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
-                'some-data': u'FOO BAR !@#$%^&*()',
+                'url': 'Https://Example.Com:',
+                'unrelated-data': b'FOO BAR !@#$%^&*()',
             },
-        )
+        ).label(
+        "(45) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, "
+        "faked normalization cache (matching, 'emru')")
+
         yield param(
-            # similar situation but even *without* the `url.b64` params (but
-            # that does not matter, as what is important is the cache!)
+            # [this example is not realistic -- yet it helps to test
+            # URL-normalization-data-cache-related machinery...]
+            #
+            # [analogous to previous case, but with `url_data` in legacy format]
             url_normalization_data_cache={
-                (('epslash', True), ('rmzone', True), ('transcode1st', True)): (
+                'emru': (
                     # "cached" normalizer (here it is fake, of course):
-                    lambda b: b.upper().decode('utf-8'),
+                    lambda b: b.title().decode('utf-8'),
                     # "cached" normalized `url.b64` param values (here fake, of course):
                     [
-                        u'HTTPS://EXAMPLE.COM:',
+                        'Https://Example.Com:',
                     ]
                 ),
             },
@@ -782,26 +1952,29 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                         'url_orig': ('aHR0cHM6Ly9leGFtcGxlLmNvbTo='),
                         'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
                     },
-                    'spam': 123,
+                    'something_else': 123,
                 },
-                'url': 'SY:foo:bar/not-important',
-                'some-data': b'FOO BAR !@#$%^&*()',
+                'url': 'SY:foo:cośtam/not-important',
+                'unrelated-data': b'FOO BAR !@#$%^&*()',
             },
             expected_result={
                 'custom': {
-                    'spam': 123,
+                    'something_else': 123,
                 },
-                'url': u'HTTPS://EXAMPLE.COM:',
-                'some-data': b'FOO BAR !@#$%^&*()',
+                'url': 'Https://Example.Com:',
+                'unrelated-data': b'FOO BAR !@#$%^&*()',
             },
-        )
+        ).label(
+        "(46) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, "
+        "faked normalization cache (matching, 'emru') [@legacy]")
 
     @foreach(cases)
-    def test(self, raw_result_dict, expected_result,
+    def test(self, raw_result_dict, expected_result, expected_log_regexes=(),
              filtering_params=None,
              url_normalization_data_cache=None):
+        raw_result_dict = copy.deepcopy(raw_result_dict)
         mock = MagicMock()
-        meth = MethodProxy(_EventsQueryProcessor, mock)
+        meth = MethodProxy(_EventsQueryProcessor, mock, class_attrs='_call_silencing_decode_err')
         mock._filtering_params = (
             copy.deepcopy(filtering_params)
             if filtering_params is not None
@@ -810,6 +1983,8 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
             url_normalization_data_cache
             if url_normalization_data_cache is not None
             else {})
-        raw_result_dict = copy.deepcopy(raw_result_dict)
-        actual_result = meth._preprocess_result_dict(raw_result_dict)
+        with self.assertLogRegexes(module_logger, expected_log_regexes):
+
+            actual_result = meth._preprocess_result_dict(raw_result_dict)
+
         self.assertEqualIncludingTypes(actual_result, expected_result)
