@@ -1,9 +1,9 @@
-# *[n6](https://n6.readthedocs.io/)*'s Changelog
+# Changelog
 
-The *n6* project uses a versioning scheme **distinct from** *Semantic
-Versioning*. Each *n6*'s version identifier consists of three integer
-numbers, separated with `.` (e.g.: `4.11.2`). We can say it is in the
-`<FOREMOST>.<MAJOR>.<MINOR>` format -- where:
+The *[n6](https://n6.readthedocs.io/)* project uses a versioning scheme
+**distinct from** *Semantic Versioning*. Each *n6* version's identifier
+consists of three integer numbers, separated with `.` (e.g.: `4.11.2`).
+We can say it is in the `<FOREMOST>.<MAJOR>.<MINOR>` format -- where:
 
 - `<MINOR>` is incremented on changes that are **backwards compatible**
   from the point of view of users, sysadmins and programmers. Note that
