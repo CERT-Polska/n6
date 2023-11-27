@@ -1,7 +1,7 @@
 # Changelog
 
 The *[n6](https://n6.readthedocs.io/)* project uses a versioning scheme
-**distinct from** *Semantic Versioning*. Each *n6* version's identifier
+***distinct from** Semantic Versioning*. Each *n6* version's identifier
 consists of three integer numbers, separated with `.` (e.g.: `4.11.2`).
 We can say it is in the `<FOREMOST>.<MAJOR>.<MINOR>` format -- where:
 
@@ -108,7 +108,7 @@ Some features of this document's layout were inspired by
   https://mariadb.com/kb/en/mariadb-error-codes/).
 
 - [portal, rest api, stream api, data pipeline, lib] A *security-related*
-  behavioral fix has been applied to the *event access rights* and *event
+  behavioral fix has been applied to the *event access rights and event
   ownership* machinery (implemented in `n6lib.auth_api`...): from now on,
   *IP-network-based access or ownership criteria* (those stored in the
   `criteria_ip_network` and `inside_filter_ip_network` tables of Auth DB)
@@ -118,8 +118,8 @@ Some features of this document's layout were inspired by
   no longer erroneously considered as matching* such IP-network-based
   criteria. In practice, *from the security point of view*, the fix is
   most important when it comes to Portal and REST API (considering that
-  those components query the Event DB, in whose records the absence of an
-  IP is, for some technical reasons, represented by the value `0` rather
+  those components query Event DB, in whose records the absence of an IP
+  is, for certain technical reasons, represented by the value `0` rather
   than `NULL`). For other involved components, i.e., `n6filter` and
   `n6anonymizer`/Stream API, the security risk was rather small or
   non-existent. *Note:* as the fix is also related to `n6filter`, it
@@ -182,7 +182,7 @@ Some features of this document's layout were inspired by
 - [setup, data pipeline] `N6DataPipeline`'s dependencies: temporarily
   locked the version of `intelmq` as `<3.2`.
 
-##### Programming-Only
+#### Programming-Only
 
 - [data pipeline] `n6datapipeline.enrich.Enricher`: renamed the
   `url_to_fqdn_or_ip()` method to `url_to_hostname()`, and changed its
@@ -261,7 +261,7 @@ Some features of this document's layout were inspired by
   docker/etc, docs] Various additions, fixes, changes, enhancements as
   well as some cleanups and code modernization/refactoring.
 
-##### Programming-Only
+#### Programming-Only
 
 - [lib] `n6lib.common_helpers`: from now on, the
   `ip_network_tuple_to_min_max_ip()` function (also available
