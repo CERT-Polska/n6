@@ -1,7 +1,7 @@
 # Changelog
 
 The *[n6](https://n6.readthedocs.io/)* project uses a versioning scheme
-***distinct from** Semantic Versioning*. Each *n6* version's identifier
+**distinct from** *Semantic Versioning*. Each *n6* version's identifier
 consists of three integer numbers, separated with `.` (e.g.: `4.11.2`).
 We can say it is in the `<FOREMOST>.<MAJOR>.<MINOR>` format -- where:
 
@@ -22,6 +22,43 @@ We can say it is in the `<FOREMOST>.<MAJOR>.<MINOR>` format -- where:
 
 Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
+
+
+## [4.5.0] - 2023-11-29
+
+### Features and Notable Changes
+
+#### System/Configuration/Programming-Only
+
+- [data sources, setup, config, etc/docker, tests] Globally renamed the
+  parser class `SpamhausEdrop202303Parser` to `SpamhausEdropParser`
+  (defined in `n6datasources.parsers.spamhaus` and referred to in a few
+  other places -- in particular, being the name of the-parser-dedicated
+  configuration section!) and the executable script
+  `n6parser_spamhausedrop202303` to `n6parser_spamhausedrop`; also, fixed
+  `n6datasources.tests.parsers.test_spamhaus.TestSpamhausEdropParser` by
+  removing its attribute `PARSER_RAW_FORMAT_VERSION_TAG`. The rationale
+  for these changes is that the actual parser has never had any *raw
+  format version tag* assigned.
+
+### Less Notable Changes and Fixes
+
+- [data pipeline, lib] `n6filter`: fixed an
+  *event-ownership-criteria*-related bug (in
+  `n6lib.auth_api.InsideCriteriaResolver`'s machinery...) regarding
+  handling the (practically hardly probable yet not impossible) corner
+  case of the `0.0.0.0/32` IP network being set in Auth DB as such a
+  criterion... The bug might make `n6filter` reject all incoming data
+  (because of raised exceptions).
+
+- [tests, docs] Made non-major enhancements and fixes regarding some unit
+  tests and documentation.
+
+#### Programming-Only
+
+- [tests] `n6datasources.tests.parsers._parser_test_mixin`: enhanced
+  certain `ParserTestMixin`-provided checks related to *raw format
+  version tags*.
 
 
 ## [4.4.0] - 2023-11-23
@@ -168,7 +205,7 @@ Some features of this document's layout were inspired by
 
 #### System/Configuration/Programming-Only
 
-- [data sources, data pipeline, config, docker/etc] Added, fixed, changed
+- [data sources, data pipeline, config, etc/docker] Added, fixed, changed
   and removed several config prototype (`*.conf`) files in the
   directories: `N6DataSources/n6datasources/data/conf/`,
   `N6DataPipeline/n6datapipeline/data/conf/` and `etc/n6/`. *Note:* for
@@ -208,7 +245,7 @@ Some features of this document's layout were inspired by
   behavior...
 
 - [tests] `n6datasources.tests.parsers._parser_test_mixin.ParserTestMixin`
-  (and all inheriting *parser* test classes): added checking that if the
+  (and all inheriting *parser test* classes): added checking that if the
   *parser*'s `default_binding_key` includes the *raw format version tag*
   segment then that segment matches the test class's attribute
   `PARSER_RAW_FORMAT_VERSION_TAG`.
@@ -228,10 +265,11 @@ Some features of this document's layout were inspired by
   the hostname being a domain name (to become `fqdn`) or an IP address (to
   become `ip` in `address`...) from `url`. Those bugs caused that, for
   certain (rather uncommon) cases of malformed or untypical URLs, whole
-  events were rejected, or (*only* for some cases and *only* if the
-  Python's *assertion-removal optimization* mode was in effect) the
-  resultant event's `enriched` field erroneously included the `"fqdn"`
-  marker whereas `fqdn` was *not* successfully extracted from `url`.
+  events were rejected (because of an exception), or (*only* for some
+  cases and *only* if the Python's *assertion-removal optimization* mode
+  was in effect) the resultant event's `enriched` field erroneously
+  included the `"fqdn"` marker whereas `fqdn` was *not* successfully
+  extracted from `url`.
 
 - [data pipeline] Fixed `n6anonymizer`: now output bodies
   produced by the `_get_result_dicts_and_output_body()` method
@@ -255,10 +293,10 @@ Some features of this document's layout were inspired by
   *organization-specific* results into the existing data set (broadening
   the overall search capabilities).
 
-- [docker/etc] Replaced expired test/example certificates.
+- [etc/docker] Replaced expired test/example certificates.
 
 - [data sources, data pipeline, portal, setup, config, cli, lib, tests,
-  docker/etc, docs] Various additions, fixes, changes, enhancements as
+  etc/docker, docs] Various additions, fixes, changes, enhancements as
   well as some cleanups and code modernization/refactoring.
 
 #### Programming-Only

@@ -73,20 +73,24 @@ class ParserTestMixin(TestCaseMixin):
 
     def test_basics(self):
         self.assertIn(self.PARSER_BASE_CLASS, self.PARSER_CLASS.__bases__)
-        splitted_default_binding_key = self.PARSER_CLASS.default_binding_key.split(".")
-        source_from_default_binding_key = '.'.join(splitted_default_binding_key[:2])
+        split_default_binding_key = self.PARSER_CLASS.default_binding_key.split('.')
+        source_from_default_binding_key = '.'.join(split_default_binding_key[:2])
         self.assertEqual(source_from_default_binding_key,
                          self.PARSER_SOURCE)
         self.assertEqual(self.PARSER_CLASS.constant_items,
                          self.PARSER_CONSTANT_ITEMS)
-        # Check if default_binding_key have version tag in it
-        # default binding key looks like this:
-        # - <source provider>.<source channel>.<RAW_FORMAT_VERSION_TAG> e.g. 'abuse-ch.feodotracker.202110'
-        # - with RAW_FORMAT_VERSION_TAG only present when there is more than one version of given parser
-        if len(splitted_default_binding_key) == 3:
-            # assert that PARSER_RAW_FORMAT_VERSION_TAG is correct
-            self.assertEqual(self.PARSER_RAW_FORMAT_VERSION_TAG,
-                             splitted_default_binding_key[2])
+        if self.PARSER_RAW_FORMAT_VERSION_TAG is sentinel.not_set:
+            # Parser's `default_binding_key`
+            # is just equal to `PARSER_SOURCE`
+            # (e.g., "abuse-ch.feodotracker")
+            self.assertEqual(len(split_default_binding_key), 2)
+        else:
+            assert re.fullmatch(r'[0-9]{6}', self.PARSER_RAW_FORMAT_VERSION_TAG)  # (e.g. "202110")
+            # Parser's `default_binding_key` consists of
+            # `PARSER_SOURCE` and `PARSER_RAW_FORMAT_VERSION_TAG`
+            # (e.g., "abuse-ch.feodotracker.202110")
+            self.assertEqual(len(split_default_binding_key), 3)
+            self.assertEqual(split_default_binding_key[2], self.PARSER_RAW_FORMAT_VERSION_TAG)
 
     def test__input_callback(self):
         # (We want to make `LegacyQueuedBase.__new__()`'s stuff isolated

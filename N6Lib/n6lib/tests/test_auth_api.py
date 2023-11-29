@@ -850,7 +850,12 @@ class TestAuthAPI___get_inside_criteria(_AuthAPILdapDataBasedMethodTestMixIn,
                     'n6asn': ['12', '34'],
                     'n6cc': ['PL', 'US'],
                     'n6fqdn': ['example.com', 'xyz.example.net'],
-                    'n6ip-network': ['0.10.20.30/8', '1.2.3.4/16', '101.102.103.104/32'],
+                    'n6ip-network': [
+                        '0.0.0.0/32',
+                        '0.10.20.30/8',
+                        '1.2.3.4/16',
+                        '101.102.103.104/32',
+                    ],
                     'n6url': ['example.info', 'institution.example.pl/auth.php', 'Łódź'],
                 }),
                 ('o=o2,ou=orgs,dc=n6,dc=cert,dc=pl', {
@@ -871,6 +876,7 @@ class TestAuthAPI___get_inside_criteria(_AuthAPILdapDataBasedMethodTestMixIn,
                     'cc_seq': ['PL', 'US'],
                     'fqdn_seq': ['example.com', 'xyz.example.net'],
                     'ip_min_max_seq': [
+                        (1, 0),         # <- Note: here the minimum IP is 1, not 0 (see: #8861).
                         (1, 16777215),  # <- Note: here the minimum IP is 1, not 0 (see: #8861).
                         (16908288, 16973823),
                         (1701209960, 1701209960),
@@ -2210,6 +2216,12 @@ EXTREME_IP_CRITERIA = [
             (1, 1),
         ],
     },
+    {
+        'org_id': 'o43',
+        'ip_min_max_seq': [
+            (1, 0),  # (<- corner case: result of exclusion of 0, see: #8861...)
+        ],
+    },
 ]
 
 EXPECTED_RESULTS_AND_GIVEN_IP_SETS_FOR_EXTREME_IP_CRITERIA = [
@@ -2967,6 +2979,27 @@ class TestInsideCriteriaResolver_initialization(TestCaseMixin, unittest.TestCase
                 {
                     'org_id': 'o42',
                     'ip_min_max_seq': [],
+                },
+            ],
+            expected_content=(
+                [
+                    -1,           # guard item
+                    2 ** 32,      # guard item
+                ],
+                [
+                    frozenset(),  # guard item
+                    frozenset(),  # guard item
+                ],
+            ),
+        ),
+
+        param(
+            inside_criteria=[
+                {
+                    'org_id': 'o43',
+                    'ip_min_max_seq': [
+                        (1, 0),  # (<- corner case: result of exclusion of 0, see: #8861...)
+                    ],
                 },
             ],
             expected_content=(

@@ -585,6 +585,7 @@ def data_maker_for____TestAuthAPI___get_inside_criteria(session):
                          models.InsideFilterFQDN(fqdn='example.com'),
                          models.InsideFilterFQDN(fqdn='xyz.example.net')],
                      inside_filter_ip_networks=[
+                         models.InsideFilterIPNetwork(ip_network='0.0.0.0/32'),
                          models.InsideFilterIPNetwork(ip_network='0.10.20.30/8'),
                          models.InsideFilterIPNetwork(ip_network='1.2.3.4/16'),
                          models.InsideFilterIPNetwork(ip_network='101.102.103.104/32')],

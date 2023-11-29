@@ -8,7 +8,7 @@ from n6datasources.tests.parsers._parser_test_mixin import ParserTestMixin
 from n6datasources.parsers.spamhaus import (
     SpamhausBotsParser,
     SpamhausDropParser,
-    SpamhausEdrop202303Parser,
+    SpamhausEdropParser,
     _BaseSpamhausBlacklistParser,
 )
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
@@ -60,13 +60,12 @@ class TestSpamhausDropParser(ParserTestMixin, unittest.TestCase):
         )
 
 
-class TestSpamhausEdrop202303Parser(ParserTestMixin, unittest.TestCase):
+class TestSpamhausEdropParser(ParserTestMixin, unittest.TestCase):
 
     RECORD_DICT_CLASS = BLRecordDict
 
     PARSER_SOURCE = 'spamhaus.edrop'
-    PARSER_RAW_FORMAT_VERSION_TAG = '202303'
-    PARSER_CLASS = SpamhausEdrop202303Parser
+    PARSER_CLASS = SpamhausEdropParser
     PARSER_BASE_CLASS = _BaseSpamhausBlacklistParser
     PARSER_CONSTANT_ITEMS = {
         'restriction': 'public',

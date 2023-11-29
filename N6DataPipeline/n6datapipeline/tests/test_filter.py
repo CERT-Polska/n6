@@ -579,7 +579,7 @@ class TestFilter(unittest.TestCase):
                                 'cc_seq': ["RU", "DE", "US"],
                                 'asn_seq': [4235],
                                 'fqdn_seq': [u"nask.pl", u"cert.pl"],
-                                'ip_min_max_seq': [(0, 4194303),
+                                'ip_min_max_seq': [(1, 4194303),
                                                    (4294901760, 4294901792)], }]
 
         body = {"category": "bots", "restriction": "public", "confidence": "medium",

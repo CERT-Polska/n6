@@ -184,7 +184,7 @@ n6parser_shadowserverxdmcp201412 = n6datasources.parsers.shadowserver:Shadowserv
 ## spamhaus.*
 n6parser_spamhausbots = n6datasources.parsers.spamhaus:SpamhausBotsParser_main
 n6parser_spamhausdrop = n6datasources.parsers.spamhaus:SpamhausDropParser_main
-n6parser_spamhausedrop202303 = n6datasources.parsers.spamhaus:SpamhausEdrop202303Parser_main
+n6parser_spamhausedrop = n6datasources.parsers.spamhaus:SpamhausEdropParser_main
 
 ## spam404_com.*
 n6parser_spam404comscamlist = n6datasources.parsers.spam404_com:Spam404ComScamListParser_main

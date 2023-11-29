@@ -1003,6 +1003,10 @@ class InsideCriteriaResolver(object):
 
             # IPs
             for min_ip, max_ip in cri.get('ip_min_max_seq', ()):
+                assert min_ip >= 1
+                if (min_ip, max_ip) == (1, 0):
+                    # (corner case related to exclusion of 0, see: #8861...)
+                    continue
                 assert min_ip <= max_ip
                 ip_to_id_endpoints[min_ip].append((org_id, True))
                 ip_to_id_endpoints[max_ip + 1].append((org_id, False))

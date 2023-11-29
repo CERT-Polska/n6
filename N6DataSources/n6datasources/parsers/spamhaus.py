@@ -79,7 +79,7 @@ class SpamhausDropParser(_BaseSpamhausBlacklistParser):
     default_binding_key = 'spamhaus.drop'
 
 
-class SpamhausEdrop202303Parser(_BaseSpamhausBlacklistParser):
+class SpamhausEdropParser(_BaseSpamhausBlacklistParser):
 
     default_binding_key = 'spamhaus.edrop'
 

@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
+
+"""
+Tests for the `do_setup.py` script.
+"""
+
 
 import argparse
 try:
@@ -25,7 +30,7 @@ from do_setup import (
 
 
 #
-# Some helpers (here we don't use any external libs, such as mock...)
+# Some helpers (note: here, for historical reasons, we don't use `unittest.mock`)
 
 class Case(namedtuple('Case', 'input, expected, py')):
     def __new__(cls, input, expected, py=None):
@@ -43,6 +48,7 @@ class PrototypeDict(dict):
 
 
 def using_template_and_cases(cls):
+
     """
     A class decorator that generates test methods and ads them to the class...
     """

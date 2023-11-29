@@ -31,6 +31,7 @@ from n6lib.auth_db.models import (
     EntityContactPointPhone,
     EntityExtraId,
     EntityExtraIdType,
+    EntityIPNetwork,
     EntitySector,
     InsideFilterASN,
     InsideFilterCC,
@@ -352,6 +353,7 @@ class TestValidators(unittest.TestCase):
         OrgConfigUpdateRequestIPNetwork,
         RegistrationRequestIPNetwork,
         CriteriaIPNetwork,
+        EntityIPNetwork,
     )
     def test_ip_network(self, model, val):
         self._test_proper_values(model, {'ip_network': val}, expecting_stripped_string=True)
@@ -372,6 +374,7 @@ class TestValidators(unittest.TestCase):
         OrgConfigUpdateRequestIPNetwork,
         RegistrationRequestIPNetwork,
         CriteriaIPNetwork,
+        EntityIPNetwork,
     )
     def test_illegal_ip_network(self, model, val):
         expected_msg_pattern = r'\bnot a valid CIDR IPv4 network specification\b'
@@ -385,6 +388,7 @@ class TestValidators(unittest.TestCase):
         OrgConfigUpdateRequestIPNetwork,
         RegistrationRequestIPNetwork,
         CriteriaIPNetwork,
+        EntityIPNetwork,
     )
     def test_wrong_type_ip_network(self, model):
         val = ('127.0.0.1', '28')
@@ -872,7 +876,7 @@ class TestValidators(unittest.TestCase):
     )
     def test_string_based_fields_empty_or_whitespace_only_to_null(
             self, model, tested_arg, val):
-        # (note that same of these fields are NOT NULLABLE so "in the
+        # (note that some of these fields are NOT NULLABLE so "in the
         # real life" their NULL values will **not** be accepted on the
         # database level)
         obj = model(**{tested_arg: val})
@@ -933,6 +937,7 @@ class TestValidators(unittest.TestCase):
         param(model=OrgConfigUpdateRequestIPNetwork, tested_arg='ip_network'),
         param(model=RegistrationRequestIPNetwork, tested_arg='ip_network'),
         param(model=CriteriaIPNetwork, tested_arg='ip_network'),
+        param(model=EntityIPNetwork, tested_arg='ip_network'),
         param(model=InsideFilterURL, tested_arg='url'),
         param(model=Source, tested_arg='source_id'),
         param(model=Source, tested_arg='anonymized_source_id'),
