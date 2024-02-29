@@ -1,6 +1,6 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
-
+import re
 import unittest
 
 from n6sdk.regexes import (
@@ -12,6 +12,7 @@ from n6sdk.regexes import (
     IPv4_ANONYMIZED_REGEX,
     SOURCE_REGEX,
     PY_IDENTIFIER_REGEX,
+    PY_NON_ASCII_ESCAPED_WITH_BACKSLASHREPLACE_HANDLER_REGEX,
 )
 
 
@@ -392,3 +393,161 @@ class Test_PY_IDENTIFIER_REGEX(unittest.TestCase):
 #    ISO_DATETIME_REGEX
 # (now they are covered only indirectly by some
 # doctests in n6sdk.datetime_helpers)
+
+
+class Test_PY_NON_ASCII_ESCAPED_WITH_BACKSLASHREPLACE_HANDLER_REGEX(unittest.TestCase):
+
+    regex = PY_NON_ASCII_ESCAPED_WITH_BACKSLASHREPLACE_HANDLER_REGEX
+    regex_exact = re.compile(rf'\A(?:{regex.pattern})\Z', regex.flags)  # noqa
+
+    def test_valid(self):
+        self.assertRegex(r'\x80', self.regex_exact)        # min. codepoint for `\xHH`
+        self.assertRegex(r'\x81', self.regex_exact)
+        self.assertRegex(r'\x92', self.regex_exact)
+        self.assertRegex(r'\xa3', self.regex_exact)
+        self.assertRegex(r'\xb4', self.regex_exact)
+        self.assertRegex(r'\xc5', self.regex_exact)
+        self.assertRegex(r'\xd6', self.regex_exact)
+        self.assertRegex(r'\xe7', self.regex_exact)
+        self.assertRegex(r'\xf8', self.regex_exact)
+        self.assertRegex(r'\x89', self.regex_exact)
+        self.assertRegex(r'\x9a', self.regex_exact)
+        self.assertRegex(r'\xab', self.regex_exact)
+        self.assertRegex(r'\xcc', self.regex_exact)
+        self.assertRegex(r'\xed', self.regex_exact)
+        self.assertRegex(r'\xfe', self.regex_exact)
+        self.assertRegex(r'\xff', self.regex_exact)        # max. codepoint for `\xHH`
+        self.assertRegex(r'\u0100', self.regex_exact)      # min. codepoint for `\uHHHH`
+        self.assertRegex(r'\u01ff', self.regex_exact)
+        self.assertRegex(r'\u0fff', self.regex_exact)
+        self.assertRegex(r'\u1000', self.regex_exact)
+        self.assertRegex(r'\u1234', self.regex_exact)
+        self.assertRegex(r'\u1987', self.regex_exact)
+        self.assertRegex(r'\u56ab', self.regex_exact)
+        self.assertRegex(r'\ucdef', self.regex_exact)
+        self.assertRegex(r'\u1fff', self.regex_exact)
+        self.assertRegex(r'\u8000', self.regex_exact)
+        self.assertRegex(r'\uffff', self.regex_exact)      # max. codepoint for `\uHHHH`
+        self.assertRegex(r'\U00010000', self.regex_exact)  # min. codepoint for `\UHHHHHHHH`
+        self.assertRegex(r'\U00020123', self.regex_exact)
+        self.assertRegex(r'\U0003ffff', self.regex_exact)
+        self.assertRegex(r'\U00044567', self.regex_exact)
+        self.assertRegex(r'\U0005ffff', self.regex_exact)
+        self.assertRegex(r'\U000689ab', self.regex_exact)
+        self.assertRegex(r'\U0007ffff', self.regex_exact)
+        self.assertRegex(r'\U00080000', self.regex_exact)
+        self.assertRegex(r'\U0009cdef', self.regex_exact)
+        self.assertRegex(r'\U000aff00', self.regex_exact)
+        self.assertRegex(r'\U000b00ff', self.regex_exact)
+        self.assertRegex(r'\U000c4994', self.regex_exact)
+        self.assertRegex(r'\U000d9449', self.regex_exact)
+        self.assertRegex(r'\U000e3ff3', self.regex_exact)
+        self.assertRegex(r'\U000ff33f', self.regex_exact)
+        self.assertRegex(r'\U000fffff', self.regex_exact)
+        self.assertRegex(r'\U00100000', self.regex_exact)
+        self.assertRegex(r'\U00101987', self.regex_exact)
+        self.assertRegex(r'\U0010ffff', self.regex_exact)  # max. codepoint for `\UHHHHHHHH`
+
+    def test_not_valid(self):
+        # below the min. codepoint for the given escape kind (`\xHH` | `\uHHHH` | `\UHHHHHHHH`):
+        self.assertNotRegex(r'\x00', self.regex)
+        self.assertNotRegex(r'\x7f', self.regex)
+        self.assertNotRegex(r'\u0000', self.regex)
+        self.assertNotRegex(r'\u007f', self.regex)
+        self.assertNotRegex(r'\u0080', self.regex)
+        self.assertNotRegex(r'\u00ff', self.regex)
+        self.assertNotRegex(r'\U00000000', self.regex)
+        self.assertNotRegex(r'\U0000007f', self.regex)
+        self.assertNotRegex(r'\U00000080', self.regex)
+        self.assertNotRegex(r'\U000000ff', self.regex)
+        self.assertNotRegex(r'\U00000100', self.regex)
+        self.assertNotRegex(r'\U0000ffff', self.regex)
+        # above the max. legal Unicode codepoint
+        self.assertNotRegex(r'\U00110000', self.regex)
+        self.assertNotRegex(r'\U0011ffff', self.regex)
+        self.assertNotRegex(r'\U00120000', self.regex)
+        self.assertNotRegex(r'\U001fffff', self.regex)
+        self.assertNotRegex(r'\U00200000', self.regex)
+        self.assertNotRegex(r'\U01000000', self.regex)
+        self.assertNotRegex(r'\U10000000', self.regex)
+        self.assertNotRegex(r'\Uffffffff', self.regex)
+        # not lower-case-only:
+        self.assertNotRegex(r'\xFE', self.regex)
+        self.assertNotRegex(r'\xFe', self.regex)
+        self.assertNotRegex(r'\xfE', self.regex)
+        self.assertNotRegex(r'\u01FF', self.regex)
+        self.assertNotRegex(r'\u0Fff', self.regex)
+        self.assertNotRegex(r'\ufffF', self.regex)
+        self.assertNotRegex(r'\U0010FFFF', self.regex)
+        # too small number of hexadecimal digits (for the given escape kind):
+        self.assertNotRegex(r'\x', self.regex)
+        self.assertNotRegex(r'\u', self.regex)
+        self.assertNotRegex(r'\U', self.regex)
+        self.assertNotRegex(r'\x0', self.regex)
+        self.assertNotRegex(r'\u0', self.regex)
+        self.assertNotRegex(r'\U0', self.regex)
+        self.assertNotRegex(r'\x8', self.regex)
+        self.assertNotRegex(r'\u8', self.regex)
+        self.assertNotRegex(r'\U8', self.regex)
+        self.assertNotRegex(r'\xf', self.regex)
+        self.assertNotRegex(r'\uf', self.regex)
+        self.assertNotRegex(r'\Uf', self.regex)
+        self.assertNotRegex(r'\u80', self.regex)
+        self.assertNotRegex(r'\uff', self.regex)
+        self.assertNotRegex(r'\u800', self.regex)
+        self.assertNotRegex(r'\ufff', self.regex)
+        self.assertNotRegex(r'\U80', self.regex)
+        self.assertNotRegex(r'\Uff', self.regex)
+        self.assertNotRegex(r'\U800', self.regex)
+        self.assertNotRegex(r'\Ufff', self.regex)
+        self.assertNotRegex(r'\U8000', self.regex)
+        self.assertNotRegex(r'\Uffff', self.regex)
+        self.assertNotRegex(r'\U10000', self.regex)
+        self.assertNotRegex(r'\U010000', self.regex)
+        self.assertNotRegex(r'\U0010000', self.regex)
+        # too big number of hexadecimal digits (for the given escape kind):
+        self.assertNotRegex(r'\x800', self.regex_exact)
+        self.assertNotRegex(r'\x8000', self.regex_exact)
+        self.assertNotRegex(r'\x80000', self.regex_exact)
+        self.assertNotRegex(r'\x100000', self.regex_exact)
+        self.assertNotRegex(r'\x0100000', self.regex_exact)
+        self.assertNotRegex(r'\x00100000', self.regex_exact)
+        self.assertNotRegex(r'\u00800', self.regex_exact)
+        self.assertNotRegex(r'\u11111', self.regex_exact)
+        self.assertNotRegex(r'\u008000', self.regex_exact)
+        self.assertNotRegex(r'\u101111', self.regex_exact)
+        self.assertNotRegex(r'\u0080000', self.regex_exact)
+        self.assertNotRegex(r'\u010ffff', self.regex_exact)
+        self.assertNotRegex(r'\u0010ffff', self.regex_exact)
+        self.assertNotRegex(r'\U00010ffff', self.regex_exact)
+        # various non-matching sequences
+        self.assertNotRegex(r'', self.regex)
+        self.assertNotRegex('\\', self.regex)
+        self.assertNotRegex(r'8', self.regex)
+        self.assertNotRegex(r'80', self.regex)
+        self.assertNotRegex(r'800', self.regex)
+        self.assertNotRegex(r'8000', self.regex)
+        self.assertNotRegex(r'18000', self.regex)
+        self.assertNotRegex(r'108000', self.regex)
+        self.assertNotRegex(r'0108000', self.regex)
+        self.assertNotRegex(r'00108000', self.regex)
+
+    def test_unescape_text_escaped_by_encoding_to_ascii_with_backslashreplace_handler(self):
+        orig = (
+            '\u017b\xf3\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+            '\\r\\n \\ \\\\ \U0001f340 \ud83c\udf40  \udcdd A \x7f\x80')
+        escaped = orig.encode('ascii', 'backslashreplace').decode('ascii')
+        assert escaped == (
+            '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+            '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80')
+
+        unescaped = re.sub(self.regex, self._unescaped_char_from_match, escaped)
+
+        self.assertTrue(unescaped, orig)
+
+    @staticmethod
+    def _unescaped_char_from_match(match):
+        matched = match.group(0)
+        hex_digits = matched[2:]
+        char_code = int(hex_digits, 16)
+        return chr(char_code)

@@ -5,19 +5,23 @@ import collections
 import datetime
 import functools
 import operator
+from collections.abc import (
+    Callable,
+    Generator,
+    Iterator,
+    Sequence,
+    Set,
+)
 from contextlib import (
     closing,
     contextmanager,
 )
 from typing import (
     Any,
-    Callable,
-    Dict,
-    Generator,
-    Iterator,
-    List,
+    Final,
     Optional,
-    Tuple,
+    TypeVar,
+    Union,
 )
 
 import sqlalchemy.event
@@ -37,6 +41,7 @@ from sqlalchemy.util import KeyedTuple as FetchedRow
 from n6lib.auth_api import ACCESS_ZONES
 from n6lib.class_helpers import singleton
 from n6lib.common_helpers import (
+    PY_NON_ASCII_ESCAPED_WITH_BACKSLASHREPLACE_HANDLER_REGEX,
     ascii_str,
     as_str_with_minimum_esc,
     iter_grouped_by_attr,
@@ -66,7 +71,6 @@ from n6lib.typing_helpers import (
     AuthData,
     ColumnElementTransformer,
     DateTime,
-    String as Str,
 )
 from n6lib.url_helpers import (
     PROVISIONAL_URL_SEARCH_KEY_PREFIX,
@@ -93,7 +97,7 @@ class EventDatabaseError(DataAPIError):
     """Can be used to indicate a problem with an Event DB operation."""
 
 
-class _EventDatabaseTransactionContextManager(object):
+class _EventDatabaseTransactionContextManager:
 
     """
     A context manager to wrap Event DB operations in a transaction.
@@ -226,7 +230,7 @@ transact = _EventDatabaseTransactionContextManager()
 #
 
 @singleton
-class N6DataBackendAPI(object):
+class N6DataBackendAPI:
 
     """
     An API that provides common set of event-database methods.
@@ -234,8 +238,18 @@ class N6DataBackendAPI(object):
 
     DEFAULT_DAY_STEP = 1
 
-    EVENT_DB_LEGACY_CHARSET = 'utf8'  # The MariaDB's legacy, 3-bytes, variant of UTF-8.
-
+    EVENT_DB_CONNECT_CHARSET_DEFAULT = 'utf8mb4'
+    EVENT_DB_SQL_MODE = (
+        # See: https://mariadb.com/kb/en/library/sql-mode/ (and see also somewhat similar
+        # stuff in `n6lib.auth_db.config.SQLAuthDBConfigMixin.constant_session_variables`).
+        "'STRICT_TRANS_TABLES"          # <- default restriction for >= MariaDB 10.2.4
+        ",ERROR_FOR_DIVISION_BY_ZERO"   # <- default restriction for >= MariaDB 10.2.4
+        ",NO_AUTO_CREATE_USER"          # <- default restriction for >= MariaDB 10.1.7
+        ",NO_AUTO_VALUE_ON_ZERO"        # <- non-default restriction
+        ",NO_ENGINE_SUBSTITUTION"       # <- default restriction for >= MariaDB 10.1.7
+        ",NO_ZERO_DATE"                 # <- non-default restriction
+        ",NO_ZERO_IN_DATE"              # <- non-default restriction
+        "'")
 
     __db_config_guard = collections.deque([None])
 
@@ -289,7 +303,7 @@ class N6DataBackendAPI(object):
             ssl_args,
             charset=settings.get(
                 'sqlalchemy_event_db_connect_charset',
-                self.EVENT_DB_LEGACY_CHARSET),
+                self.EVENT_DB_CONNECT_CHARSET_DEFAULT),
             use_unicode=True,
             binary_prefix=True)
         pool_options = dict(              # (<- TODO later: make these options configurable...)
@@ -301,11 +315,13 @@ class N6DataBackendAPI(object):
         engine = engine_from_config(
             settings,
             'sqlalchemy.',
+            isolation_level='REPEATABLE READ',
             connect_args=connect_args,
             **pool_options)
         self._install_session_variables_setter(
             engine,
             wait_timeout="7200",        # (<- TODO later: make these variables configurable...)
+            sql_mode=self.EVENT_DB_SQL_MODE,
             time_zone="'+00:00'")
         self.configure_db_session(engine)
 
@@ -333,8 +349,8 @@ class N6DataBackendAPI(object):
 
     def get_the_most_frequent_categories(self,
                                          auth_data: AuthData,
-                                         access_filtering_conditions: List[ColumnElement],
-                                         since: DateTime) -> Tuple[str]:
+                                         access_filtering_conditions: list[ColumnElement],
+                                         since: DateTime) -> tuple[str]:
         if not access_filtering_conditions:
             raise AssertionError('filtering conditions not provided')
         query_processor = _DailyEventsCountsQueryProcessor(
@@ -344,8 +360,8 @@ class N6DataBackendAPI(object):
 
     def get_counts_per_day_per_category(self,
                                         auth_data: AuthData,
-                                        access_filtering_conditions: List[ColumnElement],
-                                        since: DateTime) -> Dict[str, List]:
+                                        access_filtering_conditions: list[ColumnElement],
+                                        since: DateTime) -> dict[str, list]:
         if not access_filtering_conditions:
             raise AssertionError('filtering conditions not provided')
         query_processor = _DailyEventsCountsQueryProcessor(
@@ -355,10 +371,10 @@ class N6DataBackendAPI(object):
 
     def get_names_ranking_per_category(self,
                                        auth_data: AuthData,
-                                       access_filtering_conditions: List[ColumnElement],
+                                       access_filtering_conditions: list[ColumnElement],
                                        since: DateTime,
                                        category: str,
-                                       ) -> Optional[Dict[str, Optional[dict]]]:
+                                       ) -> Optional[dict[str, Optional[dict]]]:
         if not access_filtering_conditions:
             # We are dealing with access rights, so let's be on a safe side.
             raise AssertionError('filtering conditions not provided')
@@ -368,10 +384,10 @@ class N6DataBackendAPI(object):
         return query_processor.get_names_ranking_counts_per_category(since, category)
 
     def get_counts_per_category(self,
-                                auth_data,                    # type: AuthData
-                                access_filtering_conditions,  # type: List[ColumnElement]
-                                since,                        # type: DateTime
-                                ):  # type: (...) -> Dict[Str, int]
+                                auth_data: AuthData,
+                                access_filtering_conditions: list[ColumnElement],
+                                since: DateTime,
+                                ) -> dict[str, int]:
         """
         Obtain numbers of security events in each of the event categories,
         for the specified criteria.
@@ -382,7 +398,7 @@ class N6DataBackendAPI(object):
                 {'org_id': <org id>, 'user_id': <user id aka login>}.
             `access_filtering_conditions`:
                 A non-empty list of SQLAlchemy conditions (see:
-                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
+                `n6lib.auth_api.AuthAPI.get_access_info()`).
             `since`:
                 A datetime.datetime object that specifies the minimum
                 *time* value for which events should be considered.
@@ -406,11 +422,11 @@ class N6DataBackendAPI(object):
         return query_processor.get_counts_per_category(since)
 
     def report_inside(self,
-                      auth_data,               # type: AuthData
-                      params,                  # type: ParamsDict
-                      data_spec,               # type: N6DataSpec
-                      access_zone_conditions,  # type: AccessZoneConditionsDict
-                      ):  # type: (...) -> Iterator[ResultDict]
+                      auth_data: AuthData,
+                      params: ParamsDict,
+                      data_spec: N6DataSpec,
+                      access_zone_conditions: AccessZoneConditionsDict,
+                      ) -> Iterator[ResultDict]:
         """
         Obtain the data of security events matching the given request
         parameters, limited to the "inside" access zone (according to
@@ -437,7 +453,7 @@ class N6DataBackendAPI(object):
             `access_zone_conditions`:
                 A dict that maps access zones (`str` values) to
                 non-empty lists of SQLAlchemy conditions (see:
-                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
+                `n6lib.auth_api.AuthAPI.get_access_info()`).
 
         Returns:
             An iterator that yields dicts, each containing the data of
@@ -462,11 +478,11 @@ class N6DataBackendAPI(object):
                                            client_org_ids=[auth_data['org_id']])
 
     def report_threats(self,
-                       auth_data,               # type: AuthData
-                       params,                  # type: ParamsDict
-                       data_spec,               # type: N6DataSpec
-                       access_zone_conditions,  # type: AccessZoneConditionsDict
-                       ):  # type: (...) -> Iterator[ResultDict]
+                       auth_data: AuthData,  # noqa (not used but accepted for consistency)
+                       params: ParamsDict,
+                       data_spec: N6DataSpec,
+                       access_zone_conditions: AccessZoneConditionsDict,
+                       ) -> Iterator[ResultDict]:
         """
         Obtain the data of security events matching the given request
         parameters, limited to the "threats" access zone (according to
@@ -489,7 +505,7 @@ class N6DataBackendAPI(object):
             `access_zone_conditions`:
                 A dict that maps access zones (`str` values) to
                 non-empty lists of SQLAlchemy conditions (see:
-                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
+                `n6lib.auth_api.AuthAPI.get_access_info()`).
 
         Returns:
             An iterator that yields dicts, each containing the data of
@@ -510,11 +526,11 @@ class N6DataBackendAPI(object):
                                            client_org_ids=client_org_ids)
 
     def search_events(self,
-                      auth_data,               # type: AuthData
-                      params,                  # type: ParamsDict
-                      data_spec,               # type: N6DataSpec
-                      access_zone_conditions,  # type: AccessZoneConditionsDict
-                      ):  # type: (...) -> Iterator[ResultDict]
+                      auth_data: AuthData,  # noqa (not used but accepted for consistency)
+                      params: ParamsDict,
+                      data_spec: N6DataSpec,
+                      access_zone_conditions: AccessZoneConditionsDict,
+                      ) -> Iterator[ResultDict]:
         """
         Obtain the data of security events matching the given request
         parameters, limited to the "search" access zone (according to
@@ -537,7 +553,7 @@ class N6DataBackendAPI(object):
             `access_zone_conditions`:
                 A dict that maps access zones (`str` values) to
                 non-empty lists of SQLAlchemy conditions (see:
-                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
+                `n6lib.auth_api.AuthAPI.get_access_info()`).
 
         Returns:
             An iterator that yields dicts, each containing the data of
@@ -558,12 +574,12 @@ class N6DataBackendAPI(object):
                                            client_org_ids=client_org_ids)
 
     def _generate_result_dicts(self,
-                               params,                  # type: ParamsDict
-                               data_spec,               # type: N6DataSpec
-                               access_zone_conditions,  # type: AccessZoneConditionsDict
-                               access_zone,             # type: AccessZone
-                               client_org_ids,          # type: Optional[List[Str]]
-                               ):  # type: (...) -> Iterator[ResultDict]
+                               params: ParamsDict,
+                               data_spec: N6DataSpec,
+                               access_zone_conditions: AccessZoneConditionsDict,
+                               access_zone: AccessZone,
+                               client_org_ids: Optional[list[str]],
+                               ) -> Iterator[ResultDict]:
         """
         Common code for the report_inside/report_threats/search_events methods.
 
@@ -582,7 +598,7 @@ class N6DataBackendAPI(object):
             `access_zone_conditions`:
                 A dict that maps access zones (`str` values) to
                 non-empty lists of SQLAlchemy conditions (see:
-                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
+                `n6lib.auth_api.AuthAPI.get_access_info()`).
             `access_zone`:
                 The requested resource's access zone (a `str`; one of
                 those in n6lib.auth_api.ACCESS_ZONES).
@@ -620,8 +636,10 @@ class N6DataBackendAPI(object):
             filtering_params=params)
         return query_processor.generate_query_results()
 
-    def _get_access_filtering_conditions(self, access_zone_conditions, access_zone):
-        # type: (AccessZoneConditionsDict, AccessZone) -> List[ColumnElement]
+    def _get_access_filtering_conditions(self,
+                                         access_zone_conditions: AccessZoneConditionsDict,
+                                         access_zone: AccessZone,
+                                         ) -> list[ColumnElement]:
         access_filtering_conditions = access_zone_conditions.get(access_zone)
         if not access_filtering_conditions:
             # We are dealing with access rights, so let's be on a safe side.
@@ -630,13 +648,15 @@ class N6DataBackendAPI(object):
                 'zone not provided'.format(access_zone))
         return access_filtering_conditions
 
-    def _pop_opt_limit(self, params):
-        # type: (ParamsDict) -> Optional[int]
+    def _pop_opt_limit(self,
+                       params: ParamsDict,
+                       ) -> Optional[int]:
         [opt_limit] = params.pop('opt.limit', [None])
         return opt_limit
 
-    def _pop_time_constraints(self, params):
-        # type: (ParamsDict) -> Tuple[DateTime, Optional[DateTime], Optional[DateTime]]
+    def _pop_time_constraints(self,
+                              params: ParamsDict,
+                              ) -> tuple[DateTime, Optional[DateTime], Optional[DateTime]]:
         if params.get('time.min') is None:
             raise AssertionError('request parameters are expected to '
                                  'include the `time.min` parameter')
@@ -646,14 +666,18 @@ class N6DataBackendAPI(object):
         [time_until] = params.pop('time.until', [None])
         return time_min, time_max, time_until
 
-    def _delete_opt_prefixed_params(self, params):
-        # type: (ParamsDict) -> None
+    def _delete_opt_prefixed_params(self,
+                                    params: ParamsDict,
+                                    ) -> None:
         for key in list(params):
             if key.startswith('opt.'):
                 del params[key]
 
-    def _assert_internal_guarantees(self, params, access_zone, client_org_ids):
-        # type: (ParamsDict, AccessZone, Optional[List[Str]]) -> None
+    def _assert_internal_guarantees(self,
+                                    params: ParamsDict,
+                                    access_zone: AccessZone,
+                                    client_org_ids: Optional[list[str]],
+                                    ) -> None:
         # (the conditions asserted below should be already
         # guaranteed by some code in this class)
         assert 'client' not in params
@@ -672,12 +696,12 @@ class N6TestDataBackendAPI(N6DataBackendAPI):
         self.settings = settings
 
     def _generate_result_dicts(self,
-                               params,                  # type: ParamsDict
-                               data_spec,               # type: N6DataSpec
-                               access_zone_conditions,  # type: AccessZoneConditionsDict
-                               access_zone,             # type: AccessZone
-                               client_org_ids,          # type: Optional[List[Str]]
-                               ):  # type: (...) -> Iterator[ResultDict]
+                               params: ParamsDict,
+                               data_spec: N6DataSpec,
+                               access_zone_conditions: AccessZoneConditionsDict,
+                               access_zone: AccessZone,
+                               client_org_ids: Optional[list[str]],
+                               ) -> Iterator[ResultDict]:
         params, client_id_or_none = self._adapt_to_random_event_interface(access_zone,
                                                                           params,
                                                                           client_org_ids)
@@ -696,11 +720,10 @@ class N6TestDataBackendAPI(N6DataBackendAPI):
                                                         params=params)
 
     def _adapt_to_random_event_interface(self,
-                                         access_zone,     # type: AccessZone
-                                         params,          # type: ParamsDict
-                                         client_org_ids,  # type: Optional[List[Str]]
-                                         ):
-        # type: (...) -> Tuple[ParamsDict, Optional[Str]]
+                                         access_zone: AccessZone,
+                                         params: ParamsDict,
+                                         client_org_ids: Optional[list[str]],
+                                         ) -> tuple[ParamsDict, Optional[str]]:
         # (the conditions asserted below should be already
         # guaranteed by some code in N6DataBackendAPI)
         assert 'client' not in params
@@ -721,7 +744,7 @@ class N6TestDataBackendAPI(N6DataBackendAPI):
 # Implementation details of Event DB's *data backend API* 
 #
 
-class _BaseQueryProcessor(object):
+class _BaseQueryProcessor:
 
     DB_API_ERROR_MESSAGE_MAX_LENGTH = 200
 
@@ -730,16 +753,15 @@ class _BaseQueryProcessor(object):
     client_asoc_column = 'client'
 
     def __init__(self,
-                 access_filtering_conditions,  # type: List[ColumnElement]
-                 client_org_ids,               # type: Optional[List[Str]]
-                 ):
+                 access_filtering_conditions: list[ColumnElement],
+                 client_org_ids: Optional[list[str]]):
         """
         Initialize the query processor.
 
         Kwargs:
             `access_filtering_conditions`:
                 A non-empty list of SQLAlchemy conditions (see:
-                n6lib.auth_api.AuthAPI.get_org_ids_to_access_infos()).
+                `n6lib.auth_api.AuthAPI.get_access_info()`).
             `client_org_ids`:
                 A non-empty list of client organization ids (to
                 constraint the results to events owned by at least
@@ -751,14 +773,12 @@ class _BaseQueryProcessor(object):
         self._access_filtering_conditions = access_filtering_conditions
         self._client_org_ids = client_org_ids
 
-    def query__access_filtering(self, query):
-        # type: (Query) -> Query
+    def query__access_filtering(self, query: Query) -> Query:
         assert self._access_filtering_conditions
         query = query.filter(or_(*self._access_filtering_conditions))
         return query
 
-    def query__client_filtering(self, query):
-        # type: (Query) -> Query
+    def query__client_filtering(self, query: Query) -> Query:
         client_org_ids = self._client_org_ids
         if client_org_ids is not None:
             assert client_org_ids
@@ -784,7 +804,7 @@ class _BaseQueryProcessor(object):
 
 class _DailyEventsCountsQueryProcessor(_BaseQueryProcessor):
 
-    def get_counts_per_day_per_category(self, since: DateTime) -> Dict[str, List]:
+    def get_counts_per_day_per_category(self, since: DateTime) -> dict[str, list]:
         query = self._build_query_for_counts_per_day_per_category(since)
         with self.handling_db_api_error():
             query_result = query.all()
@@ -815,7 +835,7 @@ class _DailyEventsCountsQueryProcessor(_BaseQueryProcessor):
         query = query.order_by('events_time')
         return query
 
-    def get_the_most_frequent_events_categories(self, since: DateTime) -> Tuple[str]:
+    def get_the_most_frequent_events_categories(self, since: DateTime) -> tuple[str]:
         category_to_count = {}
         query = self._build_query_for_the_most_frequent_events_categories(since)
         with self.handling_db_api_error():
@@ -849,13 +869,12 @@ class _DailyEventsCountsQueryProcessor(_BaseQueryProcessor):
 class _NamesRankingQueryProcessor(_BaseQueryProcessor):
 
     def get_names_ranking_counts_per_category(self, since: DateTime, category: str) \
-            -> Optional[Dict[str, Optional[dict]]]:
-        query_result = self._build_query_for_ranking_per_category(since, category)
+            -> Optional[dict[str, Optional[dict]]]:
+        query = self._build_query_for_ranking_per_category(since, category)
         with self.handling_db_api_error():
-            query = query_result.all()
-            names_to_count = dict(query)
+            names_to_count = dict(query.all())
         ranking = [str(number) for number in range(1, 10 + 1)]
-        ranking_to_names: Dict[str, Optional[Dict]] = dict.fromkeys(ranking, None)
+        ranking_to_names: dict[str, Optional[dict]] = dict.fromkeys(ranking, None)
         names_to_count.pop(None, None)
         sorted_names_to_counts = dict(sorted(names_to_count.items(),
                                              key=operator.itemgetter(1),
@@ -888,22 +907,24 @@ class _NamesRankingQueryProcessor(_BaseQueryProcessor):
 
 class _CountsQueryProcessor(_BaseQueryProcessor):
 
-    def get_counts_per_category(self, since):
-        # type: (DateTime) -> Dict[Str, int]
-        category_to_count = dict.fromkeys(CATEGORY_ENUMS, 0)   # type: Dict[Str, int]
+    def get_counts_per_category(self,
+                                since: DateTime,
+                                ) -> dict[str, int]:
+        category_to_count: dict[str, int] = dict.fromkeys(CATEGORY_ENUMS, 0)
         query = self._build_query_for_counts_per_category(since)
         with self.handling_db_api_error():
-            category_count_pairs = query.all()   # type: List[Tuple[Str, int]]
+            category_count_pairs: list[tuple[str, int]] = query.all()
         category_to_count.update(category_count_pairs)
         self._verify_no_illegal_categories(category_to_count)
         assert category_to_count.keys() == set(CATEGORY_ENUMS)
         return category_to_count
 
-    def _build_query_for_counts_per_category(self, since):
-        # type: (DateTime) -> Query
+    def _build_query_for_counts_per_category(self,
+                                             since: DateTime,
+                                             ) -> Query:
         # * Auxiliary assignments:
         func_count = sqla_func.count
-        model = self.queried_model_class  # type: Any  # (<- to silence attr checking on it)
+        model: Any = self.queried_model_class    # (use `Any` to silence overzealous attr checking)
         cl_model = self.client_asoc_model_class
         # * Actual query building:
         query = _DBSession.query(model.category, func_count(distinct(model.id)))
@@ -917,8 +938,9 @@ class _CountsQueryProcessor(_BaseQueryProcessor):
         query = query.group_by(model.category)
         return query
 
-    def _verify_no_illegal_categories(self, category_to_count):
-        # type: (Dict[Str, int]) -> None
+    def _verify_no_illegal_categories(self,
+                                      category_to_count: dict[str, int],
+                                      ) -> None:
         illegal_categories = set(category_to_count).difference(CATEGORY_ENUMS)
         if illegal_categories:
             raise AssertionError('illegal categories got from the Event DB: {}'
@@ -939,11 +961,11 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
     # Initialization stuff
 
     def __init__(self,
-                 data_spec,         # type: N6DataSpec
-                 day_step,          # type: int
-                 opt_limit,         # type: int
-                 time_constraints,  # type: Tuple[DateTime, Optional[DateTime], Optional[DateTime]]
-                 filtering_params,  # type: ParamsDict
+                 data_spec: N6DataSpec,
+                 day_step: int,
+                 opt_limit: int,
+                 time_constraints: tuple[DateTime, Optional[DateTime], Optional[DateTime]],
+                 filtering_params: ParamsDict,
                  **kwargs):
         """
         Initialize the query processor.
@@ -1020,8 +1042,9 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
 
     @classmethod
     @memoized
-    def _get_key_to_query_func(cls, data_spec):
-        # type: (N6DataSpec) -> Dict[Str, Callable[[Str, list], ColumnElement]]
+    def _get_key_to_query_func(cls,
+                               data_spec: N6DataSpec,
+                               ) -> dict[str, Callable[[str, list], ColumnElement]]:
         key_to_query_func = {}
         model_class = cls.queried_model_class
         assert data_spec.sql_relationship_field_keys == {cls.client_asoc_column}  # {'client'}
@@ -1035,13 +1058,11 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
         return key_to_query_func
 
     @staticmethod
-    def _allowed_to_have_query_func(param_key):
-        # type: (Str) -> bool
+    def _allowed_to_have_query_func(param_key: str) -> bool:
         return param_key != 'client' and not param_key.startswith(('time.', 'opt.'))
 
 
-    def _build_query_base(self):
-        # type: () -> Query
+    def _build_query_base(self) -> Query:
         """
         Build the base of all queries.
 
@@ -1061,13 +1082,11 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
         query = self.query__client_filtering(query)
         return query
 
-    def create_query(self):
-        # type: () -> Query
+    def create_query(self) -> Query:
         """Called in the _build_query_base() template method."""
         return _DBSession.query(*self.queried_column_mapping_attrs)
 
-    def query__param_filtering(self, query):
-        # type: (Query) -> Query
+    def query__param_filtering(self, query: Query) -> Query:
         """Called in the _build_query_base() template method."""
         for key, value in self._filtering_params.items():
             query_func = self._key_to_query_func[key]
@@ -1079,8 +1098,7 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
     #
     # Actual querying
 
-    def generate_query_results(self):
-        # type: () -> Iterator[ResultDict]
+    def generate_query_results(self) -> Iterator[ResultDict]:
         """
         Generate event data, executing appropriate database query(ies).
 
@@ -1102,10 +1120,9 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
         invokes this method (in that moment the iterator object is
         created, but *not* yet consumed).
         """
-        (produce_result_or_none,       # type: Callable[[List[FetchedRow]], Optional[ResultDict]]
-         get_produced_results_count,   # type: Callable[[], int]
-         enough_results_produced,      # type: Callable[[], bool]
-         ) = self._prepare_result_production_tools()
+        (produce_result_or_none,
+         get_produced_results_count,
+         enough_results_produced) = self._prepare_result_production_tools()
 
         rows_generator = self._fetch_rows_from_db(get_produced_results_count)
         with closing(rows_generator):
@@ -1121,63 +1138,49 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
                 or get_produced_results_count() < self._opt_limit)
 
 
-    def _prepare_result_production_tools(self):
+    def _prepare_result_production_tools(self) -> tuple[
+                Callable[[Sequence[FetchedRow]], Optional[ResultDict]],
+                Callable[[], int],
+                Callable[[], bool]]:
 
-        def produce_result_or_none(same_id_rows):
-            # type: (List[FetchedRow]) -> Optional[ResultDict]
+        _opt_limit: Final[int] = self._opt_limit
+        _results_counter: int = 0
+
+        def produce_result_or_none(same_id_rows: Sequence[FetchedRow]) -> Optional[ResultDict]:
             nonlocal _results_counter
             result_dict = _make_result_dict(same_id_rows)
-            result_dict = _proc(result_dict)
+            result_dict = _preprocess(result_dict)
             if result_dict is not None:
                 _results_counter += 1
                 return result_dict
             return None
 
-        def get_produced_results_count():
-            # type: () -> int
+        def get_produced_results_count() -> int:
             return _results_counter
 
-        def enough_results_produced():
-            # type: () -> bool
-            return (_OPT_LIMIT is not None
-                    and _results_counter >= _OPT_LIMIT)
+        def enough_results_produced() -> bool:
+            return (_opt_limit is not None
+                    and _results_counter >= _opt_limit)
 
-        _OPT_LIMIT = self._opt_limit
-        _results_counter = 0                   # type: int
-        _proc = self._preprocess_result_dict   # type: Callable[[ResultDict], Optional[ResultDict]]
-        _get_client_attr = operator.attrgetter('client')  # type: Callable[[FetchedRow], List[Str]]
-
-        def _make_result_dict(same_id_rows):
-            # type: (List[FetchedRow]) -> ResultDict
-            # Note: here we assume that the only field that may vary in
-            # fetched rows having the same `id` is `client`. In fact,
-            # `ip`/`asn`/`cc` may also vary (because of the database
-            # denormalization we employ) but we neglect that because the
-            # information they hold is also in the `address` column,
-            # already aggregated. (So, actually, the `ip`/`asn`/`cc`
-            # columns are important only when it comes to database
-            # indexes, searching and such stuff...).
-            sample_row = same_id_rows[0]
-            client_field_values = map(_get_client_attr, same_id_rows)
-            org_client_ids = {org_id for org_id in client_field_values
-                              if org_id is not None}
-            return make_raw_result_dict(sample_row, org_client_ids)
+        _make_result_dict: Callable[[Sequence[FetchedRow]], ResultDict] = self._make_result_dict
+        _preprocess: Callable[[ResultDict], Optional[ResultDict]] = self._preprocess_result_dict
 
         return (produce_result_or_none,
                 get_produced_results_count,
                 enough_results_produced)
 
 
-    def _fetch_rows_from_db(self, get_produced_results_count):
-        # type: (...) -> Generator[FetchedRow, None, None]
+    def _fetch_rows_from_db(self,
+                            get_produced_results_count: Callable[[], int],
+                            ) -> Generator[FetchedRow, None, None]:
         for compare_to_time_lower, compare_to_time_upper in self._time_comparisons_per_step():
             yield from  self._fetch_rows_for_single_step(compare_to_time_lower,
                                                          compare_to_time_upper,
                                                          get_produced_results_count)
 
 
-    def _time_comparisons_per_step(self):
-        # type: () -> Iterator[Tuple[ColumnElementTransformer, ColumnElementTransformer]]
+    def _time_comparisons_per_step(self) -> Iterator[tuple[ColumnElementTransformer,
+                                                           ColumnElementTransformer]]:
         """
         Generate pairs of partially applied time comparison functions.
 
@@ -1218,10 +1221,10 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
 
 
     def _fetch_rows_for_single_step(self,
-                                    compare_to_time_lower,  # type: ColumnElementTransformer
-                                    compare_to_time_upper,  # type: ColumnElementTransformer
-                                    get_produced_results_count,  # type: Callable[[], int]
-                                    ):  # type: (...) -> Generator[FetchedRow, None, None]
+                                    compare_to_time_lower: ColumnElementTransformer,
+                                    compare_to_time_upper: ColumnElementTransformer,
+                                    get_produced_results_count: Callable[[], int],
+                                    ) -> Generator[FetchedRow, None, None]:
 
         cur_step_query_base = self._build_query_base_for_single_step(compare_to_time_lower,
                                                                      compare_to_time_upper)
@@ -1250,9 +1253,9 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
             # `_build_actual_query()`).
 
     def _build_query_base_for_single_step(self,
-                                          compare_to_time_lower,   # type: ColumnElementTransformer
-                                          compare_to_time_upper,   # type: ColumnElementTransformer
-                                          ):  # type: (...) -> Query
+                                          compare_to_time_lower: ColumnElementTransformer,
+                                          compare_to_time_upper: ColumnElementTransformer,
+                                          ) -> Query:
         query = self._query_base.filter(and_(
             compare_to_time_lower(self.queried_model_class.time),
             compare_to_time_upper(self.queried_model_class.time)))
@@ -1266,10 +1269,10 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
         return query
 
     def _build_actual_query(self,
-                            cur_step_query_base,           # type: Query
-                            cur_step_fetched_rows_count,   # type: int
-                            get_produced_results_count,    # type: Callable[[], int]
-                            ):  # type: (...) -> Tuple[Query, Optional[int]]
+                            cur_step_query_base: Query,
+                            cur_step_fetched_rows_count: int,
+                            get_produced_results_count: Callable[[], int],
+                            ) -> tuple[Query, Optional[int]]:
         if self._opt_limit is not None:
             still_expected = self._opt_limit - get_produced_results_count()
             assert still_expected > 0, '_build_actual_query() called after reaching `opt.limit`?!'
@@ -1278,13 +1281,13 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
             # single result dict is also perfectly valid -- because of:
             # 1) the JOIN clause we use; 2) the database denormalization
             # we employ, causing that multiple rows can have the same
-            # `id`, while varying by `ip`/`asn`/`cc`. In other words,
-            # the "relation" between fetched Event DB rows and the
-            # result dicts produced from those rows by this class is
-            # not necessarily a *1-to-1* but quite often (though rather
-            # not in a majority of cases) an *n-to-1* (see the helper
-            # function `produce_result_or_none()` provided by the method
-            # `_prepare_result_production_tools()`).
+            # `id`, while varying by `ip` (and maybe also by `asn`/`cc`).
+            # In other words, the "relation" between fetched Event DB
+            # rows and the result dicts made from those rows by this
+            # class is not necessarily a *1-to-1* but quite often (though
+            # rather not in a majority of cases) an *n-to-1* (see the
+            # helper function `produce_result_or_none()` provided by the
+            # method `_prepare_result_production_tools()`).
             #
             # Moreover, to complicate things even more, let's notice
             # that not all created result dicts are finally emitted
@@ -1311,11 +1314,10 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
         return query, query_limit
 
     @contextmanager
-    def _rows_fetching_iterator(self, query):
-        # type: (Query) -> ...
-        iterator = iter(query)
+    def _rows_fetching_iterator(self, query: Query):
+        iterator: Iterator[FetchedRow] = iter(query)
         try:
-            yield iterator  # type: Iterator[FetchedRow]
+            yield iterator
         finally:
             # In the end, in particular when the generator iterator
             # created with `_fetch_rows_for_single_step()` is being
@@ -1326,8 +1328,10 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
             # as well as: https://stackoverflow.com/questions/47287558/how-to-prematurely-finish-mysql-use-result-mysql-fetch-row).
             self._try_to_exhaust_rows_fetching_iterator(iterator, query)
 
-    def _try_to_exhaust_rows_fetching_iterator(self, iterator, query):
-        # type: (Iterator[FetchedRow], Query) -> None
+    def _try_to_exhaust_rows_fetching_iterator(self,
+                                               iterator: Iterator[FetchedRow],
+                                               query: Query,
+                                               ) -> None:
         try:
             for _ in iterator:
                 pass
@@ -1339,15 +1343,38 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
                 exc_info=True)
 
 
+    def _make_result_dict(self,
+                          same_id_rows: Sequence[FetchedRow],
+                          ) -> Optional[ResultDict]:
+        # Note: here we assume that the only field that may vary in
+        # fetched rows having the same `id` is `client`. In fact, `ip`,
+        # and also `asn`/`cc`, may also vary (because of the database
+        # denormalization we employ), but we neglect that because the
+        # information they hold is also in the `address` column, already
+        # aggregated. (So, actually, the `ip`, `asn` and `cc` columns
+        # are important only when it comes to search criteria, *not* to
+        # search results...).
+        sample_row = same_id_rows[0]
+        client_org_ids = self._gather_client_org_ids(same_id_rows)
+        return make_raw_result_dict(sample_row, client_org_ids)
+
+    @staticmethod
+    def _gather_client_org_ids(same_id_rows: Sequence[FetchedRow]) -> Set[str]:
+        client_field_values = (row.client for row in same_id_rows)
+        return {org_id for org_id in client_field_values
+                if org_id is not None}
+
+
     # *EXPERIMENTAL* (likely to be changed or removed in the future
     # without any warning/deprecation/etc.)
-    def _preprocess_result_dict(self, result):
-        # type: (ResultDict) -> Optional[ResultDict]
-        event_tag = self._get_event_tag_for_logging(result)
-        custom = result.get('custom')
+    def _preprocess_result_dict(self,
+                                result_dict: ResultDict,
+                                ) -> Optional[ResultDict]:
+        event_tag = self._get_event_tag_for_logging(result_dict)
+        custom = result_dict.get('custom')
         url_data = (custom.pop('url_data', None) if custom is not None
                     else None)
-        url = result.get('url')
+        url = result_dict.get('url')
         if url_data is None:
             if url is not None and url.startswith(PROVISIONAL_URL_SEARCH_KEY_PREFIX):
                 LOGGER.error(
@@ -1358,7 +1385,7 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
                     event_tag)
                 return None
             # normal case: no `url_data` and: "traditional" `url` or no `url`
-            return result
+            return result_dict
         if url is None or not url.startswith(PROVISIONAL_URL_SEARCH_KEY_PREFIX):
             LOGGER.error(
                 '`url_data` present (%a) but `url` (%a) does not '
@@ -1408,24 +1435,28 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
             normalizer, param_urls_norm = url_norm_cache_item
         else:
             normalizer = functools.partial(normalize_url, norm_brief=url_norm_brief)
-            param_urls = self._filtering_params.get('url.b64')
-            if param_urls is not None:
+            param_urls_bin: Optional[list[bytes]] = self._filtering_params.get('url.b64')
+            if param_urls_bin is not None:
                 call_silencing_decode_err = self._call_silencing_decode_err
-                maybe_urls = (call_silencing_decode_err(normalizer, url) for url in param_urls)
+                maybe_urls = (call_silencing_decode_err(normalizer, url) for url in param_urls_bin)
                 param_urls_norm = frozenset(url for url in maybe_urls
                                             if url is not None)
             else:
                 param_urls_norm = None
             url_norm_cache[url_norm_brief] = normalizer, param_urls_norm
 
-        url_orig_bin = base64.urlsafe_b64decode(url_orig_b64)
-        url_normalized = normalizer(url_orig_bin)
+        NormalizedURL = Union[str, bytes]  # noqa
+        normalizer: Callable[[bytes], NormalizedURL]
+        param_urls_norm: Optional[Set[NormalizedURL]]
+
+        url_orig_bin: bytes = base64.urlsafe_b64decode(url_orig_b64)
+        url_normalized: NormalizedURL = normalizer(url_orig_bin)
 
         if param_urls_norm is not None and url_normalized not in param_urls_norm:
             # application-level filtering
             return None
 
-        result['url'] = (
+        result_dict['url'] = (
             url_normalized if isinstance(url_normalized, str)
             else as_str_with_minimum_esc(url_normalized))
         ## TODO later?
@@ -1437,26 +1468,30 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
         #     url_orig = url_orig_bin
         #     assert isinstance(url_orig, bytes)
         #
-        # result['url'] = as_str_with_minimum_esc(url_normalized)
-        # result['url_orig_ascii'] = ascii(url_orig)
-        # result['url_orig_b64'] = url_orig_b64
-        return result
+        # result_dict['url'] = as_str_with_minimum_esc(url_normalized)
+        # result_dict['url_orig_ascii'] = ascii(url_orig)
+        # result_dict['url_orig_b64'] = url_orig_b64
+
+        return result_dict
+
+    _NormalizedURL = TypeVar('_NormalizedURL', bytes, str)
 
     @staticmethod
-    def _call_silencing_decode_err(normalizer, url):
+    def _call_silencing_decode_err(normalizer: Callable[[bytes], _NormalizedURL],
+                                   url: bytes,
+                                   ) -> Optional[_NormalizedURL]:
         try:
             return normalizer(url)
         except UnicodeDecodeError:
             return None
 
     @staticmethod
-    def _get_event_tag_for_logging(result):
-        # type: (ResultDict) -> Str
+    def _get_event_tag_for_logging(result_dict: ResultDict) -> str:
         try:
             return (
                 '(@event whose id is {}, time is {}, modified is {})'.format(
-                    result.get('id', 'not set'),
-                    result.get('time', 'not set'),
-                    result.get('modified', 'not set')))
+                    result_dict.get('id', 'not set'),
+                    result_dict.get('time', 'not set'),
+                    result_dict.get('modified', 'not set')))
         except (AttributeError, ValueError, TypeError):  # a bit of paranoia :)
             return '(@unknown event)'

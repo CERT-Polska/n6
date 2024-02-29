@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2022 NASK. All rights reserved.
+# Copyright (c) 2018-2024 NASK. All rights reserved.
 
 import datetime
 import unittest
@@ -23,6 +23,7 @@ from n6lib.auth_db.models import (
     CriteriaIPNetwork,
     CriteriaName,
     Component,
+    RecentWriteOpCommit,
     DependantEntity,
     EMailNotificationAddress,
     EMailNotificationTime,
@@ -33,6 +34,8 @@ from n6lib.auth_db.models import (
     EntityExtraIdType,
     EntityIPNetwork,
     EntitySector,
+    IgnoreList,
+    IgnoredIPNetwork,
     InsideFilterASN,
     InsideFilterCC,
     InsideFilterFQDN,
@@ -343,20 +346,43 @@ class TestValidators(unittest.TestCase):
                                   expected_msg_pattern)
 
     @foreach(
-        '1.2.3.4/0',
-        '    11.22.33.44/10      ',
-        '127.0.0.1/28',
-        '0.0.0.0/0',
+        param(
+            val='1.2.3.4/0',
+            expected_adjusted_val='1.2.3.4/0',
+        ),
+        param(
+            val='    11.22.33.44/10      ',
+            expected_adjusted_val='11.22.33.44/10',
+        ),
+        param(
+            val='127.0.0.1/28',
+            expected_adjusted_val='127.0.0.1/28',
+        ),
+        param(
+            val='0.0.0.0/0',
+            expected_adjusted_val='0.0.0.0/0',
+        ),
+        param(
+            val='11.22.33.44/32',
+            expected_adjusted_val='11.22.33.44/32',
+        ),
+        param(
+            val='11.22.33.44',
+            expected_adjusted_val='11.22.33.44/32',  # [sic]
+        ),
     )
     @foreach(
         InsideFilterIPNetwork,
         OrgConfigUpdateRequestIPNetwork,
         RegistrationRequestIPNetwork,
         CriteriaIPNetwork,
+        IgnoredIPNetwork,
         EntityIPNetwork,
     )
-    def test_ip_network(self, model, val):
-        self._test_proper_values(model, {'ip_network': val}, expecting_stripped_string=True)
+    def test_ip_network(self, model, val, expected_adjusted_val):
+        obj = model(ip_network=val)
+        adjusted_val = obj.ip_network
+        self.assertEqual(adjusted_val, expected_adjusted_val)
 
     @foreach(
         '1122334428',
@@ -374,10 +400,11 @@ class TestValidators(unittest.TestCase):
         OrgConfigUpdateRequestIPNetwork,
         RegistrationRequestIPNetwork,
         CriteriaIPNetwork,
+        IgnoredIPNetwork,
         EntityIPNetwork,
     )
     def test_illegal_ip_network(self, model, val):
-        expected_msg_pattern = r'\bnot a valid CIDR IPv4 network specification\b'
+        expected_msg_pattern = r'\bneither a .* CIDR IPv4 network .* nor a single IPv4 address\b'
         self._test_illegal_values(model,
                                   {'ip_network': val},
                                   FieldValueError,
@@ -388,6 +415,7 @@ class TestValidators(unittest.TestCase):
         OrgConfigUpdateRequestIPNetwork,
         RegistrationRequestIPNetwork,
         CriteriaIPNetwork,
+        IgnoredIPNetwork,
         EntityIPNetwork,
     )
     def test_wrong_type_ip_network(self, model):
@@ -743,6 +771,36 @@ class TestValidators(unittest.TestCase):
         adjusted_val = getattr(obj, tested_arg)
         self.assertEqual(adjusted_val, expected_adjusted_val)
 
+    @foreach([
+        param(model=RecentWriteOpCommit, tested_arg='made_at'),
+    ])
+    @foreach(
+        param(
+            val=datetime.datetime(1970, 1, 1, 0, 0, 0),
+            expected_adjusted_val=datetime.datetime(1970, 1, 1, 0, 0, 0),
+        ),
+        param(
+            val=datetime.datetime(1970, 1, 1, 0, 0, 0, 999999),
+            expected_adjusted_val=datetime.datetime(1970, 1, 1, 0, 0, 0, 999999),
+        ),
+        param(
+            val='1970-01-01T01:59:59.999999+01:00',
+            expected_adjusted_val=datetime.datetime(1970, 1, 1, 0, 59, 59, 999999),
+        ),
+        param(
+            val=datetime.datetime(2019, 6, 7, 8, 9, 10, 123456),
+            expected_adjusted_val=datetime.datetime(2019, 6, 7, 8, 9, 10, 123456),
+        ),
+        param(
+            val='2019-06-07 10:09:10.123456+02:00',
+            expected_adjusted_val=datetime.datetime(2019, 6, 7, 8, 9, 10, 123456),
+        ),
+    )
+    def test_datetimes_keeping_sec_fractions(self, model, tested_arg, val, expected_adjusted_val):
+        obj = model(**{tested_arg: val})
+        adjusted_val = getattr(obj, tested_arg)
+        self.assertEqual(adjusted_val, expected_adjusted_val)
+
     @foreach(
         param(model=Cert, tested_arg='created_on'),
         param(model=Cert, tested_arg='valid_from'),
@@ -756,6 +814,7 @@ class TestValidators(unittest.TestCase):
         param(model=User, tested_arg='mfa_key_base_modified_on'),
         param(model=WebToken, tested_arg='created_on'),
         param(model=UserSpentMFACode, tested_arg='spent_on'),
+        param(model=RecentWriteOpCommit, tested_arg='made_at'),
     )
     @foreach(
         param(val=datetime.datetime(1810, 1, 1, 0, 0, 0)),
@@ -780,6 +839,7 @@ class TestValidators(unittest.TestCase):
         param(model=User, tested_arg='mfa_key_base_modified_on'),
         param(model=WebToken, tested_arg='created_on'),
         param(model=UserSpentMFACode, tested_arg='spent_on'),
+        param(model=RecentWriteOpCommit, tested_arg='made_at'),
     )
     @foreach(
         param(val='1970-01-01TT01:59:59.999999+01:00'),
@@ -833,6 +893,7 @@ class TestValidators(unittest.TestCase):
         param(model=CriteriaContainer, tested_arg='label'),
         param(model=Subsource, tested_arg='label'),
         param(model=SubsourceGroup, tested_arg='label'),
+        param(model=IgnoreList, tested_arg='label'),
         param(model=SystemGroup, tested_arg='name'),
         param(model=CACert, tested_arg='ca_label'),
     )
@@ -863,6 +924,7 @@ class TestValidators(unittest.TestCase):
         param(model=Subsource, tested_arg='label'),
         param(model=SubsourceGroup, tested_arg='label'),
         param(model=CriteriaContainer, tested_arg='label'),
+        param(model=IgnoreList, tested_arg='label'),
         param(model=SystemGroup, tested_arg='name'),
         param(model=Cert, tested_arg='creator_details'),
         param(model=Cert, tested_arg='revocation_comment'),
@@ -937,6 +999,7 @@ class TestValidators(unittest.TestCase):
         param(model=OrgConfigUpdateRequestIPNetwork, tested_arg='ip_network'),
         param(model=RegistrationRequestIPNetwork, tested_arg='ip_network'),
         param(model=CriteriaIPNetwork, tested_arg='ip_network'),
+        param(model=IgnoredIPNetwork, tested_arg='ip_network'),
         param(model=EntityIPNetwork, tested_arg='ip_network'),
         param(model=InsideFilterURL, tested_arg='url'),
         param(model=Source, tested_arg='source_id'),

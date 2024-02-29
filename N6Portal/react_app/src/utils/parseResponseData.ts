@@ -1,4 +1,3 @@
-import format from 'date-fns/format';
 import { IAddress, IResponseTableData, IResponse, IResponseParsedAddress } from 'api/services/globalTypes';
 
 const parseAddress = (address?: IAddress[]): IResponseParsedAddress => {
@@ -15,7 +14,7 @@ const parseAddress = (address?: IAddress[]): IResponseParsedAddress => {
 export const parseResponseData = (data: IResponse[]): IResponseTableData[] => {
   return data.map((item: IResponse) => {
     const { address, ...rest } = item;
-    const time = format(new Date(rest['time']), 'yyyy-MM-dd HH:mm:ss');
+    const time = rest['time'].toString().replace('T', ' ').replace('Z', ' ');
     const addressData: IResponseParsedAddress = parseAddress(address);
     return { ...rest, time, ...addressData };
   });

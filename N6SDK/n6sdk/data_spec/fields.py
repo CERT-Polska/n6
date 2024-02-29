@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 """
 .. note::
@@ -252,6 +252,8 @@ class DateTimeField(Field):
     For date-and-time (timestamp) values, automatically normalized to UTC.
     """
 
+    keep_sec_fraction = True
+
     def clean_param_value(self, value):
         """
         The input `value` should be an *ISO-8601*-formatted :class:`str`.
@@ -260,7 +262,10 @@ class DateTimeField(Field):
         i.e. not aware of any timezone).
         """
         value = super(DateTimeField, self).clean_param_value(value)
-        return self._parse_datetime_string(value)
+        value = self._parse_datetime_string(value)
+        if not self.keep_sec_fraction:
+            value = value.replace(microsecond=0)
+        return value
 
     def clean_result_value(self, value):
         """
@@ -272,6 +277,12 @@ class DateTimeField(Field):
         i.e. not aware of any timezone).
         """
         value = super(DateTimeField, self).clean_result_value(value)
+        value = self._as_naive_utc_datetime(value)
+        if not self.keep_sec_fraction:
+            value = value.replace(microsecond=0)
+        return value
+
+    def _as_naive_utc_datetime(self, value):
         if isinstance(value, datetime.datetime):
             return datetime_utc_normalize(value)
         if isinstance(value, (bytes, bytearray)):
@@ -623,6 +634,9 @@ class IPv4Field(UnicodeLimitedField, UnicodeRegexField):
     error_msg_template = '"{}" is not a valid IPv4 address'
     max_length = 15  # <- formally redundant but may improve introspection
 
+    # TODO: analyze whether we should change the behavior -- to
+    #       accept and maybe also produce `ipaddress.*` objects
+
 
 class IPv6Field(UnicodeField):
 
@@ -641,6 +655,9 @@ class IPv6Field(UnicodeField):
 
     error_msg_template = '"{}" is not a valid IPv6 address'
     max_length = 39  # <- not used at all but may improve introspection
+
+    # TODO later: analyze whether we should change the behavior -- to
+    #             accept and maybe also produce `ipaddress.*` objects
 
     def clean_param_value(self, value):
         ipv6_obj = super(IPv6Field, self).clean_param_value(value)
@@ -704,8 +721,20 @@ class IPv4NetField(UnicodeLimitedField, UnicodeRegexField):
                           'IPv4 network specification')
     max_length = 18  # <- formally redundant but may improve introspection
 
-    # XXX: shouldn't we change the behavior
-    #      to trim the host (non-network) bits?
+    accept_bare_ip = False
+
+    # maybe TODO: add + implement support for: trim_host_bits = <False|True> (but first see #8949)
+
+    # TODO: analyze whether we should change the behavior -- to
+    #       accept and maybe also produce `ipaddress.*` objects
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.accept_bare_ip:
+            self.error_msg_template = self.error_msg_template.replace(
+                'is not a valid CIDR IPv4 network specification',
+                'is neither a valid CIDR IPv4 network specification '
+                'nor a single IPv4 address')
 
     def clean_param_value(self, value):
         value = super(IPv4NetField, self).clean_param_value(value)
@@ -728,6 +757,12 @@ class IPv4NetField(UnicodeLimitedField, UnicodeRegexField):
                     self.error_msg_template.format(ascii_str(value))))
         # returning a str
         return super(IPv4NetField, self).clean_result_value(value)
+
+    def _fix_value(self, value):
+        value = super()._fix_value(value)
+        if self.accept_bare_ip and IPv4_STRICT_DECIMAL_REGEX.search(value):
+            value = f'{value}/32'
+        return value
 
 
 class IPv6NetField(UnicodeField):
@@ -764,8 +799,11 @@ class IPv6NetField(UnicodeField):
                           'IPv6 network specification')
     max_length = 43  # <- not used at all but may improve introspection
 
-    # XXX: shouldn't we change the behavior
-    #      to trim the host (non-network) bits?
+    # TODO later: add + implement support for: accept_bare_ip = <False|True>
+    # maybe TODO later: add + implement support for: trim_host_bits = <False|True> (see #8949...)
+
+    # TODO later: analyze whether we should change the behavior -- to
+    #             accept and maybe also produce `ipaddress.*` objects
 
     def clean_param_value(self, value):
         ipv6_obj, prefixlen = super(IPv6NetField, self).clean_param_value(value)

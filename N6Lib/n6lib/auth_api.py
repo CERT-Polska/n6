@@ -1,24 +1,47 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 import collections
 import bisect
+import contextlib
+import copy
 import datetime
+import fcntl
 import fnmatch
 import functools
+import ipaddress
+import json
+import math
 import os
+import pathlib
+import pickle
 import re
 import time
 import traceback
 import threading
+from collections.abc import (
+    Iterable,
+    Mapping,
+)
+from typing import (
+    TypedDict,
+    Union,
+)
 
+from sqlalchemy import (
+    null,
+    text as sqla_text,
+)
 from sqlalchemy.exc import SQLAlchemyError
 
 from n6lib.api_key_auth_helper import (
     APIKeyAuthError,
     APIKeyAuthHelper,
 )
+from n6lib.class_helpers import (
+    LackOf,
+    attr_repr,
+)
 from n6lib.common_helpers import (
-    LimitedDict,
     ascii_str,
     ip_network_as_tuple,
     ip_network_tuple_to_min_max_ip,
@@ -27,21 +50,29 @@ from n6lib.common_helpers import (
     memoized,
     deep_copying_result,
 )
-from n6lib.config import Config
+from n6lib.config import (
+    Config,
+    ConfigError,
+    ConfigMixin,
+    combined_config_spec,
+)
 from n6lib.const import CLIENT_ORGANIZATION_MAX_LENGTH
 from n6lib.context_helpers import ThreadLocalContextDeposit
 from n6lib.data_selection_tools import (
     Cond,
     CondBuilder,
+    CondVisitor,
+    CondTransformer,
     CondDeMorganTransformer,
     CondEqualityMergingTransformer,
     CondFactoringTransformer,
     ## XXX: uncomment when predicates stuff in `_DataPreparer` supports new `Cond` et consortes.
     #CondPredicateMaker,
-    CondVisitor,
     EqualCond,
     InCond,
     IsNullCond,
+    IsTrueCond,
+    OrCond,
     RecItemCond,
 )
 from n6lib.db_events import n6NormalizedData
@@ -50,6 +81,7 @@ from n6lib.db_filtering_abstractions import (
     PredicateConditionBuilder as LegacyPredicateConditionBuilder,
     SQLAlchemyConditionBuilder as LegacySQLAlchemyConditionBuilder,
 )
+from n6lib.file_helpers import SignedStampedFileAccessor
 from n6lib.jwt_helpers import (
     JWT_ALGO_RSA_SHA256,
     JWTDecodeError,
@@ -58,7 +90,6 @@ from n6lib.jwt_helpers import (
 from n6lib.log_helpers import get_logger
 from n6lib.ldap_api_replacement import (
     LdapAPI,
-    LdapAPIConnectionError,
     LdapAPIReplacementWrongOrgUserAPIKeyIdError,
     get_attr_value,
     get_attr_value_list,
@@ -70,6 +101,7 @@ from n6lib.typing_helpers import (
     AccessZone,
     EventDataResourceId,
 )
+from n6sdk.addr_helpers import IPv4Container
 
 
 
@@ -134,7 +166,7 @@ class AuthAPICommunicationError(AuthAPIError):
     """Raised when low-level communication is broken."""
 
     def __init__(self, exc_info_msg, low_level_exc=None):
-        super(AuthAPICommunicationError, self).__init__(self, exc_info_msg, low_level_exc)
+        super().__init__(self, exc_info_msg, low_level_exc)
         self.exc_info_msg = exc_info_msg
         self.low_level_exc = low_level_exc
 
@@ -143,32 +175,37 @@ class AuthAPICommunicationError(AuthAPIError):
 
 
 
-# This is a decorator for those AuthAPI methods which use AuthAPI's
-# get_ldap_root_node().  Those methods must be argumentless.
-# Their results will be cached as long as the result of
-# AuthAPI._get_root_node()'s is cached.
+# This is a decorator for those `AuthAPI` methods which use `AuthAPI`'s
+# `get_ldap_root_node()`. Those *methods must be argumentless*. Their
+# return values are always memoized per *root node* object (that is, as
+# long as `AuthAPI`'s `_get_root_node()` returns the same object).
 def cached_basing_on_ldap_root_node(func):
     NO_RESULT = object()
-    per_func_cache = [(None, NO_RESULT)]  # <root node>, <cached result>
+    mutex = threading.RLock()
+    method_name = func.__name__
 
     @functools.wraps(func)
     def func_wrapper(self):
         with self:
             root_node = self.get_ldap_root_node()
-            assert root_node is not None
-            recent_root_node, result = per_func_cache[0]
-            if recent_root_node is not root_node:
-                result = func(self)
-                per_func_cache[0] = root_node, result
-            assert result is not NO_RESULT
+            cache = root_node['_method_name_to_result_']
+
+            with mutex:
+                result = cache.get(method_name, NO_RESULT)
+                if result is NO_RESULT:
+                    result = cache[method_name] = func(self)
+
             return result
 
     func_wrapper.func = func  # making the original function still available
+
+    _names_of_methods_cached_basing_on_ldap_root_node.add(method_name)
     return func_wrapper
 
+_names_of_methods_cached_basing_on_ldap_root_node = set()
 
 
-class AuthAPI(object):
+class AuthAPI(ConfigMixin):
 
     """
     An API that provides common set of authentication/authorization methods.
@@ -193,16 +230,17 @@ class AuthAPI(object):
     manager (see: n6lib.pyramid_commons.auth_api_context_tween_factory).
     """
 
-    config_spec = '''
+    config_spec = combined_config_spec('''
         [api_key_based_auth]
         server_secret = :: str
-    '''
+    ''')
 
     def __init__(self, settings=None):
+        self.__last_root_node = None
         self._root_node_deposit = ThreadLocalContextDeposit(repr_token=self.__class__.__qualname__)
+        self._config_full = self.get_config_full(settings)
         self._ldap_api = LdapAPI(settings)
         self._data_preparer = _DataPreparer()
-        self._config_full = Config(self.config_spec, settings=settings)
         self._api_key_auth_helper = APIKeyAuthHelper(
             self._config_full['api_key_based_auth']['server_secret'],
             self._authenticate_with_user_id_and_api_key_id)
@@ -328,6 +366,19 @@ class AuthAPI(object):
         return self._data_preparer.get_inside_criteria_resolver(
             self.get_ldap_root_node())
 
+    # note: @deep_copying_result is unnecessary here as the public interface
+    # of the returned object does not include any mutating methods or properties
+    @cached_basing_on_ldap_root_node
+    def get_ignore_lists_criteria_resolver(self):
+        """
+        Returns a callable object (typically already cached) which,
+        when applied to a `RecordDict`, returns `True` if the event
+        represented by it should be makred as *ignored*, and `False`
+        otherwise.
+        """
+        return self._data_preparer.get_ignore_lists_criteria_resolver(
+            self.get_ldap_root_node())
+
     @deep_copying_result  # <- just defensive programming
     @cached_basing_on_ldap_root_node
     def get_anonymized_source_mapping(self):
@@ -372,7 +423,17 @@ class AuthAPI(object):
 
         Returns:
             None or a dictionary (for a single organization), provided by
-            getting: <AuthAPI instance>.get_org_ids_to_access_infos().get(<org id>)
+            executing the following procedure:
+
+            * (1) invoke `<AuthAPI obj>.get_org_ids_to_access_infos().get(<org id>)`,
+            * (2) then:
+              * (a) if the result is None or the legacy mode is active, return
+                that result intact;
+              * (b) otherwise, make a deep copy of that result and then convert
+                all `n6lib.data_selection_tools.Cond` instances in the contents
+                of the `access_zone_conditions` items of that copy (in place)
+                to instances of `sqlalchemy.sql.expression.ColumnElement` (that
+                represent SQL conditions).
 
         Note: even if the organization exists, this method may still
         return None (this is the case when the organization has no
@@ -381,6 +442,9 @@ class AuthAPI(object):
         org_id = auth_data['org_id']
         all_access_infos = self.get_org_ids_to_access_infos()
         access_info = all_access_infos.get(org_id)
+        if (access_info is not None
+              and not self._data_preparer._using_legacy_version_of_access_filtering_conditions):
+            access_info = self._data_preparer.obtain_ready_access_info(access_info)
         assert (access_info is None
                 or (isinstance(access_info, dict)
                     and access_info.keys() == {
@@ -411,8 +475,9 @@ class AuthAPI(object):
             <organization id (str)>: {
                 'access_zone_conditions': {
                     <access zone: 'inside' or 'threats' or 'search'>: [
-                        <an sqlalchemy.sql.expression.ColumnElement instance
-                         implementing SQL condition for a subsource>,
+                        <an instance of `n6lib.data_selection_tools.Cond` (or of
+                         `sqlalchemy.sql.expression.ColumnElement` in the legacy mode),
+                         representing subsources criteria + `full_access` flag etc.>,
                         ...
                     ],
                     ...
@@ -467,8 +532,9 @@ class AuthAPI(object):
         'internal'` condition for organizations for whom
         `rest_api_full_access` is False.
         """
-        return self._data_preparer.get_org_ids_to_access_infos(
+        result = self._data_preparer.get_org_ids_to_access_infos(
             self.get_ldap_root_node())
+        return result
 
     # note: @deep_copying_result is unnecessary here as results are purely immutable
     def get_org_actual_name(self, auth_data):
@@ -738,102 +804,161 @@ class AuthAPI(object):
             self.get_ldap_root_node())
 
     #
-    # Non-public, but overridable, methods
+    # Non-public (but overridable) methods
 
     @memoized(expires_after=600, max_size=3)
     def _get_root_node(self):
+        if not self._is_up_to_date(self.__last_root_node):
+            self.__last_root_node = None  # (root nodes may take huge amounts of memory)
+            self.__last_root_node = self._fetch_fresh_root_node(self._ldap_api)
+        return self.__last_root_node
+
+    def _is_up_to_date(self, root_node):
+        if root_node is not None:
+            ver, timestamp = self._peek_database_ver_and_timestamp(self._ldap_api)
+            extra = root_node['_extra_']
+            return bool(ver == extra['ver']
+                        and timestamp == extra['timestamp'])
+        return False
+
+    @staticmethod
+    def _peek_database_ver_and_timestamp(ldap_api_cm):
         try:
-            with self._ldap_api as ldap_api:
-                return ldap_api.search_structured()
-        except (LdapAPIConnectionError, SQLAlchemyError) as exc:
+            with ldap_api_cm as ldap_api:
+                return ldap_api.peek_database_ver_and_timestamp()
+        except SQLAlchemyError as exc:
             raise AuthAPICommunicationError(traceback.format_exc(), exc)
 
+    @staticmethod
+    def _fetch_fresh_root_node(ldap_api_cm):
+        try:
+            with ldap_api_cm as ldap_api:
+                root_node = ldap_api.search_structured()
+        except SQLAlchemyError as exc:
+            raise AuthAPICommunicationError(traceback.format_exc(), exc)
+        else:
+            root_node['_method_name_to_result_'] = {}
+            return root_node
 
-
-def _make_method_with_result_cache_bound_to_prefetched_root_nodes(
-        parent_qualname,
-        name,
-        list_of_such_method_names):
-
-    def method_func(self):
-        assert hasattr(AuthAPI, name)
-        assert hasattr(_DataPreparer, name)
-        with self:
-            root_node = self.get_ldap_root_node()
-            method_to_cached_result = self._result_cache_bound_to_prefetched_root_nodes[root_node]
-            try:
-                return method_to_cached_result[name]
-            except KeyError:
-                # Honestly, this should not happen, unless some
-                # `with <AuthAPIWithPrefetching instance>: ...`
-                # block lasts a few dozens of minutes (hardly
-                # probable); anyway, in such a case we still
-                # obtain the desired data, just with a worse
-                # performance (which then should not matter).
-                AuthAPI_method = getattr(AuthAPI, name)
-                return AuthAPI_method(self)
-
-    method_func.__name__ = name
-    method_func.__qualname__ = '{}.{}'.format(parent_qualname, name)
-    list_of_such_method_names.append(name)
-
-    return method_func
 
 
 class AuthAPIWithPrefetching(AuthAPI):
 
     """
-    A variant of the Auth API that spawns an internal *prefetch
-    task* that refreshes the data cache in the background.  Thanks
-    to that we can eliminate the nasty delays encountered on
-    data cache expiration by the base variant of the Auth API.
+    A variant of the Auth API that spawns an internal *prefetch task*
+    that refreshes the data cache in the background. Thanks to that we
+    can eliminate the nasty delays the base variant of Auth API suffers
+    from when there is a need to load fresh data.
     """
 
-    # Note: we want the *prefetch task* to repeatedly obtain
-    # the following data in the background (as obtaining
-    # them in the foreground is too much time-consuming,
-    # at least in the case of the REST API and Portal):
+    # Note: we want the *prefetch task* to repeatedly obtain the
+    # following data in the background (as obtaining them in the
+    # foreground would be too much time-consuming, at least in
+    # the case of the REST API and Portal):
     #
-    # * the "root node", i.e., the result of calling the
+    # * the *root node*, i.e., the result of calling the
     #   `LdapAPI`'s method `search_structured()` (which
     #   involves a lot of Auth DB queries as well as much
     #   of Python-level data processing);
     #
     # * the results of certain Auth API's public methods
-    #   -- such ones that use the "root node" as their input,
-    #   and involve much of additional, time-consuming, data
+    #   -- such ones that use the *root node* as their input,
+    #   and involve much of additional time-consuming data
     #   processing.
     #
     # At the same time, we *do* want to keep the guarantee that Auth
     # API's public methods provide consistent results when used within
-    # the same `with <Auth API instance>:` block.  That's why we make
-    # the task's future object expose the "root node" as its result
-    # value *and* use the `_result_cache_bound_to_prefetched_root_nodes`
-    # key-value store -- keyed by "root node" objects -- to cache the
-    # results of the most time-consuming Auth API's public methods.
+    # the same `with <Auth API instance>:` block.  That's why the task's
+    # future object provides the most recently fetched *root node* as
+    # its result -- after populating its '_method_name_to_result_' item
+    # (being the `@cached_basing_on_ldap_root_node`'s machinery cache
+    # dict) with results of most time-consuming public methods of Auth
+    # API.
 
 
-    _SLEEP_BETWEEN_PREFETCH_TASK_FUNCTION_CALLS = 300
+    #
+    # Configuration-related stuff
 
-    _methods_with_result_cache_bound_to_prefetched_root_nodes = []
+    config_spec = combined_config_spec('''
+        [auth_api_prefetching]
 
+        max_sleep_between_runs = 12 :: int
+        tolerance_for_outdated = 300 :: int
+        tolerance_for_outdated_on_error = 1200 :: int
+
+        pickle_cache_dir = :: path_or_none
+        pickle_cache_signature_secret = :: secret_or_none
+    ''')
+
+    @property
+    def custom_converters(self):
+        SECRET_MIN_LENGTH = 64
+
+        conv_path = Config.BASIC_CONVERTERS['path']
+        conv_bytes = Config.BASIC_CONVERTERS['bytes']
+
+        def conv_path_or_none(val):
+            if not val.strip():
+                return None
+            return conv_path(val)
+
+        def conv_secret_or_none(val):
+            if not val.strip():
+                return None
+            if len(val) < SECRET_MIN_LENGTH:
+                raise ValueError(f'not allowed to be shorter than {SECRET_MIN_LENGTH} characters')
+            return conv_bytes(val)
+
+        return {
+            'path_or_none': conv_path_or_none,
+            'secret_or_none': conv_secret_or_none,
+        }
+
+    def get_config_full(self, /, *args, **kwargs):
+        SECT = 'auth_api_prefetching'
+        OPT_TO_MINIMUM_VALUE = {
+            'max_sleep_between_runs': 5,
+            'tolerance_for_outdated': 60,
+            'tolerance_for_outdated_on_error': 0,
+        }
+        DIR_OPT = 'pickle_cache_dir'
+        SECRET_OPT = 'pickle_cache_signature_secret'
+        config_full = super().get_config_full(*args, **kwargs)
+        config = config_full[SECT]
+        for opt, min_value in OPT_TO_MINIMUM_VALUE.items():
+            if config[opt] < min_value:
+                raise ConfigError(f'{SECT}.{opt} is too small (should be >= {min_value!a})')
+        if config[DIR_OPT] is not None and config[SECRET_OPT] is None:
+            raise ConfigError(f'`{SECT}.{DIR_OPT}` is set, whereas `{SECT}.{SECRET_OPT}` is not')
+        if config[SECRET_OPT] is not None and config[DIR_OPT] is None:
+            raise ConfigError(f'`{SECT}.{SECRET_OPT}` is set, whereas `{SECT}.{DIR_OPT}` is not')
+        assert (config[DIR_OPT] and config[SECRET_OPT]
+                or (config[DIR_OPT] is None and config[SECRET_OPT] is None))
+        return config_full
+
+
+    #
+    # Initialization
 
     def __init__(self, settings=None):
-        super(AuthAPIWithPrefetching, self).__init__(settings=settings)
-
-        self._result_cache_bound_to_prefetched_root_nodes = (
-            _IdentityBasedThreadSafeCache(max_size=3))
+        super().__init__(settings=settings)
 
         self._prefetch_task_data_preparer = _DataPreparer()
+
+        (task_target_func,
+         loop_iteration_hook) = self._get_prefetch_task_functions()
+
+        prefetch_task_initial_trigger_event = threading.Event()
+
         self._prefetch_task = LoopedTask(
-            target=self._get_prefetch_task_func(),
-            loop_iteration_hook=self._get_loop_iteration_hook(),
+            target=task_target_func,
+            loop_iteration_hook=loop_iteration_hook,
             cancel_and_join_at_python_exit=True,
 
-            # This initial delay is added to make sure that the
-            # following *tick-callback*-related stuff is set up
+            # This initial suspension is added to make sure that the
+            # *tick-callback*-related stuff (see below...) is set up
             # before the start of the actual task's operation.
-            initial_sleep=0.5)
+            initial_trigger_event=prefetch_task_initial_trigger_event)
 
         self._future = self._prefetch_task.async_start()
 
@@ -845,20 +970,11 @@ class AuthAPIWithPrefetching(AuthAPI):
         self._ldap_api.tick_callback = backends_tick_callback
         self._prefetch_task_data_preparer.tick_callback = backends_tick_callback
 
+        prefetch_task_initial_trigger_event.set()
+
 
     #
-    # Overridden AuthAPI methods
-
-    get_org_ids_to_access_infos = _make_method_with_result_cache_bound_to_prefetched_root_nodes(
-        'AuthAPIWithPrefetching',
-        'get_org_ids_to_access_infos',
-        _methods_with_result_cache_bound_to_prefetched_root_nodes)
-
-    get_org_ids_to_combined_configs = _make_method_with_result_cache_bound_to_prefetched_root_nodes(
-        'AuthAPIWithPrefetching',
-        'get_org_ids_to_combined_configs',
-        _methods_with_result_cache_bound_to_prefetched_root_nodes)
-
+    # Overridden `AuthAPI` methods
 
     def _get_root_node(self):
         return self._future.result()
@@ -867,37 +983,446 @@ class AuthAPIWithPrefetching(AuthAPI):
     #
     # Internal helpers
 
-    def _get_prefetch_task_func(self):
-        ldap_api_cm = self._ldap_api
-        preparer = self._prefetch_task_data_preparer
+    _NAMES_OF_METHODS_WITH_RESULT_PREFETCHING = (
+        'get_org_ids_to_access_infos',
+        'get_org_ids_to_combined_configs',
+    )
 
-        methods_with_result_cache = self._methods_with_result_cache_bound_to_prefetched_root_nodes
-        result_cache = self._result_cache_bound_to_prefetched_root_nodes
+    def _get_prefetch_task_functions(self):
 
-        def prefetch_task_func():
-            try:
-                with ldap_api_cm as ldap_api:
-                    root_node = ldap_api.search_structured()
-            except (LdapAPIConnectionError, SQLAlchemyError) as exc:
-                raise AuthAPICommunicationError(traceback.format_exc(), exc)
-            else:
-                method_to_cached_result = result_cache[root_node]
-                for name in methods_with_result_cache:
-                    method = getattr(preparer, name)
-                    method_to_cached_result[name] = method(root_node)
-                return root_node
+        # Dedicated `_DataPreparer` instance
 
-        return prefetch_task_func
+        preparer = self._prefetch_task_data_preparer  # (see above: `__init__()`)
 
 
-    @classmethod
-    def _get_loop_iteration_hook(cls):
-        max_duration = cls._SLEEP_BETWEEN_PREFETCH_TASK_FUNCTION_CALLS
+        # Local constants
+
+        assert all(
+            (method_name in _names_of_methods_cached_basing_on_ldap_root_node
+             and hasattr(self, method_name)
+             and hasattr(preparer, method_name))
+            for method_name in self._NAMES_OF_METHODS_WITH_RESULT_PREFETCHING)
+
+        METHOD_NAME_TO_OBJ = {
+            method_name: getattr(preparer, method_name)
+            for method_name in self._NAMES_OF_METHODS_WITH_RESULT_PREFETCHING}
+
+        SAFE_RESERVE_MULTIPLIER = 1.5
+
+        (MAX_SLEEP_BETWEEN_RUNS,
+         TOLERANCE_FOR_OUTDATED,
+         TOLERANCE_FOR_OUTDATED_ON_ERROR,
+         PICKLE_FILE_PATH,
+         PICKLE_SIGNATURE_SECRET) = self._get_configured_values()
+
+        assert isinstance(MAX_SLEEP_BETWEEN_RUNS, int)
+        assert isinstance(TOLERANCE_FOR_OUTDATED, int)
+        assert isinstance(TOLERANCE_FOR_OUTDATED_ON_ERROR, int)
+        assert (isinstance(PICKLE_FILE_PATH, pathlib.Path) and PICKLE_FILE_PATH.is_absolute() and
+                isinstance(PICKLE_SIGNATURE_SECRET, bytes) and PICKLE_SIGNATURE_SECRET
+                or (PICKLE_FILE_PATH is None and
+                    PICKLE_SIGNATURE_SECRET is None))
+
+        PICKLE_CACHE_ENABLED = (PICKLE_FILE_PATH is not None)
+
+
+        # Helper stuff (implemented outside this method)
+
+        peek_database_ver_and_timestamp = functools.partial(
+            self._peek_database_ver_and_timestamp,
+            self._ldap_api)
+
+        fetch_fresh_root_node = functools.partial(
+            self._fetch_fresh_root_node,
+            self._ldap_api)
+
+        if PICKLE_CACHE_ENABLED:
+            pickle_storage = _PrefetchingPickleStorage(
+                PICKLE_FILE_PATH,
+                pickle_signature_secret=PICKLE_SIGNATURE_SECRET)
+            synchronizer = _InterprocessPrefetchingSynchronizer(
+                PICKLE_FILE_PATH,
+                min_safe_job_duration=(MAX_SLEEP_BETWEEN_RUNS * SAFE_RESERVE_MULTIPLIER))
+        else:
+            pickle_storage = None
+            synchronizer = contextlib.ExitStack()  # <- (dummy synchronizer)
+
+
+        # State variables
+
+        sleep = MAX_SLEEP_BETWEEN_RUNS
+        last_root_node = LackOf
+
+
+        # Actual implementation
+
+        def task_target_func():
+            LOGGER.info('Prefetching task *starts*...')
+
+            while True:
+                try:
+                    root_node = _try_to_prefetch()
+                except Exception as exc:
+                    fallback_root_node = _handle_prefetching_error(exc)
+                    assert fallback_root_node
+                    return fallback_root_node
+
+                if root_node is not None:
+                    break
+
+            _log_prefetching_success(root_node)
+            assert root_node
+            return root_node
+
 
         def loop_iteration_hook(future):
-            future.sleep_until_cancelled(max_duration)
+            nonlocal last_root_node
+            last_root_node = future.peek_result(default=LackOf)
 
-        return loop_iteration_hook
+            future.sleep_until_cancelled(sleep)
+
+
+        def _try_to_prefetch():
+            with synchronizer:
+                database_ver, database_ts = peek_database_ver_and_timestamp()
+                pickle_ver, pickle_ts, recent_job_duration = _maybe_get_pickle_meta_values()
+                last_ver, last_ts = _maybe_get_last_root_node_ver_and_timestamp()
+
+                (pickle_ver, pickle_ts, recent_job_duration,
+                 last_ver, last_ts,
+                 ) = _initial_checks_and_adjustments(database_ver, database_ts,
+                                                     pickle_ver, pickle_ts, recent_job_duration,
+                                                     last_ver, last_ts)
+
+                assert pickle_ver <= database_ver or not pickle_ver
+                assert last_ver <= database_ver or not last_ver
+                assert last_ver <= pickle_ver or not last_ver or not pickle_ver
+
+                _set_sleep(MAX_SLEEP_BETWEEN_RUNS)
+
+                if last_ver == database_ver:
+                    LOGGER.info("The last returned root node is still "
+                                "the fresh one => let's use it again.")
+                    return last_root_node
+                if last_ver and (last_ver == pickle_ver or not pickle_ver):
+                    assert last_ver < database_ver
+                    sleep_val = _compute_sleep_if_timestamp_ok(last_ts, recent_job_duration)
+                    if sleep_val is not None:
+                        LOGGER.info("The last returned root node is "
+                                    "sufficiently new => let's use it again.")
+                        _set_sleep(sleep_val)
+                        return last_root_node
+
+                if not PICKLE_CACHE_ENABLED:
+                    LOGGER.info("OK, it's time to obtain a fresh root node.")
+                    return _load_fresh_root_node()
+
+                with _catching_and_logging_unpickling_error():
+                    if pickle_ver == database_ver:
+                        LOGGER.info("The pickled root node is the "
+                                    "fresh one => let's unpickle it.")
+                        return _unpickle_root_node(pickle_ver, pickle_ts)
+                    if pickle_ver:
+                        assert pickle_ver < database_ver
+                        sleep_val = _compute_sleep_if_timestamp_ok(pickle_ts, recent_job_duration)
+                        if sleep_val is not None:
+                            LOGGER.info("The pickled root node is sufficiently "
+                                        "new => let's unpickle it.")
+                            unpickled_root_node = _unpickle_root_node(pickle_ver, pickle_ts)
+                            _set_sleep(sleep_val)
+                            return unpickled_root_node
+
+                LOGGER.info("OK, it's time to obtain a fresh root node.")
+                assert isinstance(synchronizer, _InterprocessPrefetchingSynchronizer)
+                if synchronizer.designate_loading_and_pickling_job():
+                    # OK, it is *us* (the current process) who has been
+                    # designated to do the job of loading and pickling
+                    # fresh data... So let us do it!
+                    job_start_monotime = time.monotonic()
+                    root_node = _load_fresh_root_node()
+                    job_duration = _pickle_root_node(root_node, job_start_monotime)
+                    assert _is_nonnegative_finite(job_duration)
+
+                    # And then, let us allow other processes (if any)
+                    # to unpickle what we just loaded and pickled...
+                    synchronizer.wait_giving_others_chance_to_unpickle(job_duration)
+
+                    # We have served others, let us also serve ourselves. :-)
+                    return root_node
+
+                # OK, some other process is doing the job of loading and
+                # pickling fresh data... Let us make this function be
+                # invoked again immediately, so that we will be able to
+                # unpickle that fresh data (*root node*) as soon as it
+                # is ready.
+                return None
+
+        def _maybe_get_pickle_meta_values():
+            if PICKLE_CACHE_ENABLED:
+                assert isinstance(pickle_storage, _PrefetchingPickleStorage)
+                metadata = pickle_storage.retrieve_metadata_or_none()
+                if metadata is not None:
+                    metadata: _PrefetchingPickleStorage.PickleMetadata
+                    return (
+                        metadata['ver'],
+                        metadata['timestamp'],
+                        metadata['job_duration'],
+                    )
+            return LackOf, LackOf, LackOf
+
+        def _maybe_get_last_root_node_ver_and_timestamp():
+            if last_root_node:
+                extra = last_root_node['_extra_']
+                return (
+                    extra['ver'],
+                    extra['timestamp'],
+                )
+            assert last_root_node is LackOf
+            return LackOf, LackOf
+
+        def _initial_checks_and_adjustments(database_ver, database_ts,
+                                            pickle_ver, pickle_ts, recent_job_duration,
+                                            last_ver, last_ts):
+            # *Note:* generally, data version numbers (here: `..._ver` params,
+            # which correspond to Auth DB's `recent_write_op_commit.id`) are
+            # *unique*; but their timestamps (here: `..._ts` params, which
+            # correspond to Auth DB's `recent_write_op_commit.made_at`) are
+            # *not* necessarily unique.
+
+            def warn_unexpected(msg):
+                # The `ERROR` level is used intentionally (to make the warning "loud").
+                LOGGER.error('[LOUD WARNING] Continuing despite unexpected condition: '
+                             '%s (more info: %s).', ascii_str(msg), format_all_values())
+            def format_all_values():
+                return ascii_str(f'{database_ver=}, {database_ts=}, '
+                                 f'{pickle_ver=}, {pickle_ts=}, {recent_job_duration=}, '
+                                 f'{last_ver=}, {last_ts=}')
+
+            if not (_is_positive_int(database_ver) and _is_positive_finite(database_ts)):
+                raise AssertionError(f'incorrect `database_ver` and/or `database_ts` '
+                                     f'(more info: {format_all_values()})')
+            if not (_is_positive_int(pickle_ver) and _is_positive_finite(pickle_ts)
+                    or (pickle_ver is pickle_ts is LackOf)):
+                raise AssertionError(f'incorrect `pickle_ver` and/or `pickle_ts` '
+                                     f'(more info: {format_all_values()})')
+            if not (_is_positive_int(last_ver) and _is_positive_finite(last_ts)
+                    or (last_ver is last_ts is LackOf)):
+                raise AssertionError(f'incorrect `last_ver` and/or `last_ts` '
+                                     f'(more info: {format_all_values()})')
+            if not (_is_nonnegative_finite(recent_job_duration)
+                    or recent_job_duration is LackOf):
+                raise AssertionError(f'incorrect `recent_job_duration` '
+                                     f'(more info: {format_all_values()})')
+
+            if pickle_ver > database_ver or pickle_ts > database_ts:
+                warn_unexpected(f'`pickle_ver` > `database_ver` and/or '
+                                f'`pickle_ts` > `database_ts` (auth '
+                                f'database was rebuilt or what?) => '
+                                f'ignoring pickled stuff...')
+                pickle_ver = pickle_ts = recent_job_duration = LackOf
+            elif pickle_ver == database_ver and pickle_ts != database_ts:
+                warn_unexpected(f'`pickle_ver` == `database_ver` but '
+                                f'`pickle_ts` != `database_ts` (auth '
+                                f'database was rebuilt or what?) => '
+                                f'ignoring pickled stuff...')
+                pickle_ver = pickle_ts = recent_job_duration = LackOf
+
+            if last_ver > database_ver or last_ts > database_ts:
+                warn_unexpected(f'`last_ver` > `database_ver` and/or '
+                                f'`last_ts` > `database_ts` (auth '
+                                f'database was rebuilt or what?) => '
+                                f'ignoring last returned stuff...')
+                last_ver = last_ts = LackOf
+            elif last_ver == database_ver and last_ts != database_ts:
+                warn_unexpected(f'`last_ver` == `database_ver` but '
+                                f'`last_ts` != `database_ts` (auth '
+                                f'database was rebuilt or what?) => '
+                                f'ignoring last returned stuff...')
+                last_ver = last_ts = LackOf
+
+            if last_ver > pickle_ver or last_ts > pickle_ts:
+                warn_unexpected(f'`last_ver` > `pickle_ver` and/or '
+                                f'`last_ts` > `pickle_ts` (!) => '
+                                f'ignoring both pickled stuff '
+                                f'and last returned stuff...')
+                pickle_ver = pickle_ts = recent_job_duration = LackOf
+                last_ver = last_ts = LackOf
+            elif last_ver == pickle_ver and last_ts != pickle_ts:
+                warn_unexpected(f'`last_ver` == `pickle_ver` but '
+                                f'`last_ts` != `pickle_ts` (!) => '
+                                f'ignoring both pickled stuff '
+                                f'and last returned stuff...')
+                pickle_ver = pickle_ts = recent_job_duration = LackOf
+                last_ver = last_ts = LackOf
+
+            # *Note:* the following assertions confirm only a part of
+            # many conditions whose truthness, at this point, is already
+            # guaranteed...
+            assert database_ver and database_ts
+            assert (pickle_ver and pickle_ts and PICKLE_CACHE_ENABLED
+                    or (pickle_ver is pickle_ts is LackOf))
+            assert (last_ver and last_ts and last_root_node
+                    or (last_ver is last_ts is LackOf))
+            # Note that:
+            # * if `not pickle_ver` then `pickle_ver is LackOf` (and vice versa)
+            # * if `not pickle_ts` then `pickle_ts is LackOf` (and vice versa)
+            # * if `not last_ver` then `last_ver is LackOf` (and vice versa)
+            # * if `not last_ts` then `last_ts is LackOf` (and vice versa)
+            # * if `not last_root_node` then `last_root_node is LackOf` (and vice versa)
+            # Also, note that:
+            # * if `pickle_ver` then also `pickle_ts` and `PICKLE_CACHE_ENABLED` must be non-false
+            # * if `pickle_ts` then also `pickle_ver` and `PICKLE_CACHE_ENABLED` must be non-false
+            # * if `last_ver` then also `last_ts` and `last_root_node` must be non-false
+            # * if `last_ts` then also `last_ver` and `last_root_node` must be non-false
+            # However, note that:
+            # * `PICKLE_CACHE_ENABLED` being non-false
+            #   does *not* imply that `pickle_ver`/`pickle_ts` must be non-false
+            # * `last_root_node` being non-false
+            #   does *not* imply that `last_ver`/`last_ts` must be non-false
+
+            return (
+                pickle_ver, pickle_ts, recent_job_duration,
+                last_ver, last_ts,
+            )
+
+        def _is_positive_int(val):
+            return isinstance(val, int) and val > 0
+
+        def _is_positive_finite(val):
+            return isinstance(val, (float, int)) and val > 0 and math.isfinite(val)
+
+        def _is_nonnegative_finite(val):
+            return isinstance(val, (float, int)) and val >= 0 and math.isfinite(val)
+
+        def _set_sleep(sleep_val):
+            nonlocal sleep
+            sleep = sleep_val
+
+        def _compute_sleep_if_timestamp_ok(timestamp, recent_job_duration):
+            seconds_outdated = time.time() - timestamp
+            seconds_until_unacceptable = TOLERANCE_FOR_OUTDATED - seconds_outdated
+            if recent_job_duration:
+                seconds_discount = min(recent_job_duration * SAFE_RESERVE_MULTIPLIER, 1800)
+                seconds_until_unacceptable += seconds_discount
+            if seconds_until_unacceptable > 0:
+                sleep_val = min(seconds_until_unacceptable, MAX_SLEEP_BETWEEN_RUNS)
+                return sleep_val
+            return None
+
+        def _load_fresh_root_node():
+            LOGGER.info('Root node loading *starts*...')
+            LOGGER.info('Fetching root node from database...')
+            root_node = fetch_fresh_root_node()
+            LOGGER.info('Root node fetched from database.')
+            LOGGER.info('Executing time consuming methods to populate cache...')
+            method_name_to_result = root_node['_method_name_to_result_']
+            method_name_to_result.update(_call_methods(root_node))
+            LOGGER.info('Time consuming methods executed, cache populated.')
+            LOGGER.info('Root node loading *finishes*.')
+            return root_node
+
+        def _call_methods(root_node):
+            for method_name, method_obj in METHOD_NAME_TO_OBJ.items():
+                LOGGER.info('Executing method %a...', method_name)
+                result = method_obj(root_node)
+                LOGGER.info('Method %a executed.', method_name)
+                yield method_name, result
+
+        @contextlib.contextmanager
+        def _catching_and_logging_unpickling_error():
+            assert PICKLE_CACHE_ENABLED and pickle_storage is not None
+            try:
+                yield
+            except pickle_storage.Error as exc:
+                LOGGER.error('Could not unpickle root node - %s. '
+                             'Will try to cope without using it...',
+                             ascii_str(exc), exc_info=True)
+
+        def _unpickle_root_node(pickle_ver, pickle_ts):
+            assert PICKLE_CACHE_ENABLED and pickle_storage is not None
+            LOGGER.info('Unpickling root node...')
+            root_node = pickle_storage.retrieve_root_node(
+                expected_ver=pickle_ver,
+                expected_timestamp=pickle_ts)
+            LOGGER.info('Root node unpickled.')
+            return root_node
+
+        def _pickle_root_node(root_node, job_start_monotime):
+            assert PICKLE_CACHE_ENABLED and pickle_storage is not None
+            LOGGER.info('Pickling root node...')
+            job_duration = pickle_storage.store_everything(root_node, job_start_monotime)
+            LOGGER.info('Root node pickled.')
+            return job_duration
+
+        def _handle_prefetching_error(exc):
+            # (returns `last_root_node` or raises `SystemExit`)
+            LOGGER.error('Prefetching task *error*! %s', make_exc_ascii_str(exc))
+            min_acceptable_timestamp = time.time() - TOLERANCE_FOR_OUTDATED_ON_ERROR
+            last_ver, last_ts = _maybe_get_last_root_node_ver_and_timestamp()
+            if last_ts >= min_acceptable_timestamp:
+                assert (last_ver == last_root_node['_extra_']['ver'] and
+                        last_ts == last_root_node['_extra_']['timestamp'])
+                utc_iso = _format_timestamp_as_utc_iso(last_ts)
+                LOGGER.error('Because of the prefetching error (see the '
+                             'previous log message), the last returned '
+                             'data will be used. Note: it can be used '
+                             'because it is not older than %d seconds '
+                             '(data version: %a, timestamp: %a == %sZ).',
+                             TOLERANCE_FOR_OUTDATED_ON_ERROR,
+                             last_ver, last_ts, utc_iso)
+                return last_root_node
+            msg = ('Unable to recover from an Auth API prefetching '
+                   'error! (see the relevant ERROR log message)')
+            LOGGER.critical(msg)
+            raise SystemExit(msg) from exc
+
+        def _log_prefetching_success(root_node):
+            comment = ('no new data obtained' if root_node is last_root_node
+                       else 'data obtained')
+            extra = root_node['_extra_']
+            utc_iso = _format_timestamp_as_utc_iso(extra['timestamp'])
+            LOGGER.info(f'Prefetching task *finishes*, {comment} '
+                        f'(data version: %a, timestamp: %a == %s).',
+                        extra['ver'], extra['timestamp'], utc_iso)
+
+        def _format_timestamp_as_utc_iso(timestamp):
+            return datetime.datetime.utcfromtimestamp(timestamp).isoformat() + 'Z'
+
+        return task_target_func, loop_iteration_hook
+
+
+    _PICKLE_FILE_BASENAME = 'AuthAPIWithPrefetchingPickleCache'
+
+    def _get_configured_values(self):
+        config = self._config_full['auth_api_prefetching']
+
+        max_sleep_between_runs = config['max_sleep_between_runs']
+        tolerance_for_outdated = config['tolerance_for_outdated']
+        tolerance_for_outdated_on_error = config['tolerance_for_outdated_on_error']
+        pickle_file_path = None
+        pickle_signature_secret = None
+
+        pickle_dir = config['pickle_cache_dir']
+        if pickle_dir is not None:
+            preparer = self._prefetch_task_data_preparer
+            if preparer._using_legacy_version_of_access_filtering_conditions:
+                LOGGER.warning(
+                    'Disabling the *pickle cache* feature because the legacy '
+                    'variant of access filtering conditions is in use.')
+            elif preparer._skipping_optimization_of_access_filtering_conditions:
+                LOGGER.warning(
+                    'Disabling the *pickle cache* feature because the unoptimized '
+                    'variant of access filtering conditions is in use.')
+            else:
+                pickle_file_path = pickle_dir / self._PICKLE_FILE_BASENAME
+                pickle_signature_secret = config['pickle_cache_signature_secret']
+        return (
+            max_sleep_between_runs,
+            tolerance_for_outdated,
+            tolerance_for_outdated_on_error,
+            pickle_file_path,         # (<- may be `None`)
+            pickle_signature_secret,  # (<- may be `None`)
+        )
 
 
     @staticmethod
@@ -908,17 +1433,19 @@ class AuthAPIWithPrefetching(AuthAPI):
             pass
 
         future_cancelled = future.cancelled
-        cur_time = time.time
-        tbox = [cur_time()]         # PY3: we can replace it with a free variable...
+        cur_time = time.monotonic
+        prev_t = cur_time()
 
         def backends_tick_callback():
+            nonlocal prev_t
+
             t = cur_time()
-            if t >= tbox[0] + MIN_INTERVAL_BETWEEN_CHECKS:
+            if t >= prev_t + MIN_INTERVAL_BETWEEN_CHECKS:
                 if future_cancelled():
                     # Note that the following exception will be
                     # "shadowed" by a FutureCancelled exception.
                     raise PrefetchingCancelled
-                tbox[0] = t
+                prev_t = t
 
         # Note: the returned callable does *not* need to be
         # thread-safe (see the comment in `__init__()`...).
@@ -926,7 +1453,7 @@ class AuthAPIWithPrefetching(AuthAPI):
 
 
 
-class InsideCriteriaResolver(object):
+class InsideCriteriaResolver:
 
     """
     The class implements efficiently the main part of the Filter's job:
@@ -1181,7 +1708,24 @@ class InsideCriteriaResolver(object):
 
 
 
-class _DataPreparer(object):
+class _IgnoreListsCriteriaResolver:
+
+    def __init__(self, ignored_ip_networks: Iterable[str]):
+        self._ignored_ips = IPv4Container(*(
+            ipaddress.IPv4Network(network, strict=False)
+            for network in ignored_ip_networks))
+
+    def __call__(self, record_dict: Mapping[str, object]) -> bool:
+        if address := record_dict.get('address'):  # noqa
+            address: list[dict]
+            return all(
+                addr['ip'] in self._ignored_ips
+                for addr in address)
+        return False
+
+
+
+class _DataPreparer:
 
     def __init__(self):
         # Can be set by client code to an arbitrary argumentless callable
@@ -1190,9 +1734,12 @@ class _DataPreparer(object):
 
         self._using_legacy_version_of_access_filtering_conditions = (
             self._is_env_var_non_empty('N6_USE_LEGACY_VERSION_OF_ACCESS_FILTERING_CONDITIONS'))
+        self._skipping_optimization_of_access_filtering_conditions = (
+            self._is_env_var_non_empty('N6_SKIP_OPTIMIZATION_OF_ACCESS_FILTERING_CONDITIONS'))
 
         self._cond_builder = CondBuilder()
         self._cond_optimizer = self._make_access_filtering_cond_optimizer()
+        self._cond_hardener = self._make_access_filtering_cond_hardener()
         self._cond_to_sqla_converter = self._make_access_filtering_cond_to_sqla_converter()
         ### XXX uncomment when predicates-related parts support new `Cond` et consortes.
         #self._cond_to_predicate_converter = CondPredicateMaker()
@@ -1205,10 +1752,11 @@ class _DataPreparer(object):
         return is_set
 
     def _make_access_filtering_cond_optimizer(self):
-        if self._is_env_var_non_empty('N6_SKIP_OPTIMIZATION_OF_ACCESS_FILTERING_CONDITIONS'):
+        if self._skipping_optimization_of_access_filtering_conditions:
             return (lambda cond: cond)
 
-        cond_optimizing_transformers = (    # (visitors that always *take* and *return* `Cond`s)
+        # (visitors each of which takes a `Cond` and returns a `Cond`)
+        cond_optimizing_transformers = (
             CondFactoringTransformer(),
             CondEqualityMergingTransformer(),
         )
@@ -1220,18 +1768,23 @@ class _DataPreparer(object):
             return cond
         return optimizer
 
-    def _make_access_filtering_cond_to_sqla_converter(self):
-        cond_preparation_and_conversion_visitors = (
+    def _make_access_filtering_cond_hardener(self):
+        # (visitors each of which takes a `Cond` and returns a `Cond`)
+        cond_hardening_transformers = (
             CondDeMorganTransformer(),
-            _CondToSQLAlchemyConverter(),
+            _CondToCondWithNullSafeNegationsTransformer(),
         )
-        def converter(cond):
+        def hardener(cond):
             assert isinstance(cond, Cond)
-            for visitor in cond_preparation_and_conversion_visitors:
-                cond = visitor(cond)
-            assert not isinstance(cond, Cond)   # (now it is an SQLAlchemy object...)
+            for transformer in cond_hardening_transformers:
+                cond = transformer(cond)
+            assert isinstance(cond, Cond)
             return cond
-        return converter
+        return hardener
+
+    def _make_access_filtering_cond_to_sqla_converter(self):
+        # (a visitor that takes a `Cond` and returns an SQLAlchemy object)
+        return _CondToSQLAlchemyConverter()
 
     def get_user_ids_to_org_ids(self, root_node):
         result = {}
@@ -1266,6 +1819,11 @@ class _DataPreparer(object):
         inside_criteria = self._get_inside_criteria(root_node)
         inside_criteria_resolver = InsideCriteriaResolver(inside_criteria)
         return inside_criteria_resolver
+
+    def get_ignore_lists_criteria_resolver(self, root_node):
+        ignored_ip_networks = root_node['_extra_']['ignored_ip_networks']
+        ignore_lists_criteria_resolver = _IgnoreListsCriteriaResolver(ignored_ip_networks)
+        return ignore_lists_criteria_resolver
 
     def get_anonymized_source_mapping(self, root_node):
         # {
@@ -1304,13 +1862,22 @@ class _DataPreparer(object):
                 on_illegal=True,   # <- ...let's be on the safe side when LDAP data are malformed
             ))
 
+    def obtain_ready_access_info(self, unready_access_info):
+        access_info = copy.deepcopy(unready_access_info)
+        for cond_list in access_info['access_zone_conditions'].values():
+            [cond_with_null_safe_negations] = cond_list
+            sqla_obj = self._cond_to_sqla_converter(cond_with_null_safe_negations)
+            cond_list[:] = [sqla_obj]
+        return access_info
+
     def get_org_ids_to_access_infos(self, root_node):
         # {
         #     <organization id as str>: {
         #         'access_zone_conditions': {
         #             <access zone: 'inside' or 'threats' or 'search'>: [
-        #                 <an sqlalchemy.sql.expression.ColumnElement instance
-        #                  implementing SQL condition for a subsource>,
+        #                 <an instance of `n6lib.data_selection_tools.Cond` (or of
+        #                 `sqlalchemy.sql.expression.ColumnElement` in the legacy mode),
+        #                 representing subsources criteria + `full_access` flag etc.>,
         #                 ...
         #             ],
         #             ...
@@ -1546,7 +2113,7 @@ class _DataPreparer(object):
                 result[org_id] = access_info
             else:
                 access_info['access_zone_conditions'].setdefault(access_zone, []).append(cond)
-        self._postprocess_access_info_filtering_conditions(result)
+        self._postprocess_access_info_filtering_cond_instances(result)
         return result
 
     def _get_access_info_filtering_condition_builder(self):
@@ -1554,15 +2121,15 @@ class _DataPreparer(object):
             return LegacySQLAlchemyConditionBuilder(n6NormalizedData)
         return self._cond_builder
 
-    def _postprocess_access_info_filtering_conditions(self, org_ids_to_access_infos):
+    def _postprocess_access_info_filtering_cond_instances(self, org_ids_to_access_infos):
         if self._using_legacy_version_of_access_filtering_conditions:
             return
         for access_info in org_ids_to_access_infos.values():
             for or_subconditions in access_info['access_zone_conditions'].values():
                 self.tick_callback()
                 cond_optimized = self._optimized_cond_from_or_subconditions(or_subconditions)
-                sqla_optimized = self._cond_to_sqla_converter(cond_optimized)
-                or_subconditions[:] = [sqla_optimized]
+                cond_with_null_safe_negations = self._cond_hardener(cond_optimized)
+                or_subconditions[:] = [cond_with_null_safe_negations]
 
     def _optimized_cond_from_or_subconditions(self, or_subconditions):
         assert isinstance(or_subconditions, list) and or_subconditions
@@ -1796,8 +2363,23 @@ class _DataPreparer(object):
         if not full_access:
             condition = cond_builder.and_(
                 condition,
-                cond_builder.not_(cond_builder['restriction'] == 'internal'))
+                cond_builder.not_(cond_builder['restriction'] == 'internal'),
+                self._get_only_not_ignored_events_condition(cond_builder))
         return condition
+
+    def _get_only_not_ignored_events_condition(self, cond_builder):
+        if isinstance(cond_builder, CondBuilder):
+            return cond_builder.not_(cond_builder['ignored'].is_true())
+        # Below: legacy stuff (XXX: to be removed later + then inline the
+        #                           above condition, removing this method)
+        if type(cond_builder) is LegacySQLAlchemyConditionBuilder:
+            return cond_builder.or_(
+                # (`== None` will be converted by SQLAlchemy to `IS NULL`)
+                cond_builder['ignored'] == None,
+                cond_builder['ignored'] == 0)
+        else:
+            assert type(cond_builder) is LegacyPredicateConditionBuilder
+            return cond_builder.not_(cond_builder['ignored'] == True)
 
     def _get_subsource_condition(self, root_node, source_id, subsource_refint, cond_builder):
         subsource = get_node(root_node, subsource_refint)
@@ -1963,10 +2545,16 @@ class _DataPreparer(object):
         return dt.time()
 
 
-class _CondToSQLAlchemyConverter(CondVisitor):
+class _CondToCondWithNullSafeNegationsTransformer(CondTransformer):
+
+    # This transformer protects us against the #3379 bug.
+    #
+    # **Important:** any condition it is applied to should have
+    # already been prepared with `CondDeMorganTransformer`.
 
     _NON_NULLABLE_COLUMNS = {
-        # based on content of `etc/mysql/initdb/1_create_tables.sql`
+        # (the content of this set needs to be consistent
+        # with `etc/mysql/initdb/1_create_tables.sql`...)
         'id',
         'rid',
         'source',
@@ -1975,7 +2563,32 @@ class _CondToSQLAlchemyConverter(CondVisitor):
         'category',
         'time',
         'ip',
+        'dip',
+        'modified',
     }
+
+    def visit_NotCond(self, cond):
+        subcond = cond.subcond
+        assert isinstance(subcond, RecItemCond)  # (<- thanks to `CondDeMorganTransformer`...)
+
+        if (subcond.rec_key in self._NON_NULLABLE_COLUMNS
+              or isinstance(subcond, (IsTrueCond, IsNullCond))):
+            null_safe_cond = cond
+        else:
+            is_null_cond = self.make_cond(IsNullCond, subcond.rec_key)
+            null_safe_cond = self.make_cond(OrCond, [is_null_cond, cond])
+
+        return null_safe_cond
+
+
+class _CondToSQLAlchemyConverter(CondVisitor):
+
+    # This transformer converts instances of `Cond` subclasses to
+    # SQLAlchemy objects representing SQL `WHERE ...` conditions.
+    #
+    # **Important:** any condition it is applied to should have
+    # already been prepared with `CondDeMorganTransformer` and
+    # `_CondToCondWithNullSafeNegationsTransformer`.
 
     def __init__(self):
         import sqlalchemy
@@ -1990,26 +2603,21 @@ class _CondToSQLAlchemyConverter(CondVisitor):
         subcond = cond.subcond
         assert isinstance(subcond, RecItemCond)  # (<- thanks to `CondDeMorganTransformer`...)
 
-        if isinstance(subcond, IsNullCond):
-            # (`!= None` will be converted by SQLAlchemy to `IS NOT NULL`)
-            return self._sqla_column(subcond.rec_key) != None                  # noqa
-
         if isinstance(subcond, EqualCond):
-            sqla_null_unsafe_neg = self._sqla_column(subcond.rec_key) != subcond.op_param
-        elif isinstance(subcond, InCond):
+            return self._sqla_column(subcond.rec_key) != subcond.op_param
+
+        if isinstance(subcond, InCond):
             values = list(subcond.op_param)
             assert values  # guaranteed by InCond
-            sqla_null_unsafe_neg = self._sqla_column(subcond.rec_key).notin_(values)
-        else:
-            sqla_null_unsafe_neg = self._sqla_not(self(subcond))
+            return self._sqla_column(subcond.rec_key).notin_(values)
 
-        # The following stuff protects us against the #3379 bug.
-        if subcond.rec_key in self._NON_NULLABLE_COLUMNS:
-            return sqla_null_unsafe_neg
-        return self._sqla_or(
-            # (`== None` will be converted by SQLAlchemy to `IS NULL`)
-            self._sqla_column(subcond.rec_key) == None,                        # noqa
-            sqla_null_unsafe_neg)
+        if isinstance(subcond, IsTrueCond):
+            return self._sqla_column(subcond.rec_key).isnot(sqla_text('TRUE'))
+
+        if isinstance(subcond, IsNullCond):
+            return self._sqla_column(subcond.rec_key).isnot(null())
+
+        return self._sqla_not(self(subcond))
 
     def visit_AndCond(self, cond):
         assert cond.subconditions  # guaranteed by AndCond
@@ -2043,39 +2651,465 @@ class _CondToSQLAlchemyConverter(CondVisitor):
         min_value, max_value = cond.op_param
         return self._sqla_column(cond.rec_key).between(min_value, max_value)
 
+    def visit_IsTrueCond(self, cond):
+        return self._sqla_column(cond.rec_key).is_(sqla_text('TRUE'))
+
     def visit_IsNullCond(self, cond):
-        # (`== None` will be converted by SQLAlchemy to `IS NULL`)
-        return self._sqla_column(cond.rec_key) == None                         # noqa
+        return self._sqla_column(cond.rec_key).is_(null())
 
     def visit_FixedCond(self, cond):
         return (self._sqla_make_true() if cond.truthness else self._sqla_make_false())
 
 
-class _IdentityBasedThreadSafeCache(object):
 
-    def __init__(self, max_size):
-        self.__mutex = threading.RLock()
-        self.__limited_dict = LimitedDict(maxlen=max_size)
+class _PrefetchingPickleStorage:
 
-    def __getitem__(self, key_obj):
-        actual_key = _IdentityBasedKey(key_obj)
-        with self.__mutex:
+    #
+    # Storage's interface
+
+    # * Auxiliary stuff:
+
+    class Error(Exception):
+        """Raised on retrieval/storing errors."""
+
+    class PickleMetadata(TypedDict):
+        ver: int
+        timestamp: Union[float, int]
+        job_duration: Union[float, int]
+
+    # * Initialization:
+
+    def __init__(self, pickle_file_path, pickle_signature_secret):
+        self._metadata_file_accessor = SignedStampedFileAccessor(
+            path=f'{pickle_file_path}.meta',
+            secret_key=pickle_signature_secret)
+        self._pickle_file_accessor = SignedStampedFileAccessor(
+            path=pickle_file_path,
+            secret_key=pickle_signature_secret)
+
+    # * Retrieval/storing operations:
+
+    def retrieve_metadata_or_none(self):
+        accessor = self._metadata_file_accessor
+        error_wrapping = self._error_wrapping(accessor)
+        no_error_if_missing = contextlib.suppress(FileNotFoundError)
+        no_error_if_outdated = contextlib.suppress(accessor.OutdatedError)
+        reader = accessor.text_reader(minimum_timestamp=self._get_minimum_header_timestamp())
+        with error_wrapping, no_error_if_missing, no_error_if_outdated, reader as file:
+            return json.load(file)
+        return None  # noqa
+
+    def retrieve_root_node(self, expected_ver, expected_timestamp):
+        accessor = self._pickle_file_accessor
+        error_wrapping = self._error_wrapping(accessor)
+        reader = accessor.binary_reader(minimum_timestamp=self._get_minimum_header_timestamp())
+        with error_wrapping, reader as file:
+            root_node = pickle.load(file)
+            self._check_ver_and_timestamp(root_node, expected_ver, expected_timestamp)
+            return root_node
+
+    def store_everything(self, root_node, job_start_monotime):
+        m_accessor = self._metadata_file_accessor
+        p_accessor = self._pickle_file_accessor
+        with contextlib.ExitStack() as es, \
+             self._error_wrapping(m_accessor), m_accessor.text_atomic_writer() as metadata_file, \
+             self._error_wrapping(p_accessor), p_accessor.binary_atomic_writer() as pickle_file:
+
+            pickle.dump(root_node, pickle_file, protocol=pickle.HIGHEST_PROTOCOL)
+
+            # OK, now the time-consuming parts of the job of loading and
+            # pickling data are completed, so we can measure the total
+            # duration of this job, and make the stored metadata include
+            # that information.
+            job_duration = time.monotonic() - job_start_monotime
+            metadata = self._metadata_from(root_node, job_duration)
+            json.dump(metadata, metadata_file)
+
+            # Each of the accessors provides *atomic* write operations
+            # (i.e., effectively, either the whole file is successfully
+            # written, or "nothing happend"). However, it is possible
+            # that the atomic write of the *pickle file* will succeed,
+            # but then -- due to whatever exception -- the *metadata
+            # file* will *not* be succesfully written, so its previous
+            # version will be kept. If such a case arises, we prefer to
+            # completely *remove* the metadata file -- to avoid a data
+            # version mismatch (which would be detected anyway, but at
+            # the cost of a futile execution of the whole unpickling
+            # procedure, which is rather performance-heavy).
+            es.enter_context(self._removing_metadata_file_on_exception())
+
+        return job_duration
+
+    #
+    # Internal helpers
+
+    @contextlib.contextmanager
+    def _error_wrapping(self, accessor):
+        try:
+            yield
+        except accessor.SignatureError as exc:
+            raise self.Error(
+                f'content integrity error: "{make_exc_ascii_str(exc)}"! '
+                f'(Did somebody tampered with the content of the file '
+                f'{str(accessor.path)!a}?! Or maybe the config option '
+                f'`auth_api_prefetching.pickle_cache_signature_secret` '
+                f'was recently changed?...)'
+            ) from exc
+        except (accessor.OutdatedError, ValueError, FileNotFoundError) as exc:
+            raise self.Error(
+                f'error while dealing with the file {str(accessor.path)!a}: '
+                f'"{make_exc_ascii_str(exc)}"'
+            ) from exc
+
+    _MAX_ACCEPTABLE_FILE_AGE = 7200
+
+    def _get_minimum_header_timestamp(self):
+        # Note that the *header timestamp* of a file and the *timestamp*
+        # of a *root node* (being a part of *pickle metadata*) -- are
+        # completely unrelated concepts! *Header timestamp* belongs to
+        # the `SignedStampedFileAccessor`'s machinery...
+        return time.time() - self._MAX_ACCEPTABLE_FILE_AGE
+
+    def _check_ver_and_timestamp(self, root_node, expected_ver, expected_timestamp):
+        extra = root_node['_extra_']
+        if extra['ver'] != expected_ver:
+            raise ValueError(
+                f"expected root node version: {expected_ver!a}, "
+                f"got: {extra['ver']!a}")
+        if extra['timestamp'] != expected_timestamp:
+            raise ValueError(
+                f"expected root node timestamp: {expected_timestamp!a}, "
+                f"got: {extra['timestamp']!a}")
+
+    def _metadata_from(self, root_node, job_duration):
+        extra = root_node['_extra_']
+        return self.PickleMetadata(
+            ver=extra['ver'],
+            timestamp=extra['timestamp'],
+            job_duration=job_duration)
+
+    @contextlib.contextmanager
+    def _removing_metadata_file_on_exception(self):
+        try:
+            yield
+        except:
+            self._try_remove_metadata_file()
+            raise
+
+    def _try_remove_metadata_file(self):
+        try:
+            self._metadata_file_accessor.path.unlink()
+        except OSError:
+            pass
+
+
+class _InterprocessPrefetchingSynchronizer:
+
+    # *Note:* it offers a best-effort synchronization, thanks to which
+    # processes that share the same pickle-file-based cache can:
+    #
+    # * avoid duplication of work;
+    #
+    # * reduce to a minimum -- though not eliminate completely -- time
+    #   intervals within which different processes "see" (and cache in
+    #   their memory) different versions of data.
+
+    #
+    # Synchronizer's interface
+
+    def __init__(self, pickle_file_path, min_safe_job_duration):
+        assert (isinstance(pickle_file_path, pathlib.Path) and pickle_file_path.name)
+        assert isinstance(min_safe_job_duration, (float, int))
+        self._min_safe_job_duration = min_safe_job_duration
+        self._pickle_file_path = pickle_file_path
+        self._getjob_lock = self._make_lock('GETJOB')
+        self._job_lock = self._make_lock('JOB')
+        self._activity_lock = self._make_lock('ACTIVITY')
+        self._outcome_lock = self._make_lock('OUTCOME')
+
+    def __repr__(self):
+        return (f'<{self.__class__.__qualname__}'
+                f'({self._min_safe_job_duration!r}, {self._pickle_file_path!r}) '
+                f'with locks: '
+                f'{self._getjob_lock}, '
+                f'{self._job_lock}, '
+                f'{self._activity_lock}, '
+                f'{self._outcome_lock}>')
+
+    def __enter__(self):
+        if self._is_any_lock_acquired_by_us():
+            LOGGER.warning('%a was not exited properly, so it needs '
+                           'to be forcibly cleaned up now!...', self)
+            self._release_all_locks()
+            LOGGER.info('OK, cleaned up %a (that is, made '
+                        'it release all its locks).', self)
+
+        assert not self._is_any_lock_acquired_by_us()
+        try:
+            self._getjob_lock.acquire(shared=True)
+            if self._job_lock.acquire(shared=True, nonblocking=True):
+                self._activity_lock_acquire_shared_immediately()
+                self._job_lock.release()
+                self._getjob_lock.release()
+            else:
+                self._getjob_lock.release()
+
+                # OK, some other process, just now, is doing the job of
+                # loading and pickling fresh data... Let us attempt to
+                # cause that when that process finishes the job, it will
+                # wait until we (and, possibly, any other processes like
+                # us) unpickle the data (*root node*) being the outcome
+                # of the job.
+                self._outcome_lock.acquire(shared=True)
+
+                # But first -- when it comes to us -- let us wait until
+                # that process actually finishes the job...
+                LOGGER.info("Another process loads and pickles a "
+                            "fresh root node. Let's wait for it...")
+                self._job_lock.acquire(shared=True)
+
+                self._activity_lock_acquire_shared_immediately()
+                self._job_lock.release()
+
+            assert not self._getjob_lock.acquired_by_us
+            assert not self._job_lock.acquired_by_us
+            assert self._activity_lock.shared
+            assert self._outcome_lock.shared or not self._outcome_lock.acquired_by_us
+
+            return self
+        except:
+            self._release_all_locks()
+            raise
+
+    def __exit__(self, *_):
+        try:
+            assert self._activity_lock.shared
+        finally:
+            self._release_all_locks()
+
+    def designate_loading_and_pickling_job(self):
+        assert not self._getjob_lock.acquired_by_us
+        assert not self._job_lock.acquired_by_us
+        assert self._activity_lock.shared
+        assert self._outcome_lock.shared or not self._outcome_lock.acquired_by_us
+
+        # (Let us release the *OUTCOME* lock if we have acquired it...)
+        self._outcome_lock.release()
+
+        # Let us attempt to get the job of loading and pickling...
+        self._getjob_lock.acquire()
+        if self._job_lock.acquire(nonblocking=True):
+            self._getjob_lock.release()
+            # OK, we (the current process) got the job! None of the
+            # other engaged processes (if any) can be here now, only
+            # us...
+
+            # So let us wait until *each* of those processes is outside
+            # its synchronizer's `with` block -- either sleeping before
+            # its next prefetching run or already being blocked in its
+            # synchronizer's `__enter__()` (on the *JOB* lock we just
+            # acquired using the *exclusive* mode).
+            # (**Technical detail:** below we switch the mode of the
+            # *ACTIVITY* lock from *shared* to *exclusive*; that will
+            # make us wait until *all* other engaged processes reach
+            # their synchronizers' `__exit__()`...)
+            self._activity_lock.acquire()
+
+            # (Switching the *ACTIVITY* lock's mode back to *shared*.)
+            self._activity_lock.acquire(shared=True)
+
+            # Now, as for us, we are ready to start the actual job of
+            # loading and pickling fresh data!
+            return True
+
+        # OK, some other process got the job of loading and pickling...
+        self._getjob_lock.release()
+        return False
+
+    def wait_giving_others_chance_to_unpickle(self, job_duration):
+        # We just *finished* the job of loading and pickling fresh data.
+        # (This is the continuation of the execution path that included
+        # the `if` block in `designate_loading_and_pickling_job()`...)
+
+        assert not self._getjob_lock.acquired_by_us
+        assert self._job_lock.acquired_by_us and not self._job_lock.shared
+        assert self._activity_lock.shared
+        assert not self._outcome_lock.acquired_by_us
+
+        assert isinstance(job_duration, (float, int))
+
+        necessary_sleep = self._min_safe_job_duration - job_duration
+        if necessary_sleep > 0:
+            LOGGER.info("Synchronization pause (let's wait so that other "
+                        "processes have a chance to block on our lock)...")
+            time.sleep(necessary_sleep)
+
+        # OK, all other processes should have had enough time to reach
+        # their synchronizers' `__enter__()` (and block on the *JOB* lock
+        # acquired by us) -- so, now, let us allow them to proceed...
+        LOGGER.info("Now, let's give other processes a chance to "
+                    "unpickle the fresh root node pickled by us...")
+        self._job_lock.release()
+
+        # ...and let us wait until they unpickle the data (*root node*)
+        # being the outcome of the job.
+        self._outcome_lock.acquire()
+        self._outcome_lock.release()
+
+    #
+    # Internal helpers
+
+    def _make_lock(self, label):
+        return _FileBasedInterprocessLock(self._pickle_file_path, label)
+
+    def _is_any_lock_acquired_by_us(self):
+        return (self._getjob_lock.acquired_by_us or
+                self._job_lock.acquired_by_us or
+                self._activity_lock.acquired_by_us or
+                self._outcome_lock.acquired_by_us)
+
+    def _release_all_locks(self):
+        try:
             try:
-                method_to_cached_result = self.__limited_dict[actual_key]
-            except KeyError:
-                self.__limited_dict[actual_key] = method_to_cached_result = {}
-        return method_to_cached_result
+                try:
+                    try:
+                        self._outcome_lock.release()
+                    finally:
+                        self._activity_lock.release()
+                finally:
+                    self._job_lock.release()
+            finally:
+                self._getjob_lock.release()
+        except KeyboardInterrupt:
+            raise
+        except BaseException as exc:
+            exc_descr = make_exc_ascii_str(exc)
+            sys_exit = SystemExit(f'A fatal error occurred while trying '
+                                  f'to clean up the state (release all '
+                                  f'locks) of {self!a}! ({exc_descr})')
+            try:
+                LOGGER.critical('Rough exit! %s', sys_exit)
+            except:    # noqa
+                pass   # noqa
+            raise sys_exit from exc
+
+    def _activity_lock_acquire_shared_immediately(self):
+        # Thanks to this, no new job can actually be started until all
+        # engaged processes -- except the one which is to do the job --
+        # reach their synchronizers' `__exit__()`.
+        if not self._activity_lock.acquire(shared=True, nonblocking=True):
+            # (Here, the *ACTIVITY* lock should have been able to be
+            # acquired without blocking, i.e., immediately. If -- for
+            # any reason -- this could not be done, we prefer an
+            # explicit error rather than a blocking operation...)
+            raise RuntimeError(f'this is unexpected: failed to acquire '
+                               f'the {self._activity_lock} lock')
 
 
-class _IdentityBasedKey(object):
+class _FileBasedInterprocessLock:
 
-    def __init__(self, obj):
-        self._obj = obj
+    # (Note that the implementation of this interprocess lock is *not*
+    # -- and does *not* need to be -- thread-safe.)
 
-    def __hash__(self):
-        return object.__hash__(self._obj)
+    def __init__(self, base_path, label):
+        assert isinstance(base_path, pathlib.Path) and base_path.name
+        assert isinstance(label, str) and label and label.isascii()
+        self._base_path = base_path
+        self._label = label
+        self._file = None
+        self._shared = False
 
-    def __eq__(self, other):
-        if isinstance(other, _IdentityBasedKey):
-            return self._obj is other._obj
-        return NotImplemented
+    @property
+    def path(self):
+        lock_filename = f'{self._base_path.name}.{self._label}.lock'
+        return self._base_path.with_name(lock_filename)
+
+    @property
+    def acquired_by_us(self):
+        return self._file is not None
+
+    @property
+    def shared(self):
+        if self._shared:
+            assert self.acquired_by_us
+            return True
+        return False
+
+    __repr__ = attr_repr('path', 'acquired_by_us', 'shared')
+
+    def __str__(self):
+        annotation = (f'*{self._get_mode_descr(self.shared)}*'
+                      if self.acquired_by_us else '-')
+        return ascii_str(f'{self._label} ({annotation})')
+
+    def acquire(self, *, shared=False, nonblocking=False):
+        # *Note:* assuming the same arguments and external conditions
+        # (and ignoring internal and logging-related details...), this
+        # method is *idempotent*: it makes no difference whether the
+        # method is invoked once or multiple times (however, note that
+        # it may block, unless `nonblocking=True` is given...). Also,
+        # it is OK to invoke this method several times with different
+        # arguments (even when not interspersing such invocations with
+        # invocations of `release()`); this is how the lock mode can be
+        # switched from *shared* to *exclusive* or vice versa (but note
+        # that such switching is *not* guaranteed to be atomic -- see:
+        # https://manpages.debian.org/bookworm/manpages-dev/flock.2.en.html#NOTES).
+        LOGGER.debug('Acquiring lock %s, switching it to *%s* mode...',
+                     self, self._get_mode_descr(shared))
+
+        flock_op = (fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        if nonblocking:
+            flock_op |= fcntl.LOCK_NB
+
+        file = self._file
+        if file is None:
+            LOGGER.debug('File %a will be opened...', str(self.path))
+        try:
+            if file is None:
+                file = open(self.path, 'wb')
+            fcntl.flock(file, flock_op)
+        except OSError as exc:
+            # *Note:* in the case of a failure, we
+            # do *not* change the object's state.
+            if self._file is None and file is not None:
+                # `file` was just opened (has not been stored in the
+                # object) => let's close it.
+                file.close()
+            else:
+                # Either `file` had already been stored in the object
+                # (then do not touch it!) or it is None (because the
+                # `open(...)` call raised the exception).
+                assert self._file is file
+
+            failure_msg = (f'Lock %s could not be acquired (%s).')
+            exc_descr = make_exc_ascii_str(exc)
+
+            if isinstance(exc, BlockingIOError):
+                assert nonblocking
+                LOGGER.debug(failure_msg, self, exc_descr)
+                return False
+
+            LOGGER.error(failure_msg, self, exc_descr)
+            raise
+
+        assert file is not None
+        self._file = file
+        self._shared = shared
+        LOGGER.debug('Lock %s acquired successfully.', self)
+        return True
+
+    def release(self):
+        # *Note:* assuming the same external conditions (and that we
+        # ignore internal and logging-related details...), this method
+        # is idempotent: it makes no difference whether the method is
+        # invoked once or multiple times. Invoking it on an object that
+        # has never been `acquire()`-ed is also OK.
+        if self._file is not None:
+            self._file.close()
+            self._file = None
+        self._shared = False
+        LOGGER.debug('Lock %s released.', self)
+
+    @staticmethod
+    def _get_mode_descr(shared):
+        return ('shared' if shared else 'exclusive')

@@ -1,4 +1,5 @@
 import { isValid, parse } from 'date-fns';
+import isAscii from 'validator/lib/isAscii';
 import isURL from 'validator/lib/isURL';
 import { FormState, Validate, ValidateResult } from 'react-hook-form';
 import {
@@ -173,7 +174,6 @@ const validateIpAddress = (value: string, isPartOfIpNetwork = false) => {
 
   return octets.every(octetValid);
 };
-
 export const mustBeIpNetwork: Validate<FormFieldValue> = (value) => {
   const validateMask = (value: string) => {
     const numeric = +value;
@@ -205,3 +205,11 @@ export const mustBeUrl: Validate<FormFieldValue> = (value) =>
   !value || (typeof value === 'string' && isURL(value, { require_valid_protocol: false }))
     ? true
     : 'validation_mustBeUrl';
+
+export const mustBeAscii: Validate<FormFieldValue> = (value) => {
+  if (!value || (typeof value === 'string' && isAscii(value))) {
+    return true;
+  } else {
+    return 'validation_mustBeAscii';
+  }
+};

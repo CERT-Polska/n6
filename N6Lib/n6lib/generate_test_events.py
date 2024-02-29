@@ -176,7 +176,7 @@ class RandomEvent(RandomEventGeneratorConfigMixin):
             Generated random events (as dicts).
         """
         ready_config = cls(settings=settings).config
-        for _ in range(num_of_events):
+        while num_of_events > 0:
             yield cls(
                 ready_config=ready_config,
                 access_zone=access_zone,
@@ -184,6 +184,7 @@ class RandomEvent(RandomEventGeneratorConfigMixin):
                 params=params,
                 **kwargs,
             ).event
+            num_of_events -= 1
 
     def __init__(self, *,
                  ready_config: Optional[ConfigSection] = None,
@@ -415,6 +416,12 @@ class RandomEvent(RandomEventGeneratorConfigMixin):
         if self._include_in_event(attr_name):
             return [random.choice(self._possible_client)]
         return None
+
+    def _get_ignored(self):
+        attr_name = 'ignored'
+        if self._attr_in_params(attr_name):
+            return random.choice(self._params[attr_name])
+        return random.randint(1, 16) == 1  # (mostly 'False`, only sometimes `True`)
 
     def _get_dip(self):
         attr_name = 'dip'

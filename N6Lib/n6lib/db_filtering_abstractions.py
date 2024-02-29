@@ -1051,6 +1051,7 @@ class RecordFacadeForPredicates(object):
     ...     'source': u'foo.bar',
     ...     'category': u'bots',
     ...     'name': u'Foo Bąr',
+    ...     'ignored': False,
     ...     'address': [
     ...         {
     ...             'ip': u'10.20.30.41',
@@ -1135,6 +1136,8 @@ class RecordFacadeForPredicates(object):
     True
     >>> r.get('cc') <= u"JP" and r.get('cc') > "PK"
     True
+    >>> r.get('ignored') == False and r.get('ignored') == 0
+    True
 
     >>> r.get('source') == 'Foo.Bar'
     False
@@ -1184,6 +1187,8 @@ class RecordFacadeForPredicates(object):
     False
     >>> r.get('cc') < u"JP" or r.get('cc') >= "PM"
     False
+    >>> r.get('ignored') == True or r.get('ignored') == 1
+    False
 
     >>> r.get('address') == []              # doctest: +ELLIPSIS
     Traceback (most recent call last):
@@ -1207,7 +1212,7 @@ class RecordFacadeForPredicates(object):
     True
 
     >>> b = PredicateConditionBuilder()
-    >>> t1 = b.and_(b['ip'] == 169090601, b['ip'] > 169090601)
+    >>> t1 = b.and_(b['ip'] == 169090601, b['ip'] > 169090601, b['ignored'] == 0)
     >>> t2 = b.or_(b['ip'] <= 169090601, b['ip'] == 169090605)
     >>> t3 = b['ip'].between(169090604, 169090607)
     >>> t4 = b['name'].in_([u'Foo Bąr', 'foo-bar'])
@@ -1215,7 +1220,7 @@ class RecordFacadeForPredicates(object):
     >>> t6 = b.and_(t1, t2, t3, t4, b.not_(b.not_(t5)))
 
     >>> F1 = b.and_(b['ip'] == 169090601, b['ip'] > 169090604)
-    >>> F2 = b.or_(b['ip'] < 169090601, b['ip'] >= 169090605)
+    >>> F2 = b.or_(b['ip'] < 169090601, b['ip'] >= 169090605, b['ignored'] == 1)
     >>> F3 = b['ip'].between(169090605, 169090607)
     >>> F4 = b.not_(b['asn'].in_([65538]))
     >>> F5 = b.and_(F1, t6)
@@ -1275,6 +1280,7 @@ class RecordFacadeForPredicates(object):
     ...     'source': u'foo.bar',
     ...     'category': u'bots',
     ...     'name': u'Foo Bąr',
+    ...     'ignored': False,
     ...     'address': [
     ...         {
     ...             'ip': u'10.20.30.41',
@@ -1329,6 +1335,9 @@ class RecordFacadeForPredicates(object):
 
     def _get_category_value(self, default):
         return self._underlying_dict.get('category', default)
+
+    def _get_ignored_value(self, default):
+        return self._underlying_dict.get('ignored', default)
 
     def _get_name_value(self, default):
         return self._underlying_dict.get('name', default)

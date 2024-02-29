@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import datetime
 import functools
@@ -684,10 +684,9 @@ class DefaultStreamViewBase(CommaSeparatedParamValuesViewMixin, AbstractViewBase
                     except ResultCleaningError as exc:
                         if self.break_on_result_cleaning_error:
                             raise
-                        else:
-                            LOGGER.error(
-                                'Some results not yielded due '
-                                'to the cleaning error: %a', exc)
+                        LOGGER.error(
+                            'Some results not yielded due '
+                            'to the cleaning error: %a', exc)
                     else:
                         if cleaned_result is not None:
                             yield cleaned_result

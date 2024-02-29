@@ -1,4 +1,3 @@
-import { parse } from 'date-fns';
 import { Validate } from 'react-hook-form';
 import { SelectOption } from 'components/shared/customSelect/CustomSelect';
 import { IRequestParams, TCategory, TProto } from 'api/services/globalTypes';
@@ -148,7 +147,12 @@ export const allFilters: TFilter[] = [
   { name: 'urlSub', label: 'incidents_form_url_sub', type: 'input', validate: validateUrlPartRequired }
 ];
 
-const convertDateAndTime = (date: string, time: string) => parse(`${date} ${time}`, 'dd-MM-yyyy HH:mm', new Date());
+const convertDateAndTime = (date: string, time: string) => {
+  const [days, month, year] = date.split('-').map((comp) => parseInt(comp));
+  const [hours, minutes] = time.split(':').map((comp) => parseInt(comp));
+  const convertedDate = new Date(Date.UTC(year, month - 1, days, hours, minutes));
+  return convertedDate;
+};
 
 const convertObjectArrToString = (options: SelectOption<TCategory | TProto>[]): string =>
   options.map((opt) => opt.value).join(',');

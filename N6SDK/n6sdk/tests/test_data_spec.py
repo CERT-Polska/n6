@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import collections.abc as collections_abc
 import copy
@@ -693,7 +693,7 @@ class SubclassResultCleanMixin(SubclassMixinBase, ResultCleanMixin):
 #
 # Additional mix-ins that provide some typical test methods
 
-class MixInProvidingTestMethodsFor__clean_param_dict(MixinBase):
+class MixInProvidingTestMethodsFor_clean_param_dict(MixinBase):
 
     def test_valid(self):
         given_dict = self._given_dict()
@@ -717,7 +717,7 @@ class MixInProvidingTestMethodsFor__clean_param_dict(MixinBase):
 
 
 @expand
-class MixInProvidingTestMethodsFor__param_field_specs(MixinBase):
+class MixInProvidingTestMethodsFor_param_field_specs(MixinBase):
 
     @for_various_result_types_of__filter_by_which
     def test_all(self):
@@ -819,21 +819,21 @@ class MixInProvidingTestMethodsFor__param_field_specs(MixinBase):
 
 class TestDataSpec_clean_param_dict(
         NoSearchableParamCleanMixin,
-        MixInProvidingTestMethodsFor__clean_param_dict,
+        MixInProvidingTestMethodsFor_clean_param_dict,
         unittest.TestCase):
     pass
 
 
 class TestDataSpec_param_field_specs(
         NoSearchableParamCleanMixin,
-        MixInProvidingTestMethodsFor__param_field_specs,
+        MixInProvidingTestMethodsFor_param_field_specs,
         unittest.TestCase):
     pass
 
 
 class TestAllSearchableDataSpec_clean_param_dict(
         AllSearchableParamCleanMixin,
-        MixInProvidingTestMethodsFor__clean_param_dict,
+        MixInProvidingTestMethodsFor_clean_param_dict,
         unittest.TestCase):
 
     def test_invalid_value__source_too_long(self):
@@ -909,7 +909,7 @@ class TestAllSearchableDataSpec_clean_param_dict(
 
 class TestAllSearchableDataSpec_param_field_specs(
         AllSearchableParamCleanMixin,
-        MixInProvidingTestMethodsFor__param_field_specs,
+        MixInProvidingTestMethodsFor_param_field_specs,
         unittest.TestCase):
     pass
 

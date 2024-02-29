@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 import collections
 import copy
@@ -219,8 +219,22 @@ class TestDateTimeField(FieldTestMixin, unittest.TestCase):
             expected=datetime.datetime(2014, 4, 1, 1, 7),
         )
         yield case(
+            given='2014-04-01 01:07:42.123456',
+            expected=datetime.datetime(2014, 4, 1, 1, 7, 42, 123456),
+        )
+        yield case(
+            init_kwargs={'keep_sec_fraction': False},
+            given='2014-04-01 01:07:42.123456',
+            expected=datetime.datetime(2014, 4, 1, 1, 7, 42),
+        )
+        yield case(
             given='2014-04-01 01:07:42.123456+02:00',
             expected=datetime.datetime(2014, 3, 31, 23, 7, 42, 123456),
+        )
+        yield case(
+            init_kwargs={'keep_sec_fraction': False},
+            given='2014-04-01 01:07:42.123456+02:00',
+            expected=datetime.datetime(2014, 3, 31, 23, 7, 42),
         )
         yield case(
             given='2014-04-01 01:07:42+02:00',
@@ -292,8 +306,18 @@ class TestDateTimeField(FieldTestMixin, unittest.TestCase):
             expected=dt,
         )
         yield case(
+            init_kwargs={'keep_sec_fraction': False},
+            given=dt,
+            expected=dt.replace(microsecond=0),
+        )
+        yield case(
             given=tz_dt,
             expected=dt,
+        )
+        yield case(
+            init_kwargs={'keep_sec_fraction': False},
+            given=tz_dt,
+            expected=dt.replace(microsecond=0),
         )
         yield case(
             given=12345,
@@ -3171,11 +3195,16 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=('10.46.111.123', 32)
         )
         yield case(
+            init_kwargs={'accept_bare_ip': True},
+            given='10.46.111.123',
+            expected=('10.46.111.123', 32)
+        )
+        yield case(
             given='123.123.111.12/33',   # bad network
             expected=FieldValueError
         )
         yield case(
-            given='255.255.255.255/33',   # bad network
+            given='255.255.255.255/33',  # bad network
             expected=FieldValueError,
         )
         yield case(
@@ -3183,7 +3212,12 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given='10.166.88/4',          # bad address
+            given='10.166.88/4',         # bad address
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'accept_bare_ip': True},
+            given='10.166.88',           # bad address
             expected=FieldValueError,
         )
         yield case(
@@ -3208,6 +3242,11 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given='1.2.3.07/22',             # leading 0 in ip not allowed
+            expected=FieldValueError
+        )
+        yield case(
+            init_kwargs={'accept_bare_ip': True},
+            given='1.2.3.07',                # leading 0 in ip not allowed
             expected=FieldValueError
         )
         yield case(
@@ -3266,7 +3305,17 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected='10.46.111.123/32'
         )
         yield case(
-            given='123.123.111.12/33',   # bad network
+            init_kwargs={'accept_bare_ip': True},
+            given='10.46.111.123',
+            expected='10.46.111.123/32'
+        )
+        yield case(
+            init_kwargs={'accept_bare_ip': True},
+            given=b'10.46.111.123',
+            expected='10.46.111.123/32'
+        )
+        yield case(
+            given='123.123.111.12/33',    # bad network
             expected=FieldValueError
         )
         yield case(
@@ -3274,7 +3323,7 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given='10.166.77.88.99/4',   # bad address
+            given='10.166.77.88.99/4',    # bad address
             expected=FieldValueError,
         )
         yield case(
@@ -3282,7 +3331,17 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            given='1.2.3.4',             # no network
+            init_kwargs={'accept_bare_ip': True},
+            given='10.166.77',            # bad address
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'accept_bare_ip': True},
+            given=b'10.166.77',           # bad address
+            expected=FieldValueError,
+        )
+        yield case(
+            given='1.2.3.4',              # no network
             expected=FieldValueError,
         )
         yield case(
@@ -3310,7 +3369,17 @@ class TestIPv4NetField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError
         )
         yield case(
-            given=b'1.2.3.07/22',         # leading 0 in ip not allowed
+            given=b'1.2.3.07/22',        # leading 0 in ip not allowed
+            expected=FieldValueError
+        )
+        yield case(
+            init_kwargs={'accept_bare_ip': True},
+            given='1.2.3.07',            # leading 0 in ip not allowed
+            expected=FieldValueError
+        )
+        yield case(
+            init_kwargs={'accept_bare_ip': True},
+            given=b'1.2.3.07',           # leading 0 in ip not allowed
             expected=FieldValueError
         )
         yield case(

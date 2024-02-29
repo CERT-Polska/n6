@@ -418,7 +418,7 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         ('date', '1410-07-15', datetime.date(1410, 7, 15)),
         ('datetime', '2016-02-29T23:24:25.1234+02:00',
             datetime.datetime(2016, 2, 29, 21, 24, 25, 123400)),
-        ('path', 'spam/pram', pathlib.Path('spam/pram')),
+        ('path', '/spam/pram', pathlib.Path('/spam/pram')),
         ('path', '~/spam/pram/', pathlib.Path('~/spam/pram').expanduser()),
         ('py', "{'\u015b': [{False: 'x'},]}", {'\u015b': [{False: 'x'}]}),
         ('py', "{'\\u015b': [{False: 'x'},]}", {'\u015b': [{False: 'x'}]}),
@@ -463,9 +463,9 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
             datetime.datetime(2016, 2, 29, 21, 24, 25, 123400),
             datetime.datetime(1410, 7, 15, 16, 15, 0),
         ]),
-        ('path', 'spam, pram/,/spam/pram,~/foo/bar , ~/spam/pram/', [
-            pathlib.Path('spam'),
-            pathlib.Path('pram'),
+        ('path', '/spam, /pram/,/spam/pram,~/foo/bar , ~/spam/pram/', [
+            pathlib.Path('/spam'),
+            pathlib.Path('/pram'),
             pathlib.Path('/spam/pram'),
             pathlib.Path('~/foo/bar').expanduser(),
             pathlib.Path('~/spam/pram').expanduser(),
@@ -489,16 +489,31 @@ class TestConfig(_ConfigExampleDataAndMocksMixin,
         ('path', '\t'),
         ('path', '\t\n\xa0\t'),
         ('list_of_path', ',,'),
-        ('list_of_path', ',a'),
-        ('list_of_path', 'a,,b'),
-        ('list_of_path', '\t,a'),
+        ('list_of_path', ',/a'),
+        ('list_of_path', '/a,,/b'),
+        ('list_of_path', '\t,/a'),
         ('list_of_path', '\t,\t,\t'),
-        ('list_of_path', '\t\n\xa0\t, a, c/d/e'),
-        ('list_of_path', ',a, ,a/b,\t\n\xa0\t,/c/d/e'),
+        ('list_of_path', '\t\n\xa0\t, /, /c/d/e'),
+        ('list_of_path', ',/a, ,/a/b,\t\n\xa0\t,/c/d/e'),
     )
     def test__BASIC_CONVERTERS__blank_path_value_causes_error(self, name, arg):
         converter = Config.BASIC_CONVERTERS[name]
         with self.assertRaisesRegex(ValueError, r'not allowed to be empty or whitespace-only'):
+            converter(arg)
+
+
+    @foreach(
+        ('path', 'a'),
+        ('path', 'a/b/c'),
+        ('path', 'a/b/c/'),
+        ('list_of_path', 'a,b,c'),
+        ('list_of_path', 'a,/b,/c'),
+        ('list_of_path', '/a, b, /c'),
+        ('list_of_path', '/a ,b ,/c'),
+    )
+    def test__BASIC_CONVERTERS__relative_path_causes_error(self, name, arg):
+        converter = Config.BASIC_CONVERTERS[name]
+        with self.assertRaisesRegex(ValueError, r'required to be absolute \(not relative\)'):
             converter(arg)
 
 

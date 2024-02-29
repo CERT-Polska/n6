@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2023 NASK. All rights reserved.
+# Copyright (c) 2019-2024 NASK. All rights reserved.
 
 """
 `shadowserver.*` parsers:
@@ -7,6 +7,7 @@
 * `shadowserver.afp`
 * `shadowserver.amqp`
 * `shadowserver.ard`
+* `shadowserver.bgp`
 * `shadowserver.chargen`
 * `shadowserver.cisco-smart-install`
 * `shadowserver.coap`
@@ -226,7 +227,7 @@ class ShadowserverFtp202204Parser(BaseParser):
         'restriction': 'need-to-know',
         'confidence': 'medium',
         'category': 'vulnerable',
-        'name': 'ftp, clear text pass',
+        'name': 'ftp allow password wo ssl',
     }
 
     delimiter = ','
@@ -1379,6 +1380,22 @@ class ShadowserverMsmq202308Parser(_BaseShadowserverParser):
         'confidence': 'medium',
         'category': 'vulnerable',
         'name': 'msmq',
+    }
+
+    n6_field_to_data_key_mapping = {
+        'time': 'timestamp',
+        'address': 'ip',
+        'dport': 'port',
+        'proto': 'protocol',
+    }
+    
+class ShadowserverBgp202312Parser(_BaseShadowserverParser):
+    default_binding_key = 'shadowserver.bgp.202312'
+    constant_items = {
+        'restriction': 'need-to-know',
+        'confidence': 'medium',
+        'category': 'vulnerable',
+        'name': 'bgp',
     }
 
     n6_field_to_data_key_mapping = {

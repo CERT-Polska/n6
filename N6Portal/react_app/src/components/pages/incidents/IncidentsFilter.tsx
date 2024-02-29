@@ -69,7 +69,7 @@ const IncidentsFilter: FC<IProps> = ({ filter, removeFilter }) => {
               name={filter.nameTime}
               label={`${messages[filter.labelTime]}`}
               validate={filter.validateTimeRequired}
-              defaultValue={format(currDate, 'HH-mm')}
+              defaultValue={format(currDate, 'HH:mm')}
             />
 
             <button

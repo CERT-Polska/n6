@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 """
 This module contains several regular expression objects (most of
@@ -274,3 +274,15 @@ ISO_DATETIME_REGEX = re.compile(
     r'{date}[T\s]{time}'.format(date=ISO_DATE_REGEX.pattern.rstrip('Z\\ \r\n'),
                                 time=ISO_TIME_REGEX.pattern.lstrip('A\\ \r\n')),
     re.ASCII | re.VERBOSE)
+
+
+PY_NON_ASCII_ESCAPED_WITH_BACKSLASHREPLACE_HANDLER_REGEX = re.compile(r'''
+    \\x
+    [89a-f][0-9a-f]                 # exactly 2 hex digits; range: 80..ff (incl.)
+    |
+    \\u
+    (?!00)[0-9a-f]{4}               # exactly 4 hex digits; range: 0100..ffff (incl.)
+    |
+    \\U
+    00(?:0[1-9a-f]|10)[0-9a-f]{4}   # exactly 8 hex digits; range: 00010000..0010ffff (incl.)
+    ''', re.ASCII | re.VERBOSE)

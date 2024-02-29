@@ -1,5 +1,8 @@
-# Copyright (c) 2015-2022 NASK. All rights reserved.
+# Copyright (c) 2015-2024 NASK. All rights reserved.
 
+import datetime
+
+from n6lib.datetime_helpers import timestamp_from_datetime
 from n6lib.db_filtering_abstractions import AbstractConditionBuilder
 from n6lib.ldap_related_test_helpers import (
     _O,    # organization entry tuple maker
@@ -26,7 +29,8 @@ def fa_false_cond(condition):
     """
     return Cond.and_(
         condition,
-        Cond.not_(Cond['restriction'] == 'internal'))
+        Cond.not_(Cond['restriction'] == 'internal'),
+        Cond.not_(Cond['ignored'] == 1))
 
 
 
@@ -1050,8 +1054,8 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     'o1': {
         'access_zone_conditions': {
             'inside': [' OR '.join(map(prep_sql_str, [
-                # (P1 optimized out - it always matches a subset of what in matched by P3)
-                # (P2 optimized out - it always matches a subset of what in matched by P3 and P1)
+                # (P1 optimized out - it always matches a subset of what is matched by P3)
+                # (P2 optimized out - it always matches a subset of what is matched by P3 and P1)
                 # P3:
                 """
                     event.source = 'source.one'
@@ -1082,7 +1086,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
-                # (P2 optimized out - it always matches a subset of what in matched by P1)
+                # (P2 optimized out - it always matches a subset of what is matched by P1)
                 # P5:
                 """
                     event.source = 'source.two'
@@ -1116,11 +1120,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     },
     'o2': {
         'access_zone_conditions': {
-            'inside': ["event.restriction != 'internal' AND (%s)"
+            'inside': ["event.restriction != 'internal' "
+                       "AND event.ignored IS NOT TRUE "
+                       "AND (%s)"
                        % ' OR '.join(map(prep_sql_str, [
-                # (P2 optimized out - it always matches a subset of what in matched by P3)
+                # (P2 optimized out - it always matches a subset of what is matched by P3)
                 # (P4 reduced to FALSE - which is neutral in OR)
-                # (P5 optimized out - it always matches a subset of what in matched by P6)
+                # (P5 optimized out - it always matches a subset of what is matched by P6)
                 # P3+P6:
                 """
                     event.source IN ('source.one', 'source.two')
@@ -1135,7 +1141,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
 
             # no 'search'
 
-            'threats': ["event.restriction != 'internal' AND (%s)"
+            'threats': ["event.restriction != 'internal' "
+                        "AND event.ignored IS NOT TRUE "
+                        "AND (%s)"
                         % ' OR '.join(map(prep_sql_str, [
                 # P2:
                 """
@@ -1174,12 +1182,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     'o3': {
         'access_zone_conditions': {
             'inside': [prep_sql_str(
-                # (P1 optimized out - it always matches a subset of what in matched by P3)
-                # (P2 optimized out - it always matches a subset of what in matched by P3 and P1)
+                # (P1 optimized out - it always matches a subset of what is matched by P3)
+                # (P2 optimized out - it always matches a subset of what is matched by P3 and P1)
                 # P3+P6:
                 """
-                    event.restriction != 'internal' AND
-                    event.source IN ('source.one', 'source.two')
+                    event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
+                    AND event.source IN ('source.one', 'source.two')
                 """,
             )],
 
@@ -1188,8 +1197,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
             'threats': [prep_sql_str(
                 # P3+P6:
                 """
-                    event.restriction != 'internal' AND
-                    event.source IN ('source.one', 'source.two')
+                    event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
+                    AND event.source IN ('source.one', 'source.two')
                 """,
             )],
         },
@@ -1203,12 +1213,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     'o4': {
         'access_zone_conditions': {
             'inside': [prep_sql_str(
-                # (P1 optimized out - it always matches a subset of what in matched by P3)
-                # (P5 optimized out - it always matches a subset of what in matched by P6)
+                # (P1 optimized out - it always matches a subset of what is matched by P3)
+                # (P5 optimized out - it always matches a subset of what is matched by P6)
                 # P3+P6:
                 """
-                    event.restriction != 'internal' AND
-                    event.source IN ('source.one', 'source.two')
+                    event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
+                    AND event.source IN ('source.one', 'source.two')
                 """,
             )],
 
@@ -1223,12 +1234,15 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             )],
 
-            'threats': ["event.restriction != 'internal' AND (%s)"
+            'threats': ["event.restriction != 'internal' "
+                        "AND event.ignored IS NOT TRUE "
+                        "AND (%s)"
                         % ' OR '.join(map(prep_sql_str, [
-                # (P1 optimized out - it always matches a subset of what in matched by P3)
+                # (P1 optimized out - it always matches a subset of what is matched by P3)
                 # P3:
                 """
                     event.source = 'source.one'
@@ -1250,7 +1264,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     },
     'o5': {
         'access_zone_conditions': {
-            'inside': ["event.restriction != 'internal' AND (%s)"
+            'inside': ["event.restriction != 'internal' "
+                       "AND event.ignored IS NOT TRUE "
+                       "AND (%s)"
                        % ' OR '.join(map(prep_sql_str, [
                 # P1:
                 """
@@ -1260,7 +1276,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
-                # (P2 optimized out - it always matches a subset of what in matched by P1)
+                # (P2 optimized out - it always matches a subset of what is matched by P1)
                 # (P4 reduced to FALSE - which is neutral in OR)
 
                 # P7+P10 (with NULL-safe negations, thanks to fixing #3379):
@@ -1279,7 +1295,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
 
             # no 'search'
 
-            'threats': ["event.restriction != 'internal' AND (%s)"
+            'threats': ["event.restriction != 'internal' "
+                        "AND event.ignored IS NOT TRUE "
+                        "AND (%s)"
                         % ' OR '.join(map(prep_sql_str, [
                 # P1:
                 """
@@ -1341,7 +1359,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
     },
     'o7': {
         'access_zone_conditions': {
-            'inside': ["event.restriction != 'internal' AND (%s)"
+            'inside': ["event.restriction != 'internal' "
+                       "AND event.ignored IS NOT TRUE "
+                       "AND (%s)"
                        % ' OR '.join(map(prep_sql_str, [
                 # P1:
                 """
@@ -1351,8 +1371,8 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
-                # (P2 optimized out - it always matches a subset of what in matched by P1)
-                # (P5 optimized out - it always matches a subset of what in matched by P6)
+                # (P2 optimized out - it always matches a subset of what is matched by P1)
+                # (P5 optimized out - it always matches a subset of what is matched by P6)
                 # P6:
                 """
                     event.source = 'source.two'
@@ -1364,7 +1384,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """,
             ]))],
 
-            'search': ["event.restriction != 'internal' AND (%s)"
+            'search': ["event.restriction != 'internal' "
+                       "AND event.ignored IS NOT TRUE "
+                       "AND (%s)"
                        % ' OR '.join(map(prep_sql_str, [
                 # P1:
                 """
@@ -1374,8 +1396,8 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                 """,
-                # (P2 optimized out - it always matches a subset of what in matched by P1)
-                # (P5 optimized out - it always matches a subset of what in matched by P6)
+                # (P2 optimized out - it always matches a subset of what is matched by P1)
+                # (P5 optimized out - it always matches a subset of what is matched by P6)
                 # P6:
                 """
                     event.source = 'source.two'
@@ -1388,7 +1410,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 # (P9 omitted as being same as P7)
             ]))],
 
-            'threats': ["event.restriction != 'internal' AND (%s)"
+            'threats': ["event.restriction != 'internal' "
+                        "AND event.ignored IS NOT TRUE "
+                        "AND (%s)"
                         % ' OR '.join(map(prep_sql_str, [
                 # P2:
                 """
@@ -1424,7 +1448,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o8'] = (
  EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o9']) = (
   EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o10']) = {
     'access_zone_conditions': {
-        'inside': ["event.restriction != 'internal' AND (%s)"
+        'inside': ["event.restriction != 'internal' "
+                   "AND event.ignored IS NOT TRUE "
+                   "AND (%s)"
                    % ' OR '.join(map(prep_sql_str, [
             # P1:
             """
@@ -1434,7 +1460,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o8'] = (
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
             """,
-            # (P2 optimized out - it always matches a subset of what in matched by P1)
+            # (P2 optimized out - it always matches a subset of what is matched by P1)
             # (P4 reduced to FALSE - which is neutral in OR)
             # P7:
             """
@@ -1445,7 +1471,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o8'] = (
 
         # no 'search'
 
-        'threats': ["event.restriction != 'internal' AND (%s)"
+        'threats': ["event.restriction != 'internal' "
+                    "AND event.ignored IS NOT TRUE "
+                    "AND (%s)"
                     % ' OR '.join(map(prep_sql_str, [
             # P1:
             """
@@ -1473,10 +1501,12 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o8'] = (
 # note: no data for the 'o11' organization
 EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o12'] = {
     'access_zone_conditions': {
-        'inside': ["event.restriction != 'internal' AND (%s)"
+        'inside': ["event.restriction != 'internal' "
+                   "AND event.ignored IS NOT TRUE "
+                   "AND (%s)"
                    % ' OR '.join(map(prep_sql_str, [
-            # (P1 optimized out - it always matches a subset of what in matched by P3)
-            # (P2 optimized out - it always matches a subset of what in matched by P3 and P1)
+            # (P1 optimized out - it always matches a subset of what is matched by P3)
+            # (P2 optimized out - it always matches a subset of what is matched by P3 and P1)
             # P3:
             """
                 event.source = 'source.one'
@@ -1499,13 +1529,16 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o12'] = {
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
         )],
 
-        'threats': ["event.restriction != 'internal' AND (%s)"
+        'threats': ["event.restriction != 'internal' "
+                    "AND event.ignored IS NOT TRUE "
+                    "AND (%s)"
                     % ' OR '.join(map(prep_sql_str, [
-            # (P1 optimized out - it always matches a subset of what in matched by P3)
-            # (P2 optimized out - it always matches a subset of what in matched by P3 and P1)
+            # (P1 optimized out - it always matches a subset of what is matched by P3)
+            # (P2 optimized out - it always matches a subset of what is matched by P3 and P1)
             # P3:
             """
                 event.source = 'source.one'
@@ -1632,11 +1665,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P3:
                 """
                     event.source = 'source.one'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # (P4 reduced to FALSE - which is neutral in OR)
                 # P5:
@@ -1645,17 +1680,20 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name = 'foo'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P7:
                 """
                     event.source = 'xyz.some-other'
                     AND (event.cc IS NULL OR event.cc != 'PL')
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # (P9 omitted as being same as P7)
             ]))],
@@ -1672,12 +1710,14 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # (P4 reduced to FALSE - which is neutral in OR)
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             ]))],
         },
@@ -1710,6 +1750,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P2:
                 """
@@ -1720,16 +1761,19 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P3:
                 """
                     event.source = 'source.one'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             ]))],
 
@@ -1740,11 +1784,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """
                     event.source = 'source.one'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             ]))],
         },
@@ -1766,11 +1812,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P3:
                 """
                     event.source = 'source.one'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P5:
                 """
@@ -1778,11 +1826,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name = 'foo'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             ]))],
 
@@ -1796,6 +1846,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             )],
 
@@ -1808,11 +1859,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P3:
                 """
                     event.source = 'source.one'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P5:
                 """
@@ -1820,6 +1873,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name = 'foo'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             ]))],
         },
@@ -1841,6 +1895,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P10 (with NULL-safe negations, thanks to fixing #3379):
                 """
@@ -1853,6 +1908,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     AND event.ip NOT BETWEEN 3232235520 AND 3232235775
                     AND event.category NOT IN ('bots', 'cnc')
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P2:
                 """
@@ -1863,6 +1919,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # (P4 reduced to FALSE - which is neutral in OR)
                 # P7:
@@ -1870,6 +1927,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     event.source = 'xyz.some-other'
                     AND (event.cc IS NULL OR event.cc != 'PL')
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             ]))],
 
@@ -1884,6 +1942,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # (P4 reduced to FALSE - which is neutral in OR)
                 # P9:
@@ -1891,6 +1950,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     event.source = 'xyz.some-other'
                     AND (event.cc IS NULL OR event.cc != 'PL')
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             ]))],
         },
@@ -1947,6 +2007,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P2:
                 """
@@ -1957,6 +2018,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P5:
                 """
@@ -1964,17 +2026,20 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name = 'foo'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P7:
                 """
                     event.source = 'xyz.some-other'
                     AND (event.cc IS NULL OR event.cc != 'PL')
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             ]))],
 
@@ -1987,6 +2052,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 167772160 AND 184549375
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P2:
                 """
@@ -1997,6 +2063,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P5:
                 """
@@ -2004,17 +2071,20 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name = 'foo'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P7:
                 """
                     event.source = 'xyz.some-other'
                     AND (event.cc IS NULL OR event.cc != 'PL')
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # (P9 omitted as being same as P7)
             ]))],
@@ -2029,6 +2099,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                          OR event.ip BETWEEN 3232235520 AND 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P5:
                 """
@@ -2036,12 +2107,14 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name = 'foo'
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
                 # P9:
                 """
                     event.source = 'xyz.some-other'
                     AND (event.cc IS NULL OR event.cc != 'PL')
                     AND event.restriction != 'internal'
+                    AND event.ignored IS NOT TRUE
                 """,
             ]))],
         },
@@ -2066,6 +2139,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o8'] = (
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
             # P2:
             """
@@ -2076,6 +2150,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o8'] = (
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.asn IN (3, 4, 5)
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
             # (P4 reduced to FALSE - which is neutral in OR)
             # P7:
@@ -2083,6 +2158,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o8'] = (
                 event.source = 'xyz.some-other'
                 AND (event.cc IS NULL OR event.cc != 'PL')
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
         ]))],
 
@@ -2097,6 +2173,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o8'] = (
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
             # (P4 reduced to FALSE - which is neutral in OR)
             # P9:
@@ -2104,6 +2181,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o8'] = (
                 event.source = 'xyz.some-other'
                 AND (event.cc IS NULL OR event.cc != 'PL')
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
         ]))],
     },
@@ -2126,6 +2204,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
             # P2:
             """
@@ -2136,11 +2215,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.asn IN (3, 4, 5)
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
             # P3:
             """
                 event.source = 'source.one'
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
             # (P4 reduced to FALSE - which is neutral in OR)
             # P5:
@@ -2149,6 +2230,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
                 AND event.category IN ('bots', 'cnc')
                 AND event.name = 'foo'
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
         ]))],
 
@@ -2161,6 +2243,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
         )],
 
@@ -2173,6 +2256,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
                      OR event.ip BETWEEN 167772160 AND 184549375
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
             # P2:
             """
@@ -2183,11 +2267,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
                      OR event.ip BETWEEN 3232235520 AND 3232235775)
                 AND event.asn IN (3, 4, 5)
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
             # P3:
             """
                 event.source = 'source.one'
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
             # (P4 reduced to FALSE - which is neutral in OR)
             # P5:
@@ -2196,6 +2282,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
                 AND event.category IN ('bots', 'cnc')
                 AND event.name = 'foo'
                 AND event.restriction != 'internal'
+                AND event.ignored IS NOT TRUE
             """,
         ]))],
     },
@@ -2327,11 +2414,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P3:
                 """
                     event.source = 'source.one'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P4:
                 """
@@ -2341,6 +2430,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.category NOT IN ('bots', 'cnc')
                     AND event.name NOT IN ('foo')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P5:
                 """
@@ -2348,23 +2438,27 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name IN ('foo')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P7:
                 """
                     event.source = 'xyz.some-other'
                     AND event.cc NOT IN ('PL')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P9:
                 """
                     event.source = 'xyz.some-other'
                     AND event.cc NOT IN ('PL')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
 
@@ -2380,6 +2474,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P4:
                 """
@@ -2389,11 +2484,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.category NOT IN ('bots', 'cnc')
                     AND event.name NOT IN ('foo')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
         },
@@ -2426,6 +2523,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P2:
                 """
@@ -2436,16 +2534,19 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P3:
                 """
                     event.source = 'source.one'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
 
@@ -2456,11 +2557,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """
                     event.source = 'source.one'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
         },
@@ -2482,11 +2585,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P3:
                 """
                     event.source = 'source.one'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P5:
                 """
@@ -2494,11 +2599,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name IN ('foo')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
 
@@ -2512,6 +2619,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
 
@@ -2524,11 +2632,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P3:
                 """
                     event.source = 'source.one'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P5:
                 """
@@ -2536,6 +2646,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name IN ('foo')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
         },
@@ -2557,6 +2668,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P10 (with the legacy-behavior-caused NULL-*unsafe* negations -- see #3379):
                 """
@@ -2569,6 +2681,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                              OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.category NOT IN ('bots', 'cnc')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P2:
                 """
@@ -2579,6 +2692,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P4:
                 """
@@ -2588,12 +2702,14 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.category NOT IN ('bots', 'cnc')
                     AND event.name NOT IN ('foo')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P7:
                 """
                     event.source = 'xyz.some-other'
                     AND event.cc NOT IN ('PL')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
 
@@ -2608,6 +2724,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P4:
                 """
@@ -2617,12 +2734,14 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.category NOT IN ('bots', 'cnc')
                     AND event.name NOT IN ('foo')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P9:
                 """
                     event.source = 'xyz.some-other'
                     AND event.cc NOT IN ('PL')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
         },
@@ -2683,6 +2802,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P2:
                 """
@@ -2693,6 +2813,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P5:
                 """
@@ -2700,17 +2821,20 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name IN ('foo')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P7:
                 """
                     event.source = 'xyz.some-other'
                     AND event.cc NOT IN ('PL')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
 
@@ -2723,6 +2847,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 167772160 AND event.ip <= 184549375
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P2:
                 """
@@ -2733,6 +2858,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P5:
                 """
@@ -2740,23 +2866,27 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name IN ('foo')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P6:
                 """
                     event.source = 'source.two'
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P7:
                 """
                     event.source = 'xyz.some-other'
                     AND event.cc NOT IN ('PL')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P9:
                 """
                     event.source = 'xyz.some-other'
                     AND event.cc NOT IN ('PL')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
 
@@ -2770,6 +2900,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                          OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                     AND event.asn IN (3, 4, 5)
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P5:
                 """
@@ -2777,12 +2908,14 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.category IN ('bots', 'cnc')
                     AND event.name IN ('foo')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
                 # P9:
                 """
                     event.source = 'xyz.some-other'
                     AND event.cc NOT IN ('PL')
                     AND event.restriction != 'internal'
+                    AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
         },
@@ -2807,6 +2940,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o8'] = (
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P2:
             """
@@ -2817,6 +2951,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o8'] = (
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.asn IN (3, 4, 5)
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P4:
             """
@@ -2826,12 +2961,14 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o8'] = (
                 AND event.category NOT IN ('bots', 'cnc')
                 AND event.name NOT IN ('foo')
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P7:
             """
                 event.source = 'xyz.some-other'
                 AND event.cc NOT IN ('PL')
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
         ])],
 
@@ -2846,6 +2983,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o8'] = (
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P4:
             """
@@ -2855,12 +2993,14 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o8'] = (
                 AND event.category NOT IN ('bots', 'cnc')
                 AND event.name NOT IN ('foo')
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P9:
             """
                 event.source = 'xyz.some-other'
                 AND event.cc NOT IN ('PL')
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
         ])],
     },
@@ -2883,6 +3023,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P2:
             """
@@ -2893,11 +3034,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.asn IN (3, 4, 5)
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P3:
             """
                 event.source = 'source.one'
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P4:
             """
@@ -2907,6 +3050,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
                 AND event.category NOT IN ('bots', 'cnc')
                 AND event.name NOT IN ('foo')
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P5:
             """
@@ -2914,6 +3058,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
                 AND event.category IN ('bots', 'cnc')
                 AND event.name IN ('foo')
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
         ])],
 
@@ -2926,6 +3071,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
         ])],
 
@@ -2938,6 +3084,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
                      OR event.ip >= 167772160 AND event.ip <= 184549375
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P2:
             """
@@ -2948,11 +3095,13 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
                      OR event.ip >= 3232235520 AND event.ip <= 3232235775)
                 AND event.asn IN (3, 4, 5)
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P3:
             """
                 event.source = 'source.one'
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P4:
             """
@@ -2962,6 +3111,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
                 AND event.category NOT IN ('bots', 'cnc')
                 AND event.name NOT IN ('foo')
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
             # P5:
             """
@@ -2969,6 +3119,7 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
                 AND event.category IN ('bots', 'cnc')
                 AND event.name IN ('foo')
                 AND event.restriction != 'internal'
+                AND (event.ignored IS NULL OR event.ignored = 0)
             """,
         ])],
     },
@@ -2982,3 +3133,10 @@ EXAMPLE_ORG_IDS_TO_ACTUAL_NAMES = {
     'o5': u'Actual Name Five',
     'o9': u'Actual Name Nine',
 }
+
+
+EXAMPLE_DATABASE_VER = 31415
+
+# Note: a date+time obviously referring to the future is used, to ease testing...
+EXAMPLE_DATABASE_TIMESTAMP_AS_DATETIME = datetime.datetime(2070, 8, 9, 10, 11, 12, 987654)
+EXAMPLE_DATABASE_TIMESTAMP = timestamp_from_datetime(EXAMPLE_DATABASE_TIMESTAMP_AS_DATETIME)

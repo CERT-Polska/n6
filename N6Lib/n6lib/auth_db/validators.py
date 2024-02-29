@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2022 NASK. All rights reserved.
+# Copyright (c) 2018-2024 NASK. All rights reserved.
 
 import json
 import string
@@ -174,6 +174,9 @@ _adjust_source_id = chained(
 _adjust_time = (
     make_adjuster_using_data_spec('time'))
 
+_adjust_time_keeping_microseconds = (
+    make_adjuster_using_data_spec('time_keeping_microseconds'))
+
 
 class _AuthDBValidatorsDataSpec(BaseDataSpec):
 
@@ -191,11 +194,12 @@ class _AuthDBValidatorsDataSpec(BaseDataSpec):
     email = EmailCustomizedField()
     fqdn = DomainNameCustomizedField()
     id_hex = IdHexField()
-    ip_network = IPv4NetField()
+    ip_network = IPv4NetField(accept_bare_ip=True)  # XXX: add arg `trim_host_bits=True` when implemented? (but first see #8949...)
     phone_number = OfficialOrContactTokenField(
         error_msg_template='"{}" is not a valid phone number')
     source = SourceField()
     time = DateTimeCustomizedField()
+    time_keeping_microseconds = DateTimeCustomizedField(keep_sec_fraction=True)
     time_hour_minute = TimeHourMinuteField()
     url = URLSimpleField()
 
@@ -318,6 +322,9 @@ class AuthDBValidators(object):
         make_adjuster_applying_callable(_verified_as_ca_label_containing_no_uppercase),
         _adjust_to_none_if_empty_or_whitespace)
 
+    validator_for__ignore_list__label = (
+        _adjust_ascii_only_to_unicode_stripped_or_none)
+
     validator_for__entity__full_name = (
         make_adjuster_using_data_spec('entity_name'))
     validator_for__entity__alert_email = chained(
@@ -336,6 +343,8 @@ class AuthDBValidators(object):
         make_adjuster_using_data_spec('entity_extra_id_type_label'))
     validator_for__entity_extra_id__value = (
         make_adjuster_using_data_spec('entity_extra_id'))
+
+    validator_for__recent_write_op_commit__made_at = _adjust_time_keeping_microseconds
 
     # (2) *unqualified* (*generic*) validator methods:
 

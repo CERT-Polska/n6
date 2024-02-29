@@ -194,6 +194,7 @@ from n6sdk.data_spec import (
 from n6sdk.data_spec.fields import (
     AddressField,
     DateTimeField,
+    FlagField,
     IntegerField,
     IPv4Field,
     MD5Field,
@@ -248,10 +249,7 @@ class N6DataSpec(DataSpec):
 
     modified = DateTimeFieldForN6(
         in_params=None,
-
-        # TODO later: change to `('required', 'unrestricted')` (after
-        # making `modified` *NOT NULL* in Event DB schema; see: #8751)
-        in_result=('optional', 'unrestricted'),
+        in_result=('required', 'unrestricted'),
 
         extra_params=dict(
             min=DateTimeFieldForN6(
@@ -390,15 +388,19 @@ class N6DataSpec(DataSpec):
         in_params=None,
         in_result='optional',
         min_value=0,
-        max_value=(2 ** 15 - 1),  ### to be extended to 2**16-1?
-    )                             ### OR rather more (see: ticket #6324)
+        max_value=(2 ** 32 - 1),
+    )
 
-    # see: ticket #6324
+    # (This is a legacy custom field, not used for newly added data --
+    # see: ticket #6324)
+    # TODO: remove it entirely, here and in RecordDict, when adding a
+    #       mechanism of replacing it with `count` on result generation
+    #       -- see: ticket #8881.
     count_actual = IntegerFieldForN6(
         in_params=None,
         in_result='optional',
         min_value=0,
-        max_value=(2 ** 53 - 1),  # big enough + seems to be JSON-safe...
+        max_value=(2 ** 32 - 1),
     )
 
     until = DateTimeFieldForN6(
@@ -465,10 +467,13 @@ class N6DataSpec(DataSpec):
         in_result=('optional', 'unrestricted'),
     )
 
+    # TODO later (when supporting non-ASCII characters is no longer needed):
+    #      move coercion to ASCII here from `RecordDict.adjust_name()`.
+    #      See: ticket #8898.
     name = UnicodeLimitedFieldForN6(
         in_params=('optional', 'unrestricted'),
         in_result=('optional', 'unrestricted'),
-        max_length=255,  ### XXX: to be reduced to 100
+        max_length=255,
     )
 
     origin = UnicodeEnumFieldForN6(
@@ -574,6 +579,15 @@ class N6DataSpec(DataSpec):
     client = ClientFieldForN6(
         in_result='optional',
         in_params='optional',
+    )
+
+    ignored = FlagFieldForN6(
+        in_result='optional',
+        in_params='optional',
+        single_param=True,
+        custom_info=dict(
+            func='single_flag_query',
+        ),
     )
 
     opt = FieldForN6(                   # the `opt` "param container field"
@@ -803,14 +817,14 @@ class N6DataSpec(DataSpec):
                     ip=dict(primary_key=True, autoincrement=False))
         """
         from sqlalchemy import Column
-        from n6lib.db_events import JSONText
+        from n6lib.db_events import JSONMediumText
 
         seen_col_names = set()
 
         if self.custom_field_keys:
             name = 'custom'
             seen_col_names.add(name)
-            yield name, Column(JSONText(), nullable=True,
+            yield name, Column(JSONMediumText(), nullable=True,
                                **col_kwargs_updates.get(name, {}))
 
         for key, field in self.result_field_specs().items():
@@ -946,18 +960,20 @@ class N6DataSpec(DataSpec):
             DateTime,
             Enum,
             String,
-            Text,
         )
         from sqlalchemy.dialects.mysql import (
-            SMALLINT,
+            BOOLEAN,
+            CHAR,
             INTEGER,
+            SMALLINT,
+            VARCHAR,
         )
         from n6lib.db_events import (
             IPAddress,
             MD5,
             SHA1,
             SHA256,
-            JSONText,
+            JSONMediumText,
         )
 
         if (key in self.sql_relationship_field_keys or
@@ -969,7 +985,7 @@ class N6DataSpec(DataSpec):
                              .format(key))
 
         col_kwargs = {'nullable': (field.in_result != 'required' and
-                                   key != 'ip')}
+                                   not isinstance(field, IPv4Field))}
         col_kwargs.update(col_kwargs_updates.get(key, {}))
 
         if isinstance(field, AddressField):
@@ -979,7 +995,7 @@ class N6DataSpec(DataSpec):
                         subfield,
                         col_kwargs_updates):
                     yield name, column
-            yield key, Column(JSONText(), **col_kwargs)
+            yield key, Column(JSONMediumText(), **col_kwargs)
         else:
             if isinstance(field, DateTimeField):
                 col_args = [DateTime]
@@ -995,10 +1011,23 @@ class N6DataSpec(DataSpec):
                 col_args = [Enum(*field.enum_values, name=(key + '_type'))]
             elif isinstance(field, UnicodeField):
                 max_length = getattr(field, 'max_length', None)
-                if max_length is not None:
-                    col_args = [String(max_length)]
+                assert max_length is not None
+                if key == 'cc':
+                    assert max_length == 2
+                    # (see the `cc` column in `etc/mysql/initdb/1_create_tables.sql`)
+                    col_args = [CHAR(max_length)]
+                elif key == 'url':
+                    # (see the `url` column in `etc/mysql/initdb/1_create_tables.sql`)
+                    col_args = [VARCHAR(max_length,
+                                        charset='utf8mb4', collation='utf8mb4_bin')]
+                elif key == 'target':
+                    # (see the `target` column in `etc/mysql/initdb/1_create_tables.sql`)
+                    col_args = [VARCHAR(max_length,
+                                        charset='utf8mb4', collation='utf8mb4_unicode_520_ci')]
                 else:
-                    col_args = [Text]
+                    col_args = [String(max_length)]
+            elif isinstance(field, FlagField):
+                col_args = [BOOLEAN(create_constraint=False)]
             elif isinstance(field, IntegerField):
                 if field.min_value is None:
                     raise NotImplementedError(
@@ -1006,18 +1035,9 @@ class N6DataSpec(DataSpec):
                 elif field.max_value is None:
                     raise NotImplementedError(
                         "'max_value' being None not supported")
-                elif (field.min_value >= -(2 ** 15) and
-                      field.max_value < 2 ** 15):
-                    col_args = [SMALLINT]
                 elif (field.min_value >= 0 and
-                      field.max_value < 2 ** 16 and
-                      # dport and sport are INTEGER, not SMALLINT in db
-                      # (at least for now; for historical reasons)
-                      key not in ('dport', 'sport')):
+                      field.max_value < 2 ** 16):
                     col_args = [SMALLINT(unsigned=True)]
-                elif (field.min_value >= -(2 ** 31) and
-                      field.max_value < 2 ** 31):
-                    col_args = [INTEGER]
                 elif (field.min_value >= 0 and
                       field.max_value < 2 ** 32):
                     col_args = [INTEGER(unsigned=True)]
@@ -1089,7 +1109,6 @@ class N6DataSpec(DataSpec):
 
         if address is not None:
             if address:
-              try:
                 new_address = [
                     addr for addr in address
                     if addr.get('ip') not in (None, LACK_OF_IP)]
@@ -1110,14 +1129,6 @@ class N6DataSpec(DataSpec):
                             '`address` was: %a)\n%s',
                             addr, address, event_tag)
                 address = new_address or None
-              # DEBUGGING #3141:
-              except AttributeError as exc:
-                from n6sdk.encoding_helpers import ascii_str
-                exc_str = ascii_str(exc)
-                if ("no attribute 'get'" in exc_str) or ("no attribute 'items'" in exc_str):
-                    raise AttributeError(f'{exc_str} [{event_tag=!a}; {address=!a}]') from exc
-                else:
-                    raise
             else:
                 LOGGER.warning('empty address: %a\n%s', address, event_tag)
                 address = None

@@ -35,7 +35,6 @@ from n6lib.class_helpers import get_class_name
 from n6lib.common_helpers import (
     FilePagedSequence,
     PlainNamespace,
-    as_unicode,
     ipv4_to_str,
 )
 from n6lib.config import (
@@ -1484,7 +1483,11 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
         parser = BaseParser.__new__(BaseParser)
         record_dict = _RecordDict(parsed_content)
         if 'name' in record_dict:
-            assert record_dict['name'] == as_unicode(parsed_content['name'])
+            # (please, compare the following value of `name` with those
+            # in the case data containing the 'name' key, especially
+            # non-ASCII ones...)
+            assert record_dict['name'] == '\x01 ????.\x00tralala: ?'
+            assert record_dict['name'].isascii()
         expected_result = hashlib.md5(expected_hash_base, usedforsecurity=False).hexdigest()
 
         result = parser.get_output_message_id(record_dict)
@@ -1587,9 +1590,11 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
         parsed = RecordDict(parsed_content)
         if add_nonascii_name:
             input_name = 20 * 'zażółć - jaźń!\n\x00\U0010ffff'
+            ascii_name = input_name.encode('ascii', 'replace').decode('ascii')
+            assert ascii_name == 20 * 'za???? - ja??!\n\x00?'
             parsed['name'] = input_name
-            self.assertEqual(parsed['name'], input_name[:255])
-            expected_result = expected_result + [('name', input_name[:255])]
+            self.assertEqual(parsed['name'], ascii_name[:255])                 # ASCII vs.
+            expected_result = expected_result + [('name', input_name[:255])]   # non-ASCII...
 
         result = self.meth.iter_output_id_base_items(parsed)
         result_as_list = list(result)

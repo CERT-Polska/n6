@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 """
 The Filter component, responsible for assigning events to the right
@@ -51,7 +51,7 @@ class Filter(ConfigMixin, LegacyQueuedBase):
         self.auth_api = AuthAPI()
         self.config = self.get_config_section()
         self.fqdn_only_categories = frozenset(self.config['categories_filtered_through_fqdn_only'])
-        super(Filter, self).__init__(**kwargs)
+        super().__init__(**kwargs)
 
     def input_callback(self, routing_key, body, properties):
         record_dict = RecordDict.from_json(body)
@@ -62,6 +62,7 @@ class Filter(ConfigMixin, LegacyQueuedBase):
             record_dict['client'] = client
             if urls_matched:
                 record_dict['urls_matched'] = urls_matched
+            record_dict['ignored'] = self.should_be_ignored(record_dict)
             self.publish_event(record_dict, routing_key)
 
     def get_client_and_urls_matched(self, record_dict, fqdn_only_categories):
@@ -70,6 +71,10 @@ class Filter(ConfigMixin, LegacyQueuedBase):
             record_dict,
             fqdn_only_categories)
         return sorted(client_org_ids), urls_matched
+
+    def should_be_ignored(self, record_dict):
+        resolver = self.auth_api.get_ignore_lists_criteria_resolver()
+        return resolver(record_dict)
 
     def publish_event(self, data, rk):
         """

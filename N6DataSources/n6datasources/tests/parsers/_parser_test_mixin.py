@@ -105,7 +105,8 @@ class ParserTestMixin(TestCaseMixin):
                     f'be an instance of bytes (whereas got an instance of '
                     f'{type(raw_data).__qualname__}: {raw_data!a})')
             parser = self.PARSER_CLASS.__new__(self.PARSER_CLASS)
-            self._patch_the_postprocess_parsed_method(parser)
+            actual_record_dicts = []
+            self._patch_the_postprocess_parsed_method(parser, actual_record_dicts)
             with patch.object(parser, 'publish_output') as publish_output_mock:
                 (input_properties,
                  input_rk,
@@ -116,21 +117,26 @@ class ParserTestMixin(TestCaseMixin):
                         parser.input_callback(input_rk, raw_data, input_properties)
                     self.assertEqual(publish_output_mock.mock_calls, [])
                 else:
-                    expected_results = list(self._iter_expected_results(expected))
                     parser.input_callback(input_rk, raw_data, input_properties)
                     actual_results = list(self._iter_actual_results(publish_output_mock,
-                                                                    expected_output_rk))
+                                                                    expected_output_rk,
+                                                                    actual_record_dicts))
+                    expected_results = list(self._iter_expected_results(expected,
+                                                                        actual_record_dicts))
                     assert_results_equal(actual_results, expected_results)
 
-    def _patch_the_postprocess_parsed_method(self, parser):
+    def _patch_the_postprocess_parsed_method(self, parser, actual_record_dicts):
         orig_postprocess_parsed = parser.postprocess_parsed
-        # a wrapper that adds some assertions:
+        # A wrapper that adds some assertions and also stores the actual
+        # `parsed` record dicts passed to the patched method (as they are
+        # necessary in some parts of the test -- see `_compute_id()`...).
         @functools.wraps(orig_postprocess_parsed)
         def patched_postprocess_parsed(data, parsed, *args, **kwargs):
             self.assertIs(type(parsed), self.RECORD_DICT_CLASS)
-            parsed = orig_postprocess_parsed(data, parsed, *args, **kwargs)
-            self.assertIs(type(parsed), self.RECORD_DICT_CLASS)
-            return parsed
+            actual_record_dicts.append(parsed)
+            parsed_postprocessed = orig_postprocess_parsed(data, parsed, *args, **kwargs)
+            self.assertIs(type(parsed_postprocessed), self.RECORD_DICT_CLASS)
+            return parsed_postprocessed
         parser.postprocess_parsed = patched_postprocess_parsed
 
     def _make_amqp_properties_and_routing_keys(self):
@@ -153,35 +159,60 @@ class ParserTestMixin(TestCaseMixin):
         expected_output_rk = (event_type + '.parsed.' + self.PARSER_SOURCE)
         return input_properties, input_rk, expected_output_rk
 
-    def _iter_expected_results(self, variable_results):
-        for record in variable_results:
+    def _iter_expected_results(self, expected, actual_record_dicts):
+        for index_in_results, expected_variable_items in enumerate(expected):
             record_dict = self.RECORD_DICT_CLASS()
             record_dict.update(self.PARSER_CONSTANT_ITEMS)
             record_dict.update({'rid': self.MESSAGE_ID,
                                 'source': self.PARSER_SOURCE})
             # note: here we modify the underlying pure dict by hand
             # (not using RecordDict's methods):
-            record_dict._dict.update(record)
-            record_dict._dict.setdefault('id', self._compute_id(record_dict))
+            record_dict._dict.update(expected_variable_items)
+            record_dict._dict.setdefault('id', self._compute_id(record_dict,
+                                                                actual_record_dicts,
+                                                                index_in_results))
             yield record_dict._dict
 
-    def _iter_actual_results(self, publish_output_mock, expected_output_rk):
-        for attr, args, kwargs in publish_output_mock.mock_calls:
+    def _iter_actual_results(self,
+                             publish_output_mock,
+                             expected_output_rk,
+                             actual_record_dicts):
+        for index_in_results, (attr, args, kwargs) in enumerate(publish_output_mock.mock_calls):
             self.assertEqual(attr, '')
             self.assertEqual(args, ())
             self.assertEqual(kwargs.keys(), {'routing_key', 'body'})
             self.assertEqual(kwargs['routing_key'], expected_output_rk)
             self.assertIsInstance(kwargs['body'], bytes)
             actual_output_data = json.loads(kwargs['body'])
+            # Additional consistency check (related
+            # to some stuff in `_compute_id()`...):
+            self.assertEqual(actual_output_data.get('name'),
+                             actual_record_dicts[index_in_results].get('name'))
             yield actual_output_data
 
-    def _compute_id(self, record_dict):
+    def _compute_id(self, record_dict, actual_record_dicts, index_in_results):
         # NOTE: concerning the expected value of the `id` event attribute --
         # it is just being computed using the standard mechanism provided by
         # BaseParser, so the test does prove that `id` is generated by the
         # tested parser in the same way, but nothing more...
         aux_parser = BaseParser.__new__(BaseParser)
-        return aux_parser.get_output_message_id(record_dict.copy())
+        aux_record_dict = record_dict.copy()
+        parsed = actual_record_dicts[index_in_results]
+        if 'name' in record_dict and 'name' in parsed:
+            # To make the `BaseParser`-implemented computation of `id`
+            # possible, a part of which is an invocation of the `<record
+            # dict>._get_name_in_legacy_form()` method, we need to copy
+            # the `_name_before_main_adjustments` non-public attribute
+            # from the actual `parsed` record dict. The attribute value
+            # is the one which was attempted by the tested parser to be
+            # set as the 'name' item (except that it is already coerced
+            # to a `str`, even if the parser passed a `bytes`/`bytearray`
+            # object...). See the implementation of the `RecordDict`'s
+            # `_get_name_in_legacy_form()` method.
+            name_before_main_adjustments = parsed._name_before_main_adjustments   # noqa
+            assert isinstance(name_before_main_adjustments, str)
+            aux_record_dict._name_before_main_adjustments = name_before_main_adjustments
+        return aux_parser.get_output_message_id(aux_record_dict)
 
     def cases(self):
         """

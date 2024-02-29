@@ -565,7 +565,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         type=EVENT_TYPE_ENUMS,
     )
     datetime_field_keys = 'time', 'until', 'expires', '_bl-time'
-    flag_field_keys = 'block',
+    flag_field_keys = 'ignored', 'block',
     md5_hexdigest_field_keys = 'id', 'rid', 'md5', 'replaces', '_bl-series-id'
     unsigned_16bit_int_field_keys = 'sport', 'dport'
     unlimited_int_field_keys = '_bl-series-no', '_bl-series-total'
@@ -1106,11 +1106,12 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         self._test_setitem_valid('count', (
             S(0, (0, b'0', u'0', u'00000')),
             S(10, (10, bytearray(b'10'), u'10', u'00010')),
-            S(32767, (32767, b'32767', u'32767')),
+            S(4294967295, (4294967295, u'4294967295', u'00004294967295',
+                           b'0004294967295', bytearray(b'4294967295'))),
         ))
         self._test_setitem_adjuster_error('count', (
             -1, b'-1', u'-1',
-            32768, b'32768', u'32768',
+            4294967296, b'4294967296', u'4294967296',
             u'aaa', bytearray(b'aaa'), u'0x10', b'\x10', u'', b'',
             None, datetime.datetime.now(),
         ))
@@ -1119,12 +1120,12 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
         self._test_setitem_valid('count_actual', (
             S(0, (0, bytearray(b'0'), u'0', u'00000')),
             S(10, (10, b'10', u'10', u'00010')),
-            S(9007199254740991, (9007199254740991, u'9007199254740991',
-                                 b'9007199254740991', bytearray(b'9007199254740991'))),
+            S(4294967295, (4294967295, u'4294967295', u'00004294967295',
+                           b'4294967295', bytearray(b'0004294967295'))),
         ))
         self._test_setitem_adjuster_error('count_actual', (
             -1, b'-1', u'-1',
-            9007199254740992, b'9007199254740992', u'9007199254740992',
+            4294967296, b'4294967296', u'4294967296',
             b'aaa', bytearray(b'0x10'), u'', b'\x10',
             None, datetime.datetime.now(),
         ))
@@ -1209,6 +1210,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 S(True, 'on'),
                 S(True, 't'),
                 S(True, True),
+                S(True, 1),
                 S(False, 'false'),
                 S(False, 'FALSE'),
                 S(False, 'False'),
@@ -1218,14 +1220,22 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 S(False, 'no'),
                 S(False, 'n'),
                 S(False, False),
+                S(False, 0),
             ))
             self._test_setitem_adjuster_error(key, (
                 'this_is_not_a_flag',
                 'ffalse',
                 'TTrue',
+                'Truee',
                 '1235',
+                '2',
                 1235,
+                2,
+                -1,
                 None,
+                [True],
+                ['False'],
+                [0],
             ))
 
     def test__setitem__address(self):
@@ -2285,24 +2295,34 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 rd = self.rd_class(
                     {'category': category},
                     log_nonstandard_names=True)
-                for name in [b'citaDDDel', u'ciTAdddEL', bytearray(b'  irc-bot  '),
-                             u'IRC--Bół', b'tralalalala', u'irc--bół']:
+                for name in [b'citaDDDel',
+                             u'ciTAdddEL',
+                             bytearray(b'  irc-bot  '),
+                             u'irC--B??',
+                             b'tralalalala']:
                     rd['name'] = name
                     self.assertEqual(rd['name'], as_unicode(name).lower())
+                    self.assertIsInstance(rd['name'], str)
+                for name in [u'IRC--Bół',
+                             u'IRC--bóŁ'.encode('utf-8'),
+                             u'irc--bół',
+                             bytearray(u'irc--bół'.encode('utf-8'))]:
+                    rd['name'] = name
+                    self.assertEqual(rd['name'], u'irc--b??')
                     self.assertIsInstance(rd['name'], str)
 
                 # ...and also for non-standard very long names:
                 for name in [u'MAX-łong' * 31 + u'MAX-łon',          # max length
                              u'MAX-łong'.encode('utf-8') * 31 + u'MAX-łon'.encode('utf-8'),
                              bytearray(u'MAX-łong'.encode('utf-8') * 31
-                                       + u'MAX-łon'.encode('utf-8')),
-                             u'MAX-łong' * 31 + u'MAX-łonG',         # too long
+                                       + u'MAX-Łon'.encode('utf-8')),
+                             u'MAX-Łong' * 31 + u'MAX-łonG',         # too long
                              u'MAX-łong'.encode('utf-8') * 31 + u'MAX-łonG'.encode('utf-8'),
                              bytearray(u'MAX-łong'.encode('utf-8') * 31
                                        + u'MAX-łonG'.encode('utf-8')),
                              u'max-łong' * 31 + u'max-łonGGGGGGG']:
                     rd['name'] = name
-                    self.assertEqual(rd['name'], u'max-łong' * 31 + u'max-łon')
+                    self.assertEqual(rd['name'], u'max-?ong' * 31 + u'max-?on')
                     self.assertIsInstance(rd['name'], str)
 
                 self.assertEqual(logger.mock_calls, [
@@ -2316,13 +2336,13 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                     category_sublogger_call.warning('  irc-bot  '),
 
                     call.getChild(category),
-                    category_sublogger_call.warning('irc--b\\xf3\\u0142'),
+                    category_sublogger_call.warning('irc--b??'),
 
                     call.getChild(category),
                     category_sublogger_call.warning('tralalalala'),
 
                     call.getChild(category),
-                    category_sublogger_call.warning('max-\\u0142ong' * 31 + 'max-\\u0142on'),
+                    category_sublogger_call.warning('max-?ong' * 31 + 'max-?on'),
                 ])
 
             # exactly the same but with `log_nonstandard_names` being false -> no logging
@@ -2332,10 +2352,19 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                 rd = self.rd_class(
                     {'category': category},
                     log_nonstandard_names=False)
-                for name in [b'citaDDDel', u'ciTAdddEL', bytearray(b'  irc-bot  '),
-                             u'IRC--Bół', b'tralalalala', u'irc--bół']:
+                for name in [b'citaDDDel',
+                             u'ciTAdddEL',
+                             bytearray(b'  irc-bot  '),
+                             b'tralalalala']:
                     rd['name'] = name
-                    self.assertEqual(rd['name'], as_unicode(name.lower()))
+                    self.assertEqual(rd['name'], as_unicode(name).lower())
+                    self.assertIsInstance(rd['name'], str)
+                for name in [u'IRC--Bół',
+                             u'IRC--bóŁ'.encode('utf-8'),
+                             u'irc--bół',
+                             bytearray(u'irc--bół'.encode('utf-8'))]:
+                    rd['name'] = name
+                    self.assertEqual(rd['name'], u'irc--b??')
                     self.assertIsInstance(rd['name'], str)
                 for name in [u'MAX-łong' * 31 + u'MAX-łon',          # max length
                              u'MAX-łong'.encode('utf-8') * 31 + u'MAX-łon'.encode('utf-8'),
@@ -2347,7 +2376,7 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                                        + u'MAX-łonG'.encode('utf-8')),
                              u'max-łong' * 31 + u'max-łonGGGGGGG']:  # too long
                     rd['name'] = name
-                    self.assertEqual(rd['name'], u'max-łong' * 31 + u'max-łon')
+                    self.assertEqual(rd['name'], u'max-?ong' * 31 + u'max-?on')
                     self.assertIsInstance(rd['name'], str)
                 self.assertEqual(logger.mock_calls, [])
 
@@ -2433,13 +2462,13 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             rd = self.rd_class({'category': category})
             for name, resultant_name in [
                     (255 * u'Ł'.encode('utf-8') + b'A',
-                     255 * u'Ł'),
+                     255 * u'?'),
 
-                    (255 * u'Ł' + u'A',
-                     255 * u'Ł'),
+                    (255 * u'?' + u'A',
+                     255 * u'?'),
 
                     (bytearray(300 * u'błablaB'.encode('utf-8')),
-                     36 * u'błablaB' + u'bła')]:
+                     36 * u'b?ablaB' + u'b?a')]:
 
                 assert len(resultant_name) == 255
                 assert isinstance(resultant_name, str)

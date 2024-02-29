@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 #
 # For some code in this module:
 # Copyright (c) 2001-2013 Python Software Foundation. All rights reserved.
@@ -10,6 +10,7 @@ import contextlib
 import copy
 import errno
 import io
+import math
 import pickle
 import functools
 import hashlib
@@ -52,6 +53,7 @@ from n6sdk.addr_helpers import (
     ip_network_as_tuple,
     ip_network_tuple_to_min_max_ip,
     ip_str_to_int,
+    ip_int_to_str,
 )
 from n6sdk.encoding_helpers import (
     ascii_str,
@@ -69,6 +71,7 @@ from n6sdk.regexes import (
     IPv4_ANONYMIZED_REGEX,
     IPv4_CIDR_NETWORK_REGEX,
     PY_IDENTIFIER_REGEX,
+    PY_NON_ASCII_ESCAPED_WITH_BACKSLASHREPLACE_HANDLER_REGEX,
 )
 from n6lib.class_helpers import (
     is_seq,
@@ -2144,6 +2147,66 @@ class OPSet(Set[_ElemT_co], Reversible[_ElemT_co], Hashable):
     ...  or (1, 2, 6, 3, 7) in s2
     ...  or (6, 2, 3, 7, 1) in s2)
     False
+
+    >>> s3 = pickle.loads(pickle.dumps(
+    ...     s2,
+    ...     protocol=pickle.DEFAULT_PROTOCOL))
+    >>> s4 = pickle.loads(pickle.dumps(
+    ...     OPSet([
+    ...         OPSet([7, 3, 1, 2, 6]),
+    ...         OPSet([2, 3, 1]),
+    ...     ]),
+    ...     protocol=pickle.HIGHEST_PROTOCOL))
+    >>> s3                                          # doctest: +ELLIPSIS
+    OPSet([OPSet([1, 2, 6, 3, 7]), frozenset(...)])
+    >>> s4
+    OPSet([OPSet([7, 3, 1, 2, 6]), OPSet([2, 3, 1])])
+    >>> s2 == s3 == s4 == s3 == s2 == s4 == s2
+    True
+    >>> (s2 is s3) or (s3 is s4) or (s4 is s2)
+    False
+    >>> first2, last2 = s2
+    >>> first3, last3 = s3
+    >>> first4, last4 = s4
+    >>> first2
+    OPSet([1, 2, 6, 3, 7])
+    >>> first3
+    OPSet([1, 2, 6, 3, 7])
+    >>> first4
+    OPSet([7, 3, 1, 2, 6])
+    >>> last4
+    OPSet([2, 3, 1])
+    >>> first2 == first3 == first4 == first3 == first2 == first4 == first2
+    True
+    >>> (first2 is first3) or (first3 is first4) or (first4 is first2)
+    False
+    >>> last2 == last3 == last4 == last3 == last2 == last4 == last2
+    True
+    >>> (last2 is last3) or (last3 is last4) or (last4 is last2)
+    False
+    >>> (first3 in d
+    ...  and first4 in d
+    ...  and last3 in d
+    ...  and last4 in d
+    ...  and first3 in s2
+    ...  and first4 in s2
+    ...  and last3 in s2
+    ...  and last4 in s2)
+    True
+    >>> (OPSet([1, 2, 3]) in s3
+    ...  and OPSet([1, 2, 6, 3, 7]) in s3
+    ...  and OPSet([6, 2, 3, 7, 1]) in s3
+    ...  and OPSet([1, 2, 3]) in s4
+    ...  and OPSet([1, 2, 6, 3, 7]) in s4
+    ...  and OPSet([6, 2, 3, 7, 1]) in s4)
+    True
+    >>> ((1, 2, 3) in s3
+    ...  or (1, 2, 6, 3, 7) in s3
+    ...  or (6, 2, 3, 7, 1) in s3
+    ...  or (1, 2, 3) in s4
+    ...  or (1, 2, 6, 3, 7) in s4
+    ...  or (6, 2, 3, 7, 1) in s4)
+    False
     """
 
     def __new__(
@@ -3397,7 +3460,7 @@ class _CacheKey:
         self.args_hash = hash(args)
 
     def __repr__(self):
-        return '{0.__class__.__qualname__}{0.args!r}'.format(self)
+        return f'{self.__class__.__qualname__}{self.args!r}'
 
     def __hash__(self):
         return self.args_hash
@@ -3406,11 +3469,11 @@ class _CacheKey:
         return self.args == other.args
 
 
-def memoized(func=None,
-             expires_after=None,
-             max_size=None,
-             max_extra_time=30,
-             time_func=time.monotonic):
+def memoized(func: Union[Callable, None] = None,
+             expires_after: Union[float, int, None] = None,
+             max_size: Union[int, None] = None,
+             max_extra_time: Union[int, None] = 30,
+             time_func: Callable[[], Union[float, int]] = time.monotonic):
     """
     A decorator that provides function call memoization based on a FIFO cache.
 
@@ -3424,7 +3487,7 @@ def memoized(func=None,
             be bound later with the decorator syntax -- see the
             examples below.)
 
-    Kwargs:
+    Kwargs (aka *cache settings*):
         `expires_after` (default: `None`):
             Time interval (in seconds) between caching a call
             result and its expiration. If set to `None` -- there
@@ -3477,7 +3540,7 @@ def memoized(func=None,
     3
     >>> add(1, 3)
     4
-    >>> add(3, 1)  # exceeding max_size: forgeting for (1, 2)
+    >>> add(3, 1)  # exceeding max_size: forgetting for (1, 2)
     calculating: 3 + 1 = ...
     4
     >>> add(1, 3)
@@ -3498,6 +3561,11 @@ def memoized(func=None,
     >>> add(1, 2)  # already forgotten (max_size had been exceeded)
     calculating: 1 + 2 = ...
     3
+    >>> add.get_cache_settings() == dict(
+    ...     expires_after=None, max_size=2,
+    ...     max_extra_time=30, time_func=time.monotonic,
+    ... )
+    True
 
     >>> t = 0
     >>> fake_time = lambda: t
@@ -3549,11 +3617,24 @@ def memoized(func=None,
     calculating: 1 - 2 = ...
     -1
 
-    >>> @memoized(max_size=2, expires_after=4, max_extra_time=1, time_func=fake_time)
+    >>> sub.get_cache_settings() == dict(
+    ...     expires_after=4, max_size=None,
+    ...     max_extra_time=None, time_func=fake_time,
+    ... )
+    True
+
+    >>> @memoized(max_size=2, expires_after=4.5,
+    ...           max_extra_time=1, time_func=fake_time)
     ... def mul(a, b):
     ...     print('calculating: {} * {} = ...'.format(a, b))
     ...     return a * b
     ...
+    >>> mul.get_cache_settings() == dict(
+    ...     expires_after=4.5, max_size=2,
+    ...     max_extra_time=1, time_func=fake_time,
+    ... )
+    True
+
     >>> t = 10
     >>> mul(2, 2)  # first time: calling the mul() function
     calculating: 2 * 2 = ...
@@ -3562,6 +3643,7 @@ def memoized(func=None,
     4
     >>> mul(2, 2.0)
     4
+
     >>> t = 20
     >>> mul(2, 2)  # already expired
     calculating: 2 * 2 = ...
@@ -3577,7 +3659,7 @@ def memoized(func=None,
     4
     >>> mul(2, 3)
     6
-    >>> mul(3, 2)  # exceeding max_size: forgeting for (2, 2)
+    >>> mul(3, 2)  # exceeding max_size: forgetting for (2, 2)
     calculating: 3 * 2 = ...
     6
     >>> mul(2, 3)
@@ -3598,6 +3680,7 @@ def memoized(func=None,
     >>> mul(2, 2)  # already forgotten (max_size had been exceeded)
     calculating: 2 * 2 = ...
     4
+
     >>> t = 30
     >>> mul(2, 2)  # already expired
     calculating: 2 * 2 = ...
@@ -3605,6 +3688,205 @@ def memoized(func=None,
     >>> mul(3, 2)  # already expired
     calculating: 3 * 2 = ...
     6
+
+    >>> t2 = 20
+    >>> fake_time2 = lambda: t2
+    >>> mul.change_cache_settings(max_size=4, expires_after=1,
+    ...                           max_extra_time=None, time_func=fake_time2)
+    >>> mul.get_cache_settings() == dict(
+    ...     expires_after=1, max_size=4,
+    ...     max_extra_time=None, time_func=fake_time2,
+    ... )
+    True
+    >>> t = 12345  # (now irrelevant)
+    >>> mul(2, 2)  # cache was cleared (because `max_extra_time`/`time_func` were changed)
+    calculating: 2 * 2 = ...
+    4
+    >>> mul(3, 2)
+    calculating: 3 * 2 = ...
+    6
+    >>> mul(10, 10)
+    calculating: 10 * 10 = ...
+    100
+
+    >>> t2 = 21
+    >>> mul(2, 2)  # already expired
+    calculating: 2 * 2 = ...
+    4
+    >>> mul(3, 2)  # already expired
+    calculating: 3 * 2 = ...
+    6
+    >>> mul(10, 10)  # already expired
+    calculating: 10 * 10 = ...
+    100
+    >>> mul(100, 100)
+    calculating: 100 * 100 = ...
+    10000
+    >>> mul(256, 256)  # exceeding max_size: forgetting for (2, 2)
+    calculating: 256 * 256 = ...
+    65536
+    >>> mul(10, 10)
+    100
+    >>> mul(3, 2)
+    6
+    >>> mul(2, 2)  # already forgotten (max_size had been exceeded)
+    calculating: 2 * 2 = ...
+    4
+    >>> mul(3, 2)  # already forgotten (max_size had been exceeded)
+    calculating: 3 * 2 = ...
+    6
+
+    >>> t2 = 22
+    >>> mul(10, 10)  # already expired
+    calculating: 10 * 10 = ...
+    100
+    >>> mul(3, 2)  # already expired
+    calculating: 3 * 2 = ...
+    6
+    >>> mul(10, 10)
+    100
+
+    >>> t2 = 12345
+
+    >>> mul.change_cache_settings(max_size=1, expires_after=None)
+    >>> mul.get_cache_settings() == dict(
+    ...     expires_after=None, max_size=1,
+    ...     max_extra_time=None, time_func=fake_time2,
+    ... )
+    True
+    >>> mul(3, 2)  # cache not cleared, but truncated accordingly to `max_size=1`
+    6
+    >>> mul(10, 10)  # already forgotten (max_size had been exceeded)
+    calculating: 10 * 10 = ...
+    100
+
+    >>> mul.change_cache_settings(a=42, max_size=4, s='s', c=True)   # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: ...mul.change_cache_settings() got unexpected keyword argument(s): 'a', 's', 'c'
+
+    >>> mul.get_cache_settings() == dict(    # (because of the error, nothing changed)
+    ...     expires_after=None, max_size=1,
+    ...     max_extra_time=None, time_func=fake_time2,
+    ... )
+    True
+    >>> mul(10, 10)
+    100
+    >>> mul(3, 2)  # already forgotten (max_size had been exceeded)
+    calculating: 3 * 2 = ...
+    6
+
+    >>> mul.change_cache_settings(expires_after=2.0, max_size=None)
+    >>> mul.get_cache_settings() == dict(
+    ...     expires_after=2.0, max_size=None,
+    ...     max_extra_time=None, time_func=fake_time2,
+    ... )
+    True
+    >>> mul(3, 2)
+    6
+    >>> mul(10, 10)  # already forgotten (max_size had been exceeded)
+    calculating: 10 * 10 = ...
+    100
+    >>> mul(11, 11)
+    calculating: 11 * 11 = ...
+    121
+    >>> mul(12, 12)
+    calculating: 12 * 12 = ...
+    144
+    >>> mul(3, 2)
+    6
+    >>> mul(10, 10)
+    100
+
+    >>> t2 = 12346
+    >>> mul(11, 11)
+    121
+    >>> mul(12, 12)
+    144
+    >>> mul(20, 20)
+    calculating: 20 * 20 = ...
+    400
+    >>> mul(30, 31)
+    calculating: 30 * 31 = ...
+    930
+    >>> mul(3, 2)
+    6
+    >>> mul(30, 31)
+    930
+
+    >>> t2 = 12347
+    >>> mul(30, 31)
+    930
+    >>> mul(12, 12)  # already expired
+    calculating: 12 * 12 = ...
+    144
+    >>> mul(3, 2)  # already expired
+    calculating: 3 * 2 = ...
+    6
+
+    >>> t2 = 12348
+    >>> mul(20, 20)  # already expired
+    calculating: 20 * 20 = ...
+    400
+    >>> mul(30, 31)  # already expired
+    calculating: 30 * 31 = ...
+    930
+    >>> mul(30, 31)
+    930
+    >>> mul(20, 20)
+    400
+
+    >>> mul.change_cache_settings(max_size=1)
+    >>> mul.get_cache_settings() == dict(
+    ...     expires_after=2.0, max_size=1,
+    ...     max_extra_time=None, time_func=fake_time2,
+    ... )
+    True
+    >>> mul(30, 31)
+    930
+    >>> mul(20, 20)  # already forgotten (max_size had been exceeded)
+    calculating: 20 * 20 = ...
+    400
+    >>> mul(30, 31)  # already forgotten (max_size had been exceeded)
+    calculating: 30 * 31 = ...
+    930
+
+    >>> mul.change_cache_settings(expires_after=5)
+    >>> mul.get_cache_settings() == dict(
+    ...     expires_after=5, max_size=1,
+    ...     max_extra_time=None, time_func=fake_time2,
+    ... )
+    True
+    >>> t2 = 12351
+    >>> mul(30, 31)
+    930
+
+    >>> t2 = 12352
+    >>> mul(30, 31)
+    930
+
+    >>> t2 = 12353
+    >>> mul(30, 31)  # already expired
+    calculating: 30 * 31 = ...
+    930
+
+    >>> mul.change_cache_settings(expires_after=2)
+    >>> mul.get_cache_settings() == dict(
+    ...     expires_after=2, max_size=1,
+    ...     max_extra_time=None, time_func=fake_time2,
+    ... )
+    True
+    >>> mul(30, 31)
+    930
+
+    >>> t2 = 12354
+    >>> mul(30, 31)
+    930
+
+    >>> t2 = 12355
+    >>> mul(30, 31)  # already expired
+    calculating: 30 * 31 = ...
+    930
 
     >>> @memoized(expires_after=None, max_size=2)
     ... def div(a, b):
@@ -3639,6 +3921,11 @@ def memoized(func=None,
     >>> div(6, 2)
     calculating: 6 / 2 = ...
     3.0
+    >>> div.get_cache_settings() == dict(
+    ...     expires_after=None, max_size=2,
+    ...     max_extra_time=30, time_func=time.monotonic,
+    ... )
+    True
 
     >>> @memoized
     ... def recur(n):
@@ -3647,7 +3934,13 @@ def memoized(func=None,
     >>> recur(1)   # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
-    RuntimeError: recursive calls cannot be memoized (...)
+    RuntimeError: recursive calls cannot be memoized (and ...recur() appears to...)
+
+    >>> recur.get_cache_settings() == dict(  # (note: these are the default cache settings)
+    ...     expires_after=None, max_size=None,
+    ...     max_extra_time=30, time_func=time.monotonic,
+    ... )
+    True
     """
     if func is None:
         return functools.partial(memoized,
@@ -3655,6 +3948,43 @@ def memoized(func=None,
                                  max_size=max_size,
                                  max_extra_time=max_extra_time,
                                  time_func=time_func)
+
+    _UNCHANGED = object()  # (for `memoized.change_cache_settings)`, see below...)
+
+    def _verify_expires_after_is_valid(val):
+        if val is _UNCHANGED or val is None:
+            return
+        if isinstance(val, (float, int)) and math.isfinite(val) and val >= 0:
+            return
+        raise TypeError(
+            f'`expires_after` must be either None or a '
+            f'finite non-negative float or int (got: {val!a})')
+
+    def _verify_is_none_or_non_negative_int(name, val):
+        if val is _UNCHANGED or val is None:
+            return
+        if isinstance(val, int) and val >= 0:
+            return
+        raise TypeError(
+            f'`{name}` must be either None or a '
+            f'non-negative int (got: {val!a})')
+
+    _verify_max_size_is_valid = functools.partial(
+        _verify_is_none_or_non_negative_int,
+        'max_size')
+
+    _verify_max_extra_time_is_valid = functools.partial(
+        _verify_is_none_or_non_negative_int,
+        'max_extra_time')
+
+    def _get_expiry_time():
+        return time_func() + expires_after + (
+            random.randint(0, max_extra_time) if max_extra_time
+            else 0)
+
+    _verify_expires_after_is_valid(expires_after)
+    _verify_max_size_is_valid(max_size)
+    _verify_max_extra_time_is_valid(max_extra_time)
 
     NOT_FOUND = object()
     CacheKey = _CacheKey
@@ -3669,8 +3999,9 @@ def memoized(func=None,
         with mutex:
             if recursion_guard:
                 raise RuntimeError(
-                    'recursive calls cannot be memoized ({0!a} appeared '
-                    'to be called recursively)'.format(wrapper))
+                    f'recursive calls cannot be memoized (and '
+                    f'{ascii_str(__fullqualname)}() appears to '
+                    f'be being called recursively)')
             try:
                 recursion_guard.append(None)
                 try:
@@ -3685,9 +4016,8 @@ def memoized(func=None,
                     if result is NOT_FOUND:
                         result = keys_to_results[key] = func(*args)
                         expiry_time = (
-                            (time_func() + expires_after +
-                             random.randint(0, max_extra_time or 0))
-                            if expires_after is not None else None)
+                            None if expires_after is None
+                            else _get_expiry_time())
                         cache_register.append(CacheRegItem(key, expiry_time))
                     return result
                 finally:
@@ -3701,6 +4031,110 @@ def memoized(func=None,
                 del recursion_guard[:]
                 raise
 
+    __module = wrapper.__module__
+    __qualname = wrapper.__qualname__
+    __fullqualname = f'{__module}.{__qualname}'
+
+    def get_cache_settings():
+        """
+        Get a dict containing all *cache settings* of this particular
+        application of the `@memoized` decorator.
+
+        The available *cache settings* are:
+
+        * `expires_after`,
+        * `max_size`,
+        * `max_extra_time`,
+        * `time_func`
+
+        (for their descriptions -- see the main docs of the `@memoized`
+        decorator).
+        """
+        return dict(
+            expires_after=expires_after,
+            max_size=max_size,
+            max_extra_time=max_extra_time,
+            time_func=time_func,
+        )
+
+    get_cache_settings.__qualname__ = f'{__qualname}.{get_cache_settings.__name__}'
+
+    def change_cache_settings(**new_settings):
+        """
+        Change (some or all) of the *cache settings* of this particular
+        application of the `@memoized` decorator (and possibly clear or
+        truncate the cache contents -- see below...).
+
+        The available *cache settings* are:
+
+        * `expires_after`,
+        * `max_size`,
+        * `max_extra_time`,
+        * `time_func`
+
+        (for their descriptions -- see the main docs of the `@memoized`
+        decorator).
+
+        *Note:* if `max_extra_time` and/or `time_func` are among the
+        settings being changed, the cache (the one provided by this
+        particular application of `@memoized`) is *entirely cleared*.
+        On the other hand, if you change *only* `expires_after` and/or
+        `max_size` then the cache is *kept* -- *except that* it may be
+        *truncated* and/or its items' *expiry times* may be *adjusted*,
+        according to the settings.
+        """
+        nonlocal expires_after, max_size, max_extra_time, time_func
+        nonlocal cache_register
+        new_expires_after = new_settings.pop('expires_after', _UNCHANGED)
+        new_max_size = new_settings.pop('max_size', _UNCHANGED)
+        new_max_extra_time = new_settings.pop('max_extra_time', _UNCHANGED)
+        new_time_func = new_settings.pop('time_func', _UNCHANGED)
+        if new_settings:
+            raise TypeError(
+                f'{ascii_str(__change_cache_settings_fullqualname)}() '
+                f'got unexpected keyword argument(s): '
+                f'{", ".join(map(repr, new_settings))}')
+        _verify_expires_after_is_valid(new_expires_after)
+        _verify_max_size_is_valid(new_max_size)
+        _verify_max_extra_time_is_valid(new_max_extra_time)
+        gen_cache_reg = None
+        with mutex:
+            if new_time_func is not _UNCHANGED:
+                time_func = new_time_func
+                cache_register.clear()
+            if new_max_extra_time is not _UNCHANGED:
+                max_extra_time = new_max_extra_time
+                cache_register.clear()
+            if new_expires_after is not _UNCHANGED:
+                expires_after_diff = (
+                    None if expires_after is None or new_expires_after is None
+                    else new_expires_after - expires_after)
+                expires_after = new_expires_after
+                if cache_register:
+                    if expires_after_diff is None:
+                        expiry_time = (
+                            None if expires_after is None
+                            else _get_expiry_time())
+                        gen_cache_reg = (
+                            item._replace(expiry_time=expiry_time)
+                            for item in cache_register)
+                    else:
+                        gen_cache_reg = (
+                            item._replace(expiry_time=item.expiry_time + expires_after_diff)
+                            for item in cache_register)
+            if new_max_size is not _UNCHANGED:
+                max_size = new_max_size
+                if gen_cache_reg is None:
+                    gen_cache_reg = iter(cache_register)
+            if gen_cache_reg is not None:
+                cache_register = collections.deque(maxlen=max_size)
+                cache_register.extend(gen_cache_reg)
+
+    change_cache_settings.__qualname__ = f'{__qualname}.{change_cache_settings.__name__}'
+    __change_cache_settings_fullqualname = f'{__module}.{change_cache_settings.__qualname__}'
+
+    wrapper.get_cache_settings = get_cache_settings
+    wrapper.change_cache_settings = change_cache_settings
     wrapper.func = func  # making the original function still available
     return wrapper
 
@@ -6112,8 +6546,8 @@ class AtomicallySavedFile:
     """
 
     def __init__(self, dest_path, mode, **kwargs):
-        if 'w' not in mode and 'x' not in mode:
-            # Maybe TODO: we may want to support also 'a' and 'r+...' (but it
+        if 'w' not in mode:
+            # Maybe TODO: we may want to support also 'x'/'a'/'r+...' (but it
             #             would require careful modification of implementation
             #             of `__enter__()` and `__exit__()`...).
             raise ValueError('mode {!a} not supported'.format(mode))

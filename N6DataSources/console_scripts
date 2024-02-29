@@ -56,6 +56,9 @@ n6collector_spam404comscamlistbl = n6datasources.collectors.spam404_com:Spam404C
 ## stopforum.*
 n6collector_stopforumspam = n6datasources.collectors.stopforum:StopForumSpamCollector_main
 
+## turris-cz.*
+n6collector_turrisczgreylistcsv = n6datasources.collectors.turris_cz:TurrisCzGreylistCsvCollector_main
+
 ## zoneh.*
 n6collector_zonehrss = n6datasources.collectors.zoneh:ZonehRssCollector_main
 
@@ -128,6 +131,7 @@ n6parser_shadowserveradb202204 = n6datasources.parsers.shadowserver:Shadowserver
 n6parser_shadowserverafp202204 = n6datasources.parsers.shadowserver:ShadowserverAfp202204Parser_main
 n6parser_shadowserveramqp202204 = n6datasources.parsers.shadowserver:ShadowserverAmqp202204Parser_main
 n6parser_shadowserverard202204 = n6datasources.parsers.shadowserver:ShadowserverArd202204Parser_main
+n6parser_shadowserverbgp202312 = n6datasources.parsers.shadowserver:ShadowserverBgp202312Parser_main
 n6parser_shadowserverchargen201412 = n6datasources.parsers.shadowserver:ShadowserverChargen201412Parser_main
 n6parser_shadowserverciscosmartinstall202204 = n6datasources.parsers.shadowserver:ShadowserverCiscoSmartInstall202204Parser_main
 n6parser_shadowservercoap202204 = n6datasources.parsers.shadowserver:ShadowserverCoap202204Parser_main
@@ -192,6 +196,9 @@ n6parser_spam404comscamlistbl = n6datasources.parsers.spam404_com:Spam404ComScam
 
 ## stopforum.*
 n6parser_stopforumspam = n6datasources.parsers.stopforum:StopForumSpamParser_main
+
+## turris-cz.*
+n6parser_turrisczgreylistcsv202401 = n6datasources.parsers.turris_cz:TurrisCzGreylistCsv202401Parser_main
 
 ## zoneh.*
 n6parser_zonehrss = n6datasources.parsers.zoneh:ZonehRssParser_main

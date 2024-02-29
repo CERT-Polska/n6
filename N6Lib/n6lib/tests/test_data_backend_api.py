@@ -1,13 +1,20 @@
 # Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import copy
+import contextlib
+import dataclasses
+import itertools
+import sys
 import unittest
 from datetime import datetime as dt
+from typing import Union
 from unittest.mock import (
+    ANY,
     MagicMock,
     patch,
     sentinel as sen,
 )
+
 from sqlalchemy import and_
 from unittest_expander import (
     expand,
@@ -33,7 +40,7 @@ from n6lib.unit_test_helpers import (
 ## TODO: more _EventsQueryProcessor tests (__init__ etc.)
 
 
-class Test_N6DataBackendAPI__delete_opt_prefixed_params(unittest.TestCase):
+class TestN6DataBackendAPI__delete_opt_prefixed_params(unittest.TestCase):
 
     def test(self):
         mock = MagicMock()
@@ -81,6 +88,7 @@ class Test_EventsQueryProcessor__get_key_to_query_func(unittest.TestCase):
             'fqdn': key_query,
             'fqdn.sub': qmc_mock.like_query,
             'id': key_query,
+            'ignored': qmc_mock.single_flag_query,
             'ip': key_query,
             'ip.net': qmc_mock.ip_net_query,
             'md5': key_query,
@@ -106,13 +114,14 @@ class Test_EventsQueryProcessor__get_key_to_query_func(unittest.TestCase):
 
 
 @expand
-class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
+class Test_EventsQueryProcessor_generate_query_results__time_query_components(unittest.TestCase):
 
     _UTCNOW = dt(2015, 1, 3, 17, 18, 19)
 
-    # a helper that makes the expression query
-    # reprs for a given time window (step)
-    def _win(upper_op, upper, lower):
+    @staticmethod
+    def _format_expected_reprs_for_time_window(upper_op, upper, lower):
+        # A helper that makes the expression query
+        # reprs for the given time window (step).
         return [
             ("event.time >= '{0}' AND "
              "event.time {1} '{2}'".format(
@@ -129,9 +138,15 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
         ]
 
 
-    # typical cases
-    cases_time_related_components_of_generated_queries = [
-        param(
+    @paramseq
+    def cases(cls):
+
+        _win = cls._format_expected_reprs_for_time_window
+
+        #
+        # Typical cases
+
+        yield param(
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 3, 16, 17, 18),
             },
@@ -140,9 +155,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-03 18:18:19',  # utcnow() + 1h
                 lower='2015-01-03 16:17:18',
             ),
-        ).label('no time.max/until given, 1 window'),
+        ).label('no time.max/until given, 1 window')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 5, 14, 15, 16),
                 'time.min': dt(2015, 1, 4, 16, 17, 18),
@@ -152,9 +167,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-05 14:15:16',
                 lower='2015-01-04 16:17:18',
             ),
-        ).label('time.max given, 1 window'),
+        ).label('time.max given, 1 window')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 5, 14, 15, 16, 999999),
                 'time.min': dt(2015, 1, 4, 16, 17, 18),
@@ -164,9 +179,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-05 14:15:16.999999',
                 lower='2015-01-04 16:17:18',
             ),
-        ).label('time.until given, 1 window'),
+        ).label('time.until given, 1 window')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 2, 16, 17, 18),
             },
@@ -179,9 +194,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-02 18:18:19',
                 lower='2015-01-02 16:17:18',
             ),
-        ).label('no time.max/until given, several windows'),
+        ).label('no time.max/until given, several windows')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 5, 14, 15, 16),
                 'time.min': dt(2015, 1, 2, 16, 17, 18, 1),
@@ -199,9 +214,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-03 14:15:16',
                 lower='2015-01-02 16:17:18.000001',
             ),
-        ).label('time.max given, several windows'),
+        ).label('time.max given, several windows')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 2, 14, 15, 16),
                 'time.min': dt(2014, 12, 30, 16, 17, 18),
@@ -219,12 +234,12 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2014-12-31 14:15:16',
                 lower='2014-12-30 16:17:18',
             ),
-        ).label('time.until given, several windows'),
-    ]
+        ).label('time.until given, several windows')
 
-    # special cases: time.{max,until} - time.min == multiplicity of window size
-    cases_time_related_components_of_generated_queries.extend([
-        param(
+        #
+        # Special cases: time.{max,until} - time.min == multiplicity of window size
+
+        yield param(
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 2, 18, 18, 19),
             },
@@ -233,9 +248,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-03 18:18:19',  # utcnow() + 1h
                 lower='2015-01-02 18:18:19',
             ),
-        ).label('no time.max/until given, 1 window, delta == window'),
+        ).label('no time.max/until given, 1 window, delta == window')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 5, 16, 17, 18),
                 'time.min': dt(2015, 1, 4, 16, 17, 18),
@@ -245,9 +260,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-05 16:17:18',
                 lower='2015-01-04 16:17:18',
             ),
-        ).label('time.max given, 1 window, delta == window'),
+        ).label('time.max given, 1 window, delta == window')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 5),
                 'time.min': dt(2015, 1, 4),
@@ -257,9 +272,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-05 00:00:00',
                 lower='2015-01-04 00:00:00',
             ),
-        ).label('time.until given, 1 window, delta == window'),
+        ).label('time.until given, 1 window, delta == window')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 1, 18, 18, 19),
             },
@@ -272,9 +287,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-02 18:18:19',
                 lower='2015-01-01 18:18:19',
             ),
-        ).label('no time.max/until given, several windows, delta == n * window'),
+        ).label('no time.max/until given, several windows, delta == n * window')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 2, 14, 15, 16, 999999),
                 'time.min': dt(2014, 12, 30, 14, 15, 16, 999999),
@@ -292,9 +307,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2014-12-31 14:15:16.999999',
                 lower='2014-12-30 14:15:16.999999',
             ),
-        ).label('time.max given, several windows, delta == n * window'),
+        ).label('time.max given, several windows, delta == n * window')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 5),
                 'time.min': dt(2015, 1, 2),
@@ -312,12 +327,12 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-03 00:00:00',
                 lower='2015-01-02 00:00:00',
             ),
-        ).label('time.until given, several windows, delta == n * window'),
-    ])
+        ).label('time.until given, several windows, delta == n * window')
 
-    # special cases: time.min == time.{max,until}
-    cases_time_related_components_of_generated_queries.extend([
-        param(
+        #
+        # Special cases: time.min == time.{max,until}
+
+        yield param(
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 3, 18, 18, 19),
             },
@@ -326,9 +341,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-03 18:18:19',  # utcnow() + 1h
                 lower='2015-01-03 18:18:19',
             ),
-        ).label('time_min == utcnow() + 1h, no time.max/until given'),
+        ).label('time_min == utcnow() + 1h, no time.max/until given')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 4, 16, 17, 18),
                 'time.min': dt(2015, 1, 4, 16, 17, 18),
@@ -338,9 +353,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-04 16:17:18',
                 lower='2015-01-04 16:17:18',
             ),
-        ).label('time.min == time.max'),
+        ).label('time.min == time.max')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 4, 16, 17, 18, 999999),
                 'time.min': dt(2015, 1, 4, 16, 17, 18, 999999),
@@ -350,12 +365,12 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-04 16:17:18.999999',
                 lower='2015-01-04 16:17:18.999999',
             ),
-        ).label('time.min == time.until'),
-    ])
+        ).label('time.min == time.until')
 
-    # special cases: time.min > time.{max,until}
-    cases_time_related_components_of_generated_queries.extend([
-        param(
+        #
+        # Special cases: time.min > time.{max,until}
+
+        yield param(
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 3, 18, 18, 19, 1),
             },
@@ -364,9 +379,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-03 18:18:19',  # utcnow() + 1h
                 lower='2015-01-03 18:18:19.000001',
             ),
-        ).label('time_min > utcnow() + 1h, no time.max/until given'),
+        ).label('time_min > utcnow() + 1h, no time.max/until given')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 4, 16, 17, 18),
                 'time.min': dt(2015, 1, 7, 18, 19, 20),
@@ -376,9 +391,9 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-04 16:17:18',
                 lower='2015-01-07 18:19:20',
             ),
-        ).label('time.min > time.max'),
+        ).label('time.min > time.max')
 
-        param(
+        yield param(
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 4, 16, 17, 18),
                 'time.min': dt(2015, 1, 5, 16, 17, 18),
@@ -388,10 +403,10 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
                 upper='2015-01-04 16:17:18',
                 lower='2015-01-05 16:17:18',
             ),
-        ).label('time.min > time.until'),
-    ])
+        ).label('time.min > time.until')
 
-    @foreach(cases_time_related_components_of_generated_queries)
+
+    @foreach(cases)
     def test_time_related_components_of_generated_queries(self,
                                                           given_time_constraints_items,
                                                           expected_query_expr_reprs):
@@ -448,18 +463,1270 @@ class Test_EventsQueryProcessor_generate_query_results(unittest.TestCase):
         return query_mock
 
 
-    ## TODO: test other aspects of the generate_query_results() method...
+@dataclasses.dataclass(order=True, frozen=True)
+class _FakeEventId:
+
+    # Note: for the concerned tests it could be any orderable type.
+    _orderable_value: str
+
+    def __repr__(self):
+        return f'<{self._orderable_value}>'
+
+@dataclasses.dataclass(eq=False, frozen=True)
+class _FakeRowFetchedFromDB:
+
+    # Note: event attributes other than `id`, `time` and `client` are
+    # not included here, as they are irrelevant for the concerned tests.
+
+    id: _FakeEventId
+    time: dt
+    client: Union[str, None] = None
+
+    def __post_init__(self):
+        assert isinstance(self.id, _FakeEventId)
+        assert isinstance(self.time, dt)
+        assert self.client is None or isinstance(self.client, str)
+
+# Note: in real *result dicts* the 'client' key is present only if there
+# are any client organization identifiers to be stored, however in the
+# concerned tests we can neglect that.  Also, note that instances of the
+# artificial types `{Original,Preprocessed}ResultDictSubstitute` (which
+# are specific to the concerned tests) are not dicts/mappings anyway, and
+# that this is irrelevant for those tests.
+
+@dataclasses.dataclass(frozen=True)
+class _OriginalResultDictSubstitute:
+    id: _FakeEventId
+    time: dt
+    client: list[str] = dataclasses.field(default_factory=list)
+
+@dataclasses.dataclass(frozen=True)
+class _PreprocessedResultDictSubstitute:
+    id: _FakeEventId
+    time: dt
+    client: list[str] = dataclasses.field(default_factory=list)
+
+@expand
+class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(TestCaseMixin,
+                                                                               unittest.TestCase):
+
+    @paramseq
+    def cases(cls):                                                     # noqa
+        IRREGULAR_INCREASING_DATETIMES = [                              # noqa
+            dt(2023, 1, 1, 0, 0, 0),
+            dt(2023, 1, 1, 0, 0, 1),
+            dt(2023, 1, 1, 0, 1, 3),
+            dt(2023, 1, 1, 23, 13, 42),
+            dt(2023, 1, 1, 23, 13, 43),
+            dt(2023, 1, 2, 13, 42, 52),
+            dt(2023, 1, 2, 14, 56, 3),
+            dt(2023, 10, 5, 7, 18, 45),
+            dt(2024, 6, 27, 1, 44, 27),
+            dt(2024, 6, 27, 1, 44, 28),
+        ]
+        assert IRREGULAR_INCREASING_DATETIMES == sorted(set(IRREGULAR_INCREASING_DATETIMES))
+        assert len(IRREGULAR_INCREASING_DATETIMES) == 10
+
+        Id = _FakeEventId                                               # noqa
+        Time = IRREGULAR_INCREASING_DATETIMES.__getitem__               # noqa
+
+        Row = _FakeRowFetchedFromDB                                     # noqa
+        OrigResult = _OriginalResultDictSubstitute                      # noqa
+        PrepResult = _PreprocessedResultDictSubstitute                  # noqa
+
+        #
+        # Simplest cases: with at most one `time` value and `id` value
+
+        for opt_limit in [1, 2, 3, 4, sys.maxsize, None]:
+
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=[],
+                expected_orig_result_dicts=[],
+                expected_yielded_result_dicts=[],
+            ).label(f'no rows; '
+                    f'{opt_limit=}')
+
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=[
+                    Row(Id('a'), Time(0)),
+                ],
+                expected_orig_result_dicts=[
+                    OrigResult(Id('a'), Time(0)),
+                ],
+                expected_yielded_result_dicts=[
+                    PrepResult(Id('a'), Time(0)),
+                ],
+            ).label(f'one row; '
+                    f'{opt_limit=}')
+
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=[
+                    Row(Id('a'), Time(0), client='org1'),
+                ],
+                expected_orig_result_dicts=[
+                    OrigResult(Id('a'), Time(0), client=['org1']),
+                ],
+                expected_yielded_result_dicts=[
+                    PrepResult(Id('a'), Time(0), client=['org1']),
+                ],
+            ).label(f'one row, with `client`; '
+                    f'{opt_limit=}')
+
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=[
+                    Row(Id('a'), Time(0)),
+                ],
+                to_be_skipped_by_preproc={Id('a')},
+                expected_orig_result_dicts=[
+                    OrigResult(Id('a'), Time(0)),
+                ],
+                expected_yielded_result_dicts=[],
+            ).label(f'one row; '
+                    f'preproc method passes no result; '
+                    f'{opt_limit=}')
+
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=[
+                    Row(Id('a'), Time(0)),
+                    Row(Id('a'), Time(0)),
+                    Row(Id('a'), Time(0)),
+                ],
+                expected_orig_result_dicts=[
+                    OrigResult(Id('a'), Time(0)),
+                ],
+                expected_yielded_result_dicts=[
+                    PrepResult(Id('a'), Time(0)),
+                ],
+            ).label(f'several rows with same `id` and `time`; '
+                    f'{opt_limit=}')
+
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=[
+                    Row(Id('a'), Time(0), client='org1'),
+                    Row(Id('a'), Time(0)),
+                    Row(Id('a'), Time(0), client='org2'),
+                ],
+                expected_orig_result_dicts=[
+                    OrigResult(Id('a'), Time(0), client=['org1', 'org2']),
+                ],
+                expected_yielded_result_dicts=[
+                    PrepResult(Id('a'), Time(0), client=['org1', 'org2']),
+                ],
+            ).label(f'several rows with same `id` and `time`, '
+                    f'some with `client` (different); '
+                    f'{opt_limit=}')
+
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=[
+                    Row(Id('a'), Time(0), client='org1'),
+                    Row(Id('a'), Time(0)),
+                    Row(Id('a'), Time(0), client='org1'),
+                ],
+                expected_orig_result_dicts=[
+                    OrigResult(Id('a'), Time(0), client=['org1']),
+                ],
+                expected_yielded_result_dicts=[
+                    PrepResult(Id('a'), Time(0), client=['org1']),
+                ],
+            ).label(f'several rows with same `id` and `time`, '
+                    f'some with `client` (same); '
+                    f'{opt_limit=}')
+
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=[
+                    Row(Id('a'), Time(0), client='org1'),
+                    Row(Id('a'), Time(0)),
+                    Row(Id('a'), Time(0), client='org2'),
+                ],
+                to_be_skipped_by_preproc={Id('a')},
+                expected_orig_result_dicts=[
+                    OrigResult(Id('a'), Time(0), client=['org1', 'org2']),
+                ],
+                expected_yielded_result_dicts=[],
+            ).label(f'several rows with same `id` and `time`, '
+                    f'some with `client` (different); '
+                    f'preproc method passes no result; '
+                    f'{opt_limit=}')
+
+        #
+        # Cases with one `time` value and multiple `id` values
+
+        for rows_from_db in [
+            *itertools.permutations([
+                Row(Id('a'), Time(0)),
+                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('c'), Time(0), client='org1'),
+            ]),
+            [
+                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('a'), Time(0)),
+                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('b'), Time(0)),
+            ],
+            [
+                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('c'), Time(0)),
+                Row(Id('c'), Time(0)),
+                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('a'), Time(0)),
+            ],
+            [
+                Row(Id('a'), Time(0)),
+                Row(Id('a'), Time(0)),
+                Row(Id('a'), Time(0)),
+                Row(Id('c'), Time(0)),
+                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('c'), Time(0)),
+                Row(Id('b'), Time(0), client='org2'),
+            ],
+        ]:
+
+            for opt_limit in [1, 2, 3, 4, sys.maxsize, None]:
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('a'), Id('b'), Id('c')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                        OrigResult(Id('b'), Time(0), client=['org2']),
+                        OrigResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                    expected_yielded_result_dicts=[],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'preproc method passes no result; '
+                        f'{opt_limit=}')
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('a'), Id('b')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                        OrigResult(Id('b'), Time(0), client=['org2']),
+                        OrigResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'preproc method never passes "a"|"b"; '
+                        f'{opt_limit=}')
+
+            for opt_limit in [2, 3, 4, sys.maxsize, None]:
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('a'), Id('c')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                        OrigResult(Id('b'), Time(0), client=['org2']),
+                        OrigResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('b'), Time(0), client=['org2']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'preproc method never passes "a"|"c"; '
+                        f'{opt_limit=}')
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('b'), Id('c')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                        OrigResult(Id('b'), Time(0), client=['org2']),
+                        OrigResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('a'), Time(0)),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'preproc method never passes "b"|"c"; '
+                        f'{opt_limit=}')
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('a')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                        OrigResult(Id('b'), Time(0), client=['org2']),
+                        OrigResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('b'), Time(0), client=['org2']),
+                        PrepResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'preproc method never passes "a"; '
+                        f'{opt_limit=}')
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('b')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                        OrigResult(Id('b'), Time(0), client=['org2']),
+                        OrigResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('a'), Time(0)),
+                        PrepResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'preproc method never passes "b"; '
+                        f'{opt_limit=}')
+
+            for opt_limit in [3, 4, sys.maxsize, None]:
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('c')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                        OrigResult(Id('b'), Time(0), client=['org2']),
+                        OrigResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('a'), Time(0)),
+                        PrepResult(Id('b'), Time(0), client=['org2']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'preproc method never passes "c"; '
+                        f'{opt_limit=}')
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                        OrigResult(Id('b'), Time(0), client=['org2']),
+                        OrigResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('a'), Time(0)),
+                        PrepResult(Id('b'), Time(0), client=['org2']),
+                        PrepResult(Id('c'), Time(0), client=['org1']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'preproc method passes everything; '
+                        f'{opt_limit=}')
+
+            opt_limit = 2
+
+            for preproc_skipping_descr, to_be_skipped_by_preproc in {
+                'preproc method never passes "c"': {Id('c')},
+                'preproc method passes everything': (),
+            }.items():
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc=to_be_skipped_by_preproc,
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                        OrigResult(Id('b'), Time(0), client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('a'), Time(0)),
+                        PrepResult(Id('b'), Time(0), client=['org2']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'{preproc_skipping_descr}; '
+                        f'{opt_limit=}')
+
+            opt_limit = 1
+
+            for preproc_skipping_descr, to_be_skipped_by_preproc in {
+                'preproc method never passes "a"|"c"': {Id('a'), Id('c')},
+                'preproc method never passes "a"': {Id('a')},
+            }.items():
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc=to_be_skipped_by_preproc,
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                        OrigResult(Id('b'), Time(0), client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('b'), Time(0), client=['org2']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'{preproc_skipping_descr}; '
+                        f'{opt_limit=}')
+
+            for preproc_skipping_descr, to_be_skipped_by_preproc in {
+                'preproc method never passes "b"|"c"': {Id('b'), Id('c')},
+                'preproc method never passes "b"': {Id('b')},
+                'preproc method never passes "c"': {Id('c')},
+                'preproc method passes everything': (),
+            }.items():
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc=to_be_skipped_by_preproc,
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(0)),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('a'), Time(0)),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and same `time`, some with `client`; '
+                        f'{preproc_skipping_descr}; '
+                        f'{opt_limit=}')
+
+        #
+        # Cases engaging multiple `time` values
+
+        # * Simple cases
+
+        for time_order_descr, rows_from_db in {
+            'with proper `time` order (here: decreasing)': [
+                Row(Id('c'), Time(2), client='org1'),
+                Row(Id('a'), Time(1)),                  # (here all `time` values are
+                Row(Id('b'), Time(0), client='org2'),   # different from each other)
+            ],
+            'with proper `time` order (here: non-strictly decreasing)': [
+                Row(Id('c'), Time(2), client='org1'),
+                Row(Id('c'), Time(2), client='org1'),   # (similar to previous one but
+                Row(Id('a'), Time(1)),                  # with some `id`s repeated...)
+                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('b'), Time(0), client='org2'),
+            ],
+            'with proper `time` order (here: non-strictly decreasing) #2': [
+                Row(Id('c'), Time(2)),
+                Row(Id('c'), Time(2), client='org1'),   # (similar to previous one...)
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(1)),
+                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('b'), Time(0)),
+            ],
+            'with proper `time` order (here: non-strictly decreasing) #3': [
+                Row(Id('c'), Time(1), client='org1'),
+                Row(Id('b'), Time(0), client='org2'),   # <---+ adjacent with same `time` value
+                Row(Id('a'), Time(0)),                  # <---'     (and different `id` values)
+            ],
+            'with proper `time` order (here: non-strictly decreasing) #4': [
+                Row(Id('c'), Time(1), client='org1'),
+                Row(Id('c'), Time(1)),                  # (similar to previous one but
+                Row(Id('a'), Time(0)),                  # with some `id`s repeated...)
+                Row(Id('b'), Time(0)),
+                Row(Id('a'), Time(0)),
+                Row(Id('b'), Time(0), client='org2'),
+            ],
+
+            # (each of the following lists specifies consecutive rows
+            # in a `time` order which is *not* expected concerning the
+            # current shape of the data backend API; anyway, just in
+            # case, let us confirm they would be handled properly...)
+            'with unexpected `time` order (here: increasing)': [
+                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('a'), Time(1)),                  # (here all `time` values are
+                Row(Id('b'), Time(2), client='org2'),   # different from each other)
+            ],
+            'with unexpected `time` order (here: non-strictly increasing)': [
+                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('c'), Time(0), client='org1'),   # (similar to previous one but
+                Row(Id('c'), Time(0)),                  # with some `id`s repeated...)
+                Row(Id('a'), Time(1)),
+                Row(Id('b'), Time(2)),
+                Row(Id('b'), Time(2), client='org2'),
+                Row(Id('b'), Time(2)),
+            ],
+            'with unexpected `time` order (here: non-strictly increasing) #2': [  # noqa
+                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('b'), Time(1), client='org2'),   # <---+ adjacent with same `time` value
+                Row(Id('a'), Time(1)),                  # <---'     (and different `id` values)
+            ],
+            'with unexpected `time` order (here: non-monotonic)': [
+                Row(Id('c'), Time(1), client='org1'),
+                Row(Id('a'), Time(0)),                  # (here all `time` values are
+                Row(Id('b'), Time(2), client='org2'),   # different from each other)
+            ],
+            'with unexpected `time` order (here: non-monotonic) #2': [
+                Row(Id('c'), Time(1), client='org1'),   # <---.
+                Row(Id('a'), Time(0)),                  #     + non-adjacent with same `time` value
+                Row(Id('b'), Time(1), client='org2'),   # <---'         (and different `id` values)
+            ],
+            'with unexpected `time` order (here: non-monotonic) #3': [
+                Row(Id('c'), Time(1), client='org1'),
+                Row(Id('c'), Time(1)),                  # (similar to previous one but
+                Row(Id('a'), Time(0)),                  # with some `id`s repeated...)
+                Row(Id('a'), Time(0)),
+                Row(Id('b'), Time(1)),
+                Row(Id('b'), Time(1), client='org2'),
+                Row(Id('b'), Time(1)),
+            ],
+        }.items():
+
+            for opt_limit in [1, 2, 3, 4, sys.maxsize, None]:
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('a'), Id('b'), Id('c')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('a'), ANY),
+                        OrigResult(Id('b'), ANY, client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[],
+                ).label(f'several rows {time_order_descr}, '
+                        f'some with `client` (different); '
+                        f'preproc passes no result; '
+                        f'{opt_limit=}')
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('a'), Id('c')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('a'), ANY),
+                        OrigResult(Id('b'), ANY, client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('b'), ANY, client=['org2']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and `time`, {time_order_descr}, '
+                        f'some with `client`; '
+                        f'preproc method never passes "a"|"c"; '
+                        f'{opt_limit=}')
+
+            for opt_limit in [2, 3, 4, sys.maxsize, None]:
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('a'), Id('b')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('a'), ANY),
+                        OrigResult(Id('b'), ANY, client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('c'), ANY, client=['org1']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and `time`, {time_order_descr}, '
+                        f'some with `client`; '
+                        f'preproc method never passes "a"|"b"; '
+                        f'{opt_limit=}')
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('b'), Id('c')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('a'), ANY),
+                        OrigResult(Id('b'), ANY, client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('a'), ANY),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and `time`, {time_order_descr}, '
+                        f'some with `client`; '
+                        f'preproc method never passes "b"|"c"; '
+                        f'{opt_limit=}')
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('a')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('a'), ANY),
+                        OrigResult(Id('b'), ANY, client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('c'), ANY, client=['org1']),
+                        PrepResult(Id('b'), ANY, client=['org2']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and `time`, {time_order_descr}, '
+                        f'some with `client`; '
+                        f'preproc method never passes "a"; '
+                        f'{opt_limit=}')
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('c')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('a'), ANY),
+                        OrigResult(Id('b'), ANY, client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('a'), ANY),
+                        PrepResult(Id('b'), ANY, client=['org2']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and `time`, {time_order_descr}, '
+                        f'some with `client`; '
+                        f'preproc method never passes "c"; '
+                        f'{opt_limit=}')
+
+            for opt_limit in [3, 4, sys.maxsize, None]:
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('b')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('a'), ANY),
+                        OrigResult(Id('b'), ANY, client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('c'), ANY, client=['org1']),
+                        PrepResult(Id('a'), ANY),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and `time`, {time_order_descr}, '
+                        f'some with `client`; '
+                        f'preproc method never passes "b"; '
+                        f'{opt_limit=}')
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('a'), ANY),
+                        OrigResult(Id('b'), ANY, client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('c'), ANY, client=['org1']),
+                        PrepResult(Id('a'), ANY),
+                        PrepResult(Id('b'), ANY, client=['org2']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and `time`, {time_order_descr}, '
+                        f'some with `client`; '
+                        f'preproc method passes everything; '
+                        f'{opt_limit=}')
+
+            opt_limit = 2
+
+            for preproc_skipping_descr, to_be_skipped_by_preproc in {
+                'preproc method never passes "b"': {Id('b')},
+                'preproc method passes everything': (),
+            }.items():
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc=preproc_skipping_descr,
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('a'), ANY),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('c'), ANY, client=['org1']),
+                        PrepResult(Id('a'), ANY),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and `time`, {time_order_descr}, '
+                        f'some with `client`; '
+                        f'{preproc_skipping_descr}; '
+                        f'{opt_limit=}')
+
+            opt_limit = 1
+
+            for preproc_skipping_descr, to_be_skipped_by_preproc in {
+                'preproc method never passes "b"|"c"': {Id('b'), Id('c')},
+                'preproc method never passes "c"': {Id('c')},
+            }.items():
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc=to_be_skipped_by_preproc,
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('a'), ANY),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('a'), ANY),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and `time`, {time_order_descr}, '
+                        f'some with `client`; '
+                        f'{preproc_skipping_descr}; '
+                        f'{opt_limit=}')
+
+            for preproc_skipping_descr, to_be_skipped_by_preproc in {
+                'preproc method never passes "a"|"b"': {Id('a'), Id('b')},
+                'preproc method never passes "a"': {Id('a')},
+                'preproc method never passes "b"': {Id('b')},
+                'preproc method passes everything': (),
+            }.items():
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc=to_be_skipped_by_preproc,
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('c'), ANY, client=['org1']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('c'), ANY, client=['org1']),
+                    ],
+                ).label(f'several rows with multiple `id` '
+                        f'and `time`, {time_order_descr}, '
+                        f'some with `client`; '
+                        f'{preproc_skipping_descr}; '
+                        f'{opt_limit=}')
+
+        # * Rows with different `time` should *never* have same `id` --
+        #   but let us test how such incorrect data would be handled...
+
+        for rows_from_db in [
+            [
+                Row(Id('a'), Time(2), client='org1'),
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(0), client='org2'),
+            ],
+
+            # (the following cases are similar to the
+            # above one but have some `id`s repeated...)
+            [
+                Row(Id('a'), Time(2), client='org1'),
+                Row(Id('a'), Time(2), client='org1'),
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(0), client='org2'),
+                Row(Id('a'), Time(0), client='org2'),
+            ],
+            [
+                Row(Id('a'), Time(2), client='org1'),
+                Row(Id('a'), Time(2)),
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(0)),
+                Row(Id('a'), Time(0), client='org2'),
+            ],
+            [
+                Row(Id('a'), Time(2)),
+                Row(Id('a'), Time(2), client='org1'),
+                Row(Id('a'), Time(1)),
+                Row(Id('a'), Time(0), client='org2'),
+                Row(Id('a'), Time(0)),
+            ],
+        ]:
+
+            for opt_limit in [1, 2, 3, 4, sys.maxsize, None]:
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc={Id('a')},
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(2), client=['org1']),
+                        OrigResult(Id('a'), Time(1)),
+                        OrigResult(Id('a'), Time(0), client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[],
+                ).label(f'several rows with different `time` '
+                        f'but (then incorrectly!) same `id`, '
+                        f'some with `client`; '
+                        f'preproc method passes no result; '
+                        f'{opt_limit=}')
+
+            for opt_limit in [3, 4, sys.maxsize, None]:
+
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    expected_orig_result_dicts=[
+                        OrigResult(Id('a'), Time(2), client=['org1']),
+                        OrigResult(Id('a'), Time(1)),
+                        OrigResult(Id('a'), Time(0), client=['org2']),
+                    ],
+                    expected_yielded_result_dicts=[
+                        PrepResult(Id('a'), Time(2), client=['org1']),
+                        PrepResult(Id('a'), Time(1)),
+                        PrepResult(Id('a'), Time(0), client=['org2']),
+                    ],
+                ).label(f'several rows with different `time` '
+                        f'but (then incorrectly!) same `id`, '
+                        f'some with `client`; '
+                        f'{opt_limit=}')
+
+            opt_limit = 2
+
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=rows_from_db,
+                expected_orig_result_dicts=[
+                    OrigResult(Id('a'), Time(2), client=['org1']),
+                    OrigResult(Id('a'), Time(1)),
+                ],
+                expected_yielded_result_dicts=[
+                    PrepResult(Id('a'), Time(2), client=['org1']),
+                    PrepResult(Id('a'), Time(1)),
+                ],
+            ).label(f'several rows with different `time` '
+                    f'but (then incorrectly!) same `id`, '
+                    f'some with `client`; '
+                    f'{opt_limit=}')
+
+            opt_limit = 1
+
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=rows_from_db,
+                expected_orig_result_dicts=[
+                    OrigResult(Id('a'), Time(2), client=['org1']),
+                ],
+                expected_yielded_result_dicts=[
+                    PrepResult(Id('a'), Time(2), client=['org1']),
+                ],
+            ).label(f'several rows with different `time` '
+                    f'but (then incorrectly!) same `id`; '
+                    f'some with `client`; '
+                    f'{opt_limit=}')
+
+        # * More complex cases
+
+        rows_from_db = [
+            Row(Id('x'), Time(9), client='org1'),
+            Row(Id('x'), Time(9)),
+            Row(Id('x'), Time(9), client='org1'),
+            Row(Id('a'), Time(9)),
+            Row(Id('a'), Time(9), client='org1'),
+            Row(Id('a'), Time(9)),
+            Row(Id('a'), Time(9), client='org2'),
+            Row(Id('a'), Time(9)),
+            Row(Id('b'), Time(9), client='org2'),
+            Row(Id('b'), Time(9)),
+            Row(Id('b'), Time(9), client='org3'),
+            Row(Id('b'), Time(9)),
+            Row(Id('aa'), Time(9), client='org2'),
+            Row(Id('aa'), Time(9)),
+            Row(Id('aa'), Time(9), client='org2'),
+            Row(Id('ab'), Time(9)),
+            Row(Id('ab'), Time(9), client='org3'),
+            Row(Id('ab'), Time(9)),
+            Row(Id('b'), Time(9), client='org3'),
+            Row(Id('d'), Time(9), client='org3'),
+            Row(Id('d'), Time(9), client='org1'),
+            Row(Id('d'), Time(9), client='org2'),
+            Row(Id('c'), Time(9), client='org1'),
+            Row(Id('c'), Time(9), client='org3'),
+            Row(Id('c'), Time(9), client='org2'),
+
+            Row(Id('u'), Time(8)),
+            Row(Id('t'), Time(8)),
+            Row(Id('u'), Time(8)),
+
+            Row(Id('f'), Time(7), client='org6'),
+            Row(Id('e'), Time(7), client='org3'),
+            Row(Id('f'), Time(7), client='org7'),
+            Row(Id('f'), Time(7), client='org5'),
+            Row(Id('e'), Time(7)),
+            Row(Id('f'), Time(7), client='org8'),
+            Row(Id('e'), Time(7), client='org4'),
+            Row(Id('e'), Time(7), client='org5'),
+            Row(Id('f'), Time(7)),
+
+            Row(Id('g'), Time(6), client='org2'),
+            Row(Id('h'), Time(6)),
+            Row(Id('g'), Time(6), client='org2'),
+            Row(Id('h'), Time(6)),
+            Row(Id('i'), Time(6), client='org3'),
+            Row(Id('h'), Time(6)),
+            Row(Id('g'), Time(6), client='org2'),
+            Row(Id('k'), Time(6), client='org1'),
+            Row(Id('i'), Time(6), client='org2'),
+            Row(Id('j'), Time(6)),
+            Row(Id('i'), Time(6), client='org5'),
+            Row(Id('h'), Time(6)),
+            Row(Id('i'), Time(6), client='org4'),
+
+            Row(Id('l'), Time(5), client='org4'),
+
+            Row(Id('n'), Time(4), client='org4'),
+            Row(Id('m'), Time(4), client='org4'),
+            Row(Id('n'), Time(4), client='org3'),
+            Row(Id('m'), Time(4), client='org5'),
+            Row(Id('n'), Time(4), client='org2'),
+            Row(Id('m'), Time(4), client='org6'),
+
+            Row(Id('o'), Time(3), client='org8'),
+            Row(Id('o'), Time(3), client='org2'),
+            Row(Id('o'), Time(3), client='org7'),
+
+            Row(Id('pc'), Time(2)),
+            Row(Id('pa'), Time(2)),
+            Row(Id('pb'), Time(2), client='org5'),
+
+            Row(Id('s1'), Time(1)),
+            Row(Id('s3'), Time(1)),
+            Row(Id('s2'), Time(1), client='org8'),
+            Row(Id('s1'), Time(1)),
+
+            Row(Id('q'), Time(0), client='org7'),
+            Row(Id('r'), Time(0)),
+            Row(Id('s'), Time(0), client='org3'),
+            Row(Id('p'), Time(0), client='org6'),
+            Row(Id('q'), Time(0), client='org9'),
+            Row(Id('p'), Time(0), client='org9'),
+        ]
+        all_orig_result_dicts = [
+            OrigResult(Id('a'), Time(9), client=['org1', 'org2']),
+            OrigResult(Id('aa'), Time(9), client=['org2']),
+            OrigResult(Id('ab'), Time(9), client=['org3']),
+            OrigResult(Id('b'), Time(9), client=['org2', 'org3']),
+            OrigResult(Id('c'), Time(9), client=['org1', 'org2', 'org3']),
+            OrigResult(Id('d'), Time(9), client=['org1', 'org2', 'org3']),
+            OrigResult(Id('x'), Time(9), client=['org1']),
+
+            OrigResult(Id('t'), Time(8)),
+            OrigResult(Id('u'), Time(8)),
+
+            OrigResult(Id('e'), Time(7), client=['org3', 'org4', 'org5']),
+            OrigResult(Id('f'), Time(7), client=['org5', 'org6', 'org7', 'org8']),
+
+            OrigResult(Id('g'), Time(6), client=['org2']),
+            OrigResult(Id('h'), Time(6)),
+            OrigResult(Id('i'), Time(6), client=['org2', 'org3', 'org4', 'org5']),
+            OrigResult(Id('j'), Time(6)),
+            OrigResult(Id('k'), Time(6), client=['org1']),
+
+            OrigResult(Id('l'), Time(5), client=['org4']),
+
+            OrigResult(Id('m'), Time(4), client=['org4', 'org5', 'org6']),
+            OrigResult(Id('n'), Time(4), client=['org2', 'org3', 'org4']),
+
+            OrigResult(Id('o'), Time(3), client=['org2', 'org7', 'org8']),
+
+            OrigResult(Id('pa'), Time(2)),
+            OrigResult(Id('pb'), Time(2), client=['org5']),
+            OrigResult(Id('pc'), Time(2)),
+
+            OrigResult(Id('s1'), Time(1)),
+            OrigResult(Id('s2'), Time(1), client=['org8']),
+            OrigResult(Id('s3'), Time(1)),
+
+            OrigResult(Id('p'), Time(0), client=['org6', 'org9']),
+            OrigResult(Id('q'), Time(0), client=['org7', 'org9']),
+            OrigResult(Id('r'), Time(0)),
+            OrigResult(Id('s'), Time(0), client=['org3']),
+        ]
+        all_yielded_result_dicts = [
+            PrepResult(result_dict.id, result_dict.time, result_dict.client)
+            for result_dict in all_orig_result_dicts]
+        assert len(all_yielded_result_dicts) == len(all_orig_result_dicts) == 30
+
+        for opt_limit in [
+            len(all_yielded_result_dicts),
+            len(all_yielded_result_dicts) + 1,
+            sys.maxsize,
+            None,
+        ]:
+            expected_orig_result_dicts = all_orig_result_dicts
+            expected_yielded_result_dicts = all_yielded_result_dicts
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=rows_from_db,
+                expected_orig_result_dicts=expected_orig_result_dicts,
+                expected_yielded_result_dicts=expected_yielded_result_dicts,
+            ).label(f'more complex case; '
+                    f'{opt_limit=}')
+
+        for opt_limit in [
+            1,
+            2,
+            len(all_yielded_result_dicts) - 2,
+            len(all_yielded_result_dicts) - 1,
+        ]:
+            expected_orig_result_dicts = all_orig_result_dicts[:opt_limit]
+            expected_yielded_result_dicts = all_yielded_result_dicts[:opt_limit]
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=rows_from_db,
+                expected_orig_result_dicts=expected_orig_result_dicts,
+                expected_yielded_result_dicts=expected_yielded_result_dicts,
+            ).label(f'more complex case; '
+                    f'{opt_limit=}')
+
+        all_skipped_ids = {
+            Id('aa'),
+            Id('e'),
+            Id('q'),
+            Id('ab'),
+            Id('c'),
+            Id('s1'),
+        }
+
+        result_dicts_excluding_all_skipped = [
+            result_dict for result_dict in all_yielded_result_dicts
+            if result_dict.id not in all_skipped_ids]
+        assert len(result_dicts_excluding_all_skipped) == 24
+
+        for opt_limit in [
+            len(result_dicts_excluding_all_skipped),
+            len(result_dicts_excluding_all_skipped) + 1,
+            sys.maxsize,
+            None,
+        ]:
+            for (
+                to_be_skipped_by_preproc,
+                expected_yielded_result_dicts,
+            ) in [
+                (
+                    all_skipped_ids,
+                    result_dicts_excluding_all_skipped,
+                ),
+                # maybe TODO later: more cases?...
+            ]:
+                expected_orig_result_dicts = all_orig_result_dicts
+                yield param(
+                    opt_limit=opt_limit,
+                    rows_from_db=rows_from_db,
+                    to_be_skipped_by_preproc=to_be_skipped_by_preproc,
+                    expected_orig_result_dicts=expected_orig_result_dicts,
+                    expected_yielded_result_dicts=expected_yielded_result_dicts,
+                ).label(f'more complex case; '
+                        f'{to_be_skipped_by_preproc=}; '
+                        f'{opt_limit=}')
+
+        cut = 1
+        opt_limit = len(result_dicts_excluding_all_skipped) - cut
+        for (
+            to_be_skipped_by_preproc,
+            expected_yielded_result_dicts,
+        ) in [
+            (
+                all_skipped_ids,
+                result_dicts_excluding_all_skipped[:-cut],
+            ),
+            # maybe TODO later: more cases?...
+        ]:
+            expected_orig_result_dicts = all_orig_result_dicts[:-cut]
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=rows_from_db,
+                to_be_skipped_by_preproc=to_be_skipped_by_preproc,
+                expected_orig_result_dicts=expected_orig_result_dicts,
+                expected_yielded_result_dicts=expected_yielded_result_dicts,
+            ).label(f'more complex case; '
+                    f'{to_be_skipped_by_preproc=}; '
+                    f'{opt_limit=}')
+
+        cut = 2
+        opt_limit = len(result_dicts_excluding_all_skipped) - cut
+        for (
+            to_be_skipped_by_preproc,
+            expected_yielded_result_dicts,
+        ) in [
+            (
+                all_skipped_ids,
+                result_dicts_excluding_all_skipped[:-cut],
+            ),
+            # maybe TODO later: more cases?...
+        ]:
+            # (below: -1 because of skipped "q"...)
+            expected_orig_result_dicts = all_orig_result_dicts[: -cut - 1]
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=rows_from_db,
+                to_be_skipped_by_preproc=to_be_skipped_by_preproc,
+                expected_orig_result_dicts=expected_orig_result_dicts,
+                expected_yielded_result_dicts=expected_yielded_result_dicts,
+            ).label(f'more complex case; '
+                    f'{to_be_skipped_by_preproc=}; '
+                    f'{opt_limit=}')
+
+        opt_limit = 2
+        for (
+            to_be_skipped_by_preproc,
+            expected_yielded_result_dicts,
+        ) in [
+            (
+                all_skipped_ids,
+                result_dicts_excluding_all_skipped[:opt_limit],
+            ),
+            # maybe TODO later: more cases?...
+        ]:
+            # (below: +2 because of skipped "aa"+"ab"...)
+            expected_orig_result_dicts = all_orig_result_dicts[: opt_limit + 2]
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=rows_from_db,
+                to_be_skipped_by_preproc=to_be_skipped_by_preproc,
+                expected_orig_result_dicts=expected_orig_result_dicts,
+                expected_yielded_result_dicts=expected_yielded_result_dicts,
+            ).label(f'more complex case; '
+                    f'{to_be_skipped_by_preproc=}; '
+                    f'{opt_limit=}')
+
+        opt_limit = 1
+        for to_be_skipped_by_preproc in [
+            all_skipped_ids,
+            (),
+        ]:
+            expected_orig_result_dicts = all_orig_result_dicts[:opt_limit]
+            expected_yielded_result_dicts = all_yielded_result_dicts[:opt_limit]
+            yield param(
+                opt_limit=opt_limit,
+                rows_from_db=rows_from_db,
+                to_be_skipped_by_preproc=to_be_skipped_by_preproc,
+                expected_orig_result_dicts=expected_orig_result_dicts,
+                expected_yielded_result_dicts=expected_yielded_result_dicts,
+            ).label(f'more complex case; '
+                    f'{to_be_skipped_by_preproc=}; '
+                    f'{opt_limit=}')
+
+
+    @foreach(cases)
+    def test(self,
+             opt_limit,
+             rows_from_db,
+             to_be_skipped_by_preproc=(),
+             expected_orig_result_dicts=None,
+             expected_yielded_result_dicts=None):
+
+        self._prepare(opt_limit, rows_from_db, to_be_skipped_by_preproc)
+
+        result_iterable = self.meth.generate_query_results()
+        with contextlib.closing(result_iterable):
+            yielded_result_dicts = list(result_iterable)
+
+        assert self.orig_result_dicts == expected_orig_result_dicts
+        assert self.orig_result_dicts == self.before_preproc_result_dicts
+        assert yielded_result_dicts == self.after_preproc_result_dicts
+        assert yielded_result_dicts == expected_yielded_result_dicts
+        assert self.get_produced_results_count() == len(yielded_result_dicts)
+        assert self.rows_fetching_generator_finished
+        assert not self.mock.mock_calls
+
+
+    def _prepare(self,
+                 opt_limit,
+                 rows_from_db,
+                 to_be_skipped_by_preproc):
+
+        self.mock = MagicMock()
+        self.meth = MethodProxy(
+            _EventsQueryProcessor,
+            self.mock,
+            class_attrs=[
+                # (actual methods, not mocks/fakes, will be retrieved
+                # for these names)
+                '_prepare_result_production_tools',
+                '_make_result_dict',
+                '_gather_client_org_ids',
+            ])
+        self.mock._opt_limit = opt_limit
+        # (fake implementations will be retrieved for these method names)
+        self.mock._fetch_rows_from_db = self._fake_fetch_rows_from_db
+        self.mock._preprocess_result_dict = self._fake_preprocess_result_dict
+
+        self.patch('n6lib.data_backend_api.make_raw_result_dict',
+                   self._fake_make_raw_result_dict)
+
+        # To be set in `_fake_fetch_rows_from_db()`:
+        self.get_produced_results_count = None
+        self.rows_fetching_generator_finished = None
+
+        # To be used in `_fake_...()` methods:
+        self.rows_from_db = tuple(copy.deepcopy(rows_from_db))
+        self.to_be_skipped_by_preproc = frozenset(to_be_skipped_by_preproc)
+
+        # To be populated in `_fake_..._result_dict()`:
+        self.orig_result_dicts = []
+        self.before_preproc_result_dicts = []
+        self.after_preproc_result_dicts = []
+
+
+    def _fake_fetch_rows_from_db(self, get_produced_results_count, /):
+        self.get_produced_results_count = get_produced_results_count
+        self.rows_fetching_generator_finished = False
+        try:
+            yield from self.rows_from_db
+        finally:
+            self.rows_fetching_generator_finished = True
+
+    def _fake_make_raw_result_dict(self, sample_row, client_org_ids, /):
+        # Note that the actual implementation of the helper function
+        # `n6lib.db_events.make_raw_result_dict()` is tested separately,
+        # *not* here.
+        assert isinstance(sample_row, _FakeRowFetchedFromDB)
+        assert isinstance(client_org_ids, set)
+        orig_result_dict = _OriginalResultDictSubstitute(
+            id=sample_row.id,
+            time=sample_row.time,
+            client=sorted(client_org_ids))
+        self.orig_result_dicts.append(orig_result_dict)
+        return orig_result_dict
+
+    def _fake_preprocess_result_dict(self, orig_result_dict, /):
+        # Note that the actual implementation of the helper method
+        # `_preprocess_result_dict()` is tested separately (see below:
+        # `Test_EventsQueryProcessor__preprocess_result_dict`).
+        assert isinstance(orig_result_dict, _OriginalResultDictSubstitute)
+        self.before_preproc_result_dicts.append(orig_result_dict)
+        if orig_result_dict.id in self.to_be_skipped_by_preproc:
+            return None
+        preprocessed_result_dict = _PreprocessedResultDictSubstitute(
+            id=orig_result_dict.id,
+            time=orig_result_dict.time,
+            client=list(orig_result_dict.client))
+        self.after_preproc_result_dicts.append(preprocessed_result_dict)
+        return preprocessed_result_dict
+
+
+## maybe TODO: test other aspects of `_EventsQueryProcessor.generate_query_results()`...
 
 
 @expand
 class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.TestCase):
 
     @paramseq
-    def cases(cls):
+    def cases(cls):   # noqa
         yield param(
             # 'SY:'-prefixed `url`, no `custom`
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:cośtam',
             },
             expected_log_regexes=[
@@ -479,7 +1746,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
             # this is done just to show that those data do not interfere
             # with that logic, or -- when applicable -- that they are
             # passed through without problems...]
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:cośtam',
                 'foo': 'bar',
             },
@@ -493,7 +1760,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # 'SY:'-prefixed `url`, `custom` without `url_data`
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {'spam': 'ham'},
                 'url': 'SY:cośtam',
             },
@@ -507,7 +1774,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # 'SY:'-prefixed `url`, `custom` without `url_data`, unrelated data
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {'spam': 'ham'},
                 'url': 'SY:cośtam',
                 'foo': 'bar',
@@ -522,7 +1789,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # `custom` with `url_data`, no 'url'
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'orig_b64': 'eA==',
@@ -541,7 +1808,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
             # [analogous to previous case, but with `url_data` in legacy format]
             # `custom` with `url_data`, no 'url'
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'url_orig': 'eA==',
@@ -559,7 +1826,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # `custom` with `url_data`, unrelated data, no 'url'
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'orig_b64': 'eA==',
@@ -579,7 +1846,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
             # [analogous to previous case, but with `url_data` in legacy format]
             # `custom` with `url_data`, unrelated data, no 'url'
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'url_orig': 'eA==',
@@ -598,7 +1865,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # `url` without 'SY:' prefix, `custom` with `url_data`
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'orig_b64': 'eA==',
@@ -618,7 +1885,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
             # [analogous to previous case, but with `url_data` in legacy format]
             # `url` without 'SY:' prefix, `custom` with `url_data`
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'url_orig': 'eA==',
@@ -637,7 +1904,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # `url` without 'SY:' prefix, `custom` with `url_data`, unrelated data
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'orig_b64': 'eA==',
@@ -658,7 +1925,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
             # [analogous to previous case, but with `url_data` in legacy format]
             # `url` without 'SY:' prefix, `custom` with `url_data`, unrelated data
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'url_orig': 'eA==',
@@ -678,7 +1945,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (not a dict)
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': ['something'],
                 },
@@ -695,7 +1962,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (missing keys),
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'norm_brief': 'emru',
@@ -715,7 +1982,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
             # [analogous to previous case, but with `url_data` in legacy format]
             # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (missing keys)
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                  'custom': {
                     'url_data': {
                         'url_norm_opts': {'transcode1st': True, 'epslash': True, 'rmzone': True},
@@ -734,7 +2001,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (illegal keys)
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'orig_b64': 'eA==',
@@ -756,7 +2023,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
             # [analogous to previous case, but with `url_data` in legacy format]
             # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (illegal keys)
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'url_orig': 'eA==',
@@ -777,7 +2044,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (empty `orig_b64`)
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'orig_b64': '',
@@ -798,7 +2065,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
             # [analogous to previous case, but with `url_data` in legacy format]
             # 'SY:'-prefixed `url`, `custom` with `url_data` which is not valid (empty `url_orig`)
             # -> result: nothing
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         'url_orig': '',
@@ -818,7 +2085,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # unrelated data, no `url`, no `custom`
             # -> result: unrelated data
-            raw_result_dict={
+            orig_result_dict={
                 'foo': 'bar',
             },
             expected_result={
@@ -830,7 +2097,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # unrelated data, no `url`, `custom` without `url_data`
             # -> result: unrelated data, `custom`
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {'spam': 'ham'},
                 'foo': 'bar',
             },
@@ -844,7 +2111,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # `url` without 'SY:' prefix, unrelated data, no `custom`
             # -> result: `url`, unrelated data
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'something-else',
                 'foo': 'bar',
             },
@@ -858,7 +2125,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
         yield param(
             # `url` without 'SY:' prefix, unrelated data, `custom` without `url_data`
             # -> result: `url`, unrelated data, `custom`
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {'spam': 'ham'},
                 'url': 'something-else',
                 'foo': 'bar',
@@ -891,7 +2158,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -937,7 +2204,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -981,7 +2248,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1037,7 +2304,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-\xddNi!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1081,7 +2348,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-\xddNi!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1136,7 +2403,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-\xddNi!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1180,7 +2447,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-\xddNi!?#\xed\xaf\xbf\xed\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1233,7 +2500,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1271,7 +2538,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1311,7 +2578,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1351,7 +2618,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1393,7 +2660,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1438,7 +2705,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'%3D-%4D-%5D-Ni!?#\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'url': 'SY:foo:cośtam/not-important',
                 'custom': {
                     'url_data': {
@@ -1486,7 +2753,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                     b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         # `orig_b64` is URL-safe-base64-encoded:
@@ -1503,6 +2770,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'SY:foo:cośtam/not-important',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
             expected_result={
                 'custom': {
@@ -1510,6 +2780,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
         ).label(
         "(37) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, `url.b64` in params "
@@ -1542,7 +2815,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                     b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         # `url_orig` is URL-safe-base64-encoded:
@@ -1559,6 +2832,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'SY:foo:cośtam/not-important',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
             expected_result={
                 'custom': {
@@ -1566,6 +2842,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
         ).label(
         "(38) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, `url.b64` in params "
@@ -1592,7 +2871,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                     b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         # `orig_b64` is URL-safe-base64-encoded:
@@ -1609,6 +2888,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'SY:foo:cośtam/not-important',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
             expected_result={
                 'custom': {
@@ -1616,6 +2898,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
         ).label(
         "(39) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data "
@@ -1644,7 +2929,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                     b'http://example.ORG:8080/?x=y&\xc4\x85=\xc4\x99',
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         # `url_orig` is URL-safe-base64-encoded:
@@ -1661,6 +2946,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'SY:foo:cośtam/not-important',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
             expected_result={
                 'custom': {
@@ -1668,6 +2956,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'http://Ćma.example.com/\udcdd\ud800Ala-ma-kota\U0010FFFF\udccc',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
         ).label(
         "(40) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data "
@@ -1694,7 +2985,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         # `orig_b64` is URL-safe-base64-encoded:
@@ -1711,6 +3002,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'SY:foo:cośtam/not-important',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
             expected_result=None,
         ).label(
@@ -1740,7 +3034,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                      b'Ala-ma-kota\xf4\x8f\xbf\xbf\xed\xb3\x8c'),
                 ],
             },
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         # `url_orig` is URL-safe-base64-encoded:
@@ -1757,6 +3051,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'SY:foo:cośtam/not-important',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
             expected_result=None,
         ).label(
@@ -1798,7 +3095,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                     ]
                 ),
             },
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         # `orig_b64` is URL-safe-base64-encoded:
@@ -1812,6 +3109,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'SY:foo:cośtam/not-important',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
             expected_result={
                 'custom': {
@@ -1821,6 +3121,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                     'HTTP://ĆMA.EXAMPLE.COM:80/\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd'
                     'ALA-MA-KOTA\U0010ffff\ufffd\ufffd\ufffd'),
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
         ).label(
         "(43) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, "
@@ -1863,7 +3166,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                     ]
                 ),
             },
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         # `url_orig` is URL-safe-base64-encoded:
@@ -1877,6 +3180,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'SY:foo:cośtam/not-important',
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
             expected_result={
                 'custom': {
@@ -1886,6 +3192,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                     'HTTP://ĆMA.EXAMPLE.COM:80/\ufffd\ufffd\ufffd\ufffd\ufffd\ufffd'
                     'ALA-MA-KOTA\U0010ffff\ufffd\ufffd\ufffd'),
                 'unrelated-data': 'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
         ).label(
         "(44) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, "
@@ -1907,7 +3216,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                     ]
                 ),
             },
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         # `orig_b64` is URL-safe-base64-encoded: b`https://example.com:`
@@ -1918,6 +3227,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'SY:foo:cośtam/not-important',
                 'unrelated-data': b'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
             expected_result={
                 'custom': {
@@ -1925,6 +3237,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'Https://Example.Com:',
                 'unrelated-data': b'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
         ).label(
         "(45) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, "
@@ -1945,7 +3260,7 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                     ]
                 ),
             },
-            raw_result_dict={
+            orig_result_dict={
                 'custom': {
                     'url_data': {
                         # `url_orig` is URL-safe-base64-encoded: b`https://example.com:`
@@ -1956,6 +3271,9 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'SY:foo:cośtam/not-important',
                 'unrelated-data': b'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
             expected_result={
                 'custom': {
@@ -1963,16 +3281,19 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
                 },
                 'url': 'Https://Example.Com:',
                 'unrelated-data': b'FOO BAR !@#$%^&*()',
+                'name': (
+                    '\\u017b\\xf3\\u0142w, \t \n   \\x00\\x7f! \r\n \\n \\t \x00 '
+                    '\\r\\n \\ \\\\ \\U0001f340 \\ud83c\\udf40  \\udcdd A \x7f\\x80'),
             },
         ).label(
         "(46) 'SY:'-prefixed `url`, `custom` with `url_data`, unrelated data, "
         "faked normalization cache (matching, 'emru') [@legacy]")
 
     @foreach(cases)
-    def test(self, raw_result_dict, expected_result, expected_log_regexes=(),
+    def test(self, orig_result_dict, expected_result, expected_log_regexes=(),
              filtering_params=None,
              url_normalization_data_cache=None):
-        raw_result_dict = copy.deepcopy(raw_result_dict)
+        orig_result_dict = copy.deepcopy(orig_result_dict)
         mock = MagicMock()
         meth = MethodProxy(_EventsQueryProcessor, mock, class_attrs='_call_silencing_decode_err')
         mock._filtering_params = (
@@ -1985,6 +3306,6 @@ class Test_EventsQueryProcessor__preprocess_result_dict(TestCaseMixin, unittest.
             else {})
         with self.assertLogRegexes(module_logger, expected_log_regexes):
 
-            actual_result = meth._preprocess_result_dict(raw_result_dict)
+            actual_result = meth._preprocess_result_dict(orig_result_dict)
 
         self.assertEqualIncludingTypes(actual_result, expected_result)

@@ -182,55 +182,55 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         yield param(
             input_data=[
                 {
-                    "id": "1",
+                    "id": "11111111111111111111111111111111",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 08:00:00",
                 },
                 {
-                    "id": "2",
+                    "id": "22222222222222222222222222222222",
                     "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2017-06-01 08:02:00",
                 },
                 {
-                    "id": "3",
+                    "id": "33333333333333333333333333333333",
                     "source": "testprovider.testchannel",
                     "_group": "group3",
                     "time": "2017-06-01 08:04:00",
                 },
                 {
-                    "id": "4",
+                    "id": "44444444444444444444444444444444",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 09:00:00",
                 },
                 {
-                    "id": "5",
+                    "id": "55555555555555555555555555555555",
                     "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2017-06-01 09:00:20",
                 },
                 {
-                    "id": "6",
+                    "id": "66666666666666666666666666666666",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
-                    "id": "7",
+                    "id": "77777777777777777777777777777777",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 21:30:00",
                 },
             ],
             expected_ids_to_single_events=[
-                "1",
-                "2",
-                "3",
+                "11111111111111111111111111111111",
+                "22222222222222222222222222222222",
+                "33333333333333333333333333333333",
             ],
             expected_ids_to_suppressed_events={
-                "2": {
+                "22222222222222222222222222222222": {
                     "until": "2017-06-01 09:00:20",
                     "_first_time": "2017-06-01 08:02:00",
                     "count": 2,
@@ -486,33 +486,33 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         yield param(
             input_data=[
                 {
-                    "id": "1",
+                    "id": "11111111111111111111111111111111",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 10:00:00",
                 },
                 {
-                    "id": "2",
+                    "id": "22222222222222222222222222222222",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2017-06-01 09:51:00",  # within time tolerance
                 },
                 {
-                    "id": "3",
+                    "id": "33333333333333333333333333333333",
                     "source": "anotherprovider.andchannel",
                     "_group": "group1",
                     "time": '2017-06-01 11:00:00',
                 },
                 {
-                    "id": "4",
+                    "id": "44444444444444444444444444444444",
                     "source": "anotherprovider.andchannel",
                     "_group": "group1",
                     "time": '2017-06-01 10:40:00',   # within time tolerance
                 },
             ],
             expected_ids_to_single_events=[
-                "1",
-                "3",
+                "11111111111111111111111111111111",
+                "33333333333333333333333333333333",
             ],
         )
 
@@ -708,34 +708,34 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         yield param(
             input_data=[
                 {
-                    "id": "d41d8cd98f00b204e9800998hg351",
+                    "id": "d41d8cd98f00b204e9800998bcdef351",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 00:00:00",
                 },
                 {
-                    "id": "d41d8cd98f00b204e9800998hg352",
+                    "id": "d41d8cd98f00b204e9800998bcdef352",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 23:51:00",
                 },
                 {
-                    "id": "d41d8cd98f00b204e9800998hg353",
+                    "id": "d41d8cd98f00b204e9800998bcdef353",
                     "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2020-01-02 00:01:00",
                 },
                 {
-                    "id": "d41d8cd98f00b204e9800998hg354",
+                    "id": "d41d8cd98f00b204e9800998bcdef354",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-02 00:00:00",
                 },
             ],
             expected_ids_to_single_events=[
-                "d41d8cd98f00b204e9800998hg351",
-                "d41d8cd98f00b204e9800998hg352",
-                "d41d8cd98f00b204e9800998hg353",
+                "d41d8cd98f00b204e9800998bcdef351",
+                "d41d8cd98f00b204e9800998bcdef352",
+                "d41d8cd98f00b204e9800998bcdef353",
             ],
             expected_last_active_dt_updates=3,
         )
@@ -752,33 +752,33 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         yield param(
             input_data=[
                 {
-                    "id": "d41d8cd98f00b204e9800998hg351",
+                    "id": "d41d8cd98f00b204e9800998bcdef351",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 22:00:00",
                 },
                 {
-                    "id": "d41d8cd98f00b204e9800998hg352",
+                    "id": "d41d8cd98f00b204e9800998bcdef352",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 23:51:00",
                 },
                 {
-                    "id": "d41d8cd98f00b204e9800998hg353",
+                    "id": "d41d8cd98f00b204e9800998bcdef353",
                     "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2020-01-02 00:01:00",
                 },
                 {
-                    "id": "d41d8cd98f00b204e9800998hg354",
+                    "id": "d41d8cd98f00b204e9800998bcdef354",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-02 00:00:00",
                 },
             ],
             expected_ids_to_single_events=[
-                "d41d8cd98f00b204e9800998hg351",
-                "d41d8cd98f00b204e9800998hg353",
+                "d41d8cd98f00b204e9800998bcdef351",
+                "d41d8cd98f00b204e9800998bcdef353",
             ],
             expected_last_active_dt_updates=3,
         )
@@ -799,35 +799,35 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         yield param(
             input_data=[
                 {
-                    "id": "d41d8cd98f00b204e9800998hg351",
+                    "id": "d41d8cd98f00b204e9800998bcdef351",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 00:00:00",
                 },
                 {
-                    "id": "d41d8cd98f00b204e9800998hg352",
+                    "id": "d41d8cd98f00b204e9800998bcdef352",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-01 20:51:00",
                 },
                 {
-                    "id": "d41d8cd98f00b204e9800998hg353",
+                    "id": "d41d8cd98f00b204e9800998bcdef353",
                     "source": "testprovider.testchannel",
                     "_group": "group2",
                     "time": "2020-01-02 22:01:00",
                 },
                 {
-                    "id": "d41d8cd98f00b204e9800998hg354",
+                    "id": "d41d8cd98f00b204e9800998bcdef354",
                     "source": "testprovider.testchannel",
                     "_group": "group1",
                     "time": "2020-01-02 22:00:00",
                 },
             ],
             expected_ids_to_single_events=[
-                "d41d8cd98f00b204e9800998hg351",
-                "d41d8cd98f00b204e9800998hg352",
-                "d41d8cd98f00b204e9800998hg353",
-                "d41d8cd98f00b204e9800998hg354",
+                "d41d8cd98f00b204e9800998bcdef351",
+                "d41d8cd98f00b204e9800998bcdef352",
+                "d41d8cd98f00b204e9800998bcdef353",
+                "d41d8cd98f00b204e9800998bcdef354",
             ],
             expected_last_active_dt_updates=4,
         )
@@ -882,22 +882,29 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
 
     @foreach([
         param(
-            count=32767,
+            count=123,
             expected_body_content={
                 "source": "ham.spam",
                 "type": "foobar",
-                "count": 32767,
+                "count": 123,
             },
-        ).label("count not over limit"),
+        ).label("quite small count"),
         param(
             count=32768,
             expected_body_content={
                 "source": "ham.spam",
                 "type": "foobar",
-                "count": 32767,
-                "count_actual": 32768,
+                "count": 32768,
             },
-        ).label("count over limit"),
+        ).label("count over the old limit"),  # (old limit was `32767`)
+        param(
+            count=2 ** 32 - 1,
+            expected_body_content={
+                "source": "ham.spam",
+                "type": "foobar",
+                "count": 2 ** 32 -1,
+            },
+        ).label("maximum count (unrealistically big...)"),
     ])
     def test_publish_event(self, count, expected_body_content):
         event_type = "foobar"

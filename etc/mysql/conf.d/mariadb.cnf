@@ -21,7 +21,9 @@ lc_messages      = en_US
 skip-external-locking
 bind-address             = 0.0.0.0
 connect_timeout          = 5
-max_allowed_packet       = 16M
+# Note: the following max allowed packet size is also set in
+# `../initdb/1_create_tables.sql`.
+max_allowed_packet       = 33554432
 max_connections          = 100
 wait_timeout             = 600
 
@@ -61,10 +63,11 @@ log_warnings        = 2
 # The following can be used as easy to replay backup logs or for replication.
 # note: if you are setting up a replication slave, see README.Debian about
 #       other settings you may need to change.
-log_bin             = /var/lib/mysql/mariadb-bin
-log_bin_index       = /var/lib/mysql/mariadb-bin.index
-expire_logs_days    = 10
-max_binlog_size     = 100M
+#log_bin             = /var/lib/mysql/mariadb-bin
+#log_bin_index       = /var/lib/mysql/mariadb-bin.index
+#expire_logs_days    = 10
+#max_binlog_size     = 100M
+#binlog-format       = ROW
 
 #
 # * InnoDB
@@ -82,26 +85,23 @@ innodb_io_capacity       = 400
 innodb_flush_method      = O_DIRECT
 
 #
-# * TokuDB
+# * RocksDB
 #
 [mariadb]
-plugin-load-add = ha_tokudb.so
-tokudb_analyze_time           = 5
-tokudb_block_size             = 8M
-tokudb_cache_size             = 256M
-tokudb_commit_sync            = 0
-tokudb_checkpointing_period   = 60
-tokudb_directio               = 0
-tokudb_disable_prefetching    = 1
-tokudb_fsync_log_period       = 1000
-tokudb_load_save_space        = 1
-tokudb_read_block_size        = 128K
-tokudb_read_buf_size          = 128K
+plugin_load_add = ha_rocksdb
+rocksdb-default-cf-options = "bottommost_compression=kSnappyCompression;compression_per_level=kLZ4Compression"
+rocksdb_block_size = 16384
+rocksdb_max_background_jobs = 8
+#rocksdb_max_total_wal_size = 4G
+#rocksdb_block_cache_size = 32G
+#rocksdb_max_open_files=102400  # then also set open files limit in `/etc/security/limits.conf`...
 
 [mysqldump]
 quick
 quote-names
-max_allowed_packet = 16M
+# Note: the following max allowed packet size is also set in
+# `../initdb/1_create_tables.sql`.
+max_allowed_packet = 33554432
 
 [isamchk]
 key_buffer = 16M

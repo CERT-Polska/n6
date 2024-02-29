@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2023 NASK. All rights reserved.
+# Copyright (c) 2018-2024 NASK. All rights reserved.
 
 import argparse
 import ast
@@ -32,6 +32,7 @@ from n6lib.auth_db.models import (
     Base,
     CriteriaCategory,
     Org,
+    RecentWriteOpCommit,
     User,
     Source,
     Subsource,
@@ -353,6 +354,7 @@ class CreateAndInitializeAuthDB(DropDatabaseIfExistsMixin, BaseAuthDBScript):
             self.create_tables()
             with self.db_connector:
                 self.insert_criteria_categories()
+                self.insert_recent_write_op_commit()
             if not self._no_alembic_stuff:
                 self.stamp_as_alembic_head()
         return 0
@@ -380,6 +382,10 @@ class CreateAndInitializeAuthDB(DropDatabaseIfExistsMixin, BaseAuthDBScript):
                 criteria_category = CriteriaCategory(category=category)
                 self.msg_sub('{} "{}"'.format(CriteriaCategory.__name__, criteria_category))
                 self.db_session.add(criteria_category)
+
+    def insert_recent_write_op_commit(self):
+        self.msg('Inserting at least one \'recent_write_op_commit\' record...')
+        self.db_session.add(RecentWriteOpCommit())
 
     def stamp_as_alembic_head(self):
         revision = 'head'

@@ -41,12 +41,12 @@ n6_version = get_n6_version('.n6-version')
 requires = [
     'n6lib==' + n6_version,
 
-    'Flask==1.1.4',
-    'Flask-Admin==1.5.8',
+    'Flask==2.2.5',
+    'Flask-Admin==1.6.0',
     'sqlalchemy==1.3.24',
     'WTForms==2.3.3',
-    'werkzeug==1.0.1',
-    'click==7.1.2',
+    'werkzeug==2.2.3',
+    'click==8.0.0',
     'blinker==1.4',
 ]
 

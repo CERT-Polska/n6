@@ -13,9 +13,11 @@ from typing import (
     TypedDict,
     TypeVar,
     Union,
+    runtime_checkable,
 )
 
 from sqlalchemy.sql.expression import ColumnElement
+from typing_extensions import Self
 
 
 T = TypeVar('T')
@@ -36,6 +38,20 @@ class SupportsRead(Protocol[T_co]):
 
 class SupportsWrite(Protocol[T_contra]):
     def write(self, data: T_contra, /) -> Any: ...
+
+@runtime_checkable
+class HashObj(Protocol):
+    """Hash object (i.e., result of `hashlib`-like constructor call)"""
+    name: str
+    digest_size: int
+    block_size: int
+    def update(self,
+               # TODO in Py3.12: use type hint `collections.abc.Buffer`...
+               data: Union[bytes, bytearray, memoryview], /,
+               ) -> None: ...
+    def digest(self) -> bytes: ...
+    def hexdigest(self) -> str: ...
+    def copy(self: Self) -> Self: ...
 
 Jsonable = Union['JsonableScalar', 'JsonableCollection']
 JsonableScalar = Union[str, int, float, bool, None]

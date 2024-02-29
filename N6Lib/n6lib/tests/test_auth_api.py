@@ -1,14 +1,21 @@
-# Copyright (c) 2014-2023 NASK. All rights reserved.
+# Copyright (c) 2014-2024 NASK. All rights reserved.
 
 import collections
 import contextlib
+import copy
 import datetime
+import ipaddress
 import itertools
 import os
 import random
 import re
 import string
+import sys
 import unittest
+from collections.abc import (
+    Mapping,
+    Sequence,
+)
 from unittest.mock import (
     MagicMock,
     Mock,
@@ -27,10 +34,14 @@ from unittest_expander import (
 from n6lib.auth_api import (
     AuthAPI,
     _DataPreparer,
+    _IgnoreListsCriteriaResolver,
     InsideCriteriaResolver,
     cached_basing_on_ldap_root_node,
 )
 from n6lib.auth_related_test_helpers import (
+    EXAMPLE_DATABASE_TIMESTAMP,
+    EXAMPLE_DATABASE_TIMESTAMP_AS_DATETIME,
+    EXAMPLE_DATABASE_VER,
     EXAMPLE_SEARCH_RAW_RETURN_VALUE,
     EXAMPLE_ORG_IDS_TO_ACCESS_INFOS,
     EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION,
@@ -40,12 +51,14 @@ from n6lib.auth_related_test_helpers import (
     EXAMPLE_SOURCE_IDS_TO_NOTIFICATION_ACCESS_INFO_MAPPINGS,
 )
 from n6lib.common_helpers import (
+    PlainNamespace,
     ip_network_as_tuple,
     ip_network_tuple_to_min_max_ip,
     ip_str_to_int,
 )
 from n6lib.record_dict import RecordDict
 from n6lib.unit_test_helpers import (
+    AnyDictIncluding,
     MethodProxy,
     TestCaseMixin,
 )
@@ -54,17 +67,18 @@ from n6lib.sqlalchemy_related_test_helpers import (
 )
 
 
-# the following variable (+function) make it possible to instrumentalize
+# The following variable (+function) makes it possible to instrumentalize
 # creation of the `LOGGER_error_mock` test method argument...
 LOGGER_error_mock_factory = MagicMock
 def _make_LOGGER_error_mock():
     return LOGGER_error_mock_factory()
 
 
-class _AuthAPILdapDataBasedMethodTestMixIn(object):
+class _AuthAPILdapDataBasedMethodTestMixIn:
 
     @contextlib.contextmanager
-    def standard_context(self, search_flat_return_value):
+    def standard_context(self, search_flat_return_value=sen.UNSPECIFIED, *,
+                         _generate_ignored_ip_networks_side_effect=lambda: iter([])):
         # Note: considering how this method is implemented, it is
         # usable when testing `AuthAPI` but *not* when testing
         # `AuthAPIWithPrefetching`.  To make use of this class
@@ -76,13 +90,20 @@ class _AuthAPILdapDataBasedMethodTestMixIn(object):
         # the `./auth_related_quicktest.py` script.
         with patch('n6lib.auth_api.LdapAPI.get_config_section',
                    return_value=collections.defaultdict(lambda: NotImplemented)), \
-             patch('n6lib.auth_api.LdapAPI.set_config', create=True), \
-             patch('n6lib.auth_api.LdapAPI.configure_db', create=True):
+             patch('n6lib.auth_api.LdapAPI.set_config'), \
+             patch('n6lib.auth_api.LdapAPI.configure_db'):
             self.auth_api = AuthAPI()
             self.data_preparer = self.auth_api._data_preparer
+            self.RecentWriteOpCommit_fake = PlainNamespace(                    # noqa
+                 id=EXAMPLE_DATABASE_VER,
+                 made_at=EXAMPLE_DATABASE_TIMESTAMP_AS_DATETIME,
+            )
             try:
-                with patch('n6lib.auth_api.LdapAPI._make_ssl_connection', create=True), \
-                     patch('n6lib.auth_api.LdapAPI._db_session_maker', create=True), \
+                with patch('n6lib.auth_api.LdapAPI._db_session_maker',
+                           self.make_ldap_api_db_session_maker_mock(self.RecentWriteOpCommit_fake),
+                           create=True), \
+                     patch('n6lib.auth_api.LdapAPI._generate_ignored_ip_networks',
+                           side_effect=_generate_ignored_ip_networks_side_effect), \
                      patch('n6lib.auth_api.LdapAPI._search_flat',
                            return_value=search_flat_return_value), \
                      self.unmemoized_root_node_getter(auth_api_class=self.auth_api.__class__):
@@ -90,6 +111,16 @@ class _AuthAPILdapDataBasedMethodTestMixIn(object):
             finally:
                 self.auth_api = None
                 self.data_preparer = None
+                self.RecentWriteOpCommit_fake = None
+
+    @staticmethod
+    def make_ldap_api_db_session_maker_mock(RecentWriteOpCommit_fake):         # noqa
+        db_session_maker_mock = MagicMock()
+        db_session_maker_mock().query().order_by().limit().one.return_value = (
+            RecentWriteOpCommit_fake
+        )
+        db_session_maker_mock.reset_mock()
+        return db_session_maker_mock
 
     @staticmethod
     @contextlib.contextmanager
@@ -122,20 +153,30 @@ class _AuthAPILdapDataBasedMethodTestMixIn(object):
         return org_name
 
 
+#
+# `AuthAPI` tests
+#
+
 class TestAuthAPI__context_manager(
         _AuthAPILdapDataBasedMethodTestMixIn,
         unittest.TestCase):
 
     def setUp(self):
-        # prepare a standard context (+ its cleanup):
+        # *Note:* memoization of `AuthAPI`'s `_get_root_node()` results
+        # is disabled for all these tests, so whenever that memoization
+        # is mentioned in comments within this test class, it should be
+        # understood as something that applies to a real running system,
+        # *not* to the tests provided by this class.
+
+        # Prepare a standard context (+ its cleanup):
         standard_context = self.standard_context([])
         standard_context.__enter__()
         self.addCleanup(standard_context.__exit__, None, None, None)
 
-        # for brevity:
+        # Just for brevity:
         self.loc = self.auth_api._root_node_deposit
 
-        # prepare a mock method:
+        # Prepare a fake/spy method:
         self.tracer = tracer = Mock()
         silly_method_results = itertools.cycle(string.ascii_lowercase)
         def silly_method(self):
@@ -144,70 +185,209 @@ class TestAuthAPI__context_manager(
             return next(silly_method_results)
         self.silly_method = silly_method
 
-        # cleanup for methods that set AuthAPI.silly_method:
+        # Cleanup for those test methods which set `AuthAPI.silly_method`:
         def _AuthAPI_silly_method_cleanup():
             if hasattr(AuthAPI, 'silly_method'):
                 delattr(AuthAPI, 'silly_method')
         self.addCleanup(_AuthAPI_silly_method_cleanup)
 
-    def test_ldap_root_node__with_and_without_context_manager(self):
+    def test_ldap_root_node__with_and_without_context_manager__when_db_content_is_constant(self):
+        # Note: as long as there are no database content changes, the
+        # data (root node) -- once fetched (so that it reflects the
+        # current state of the database content or at least the newest
+        # memoized result from `_get_root_node()`) -- *is kept cached*,
+        # intact.
+        empty_root_node = self._make_empty_root_node()
         self.assertIsNone(self.loc.outermost_context)
         root1 = self.auth_api.get_ldap_root_node()
-        self.assertEqual(root1, {'attrs': {}})
+        self.assertEqual(root1, empty_root_node)
         self.assertIsNone(self.loc.outermost_context)
         with self.auth_api:
             root2 = self.loc.outermost_context
-            self.assertEqual(root2, {'attrs': {}})
-            self.assertIsNot(root2, root1)
+            self.assertIs(root2, root1)
             self.assertIs(root2, self.auth_api.get_ldap_root_node())
+            self.assertEqual(root2, empty_root_node)
             with self.auth_api, self.auth_api, self.auth_api:
-                # context manager is reentrant (can be freely nested)
+                # Context manager is reentrant (can be freely nested).
                 self.assertIs(root2, self.loc.outermost_context)
                 self.assertIs(root2, self.auth_api.get_ldap_root_node())
+                self.assertEqual(root2, empty_root_node)
             self.assertIs(root2, self.loc.outermost_context)
             self.assertIs(root2, self.auth_api.get_ldap_root_node())
+            self.assertEqual(root2, empty_root_node)
         self.assertIsNone(self.loc.outermost_context)
         root3 = self.auth_api.get_ldap_root_node()
-        self.assertEqual(root3, {'attrs': {}})
+        self.assertIsNone(self.loc.outermost_context)
+        self.assertIs(root3, root2)
+        self.assertIs(root3, root1)
+        self.assertEqual(root3, empty_root_node)
+
+    def test_ldap_root_node__with_and_without_context_manager__when_db_content_changes(self):
+        self.assertIsNone(self.loc.outermost_context)
+        root1 = self.auth_api.get_ldap_root_node()
+        self.assertEqual(root1, self._make_empty_root_node())
+        self.assertIsNone(self.loc.outermost_context)
+        self.RecentWriteOpCommit_fake.id += 1
+        with self.auth_api:
+            # Note: once an `AuthAPI` context manager -- in a given
+            # thread -- is *entered* (when the cached data, aka *root
+            # node*, is replaced with its newly fetched version, to
+            # reflect the current database content, unless it is already
+            # up-to-date, and unless the memoization of `_get_root_node()`
+            # temporarily prevents that...), then any further database
+            # content changes *cannot* affect the cached data (until the
+            # context manager becomes *no longer entered* -- see below...).
+            root2 = self.loc.outermost_context
+            self.assertIsNot(root2, root1)
+            self.assertIs(root2, self.auth_api.get_ldap_root_node())
+            self.assertEqual(root2, self._make_empty_root_node(ver_incr=1))
+            self.RecentWriteOpCommit_fake.id += 1
+            with self.auth_api, self.auth_api, self.auth_api:
+                # Context manager is reentrant (can be freely nested).
+                # Note that any call to `__enter__()` or `__exit__()`
+                # which is nested (i.e., *not the outermost* one within
+                # its thread) is just no op.
+                self.assertIs(root2, self.loc.outermost_context)
+                self.assertIs(root2, self.auth_api.get_ldap_root_node())
+                self.assertEqual(root2, self._make_empty_root_node(ver_incr=1))
+                self.RecentWriteOpCommit_fake.id += 1
+                self.RecentWriteOpCommit_fake.made_at += datetime.timedelta(seconds=42)
+                self.assertIs(root2, self.loc.outermost_context)
+                self.assertIs(root2, self.auth_api.get_ldap_root_node())
+                self.assertEqual(root2, self._make_empty_root_node(ver_incr=1))
+            self.RecentWriteOpCommit_fake.id += 1
+            self.assertIs(root2, self.loc.outermost_context)
+            self.assertIs(root2, self.auth_api.get_ldap_root_node())
+            self.assertEqual(root2, self._make_empty_root_node(ver_incr=1))
+        # Note: when an `AuthAPI` context manager -- in a given thread
+        # -- is *no longer entered*, then new data (root note) will be
+        # fetched and cached as soon as `get_ldap_root_node()` is called
+        # *and* it is detected that the previously cached data (root
+        # node) no longer reflects the current database content (unless
+        # the memoization of `_get_root_node()` temporarily prevents
+        # that detection...).
+        self.assertIsNone(self.loc.outermost_context)
+        root3 = self.auth_api.get_ldap_root_node()
         self.assertIsNone(self.loc.outermost_context)
         self.assertIsNot(root3, root2)
         self.assertIsNot(root3, root1)
+        self.assertEqual(root3, self._make_empty_root_node(ver_incr=4, timestamp_incr=42))
+        self.assertEqual(root2, self._make_empty_root_node(ver_incr=1))
+        self.assertEqual(root1, self._make_empty_root_node())
 
-    def test_decorated_method__with_and_without_context_manager(self):
+    def test_decorated_method__with_and_without_context_manager__when_db_content_is_constant(self):
+        # Note: as long as there are no database content changes, the
+        # `@cached_basing_on_ldap_root_node`-machinery-powered method
+        # results cache -- once it is ensured that the content of this
+        # cache reflects the current state of the database content or at
+        # least the newest memoized result from `_get_root_node()`) --
+        # *is kept intact*.
         AuthAPI.silly_method = cached_basing_on_ldap_root_node(self.silly_method)
-        method = self.auth_api.silly_method
+        method = self.auth_api.silly_method   # noqa
         tracer = self.tracer
         self.assertEqual(tracer.call_count, 0)
         self.assertEqual(method(), 'a')
+        self.assertEqual(tracer.call_count, 1)
+        self.assertEqual(method(), 'a')
+        self.assertEqual(method(), 'a')
+        self.assertEqual(tracer.call_count, 1)
+        with self.auth_api:
+            self.assertEqual(method(), 'a')
+            self.assertEqual(method(), 'a')
+            self.assertEqual(method(), 'a')
+            with self.auth_api:
+                # Context manager is reentrant (can be freely nested).
+                # Note that any call to `__enter__()` or `__exit__()`
+                # which is nested (i.e., *not the outermost* one within
+                # its thread) is just no op.
+                self.assertEqual(method(), 'a')
+                self.assertEqual(method(), 'a')
+                self.assertEqual(tracer.call_count, 1)
+            self.assertEqual(method(), 'a')
+            self.assertEqual(method(), 'a')
+            self.assertEqual(tracer.call_count, 1)
+        self.assertEqual(tracer.call_count, 1)
+        self.assertEqual(method(), 'a')
+        self.assertEqual(method(), 'a')
+        self.assertEqual(tracer.call_count, 1)
+        with self.auth_api:
+            self.assertEqual(method(), 'a')
+            self.assertEqual(method(), 'a')
+            self.assertEqual(method(), 'a')
+        self.assertEqual(tracer.call_count, 1)
+        self.assertEqual(method(), 'a')
+        self.assertEqual(method(), 'a')
+        self.assertEqual(tracer.call_count, 1)
+
+    def test_decorated_method__with_and_without_context_manager__when_db_content_changes(self):
+        AuthAPI.silly_method = cached_basing_on_ldap_root_node(self.silly_method)
+        method = self.auth_api.silly_method   # noqa
+        tracer = self.tracer
+        self.assertEqual(tracer.call_count, 0)
+        self.assertEqual(method(), 'a')
+        self.RecentWriteOpCommit_fake.id += 1
         self.assertEqual(method(), 'b')
+        self.RecentWriteOpCommit_fake.made_at += datetime.timedelta(seconds=1)
         self.assertEqual(method(), 'c')
         self.assertEqual(tracer.call_count, 3)
+        self.RecentWriteOpCommit_fake.id += 1
         with self.auth_api:
+            # Note: when an `AuthAPI` context manager -- in a given
+            # thread -- is *entered*, then the *method results cache*
+            # (`@cached_basing_on_ldap_root_node`-machinery-powered),
+            # once it is ensured that the content of this cache reflects
+            # the database content from the moment of that *entering*
+            # (unless the memoization of `_get_root_node()` temporarily
+            # prevented that...), *is kept intact*, despite any further
+            # database content changes (at least until the context
+            # manager becomes *no longer entered* -- see below...).
             self.assertEqual(method(), 'd')
+            self.RecentWriteOpCommit_fake.id += 1
+            self.RecentWriteOpCommit_fake.made_at += datetime.timedelta(seconds=1)
             self.assertEqual(method(), 'd')
+            self.RecentWriteOpCommit_fake.id += 1
             self.assertEqual(method(), 'd')
             with self.auth_api:
-                # context manager is reentrant (can be freely nested)
+                # Context manager is reentrant (can be freely nested).
+                # Note that any call to `__enter__()` or `__exit__()`
+                # which is nested (i.e., *not the outermost* one within
+                # its thread) is just no op.
                 self.assertEqual(method(), 'd')
+                self.RecentWriteOpCommit_fake.id += 1
                 self.assertEqual(method(), 'd')
             self.assertEqual(method(), 'd')
+            self.RecentWriteOpCommit_fake.id += 1
             self.assertEqual(method(), 'd')
+        # Note: when an `AuthAPI` context manager -- in a given thread
+        # -- is *no longer entered*, then the *method results cache*
+        # (`@cached_basing_on_ldap_root_node`-machinery-powered) will be
+        # dropped, and new data will be fetched and cached, as soon as
+        # the cached method is called *and* it is detected that the
+        # previous cache content no longer reflects the database content
+        # (unless the memoization of `_get_root_node()` temporarily
+        # prevents that detection...).
         self.assertEqual(tracer.call_count, 4)
         self.assertEqual(method(), 'e')
+        self.RecentWriteOpCommit_fake.id += 1
+        self.RecentWriteOpCommit_fake.made_at += datetime.timedelta(days=1)
         self.assertEqual(method(), 'f')
         self.assertEqual(tracer.call_count, 6)
+        self.RecentWriteOpCommit_fake.id += 1
         with self.auth_api:
             self.assertEqual(method(), 'g')
             self.assertEqual(method(), 'g')
+            self.RecentWriteOpCommit_fake.id += 1
             self.assertEqual(method(), 'g')
         self.assertEqual(tracer.call_count, 7)
+        self.RecentWriteOpCommit_fake.id += 1
         self.assertEqual(method(), 'h')
+        self.RecentWriteOpCommit_fake.made_at += datetime.timedelta(seconds=1)
         self.assertEqual(method(), 'i')
         self.assertEqual(tracer.call_count, 9)
 
-    def test_decorated_method__with_context_manager__forcing_cache_invalidation(self):
+    def test_decorated_method__with_context_manager__artificially_forcing_cache_clear(self):
         AuthAPI.silly_method = cached_basing_on_ldap_root_node(self.silly_method)
-        method = self.auth_api.silly_method
+        method = self.auth_api.silly_method   # noqa
         tracer = self.tracer
         self.assertEqual(tracer.call_count, 0)
         with self.auth_api:
@@ -216,35 +396,60 @@ class TestAuthAPI__context_manager(
             self.assertEqual(method(), 'a')
             self.assertEqual(tracer.call_count, 1)
 
-            # forcing cache invalidation:
-            self.auth_api._root_node_deposit._unsafe_replace_outermost_context({'attrs': {}})
+            # Here we artificially force dropping the method results cache
+            # (which is powered by the `@cached_basing_on_ldap_root_node`
+            # machinery) -- by manually replacing the thread-locally stored
+            # root node (which normally -- for a given thread -- is set only
+            # by the outermost `__enter__()`, during execution of which the
+            # `_get_root_node()` method is called to get the root node...).
+            self.auth_api._root_node_deposit._unsafe_replace_outermost_context(
+                self._make_empty_root_node())
 
             self.assertEqual(method(), 'b')
             self.assertEqual(method(), 'b')
             self.assertEqual(method(), 'b')
             self.assertEqual(tracer.call_count, 2)
             with self.auth_api:
+                # Context manager is reentrant (can be freely nested).
+                # Note that any call to `__enter__()` or `__exit__()`
+                # which is nested (i.e., *not the outermost* one within
+                # its thread) is just no op.
                 self.assertEqual(method(), 'b')
                 with self.auth_api, self.auth_api, self.auth_api:
                     self.assertEqual(method(), 'b')
                 self.assertEqual(method(), 'b')
                 self.assertEqual(tracer.call_count, 2)
 
-                # forcing cache invalidation:
-                self.auth_api._root_node_deposit._unsafe_replace_outermost_context({'attrs': {}})
+                # Here we artificially force clearing the method results
+                # cache... (See the comment about the same operation --
+                # placed earlier in this test method's code...)
+                self.auth_api._root_node_deposit._unsafe_replace_outermost_context(
+                    self._make_empty_root_node())
 
                 self.assertEqual(method(), 'c')
                 self.assertEqual(method(), 'c')
-            self.assertEqual(tracer.call_count, 3)
+                self.assertEqual(tracer.call_count, 3)
             self.assertEqual(method(), 'c')
             self.assertEqual(method(), 'c')
             self.assertEqual(tracer.call_count, 3)
+
+    @staticmethod
+    def _make_empty_root_node(ver_incr=0, timestamp_incr=0):
+        return {
+            'attrs': {},
+            '_extra_': {
+                'ver': EXAMPLE_DATABASE_VER + ver_incr,
+                'timestamp': EXAMPLE_DATABASE_TIMESTAMP + timestamp_incr,
+                'ignored_ip_networks': set(),
+            },
+            '_method_name_to_result_': {},
+        }
 
     ## TODO later?: testing for multithreading etc....
 
 
-class TestAuthAPI__get_user_ids_to_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
-                                           unittest.TestCase):
+class TestAuthAPI_get_user_ids_to_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
+                                          unittest.TestCase):
 
     search_flat_return_values__and__expected_results = [
         (
@@ -278,14 +483,18 @@ class TestAuthAPI__get_user_ids_to_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
         ),
     ]
 
+
     @patch('n6lib.auth_api.LOGGER.error', new_callable=_make_LOGGER_error_mock)
     def test(self, LOGGER_error_mock):
         for (search_flat_return_value,
              expected_result) in self.search_flat_return_values__and__expected_results:
             with self.standard_context(search_flat_return_value):
+
                 actual_result = self.auth_api.get_user_ids_to_org_ids()
+
                 self.assertEqual(actual_result, expected_result)
         self.assertEqual(LOGGER_error_mock.call_count, 0)
+
 
     @patch('n6lib.auth_api.LOGGER.error', new_callable=_make_LOGGER_error_mock)
     def test_error_logging(self, LOGGER_error_mock):
@@ -294,12 +503,14 @@ class TestAuthAPI__get_user_ids_to_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
             (dn.replace('login4', 'login3').replace('login6', 'login5'), attrs)
             for dn, attrs in self.search_flat_return_values__and__expected_results[0][0]]
         with self.standard_context(search_flat_return_value):
+
             self.auth_api.get_user_ids_to_org_ids()
+
         self.assertEqual(LOGGER_error_mock.call_count, 2)  # <- two error messages logged
 
 
-class TestAuthAPI__get_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
-                               unittest.TestCase):
+class TestAuthAPI_get_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
+                              unittest.TestCase):
 
     search_flat_return_values__and__expected_results = [
         (
@@ -319,23 +530,37 @@ class TestAuthAPI__get_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
         for (search_flat_return_value,
              expected_result) in self.search_flat_return_values__and__expected_results:
             with self.standard_context(search_flat_return_value):
+
                 actual_result = self.auth_api.get_org_ids()
+
                 self.assertEqual(actual_result, expected_result)
 
 
-class TestAuthAPI__get_inside_criteria_resolver(_AuthAPILdapDataBasedMethodTestMixIn,
-                                                unittest.TestCase):
+class TestAuthAPI_get_inside_criteria_resolver(_AuthAPILdapDataBasedMethodTestMixIn,
+                                               unittest.TestCase):
+
+    # (see also:
+    # * `TestInsideCriteriaResolver__init`
+    # * `TestInsideCriteriaResolver_get_client_org_ids_and_urls_matched`
+    # * plus also `n6datapipeline.tests.test_filter.TestFilter...`)
 
     def test(self):
+        root_node_base = {'attrs': {}, '_extra_': {
+            'ver': EXAMPLE_DATABASE_VER,
+            'timestamp': EXAMPLE_DATABASE_TIMESTAMP,
+            'ignored_ip_networks': set()},
+        }
         with self.standard_context([]):
             self.auth_api._data_preparer._get_inside_criteria = Mock(
                 return_value=sen.inside_criteria)
             with patch(
                     'n6lib.auth_api.InsideCriteriaResolver',
                     return_value=sen.resolver_instance) as InsideCriteriaResolver_mock:
+
                 actual_result = self.auth_api.get_inside_criteria_resolver()
+
                 self.assertEqual(self.auth_api._data_preparer._get_inside_criteria.mock_calls, [
-                    call({'attrs': {}}),
+                    call(AnyDictIncluding(**root_node_base)),
                 ])
                 self.assertEqual(InsideCriteriaResolver_mock.mock_calls, [
                     call(sen.inside_criteria),
@@ -343,8 +568,91 @@ class TestAuthAPI__get_inside_criteria_resolver(_AuthAPILdapDataBasedMethodTestM
                 self.assertIs(actual_result, sen.resolver_instance)
 
 
-class TestAuthAPI__get_anonymized_source_mapping(_AuthAPILdapDataBasedMethodTestMixIn,
-                                                 unittest.TestCase):
+class TestAuthAPI_get_ignore_lists_criteria_resolver__mocked(_AuthAPILdapDataBasedMethodTestMixIn,
+                                                             unittest.TestCase):
+
+    # (see also:
+    # * `TestAuthAPI_get_ignore_lists_criteria_resolver__real`
+    # * `Test_IgnoreListsCriteriaResolver`
+    # * plus also `n6datapipeline.tests.test_filter.TestFilter.test__should_be_ignored()`)
+
+    def test(self):
+        with self.standard_context([]), \
+             patch(
+                 'n6lib.auth_api.LdapAPI._generate_ignored_ip_networks',
+                 side_effect=lambda: iter([sen.network1, sen.network2])), \
+             patch(
+                'n6lib.auth_api._IgnoreListsCriteriaResolver',
+                return_value=sen.resolver_instance) as _IgnoreListsCriteriaResolver_mock:
+
+            actual_result = self.auth_api.get_ignore_lists_criteria_resolver()
+
+            self.assertEqual(_IgnoreListsCriteriaResolver_mock.mock_calls, [
+                call({sen.network1, sen.network2}),
+            ])
+            self.assertIs(actual_result, sen.resolver_instance)
+
+
+class TestAuthAPI_get_ignore_lists_criteria_resolver__real(_AuthAPILdapDataBasedMethodTestMixIn,
+                                                           unittest.TestCase):
+
+    # (see also:
+    # * `TestAuthAPI_get_ignore_lists_criteria_resolver__mocked`
+    # * `Test_IgnoreListsCriteriaResolver`
+    # * plus also `n6datapipeline.tests.test_filter.TestFilter.test__should_be_ignored()`)
+
+    def test(self):
+        m = self._make_input_mapping
+        with self.standard_context([], _generate_ignored_ip_networks_side_effect=lambda: iter([
+            '10.20.30.41/24',
+            '1.2.3.4/32',
+            '200.201.202.202/31',
+            '1.2.3.4/32',
+            '0.0.0.0/8',
+        ])):
+            resolver = self.auth_api.get_ignore_lists_criteria_resolver()
+            self.assertIsInstance(resolver, _IgnoreListsCriteriaResolver)
+            self.assertIs(resolver({}), False)
+            self.assertIs(resolver(m()), False)
+            self.assertIs(resolver(m('10.20.29.255')), False)
+            self.assertIs(resolver(m('10.20.30.0')), True)
+            self.assertIs(resolver(m('10.20.30.1')), True)
+            self.assertIs(resolver(m('10.20.30.40')), True)
+            self.assertIs(resolver(m('10.20.30.41')), True)
+            self.assertIs(resolver(m('10.20.30.127')), True)
+            self.assertIs(resolver(m('10.20.30.128')), True)
+            self.assertIs(resolver(m('10.20.30.255')), True)
+            self.assertIs(resolver(m('10.20.31.0')), False)
+            self.assertIs(resolver(m('1.2.3.3')), False)
+            self.assertIs(resolver(m('1.2.3.4')), True)
+            self.assertIs(resolver(m('1.2.3.5')), False)
+            self.assertIs(resolver(m('200.201.202.201')), False)
+            self.assertIs(resolver(m('200.201.202.202')), True)
+            self.assertIs(resolver(m('200.201.202.203')), True)
+            self.assertIs(resolver(m('200.201.202.204')), False)
+            self.assertIs(resolver(m('0.0.0.1')), True)
+            self.assertIs(resolver(m('0.0.0.42')), True)
+            self.assertIs(resolver(m('0.0.42.42')), True)
+            self.assertIs(resolver(m('0.42.42.42')), True)
+            self.assertIs(resolver(m('0.255.255.255')), True)
+            self.assertIs(resolver(m('1.0.0.0')), False)
+            self.assertIs(resolver(m('1.0.0.1')), False)
+            self.assertIs(resolver(m('192.168.0.1')), False)
+            self.assertIs(resolver(m('192.168.0.1', '1.0.0.1')), False)      # no ignored IPs
+            self.assertIs(resolver(m('192.168.0.1', '10.20.30.1')), False)   # not all IPs ignored
+            self.assertIs(resolver(m('10.20.30.1', '192.168.0.1')), False)   # not all IPs ignored
+            self.assertIs(resolver(m('1.2.3.4', '10.20.30.1')), True)        # all IPs ignored
+            self.assertIs(resolver(m('10.20.30.1', '1.2.3.4')), True)        # all IPs ignored
+            self.assertIs(resolver(m('1.2.3.4', '192.168.0.1', '10.20.30.1')), False)      # not all IPs ignored     # noqa
+            self.assertIs(resolver(m('1.2.3.4', '200.201.202.202', '10.20.30.1')), True)   # all IPs ignored         # noqa
+
+    @staticmethod
+    def _make_input_mapping(*ips):
+        return {'address': [{'ip': ip} for ip in ips]}
+
+
+class TestAuthAPI_get_anonymized_source_mapping(_AuthAPILdapDataBasedMethodTestMixIn,
+                                                unittest.TestCase):
 
     search_flat_return_values__and__expected_results = [
         (
@@ -388,13 +696,15 @@ class TestAuthAPI__get_anonymized_source_mapping(_AuthAPILdapDataBasedMethodTest
         for (search_flat_return_value,
              expected_result) in self.search_flat_return_values__and__expected_results:
             with self.standard_context(search_flat_return_value):
+
                 actual_result = self.auth_api.get_anonymized_source_mapping()
+
                 self.assertEqual(actual_result, expected_result)
         self.assertEqual(LOGGER_error_mock.call_count, 3)
 
 
-class TestAuthAPI__get_dip_anonymization_disabled_source_ids(_AuthAPILdapDataBasedMethodTestMixIn,
-                                                             unittest.TestCase):
+class TestAuthAPI_get_dip_anonymization_disabled_source_ids(_AuthAPILdapDataBasedMethodTestMixIn,
+                                                            unittest.TestCase):
 
     search_flat_return_values__and__expected_results = [
         (
@@ -432,17 +742,24 @@ class TestAuthAPI__get_dip_anonymization_disabled_source_ids(_AuthAPILdapDataBas
         for (search_flat_return_value,
              expected_result) in self.search_flat_return_values__and__expected_results:
             with self.standard_context(search_flat_return_value):
+
                 actual_result = self.auth_api.get_dip_anonymization_disabled_source_ids()
+
                 self.assertEqual(actual_result, expected_result)
         self.assertEqual(LOGGER_error_mock.call_count, 2)
 
 
-class TestAuthAPI__get_access_info(unittest.TestCase):
+class TestAuthAPI_get_access_info(unittest.TestCase):
 
     def setUp(self):
         self.mock = Mock(__class__=AuthAPI)
+        self.mock._data_preparer = PlainNamespace(
+            _using_legacy_version_of_access_filtering_conditions=False,
+            obtain_ready_access_info=copy.deepcopy,
+        )
         self.meth = MethodProxy(AuthAPI, self.mock)
         self.auth_data = {'user_id': sen.user_id, 'org_id': sen.org_id}
+
 
     def test_returns_dict_for_existing_org_id(self):
         example_access_info = {
@@ -460,8 +777,11 @@ class TestAuthAPI__get_access_info(unittest.TestCase):
                 sen.another_org_id: sen.another_access_info,
             }
         })
+
         access_info = self.meth.get_access_info(self.auth_data)
-        self.assertIs(access_info, example_access_info)
+
+        self.assertEqual(access_info, example_access_info)
+
 
     def test_returns_None_for_missing_org_id(self):
         self.mock.configure_mock(**{
@@ -469,11 +789,13 @@ class TestAuthAPI__get_access_info(unittest.TestCase):
                 sen.another_org_id: sen.another_access_info,
             }
         })
+
         access_info = self.meth.get_access_info(self.auth_data)
+
         self.assertIs(access_info, None)
 
 
-class TestAuthAPI__get_org_ids_to_access_infos(
+class TestAuthAPI_get_org_ids_to_access_infos(
         _AuthAPILdapDataBasedMethodTestMixIn,
         unittest.TestCase):
 
@@ -491,15 +813,18 @@ class TestAuthAPI__get_org_ids_to_access_infos(
 
         with patch.object(_DataPreparer, '_make_access_filtering_cond_to_sqla_converter',
                           _make_wrapped_converter), \
-             self.standard_context(search_flat_return_value):
+             self.standard_context(search_flat_return_value), \
+             self.auth_api:
 
-            actual_result = self.auth_api.get_org_ids_to_access_infos()
+            actual_result = {
+                org_id: self.auth_api.get_access_info({'org_id': org_id, 'user_id': sen.UNUSED})
+                for org_id in self.auth_api.get_org_ids_to_access_infos().keys()}
 
         self.assertEqual(actual_result, expected_result)
         self.assert_problematic_orgs_logged(LOGGER_error_mock, {'o3', 'o4', 'o6'})
 
 
-class TestAuthAPI__get_org_ids_to_access_infos__without_optimization(
+class TestAuthAPI_get_org_ids_to_access_infos__without_optimization(
         _AuthAPILdapDataBasedMethodTestMixIn,
         unittest.TestCase):
 
@@ -519,15 +844,18 @@ class TestAuthAPI__get_org_ids_to_access_infos__without_optimization(
                           _make_wrapped_converter), \
              patch.dict(os.environ,
                         {'N6_SKIP_OPTIMIZATION_OF_ACCESS_FILTERING_CONDITIONS': 'y'}), \
-             self.standard_context(search_flat_return_value):
+             self.standard_context(search_flat_return_value), \
+             self.auth_api:
 
-            actual_result = self.auth_api.get_org_ids_to_access_infos()
+            actual_result = {
+                org_id: self.auth_api.get_access_info({'org_id': org_id, 'user_id': sen.UNUSED})
+                for org_id in self.auth_api.get_org_ids_to_access_infos().keys()}
 
         self.assertEqual(actual_result, expected_result)
         self.assert_problematic_orgs_logged(LOGGER_error_mock, {'o3', 'o4', 'o6'})
 
 
-class TestAuthAPI__get_org_ids_to_access_infos__with_legacy_conditions(
+class TestAuthAPI_get_org_ids_to_access_infos__with_legacy_conditions(
         _AuthAPILdapDataBasedMethodTestMixIn,
         unittest.TestCase):
 
@@ -551,12 +879,13 @@ class TestAuthAPI__get_org_ids_to_access_infos__with_legacy_conditions(
         self.assert_problematic_orgs_logged(LOGGER_error_mock, {'o3', 'o4', 'o6'})
 
 
-class TestAuthAPI__get_org_actual_name(unittest.TestCase):
+class TestAuthAPI_get_org_actual_name(unittest.TestCase):
 
     def setUp(self):
         self.mock = Mock(__class__=AuthAPI)
         self.meth = MethodProxy(AuthAPI, self.mock)
         self.auth_data = {'user_id': sen.user_id, 'org_id': sen.org_id}
+
 
     def test_returns_dict_for_existing_org_id(self):
         self.mock.configure_mock(**{
@@ -565,8 +894,11 @@ class TestAuthAPI__get_org_actual_name(unittest.TestCase):
                 sen.another_org_id: sen.another_actual_name,
             }
         })
+
         actual_name = self.meth.get_org_actual_name(self.auth_data)
+
         self.assertIs(actual_name, sen.actual_name)
+
 
     def test_returns_None_for_missing_org_id(self):
         self.mock.configure_mock(**{
@@ -574,11 +906,13 @@ class TestAuthAPI__get_org_actual_name(unittest.TestCase):
                 sen.another_org_id: sen.another_actual_name,
             }
         })
+
         actual_name = self.meth.get_org_actual_name(self.auth_data)
+
         self.assertIs(actual_name, None)
 
 
-class TestAuthAPI__get_org_ids_to_actual_names(
+class TestAuthAPI_get_org_ids_to_actual_names(
         _AuthAPILdapDataBasedMethodTestMixIn,
         unittest.TestCase):
 
@@ -586,14 +920,14 @@ class TestAuthAPI__get_org_ids_to_actual_names(
         # see: n6lib.auth_related_test_helpers
         search_flat_return_value = EXAMPLE_SEARCH_RAW_RETURN_VALUE
         expected_result = EXAMPLE_ORG_IDS_TO_ACTUAL_NAMES
-
         with self.standard_context(search_flat_return_value):
+
             actual_result = self.auth_api.get_org_ids_to_actual_names()
 
         self.assertEqual(actual_result, expected_result)
 
 
-class TestAuthAPI__get_source_ids_to_subs_to_stream_api_access_infos(
+class TestAuthAPI_get_source_ids_to_subs_to_stream_api_access_infos(
         _AuthAPILdapDataBasedMethodTestMixIn,
         unittest.TestCase):
 
@@ -604,16 +938,16 @@ class TestAuthAPI__get_source_ids_to_subs_to_stream_api_access_infos(
         # see: n6lib.auth_related_test_helpers
         search_flat_return_value = EXAMPLE_SEARCH_RAW_RETURN_VALUE
         expected_result = EXAMPLE_SOURCE_IDS_TO_SUBS_TO_STREAM_API_ACCESS_INFOS
-
         with self.standard_context(search_flat_return_value):
+
             actual_result = self.auth_api.get_source_ids_to_subs_to_stream_api_access_infos()
 
         self.assertEqual(actual_result, expected_result)
         self.assert_problematic_orgs_logged(LOGGER_error_mock, {'o6', 'o8', 'o9'})
 
 
-class TestAuthAPI__get_stream_api_enabled_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
-                                                  unittest.TestCase):
+class TestAuthAPI_get_stream_api_enabled_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
+                                                 unittest.TestCase):
 
     search_flat_return_values__and__expected_results = [
             (
@@ -645,12 +979,14 @@ class TestAuthAPI__get_stream_api_enabled_org_ids(_AuthAPILdapDataBasedMethodTes
         for (search_flat_return_value,
              expected_result) in self.search_flat_return_values__and__expected_results:
             with self.standard_context(search_flat_return_value):
+
                 actual_result = self.auth_api.get_stream_api_enabled_org_ids()
+
                 self.assertEqual(actual_result, expected_result)
 
 
-class TestAuthAPI__get_stream_api_disabled_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
-                                                   unittest.TestCase):
+class TestAuthAPI_get_stream_api_disabled_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
+                                                  unittest.TestCase):
 
     search_flat_return_values__and__expected_results = [
             (
@@ -683,12 +1019,13 @@ class TestAuthAPI__get_stream_api_disabled_org_ids(_AuthAPILdapDataBasedMethodTe
         for (search_flat_return_value,
              expected_result) in self.search_flat_return_values__and__expected_results:
             with self.standard_context(search_flat_return_value):
+
                 actual_result = self.auth_api.get_stream_api_disabled_org_ids()
+
                 self.assertEqual(actual_result, expected_result)
 
 
-
-class TestAuthAPI__get_source_ids_to_notification_access_info_mappings(
+class TestAuthAPI_get_source_ids_to_notification_access_info_mappings(
         _AuthAPILdapDataBasedMethodTestMixIn,
         unittest.TestCase):
 
@@ -699,16 +1036,16 @@ class TestAuthAPI__get_source_ids_to_notification_access_info_mappings(
         # see: n6lib.auth_related_test_helpers
         search_flat_return_value = EXAMPLE_SEARCH_RAW_RETURN_VALUE
         expected_result = EXAMPLE_SOURCE_IDS_TO_NOTIFICATION_ACCESS_INFO_MAPPINGS
-
         with self.standard_context(search_flat_return_value):
+
             actual_result = self.auth_api.get_source_ids_to_notification_access_info_mappings()
 
         self.assertEqual(actual_result, expected_result)
         self.assert_problematic_orgs_logged(LOGGER_error_mock, {'o3', 'o4', 'o8'})
 
 
-class TestAuthAPI__get_org_ids_to_notification_configs(_AuthAPILdapDataBasedMethodTestMixIn,
-                                                       unittest.TestCase):
+class TestAuthAPI_get_org_ids_to_notification_configs(_AuthAPILdapDataBasedMethodTestMixIn,
+                                                      unittest.TestCase):
 
     search_flat_return_values__and__expected_results = [
             (
@@ -836,12 +1173,29 @@ class TestAuthAPI__get_org_ids_to_notification_configs(_AuthAPILdapDataBasedMeth
         for (search_flat_return_value,
              expected_result) in self.search_flat_return_values__and__expected_results:
             with self.standard_context(search_flat_return_value):
+
                 actual_result = self.auth_api.get_org_ids_to_notification_configs()
+
                 self.assertEqual(actual_result, expected_result)
 
 
-class TestAuthAPI___get_inside_criteria(_AuthAPILdapDataBasedMethodTestMixIn,
-                                        unittest.TestCase):
+class TestAuthAPI__peek_database_ver_and_timestamp(_AuthAPILdapDataBasedMethodTestMixIn,
+                                                   unittest.TestCase):
+
+    def test(self):
+        with self.standard_context():
+            ldap_api = self.auth_api._ldap_api
+
+            actual_result = self.auth_api._peek_database_ver_and_timestamp(ldap_api)
+
+            self.assertEqual(actual_result, (EXAMPLE_DATABASE_VER, EXAMPLE_DATABASE_TIMESTAMP))
+
+#
+# `_DataPreparer` tests
+#
+
+class Test_DataPreparer__get_inside_criteria(_AuthAPILdapDataBasedMethodTestMixIn,
+                                             unittest.TestCase):
 
     search_flat_return_values__and__expected_results = [
         (
@@ -909,12 +1263,14 @@ class TestAuthAPI___get_inside_criteria(_AuthAPILdapDataBasedMethodTestMixIn,
                 with patch('n6lib.auth_api._DataPreparer._check_org_length') \
                      as _check_org_length_mock:
                     root_node = self.auth_api.get_ldap_root_node()
+
                     actual_result = self.auth_api._data_preparer._get_inside_criteria(root_node)
+
                     self.assertCountEqual(actual_result, expected_result)
                     self.assertTrue(_check_org_length_mock.called)
 
 
-class TestAuthAPI___make_request_parameters_dict(unittest.TestCase):
+class Test_DataPreparer__make_request_parameters_dict(unittest.TestCase):
 
     rest_api_resources__and__expected_results = [
         (
@@ -1032,19 +1388,23 @@ class TestAuthAPI___make_request_parameters_dict(unittest.TestCase):
 
     def test_for_valid_rest_api_resources(self):
         for rest_api_resource, expected_result in self.rest_api_resources__and__expected_results:
+
             actual_result = self.meth._make_request_parameters_dict(rest_api_resource)
+
             self.assertEqual(actual_result, expected_result)
         self.assertEqual(self.mock.mock_calls, [])
 
     def test_for_invalid_rest_api_resources(self):
         for rest_api_resource, expected_exc in self.rest_api_resources__and__expected_exceptions:
             with self.assertRaises(expected_exc):
+
                 self.meth._make_request_parameters_dict(rest_api_resource)
+
         self.assertEqual(self.mock.mock_calls, [])
 
 
-class TestAuthAPI___parse_notification_time(_AuthAPILdapDataBasedMethodTestMixIn,
-                                            unittest.TestCase):
+class Test_DataPreparer__parse_notification_time(_AuthAPILdapDataBasedMethodTestMixIn,
+                                                 unittest.TestCase):
     def test(self):
         with self.standard_context([]):
             actual_result = self.data_preparer._parse_notification_time('1')
@@ -1066,12 +1426,12 @@ class TestAuthAPI___parse_notification_time(_AuthAPILdapDataBasedMethodTestMixIn
 
 
 ##
-## TODO: (maybe later?) tests of the remaining AuthAPI non-public methods
+## Maybe TODO later: tests of other `AuthAPI`/`_DataPreparer` methods...
 ##
 
 
 #
-# InsideCriteriaResolver tests
+# `InsideCriteriaResolver` tests
 #
 
 # * shared test data
@@ -2797,7 +3157,12 @@ EXPECTED_RESULTS_AND_GIVEN_URL_PATTERNS = [
 # * actual tests
 
 @expand
-class TestInsideCriteriaResolver_initialization(TestCaseMixin, unittest.TestCase):
+class TestInsideCriteriaResolver__init(TestCaseMixin, unittest.TestCase):
+
+    # (see also:
+    # * `TestInsideCriteriaResolver_get_client_org_ids_and_urls_matched`
+    # * `TestAuthAPI_get_inside_criteria_resolver`
+    # * plus also `n6datapipeline.tests.test_filter.TestFilter...`)
 
     @foreach(
         param(
@@ -2833,7 +3198,7 @@ class TestInsideCriteriaResolver_initialization(TestCaseMixin, unittest.TestCase
             },
         ),
     )
-    def test___fqdn_suffix_to_ids(self, inside_criteria, expected_content):
+    def test__fqdn_suffix_to_ids(self, inside_criteria, expected_content):
         with self.assertStateUnchanged(inside_criteria):
             r = InsideCriteriaResolver(inside_criteria)
             self.assertEqual(r._fqdn_suffix_to_ids, expected_content)
@@ -2873,7 +3238,7 @@ class TestInsideCriteriaResolver_initialization(TestCaseMixin, unittest.TestCase
             },
         ),
     )
-    def test___asn_to_ids(self, inside_criteria, expected_content):
+    def test__asn_to_ids(self, inside_criteria, expected_content):
         with self.assertStateUnchanged(inside_criteria):
             r = InsideCriteriaResolver(inside_criteria)
             self.assertEqual(r._asn_to_ids, expected_content)
@@ -2913,7 +3278,7 @@ class TestInsideCriteriaResolver_initialization(TestCaseMixin, unittest.TestCase
             },
         ),
     )
-    def test___cc_to_ids(self, inside_criteria, expected_content):
+    def test__cc_to_ids(self, inside_criteria, expected_content):
         with self.assertStateUnchanged(inside_criteria):
             r = InsideCriteriaResolver(inside_criteria)
             self.assertEqual(r._cc_to_ids, expected_content)
@@ -2953,7 +3318,7 @@ class TestInsideCriteriaResolver_initialization(TestCaseMixin, unittest.TestCase
             ],
         ),
     )
-    def test___ids_and_urls(self, inside_criteria, expected_content):
+    def test__ids_and_urls(self, inside_criteria, expected_content):
         with self.assertStateUnchanged(inside_criteria):
             r = InsideCriteriaResolver(inside_criteria)
             self.assertEqual(r._ids_and_urls, expected_content)
@@ -3166,15 +3531,21 @@ class TestInsideCriteriaResolver_initialization(TestCaseMixin, unittest.TestCase
             ),
         ),
     )
-    def test___border_ips_and_corresponding_id_sets(self, inside_criteria, expected_content):
+    def test__border_ips_and_corresponding_id_sets(self, inside_criteria, expected_content):
         with self.assertStateUnchanged(inside_criteria):
             r = InsideCriteriaResolver(inside_criteria)
             self.assertEqual(r._border_ips_and_corresponding_id_sets, expected_content)
 
 
 @expand
-class TestInsideCriteriaResolver__get_client_org_ids_and_urls_matched(TestCaseMixin,
-                                                                      unittest.TestCase):
+class TestInsideCriteriaResolver_get_client_org_ids_and_urls_matched(TestCaseMixin,
+                                                                     unittest.TestCase):
+
+    # (see also:
+    # * `TestInsideCriteriaResolver__init`
+    # * `TestAuthAPI_get_inside_criteria_resolver`
+    # * plus also `n6datapipeline.tests.test_filter.TestFilter...`)
+
     RD_BASE = {
         # these items are obligatory for a RecordDict (though irrelevant
         # for InsideCriteriaResolver.get_client_org_ids_and_urls_matched())
@@ -3345,5 +3716,210 @@ class TestInsideCriteriaResolver__get_client_org_ids_and_urls_matched(TestCaseMi
         return opt_args, opt_kwargs
 
 
-if __name__ == '__main__':
-    unittest.main()
+#
+# `_IgnoreListsCriteriaResolver` tests
+#
+
+@expand
+class Test_IgnoreListsCriteriaResolver(TestCaseMixin, unittest.TestCase):
+
+    # (see also:
+    # * `TestAuthAPI_get_ignore_lists_criteria_resolver__mocked`
+    # * `TestAuthAPI_get_ignore_lists_criteria_resolver__real`
+    # * plus also `n6datapipeline.tests.test_filter.TestFilter.test__should_be_ignored()`)
+
+    @classmethod
+    def setUpClass(cls):
+        arbitrary_fixed_seed = 123
+        cls._random = random.Random(arbitrary_fixed_seed)
+
+
+    @foreach(
+        param(
+            ignored_ip_networks=[],
+            expected_ip_container_constructor_args=[],
+        ),
+        param(
+            ignored_ip_networks={'2.3.4.5'},
+            expected_ip_container_constructor_args=[ipaddress.IPv4Network('2.3.4.5/32')],
+        ),
+        param(
+            ignored_ip_networks=frozenset({'2.3.4.5/24'}),
+            # (host bits are tolerated but zeroed)
+            expected_ip_container_constructor_args=[ipaddress.IPv4Network('2.3.4.0/24')],
+        ),
+        param(
+            ignored_ip_networks=['2.3.4.0/24', '168.192.70.250', (b'\x00\x03\x04\x05', 16)],
+            expected_ip_container_constructor_args=[
+                ipaddress.IPv4Network('2.3.4.0/24'),
+                ipaddress.IPv4Network('168.192.70.250/32'),
+                ipaddress.IPv4Network('0.3.0.0/16'),    # (<- host bits tolerated but zeroed)
+            ],
+        ),
+        # Note: here we do not test any cases related to the forbidden
+        # zero IP address (`0.0.0.0`), because it should never appear
+        # in a `RecordDict`'s `address` (and even if it did, no reaction
+        # from the *IP ignoring mechanism* could really be dangerous).
+    )
+    def test__init__ok(self,
+                       ignored_ip_networks,
+                       expected_ip_container_constructor_args):
+        ip_container_constructor_mock = self.patch(
+            'n6lib.auth_api.IPv4Container',
+            return_value=sen.ip_container_instance)
+
+        resolver = _IgnoreListsCriteriaResolver(ignored_ip_networks)
+
+        assert isinstance(resolver, _IgnoreListsCriteriaResolver)
+        assert resolver._ignored_ips is sen.ip_container_instance
+        assert ip_container_constructor_mock.mock_calls == [
+            call(*expected_ip_container_constructor_args),
+        ]
+
+
+    @foreach(
+        *([
+        param(
+            ignored_ip_networks=['2.003.04.5'],           # (octets with redundant leading zeros)
+            expected_exc=ipaddress.AddressValueError,
+        ),
+        param(
+            ignored_ip_networks={'2.3.4.05/24'},          # (octets with redundant leading zeros)
+            expected_exc=ipaddress.AddressValueError,
+        ),
+        # ^ For the above two cases no error is raised under Python versions older than 3.9.5.
+        #   TODO later: get rid of the following `if` condition when we drop
+        #               support for Python 3.9 -- keeping these cases intact!
+        ] if sys.version_info >= (3, 9, 5) else []),
+        param(
+            ignored_ip_networks=['2.3.4.5.6/24'],         # (too many octets)
+            expected_exc=ipaddress.AddressValueError,
+        ),
+        param(
+            ignored_ip_networks={(b'\x00\x03\x04', 16)},  # (not enough octets)
+            expected_exc=ipaddress.AddressValueError,
+        ),
+        param(
+            ignored_ip_networks=['2.3.4.5/33'],           # (wrong mask/prefix part)
+            expected_exc=ipaddress.NetmaskValueError,
+        ),
+    )
+    def test__init__error(self,
+                          ignored_ip_networks,
+                          expected_exc):
+        ip_container_constructor_mock = self.patch('n6lib.auth_api.IPv4Container')
+        with self.assertRaises(expected_exc):
+
+            _IgnoreListsCriteriaResolver(ignored_ip_networks)
+
+        assert not ip_container_constructor_mock.mock_calls
+
+
+    @foreach(
+        # *No address* => do *not* ignore the event.
+        param(
+            ips=[],
+            expected_answer=False,
+        ),
+
+        # *Only non-ignored* addresses => do *not* ignore the event.
+        param(
+            ips=[sen.ip_to_be_emitted],
+            expected_answer=False,
+        ),
+        param(
+            ips=[sen.ip_to_be_emitted, sen.another_emitted_one],
+            expected_answer=False,
+        ),
+
+        # *Both ignored and non-ignored* addresses => do *not* ignore the event (!).
+        param(
+            ips=[sen.ip_to_be_emitted, sen.ip_to_be_IGNORED],
+            expected_answer=False,
+        ),
+        param(
+            ips=[sen.ip_to_be_emitted, sen.ip_to_be_IGNORED, sen.another_emitted_one],
+            expected_answer=False,
+        ),
+        param(
+            ips=[sen.ip_to_be_IGNORED, sen.ip_to_be_emitted, sen.another_IGNORED_one],
+            expected_answer=False,
+        ),
+
+        # *Only ignored* addresses => *ignore* the event.
+        param(
+            ips=[sen.ip_to_be_IGNORED],
+            expected_answer=True,
+        ),
+        param(
+            ips=[sen.ip_to_be_IGNORED, sen.another_IGNORED_one],
+            expected_answer=True,
+        ),
+    )
+    def test__call__ok(self, ips, expected_answer):
+        resolver = self._make_resolver_with_ip_container_fake()
+        input_mapping = self._make_input_mapping(ips)
+
+        actual_answer = resolver(input_mapping)
+
+        assert isinstance(actual_answer, bool)
+        assert actual_answer == expected_answer
+
+
+    @foreach(
+        ipaddress.AddressValueError,
+        ipaddress.NetmaskValueError,
+    )
+    def test__call__ipaddress_value_error_propagated_from_ip_container(self, error_class):
+        resolver = self._make_resolver_with_ip_container_fake()
+        input_mapping = self._make_input_mapping(ips=[
+            getattr(sen, f'triggering_{error_class.__name__}_from_ip_container')
+        ])
+        with self.assertRaises(error_class):
+
+            resolver(input_mapping)
+
+
+    def _make_resolver_with_ip_container_fake(self) -> _IgnoreListsCriteriaResolver:
+        resolver = object.__new__(_IgnoreListsCriteriaResolver)
+        resolver._ignored_ips = self._IPv4ContainerFake()
+        return resolver
+
+    # Note: the actual behavior of `n6sdk.addr_helpers.IPv4Container` (its
+    # `__contains__()`; plus other parts of its interface, not used by
+    # `_IgnoreListsCriteriaResolver`) is tested separately, *not* here...
+    class _IPv4ContainerFake:
+        def __contains__(self, ip) -> bool:
+            assert isinstance(ip, type(sen.foo)), 'this fake implementation expects a sentinel'
+            # Note: the logic of this fake method is simple: return
+            # `True` if the given sentinel's name contains "IGNORED",
+            # otherwise return `False`. However, if the sentinel's
+            # name contains "AddressValueError" then always raise
+            # `AddressValueError`, and if the sentinel's name contains
+            # "NetmaskValueError" then always raise `NetmaskValueError`.
+            if 'AddressValueError' in ip.name:
+                raise ipaddress.AddressValueError
+            if 'NetmaskValueError' in ip.name:
+                raise ipaddress.NetmaskValueError
+            return 'IGNORED' in ip.name
+
+
+    def _make_input_mapping(self, ips: Sequence) -> Mapping:
+        input_mapping = self._make_dict_with_random_keys()
+        input_mapping.pop('address', None)
+        if ips:
+            input_mapping['address'] = [
+                self._make_dict_with_random_keys() | {'ip': ip}
+                for ip in ips]
+        return input_mapping
+
+    def _make_dict_with_random_keys(self) -> dict:
+        num_of_keys = self._random.randint(0, 3)   # (no keys if `0`)
+        return {
+            self._make_random_key(): sen.whatever
+            for _ in range(num_of_keys)}
+
+    def _make_random_key(self) -> str:
+        return ''.join(self._random.choices(
+            string.ascii_lowercase,
+            k=self._random.randint(3, 20)))

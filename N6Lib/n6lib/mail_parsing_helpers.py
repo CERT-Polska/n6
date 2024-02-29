@@ -435,7 +435,7 @@ class ParsedEmailMessage(email.message.EmailMessage):
         ***
 
         This method returns the content (*aka* payload) of the matching
-        message component. The returned value is as a `bytes` or `str`
+        message component. The returned value is a `bytes` or `str`
         object, or `None`.
 
         More precisely: the `find_filename_content_pairs()` method is
@@ -527,10 +527,10 @@ class ParsedEmailMessage(email.message.EmailMessage):
 
         ***
 
-        This method returns an iterator which yields zero or more output
-        items, representing all components that match the specified
-        filtering criteria. Each of the output items is an `(<filename>,
-        <content>)` pair -- where:
+        This method returns an iterator that yields zero or more output
+        items, representing those "leaf" components which match the
+        specified filtering criteria. Each of the output items is an
+        `(<filename>, <content>)` pair -- where:
 
         * `<filename>` is a `str`;
 
@@ -613,7 +613,7 @@ class ParsedEmailMessage(email.message.EmailMessage):
 
         * ...`ExtractFrom.ZIP`, then all files are unpacked from *every*
           message component qualified as a ZIP archive (on the grounds
-          of its MIME content type and possibly filename suffix,
+          of its MIME content type or, possibly, its filename suffix,
           regardless of any specified filtering criteria or nesting
           level). Each of the unpacked (extracted) files is included as
           a separate candidate for an output item -- being subject to
@@ -626,9 +626,9 @@ class ParsedEmailMessage(email.message.EmailMessage):
           actually represents.
 
         * ...`ExtractFrom.GZIP` or `ExtractFrom.BZIP2`, then
-          *every* message component qualified -- respectively --
-          as *gzip*-ed or *bzip2*-ed data (on the grounds of its
-          MIME content type and possibly filename suffix, regardless
+          *every* message component qualified -- respectively -- as
+          *gzip*-ed or *bzip2*-ed data (on the grounds of its MIME
+          content type or, possibly, its filename suffix, regardless
           of any specified filtering criteria or nesting level) is
           decompressed. The result of decompression is included as
           a separate candidate for an output item -- being subject to
@@ -705,8 +705,8 @@ class ParsedEmailMessage(email.message.EmailMessage):
             # For interface consistency, we accept `None` as equivalent
             # to passing the default value `"*"` which is a content type
             # wildcard symbol: any MIME content types will be *included*
-            # (but that does not extend to any contents *extracted* from
-            # ZIP, *gzip* or *bzip2* -- such stuff needs to be requested
+            # (but that does not extend to requesting *extraction* from
+            # ZIP, *gzip* or *bzip2* -- that needs to be specified
             # explicitly with `ExtractFrom` marker object(s)).
             content_type = '*'
 
@@ -736,8 +736,8 @@ class ParsedEmailMessage(email.message.EmailMessage):
             return
 
         if not isinstance(msg, email.message.EmailMessage):
-            # (because we use some parts of the
-            # `EmailMessage`'s modern interface)
+            # (we require this because we use some parts
+            # of the `EmailMessage`'s modern interface)
             raise TypeError(
                 f'object {msg!a} is not an instance of '
                 f'{email.message.EmailMessage.__qualname__}')
@@ -841,7 +841,7 @@ class ParsedEmailMessage(email.message.EmailMessage):
             force_content_as: Optional[ForcedTypeIndication],
             ) -> Content:
 
-        assert not msg.is_multipart()  # (ensured in `__generate_from_msg()`)
+        assert not msg.is_multipart()  # (already ensured in `__generate_from_msg()`)
 
         if force_content_as in (bytes, 'bytes'):
             msg_content = msg.get_payload(decode=True)
@@ -984,8 +984,8 @@ class ParsedEmailMessage(email.message.EmailMessage):
 
         if filename:
             suffix = pathlib.PurePosixPath(filename).suffix
-            # (let's guard against some corner cases:
-            # a name with trailing `/`, etc.)
+            # (let's guard against certain corner
+            # cases: a name with trailing `/`, etc.)
             if suffix and filename.endswith(suffix):
                 assert (suffix.startswith('.')
                         and len(filename) > len(suffix))

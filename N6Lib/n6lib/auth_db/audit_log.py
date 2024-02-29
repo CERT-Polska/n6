@@ -1,11 +1,17 @@
-# Copyright (c) 2019-2021 NASK. All rights reserved.
+# Copyright (c) 2019-2024 NASK. All rights reserved.
 
 import contextlib
 import datetime
 import json
 import sys
+import weakref
 
-from sqlalchemy import event
+from sqlalchemy import (
+    event,
+    text as sqla_text,
+)
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import DatabaseError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm.mapper import Mapper
@@ -33,6 +39,7 @@ from n6lib.common_helpers import (
     DictWithSomeHooks,
     dump_condensed_debug_msg,
     make_condensed_debug_msg,
+    make_exc_ascii_str,
     make_hex_id,
 )
 from n6lib.const import (
@@ -137,7 +144,7 @@ class AuditLog(object):
               'org_id.old': 'spam.example.com',
           },
           'meta': {
-              'commit_tag': '2019-12-30T17:50:03.000123Z#9b40092c8511',
+              'commit_tag': '2024-01-04T17:50:03.000123Z#9b40092c8511',
               'db_url': 'mysql+mysqldb://someuser:***@somehost/somedb',
               'n6_hostname': 'foo.bar',
               'n6_module: 'n6adminpanel.app',
@@ -152,6 +159,22 @@ class AuditLog(object):
           'table': 'org',
       }
       ```
+
+    Additionally, successful Auth DB transaction commits traced by Audit
+    Log are also, transiently, "registered" in a dedicated Auth DB table:
+    `recent_write_op_commit` (see: `.models.RecentWriteOpCommit`). That
+    table has two columns: `id` (auto-incremented positive integer) and
+    `made_at` (UTC date+time with microsecond resolution).
+
+    Note that `recent_write_op_commit` records:
+
+    * may be automatically deleted after they become 24 hours old (with
+      the exception that at least one record -- the newest one -- will
+      always be kept until a newer record is added);
+
+    * are inserted/deleted just by the Audit Log's internal machinery --
+      and such changes are, themselves, exempted from being traced and
+      logged by that machinery.
     """
 
     #
@@ -164,7 +187,8 @@ class AuditLog(object):
                  external_meta_items_getter,
                  logger=None):
         self._logger = self._get_logger_obj(logger)
-        self._relevant_session_type = self._get_relevant_session_type(session_factory)
+        (self._bind,
+         self._relevant_session_type) = self._get_bind_and_relevant_session_type(session_factory)
         self._external_meta_items_getter = external_meta_items_getter
         self._register_event_handlers()
 
@@ -178,8 +202,10 @@ class AuditLog(object):
                 else (get_logger(logger) if isinstance(logger, str)
                       else logger))
 
-    def _get_relevant_session_type(self, session_factory):
-        detected_session_type = type(session_factory())
+    def _get_bind_and_relevant_session_type(self, session_factory):
+        example_session = session_factory()
+        bind = example_session.get_bind()
+        detected_session_type = type(example_session)
         if isinstance(session_factory, scoped_session):
             # Because we just obtained a session object by calling a
             # `scoped_session` factory, now we need to ensure that the
@@ -190,7 +216,7 @@ class AuditLog(object):
             # appropriate event handlers will be then properly called).
             session_factory.remove()
         if detected_session_type is not Session and issubclass(detected_session_type, Session):
-            return detected_session_type
+            return bind, detected_session_type
         else:
             raise TypeError(
                 '`session_factory` needs to be an object that, when '
@@ -220,11 +246,14 @@ class AuditLog(object):
     def _register_event_handlers(self):
         session_type = self._relevant_session_type
         event.listen(session_type, 'after_transaction_create', self._after_transaction_create)
+        event.listen(self._bind, 'checkout', self._when_getting_connection_from_pool)
         event.listen(session_type, 'before_flush', self._before_flush)
         event.listen(Base, 'after_insert', self._after_insert, propagate=True)
         event.listen(Base, 'after_update', self._after_update, propagate=True)
         event.listen(Base, 'after_delete', self._after_delete, propagate=True)
+        event.listen(self._bind, 'commit', self._just_before_commit)
         event.listen(session_type, 'after_commit', self._after_commit)
+        event.listen(self._bind, 'checkin', self._when_returning_connection_to_pool)
         event.listen(session_type, 'after_transaction_end', self._after_transaction_end)
         self._register_event_handlers_for_unsupported_operations()
 
@@ -236,12 +265,29 @@ class AuditLog(object):
         session_type = self._relevant_session_type
         event.listen(session_type, 'after_bulk_delete', self._after_bulk_delete)
         event.listen(session_type, 'after_bulk_update', self._after_bulk_update)
+        # Let's ensure that the two-phase commit mechanism, which is
+        # *not* supposed to be used (at least for now), will not pass
+        # unnoticed if actually *is* used, but will cause an explicit
+        # error (so that we'll know about the need of code adjustments).
+        event.listen(self._bind, 'commit_twophase', self._just_before_commit_twophase)
 
-    # * Handling SQLAlchemy ORM events:
+    # * Handling SQLAlchemy Core/ORM events:
 
     def _after_transaction_create(self, session, transaction):
         assert isinstance(session, self._relevant_session_type)
         self._set_empty_entry_builders_list_on(transaction)
+        if self._does_represent_actual_db_transaction(transaction):
+            # Let's do this cleanup to be sure we do not have attached to the
+            # session any remnants of earlier attempts to record write ops...
+            self._discard_request_to_record_write_op_commit(session)
+
+    def _when_getting_connection_from_pool(self, _dbapi_connection, connection_record, *_):
+        # Let's do this cleanup to be sure we do not have attached to the
+        # connection any remnants of earlier attempts to record write ops...
+        # Note: `connection_record` (a `sqlalchemy.pool._ConnectionRecord`)
+        # keeps *the same* `info` dict as `info` of the `Connection` that
+        # will be related to it.
+        self._discard_request_to_record_write_op_commit(connection_record)
 
     def _before_flush(self, session, _flush_context, _instances):
         assert isinstance(session, self._relevant_session_type)
@@ -273,6 +319,11 @@ class AuditLog(object):
             model_instance_wrapper = self._wrap_model_instance(mapper, model_instance)
             builder = prepare_entry_builder(model_instance_wrapper)
             self._store_entry_builder_in_current_real_transaction(session, builder)
+            self._request_to_record_write_op_commit(session)
+
+    def _just_before_commit(self, conn):
+        if self._receive_request_to_record_write_op_commit(conn):
+            self._record_write_op_commit(conn)
 
     def _after_commit(self, session):
         assert isinstance(session, self._relevant_session_type)
@@ -287,18 +338,33 @@ class AuditLog(object):
             '*nor* a nested savepoint one? (this should not happen!)')
         self._move_stored_entry_builders_to_nearest_real_ancestor_transaction(transaction)
 
+    def _when_returning_connection_to_pool(self, _dbapi_connection, connection_record):
+        # Note: `connection_record` (a `sqlalchemy.pool._ConnectionRecord`)
+        # keeps *the same* `info` dict as `info` of the `Connection` that
+        # was related to it.
+        self._discard_request_to_record_write_op_commit(connection_record)
+
     def _after_transaction_end(self, session, transaction):
         assert isinstance(session, self._relevant_session_type)
-        # This cleanup is not strictly necessary -- but let's be tidy. :-)
-        self._remove_entry_builders_list_from(transaction)
+        try:
+            if self._does_represent_actual_db_transaction(transaction):
+                self._discard_request_to_record_write_op_commit(session)
+                self._try_delete_not_so_recent_write_op_commit_records()
+        finally:
+            # This cleanup part is not strictly necessary --
+            # but let's be tidy. :-)
+            self._remove_entry_builders_list_from(transaction)
 
     def _after_bulk_delete(self, delete_context):
         assert isinstance(delete_context.session, self._relevant_session_type)
-        raise RuntimeError('bulk deletes are not supported by {!a}'.format(self))
+        raise RuntimeError(f'bulk deletes are not supported by {self!a}')
 
     def _after_bulk_update(self, update_context):
         assert isinstance(update_context.session, self._relevant_session_type)
-        raise RuntimeError('bulk updates are not supported by {!a}'.format(self))
+        raise RuntimeError(f'bulk updates are not supported by {self!a}')
+
+    def _just_before_commit_twophase(self, *_):
+        raise NotImplementedError(f'`commit_twophase` is not (yet?) supported by {self!a}')
 
     # * Preloading values/histories of model instance attributes:
 
@@ -451,6 +517,85 @@ class AuditLog(object):
         target_list = self._get_entry_builders_list_from(target_transaction)
         target_list.extend(source_list)
         del source_list[:]
+
+    # * Making and consuming requests to insert `recent_write_op_commit` records:
+
+    _REC_REQUEST_INFO_KEY = f'{__name__}:request_to_record_write_op_commit'
+
+    class _RecRequest:
+
+        def __init__(self, conn: Connection):
+            self._conn_getter = weakref.ref(conn)
+
+        @property
+        def conn(self) -> Union[Connection, None]:
+            return self._conn_getter()
+
+        def consume(self, obj) -> bool:
+            try:
+                # Is `obj` the `Connection` instance we were initialized with?
+                # (Only then it can make sense to fulfill the request...)
+                return (obj is self.conn is not None)
+            finally:
+                # Note: this method, once called (and returned `True` or
+                # `False`), will return `False` every time thereafter.
+                self._conn_getter = lambda: None
+
+    def _request_to_record_write_op_commit(self, session: Session) -> None:
+        conn: Connection = session.connection()
+        key = self._REC_REQUEST_INFO_KEY
+        req = session.info.get(key)
+        if req is None:
+            conn.info[key] = req = self._RecRequest(conn)
+            session.info[key] = req
+        assert isinstance(req, self._RecRequest)
+        assert req is conn.info.get(key) is session.info.get(key)
+        assert req.conn is conn
+
+    def _receive_request_to_record_write_op_commit(self, obj) -> bool:
+        assert hasattr(obj, 'info') and isinstance(obj.info, dict)
+        key = self._REC_REQUEST_INFO_KEY
+        req = obj.info.pop(key, None)
+        if req is not None:
+            assert isinstance(req, self._RecRequest)
+            return req.consume(obj)
+        return False
+
+    def _discard_request_to_record_write_op_commit(self, obj) -> None:
+        self._receive_request_to_record_write_op_commit(obj)
+
+    # * Inserting and deleting `recent_write_op_commit` records into/from Auth DB:
+
+    def _record_write_op_commit(self, conn: Connection) -> None:
+        conn.execute('INSERT INTO recent_write_op_commit SET made_at = DEFAULT')
+
+    def _try_delete_not_so_recent_write_op_commit_records(self) -> None:
+        try:
+            with self._bind.connect() as conn, conn.begin():
+                [[time_of_newest_rec]] = conn.execute(
+                    'SELECT made_at FROM recent_write_op_commit '
+                    'ORDER BY id DESC LIMIT 1')
+                delete_stmt = sqla_text(
+                    'DELETE FROM recent_write_op_commit WHERE '
+                    'made_at < '
+                    # The following `IF(...)` expression evaluates to what
+                    # is earlier:
+                    # * *either* the given timestamp of the newest record,
+                    # * *or* the time exactly 24 hours ago.
+                    'IF('
+                    '  (@time_of_newest_rec:= :time_of_newest_rec) '
+                    '  < (@time_24h_ago:= (NOW(6) - INTERVAL 1 DAY)), '
+                    '  @time_of_newest_rec, '
+                    '  @time_24h_ago)')
+                conn.execute(delete_stmt, time_of_newest_rec=time_of_newest_rec)
+        except DatabaseError as exc:
+            LOGGER.warning(
+                'Stale `recent_write_op_commit` records could not '
+                'be deleted (because of %s)... Maybe next time?',
+                make_exc_ascii_str(exc))
+            # Note: here we do *not* re-raise the exception, because it
+            # is *not a problem* if this cleanup sometimes could not be
+            # done (e.g., because of a database-level deadlock etc.?...).
 
     # * Dealing with session and transaction objects:
 

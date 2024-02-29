@@ -1898,6 +1898,70 @@ class UnsupportedClassAttributesMixin:
 
 
 
+class __LackOfImpl:
+
+    """
+    `LackOf` is a singleton object whose truth value is false, and for
+    whom all comparison operations evaluate to false (let us emphasize
+    this: both `==` and `!=`, `>` and `<=`, `>=` and `<` -- all of them
+    evaluate to false, whatever object `LackOf` is compared to; also if
+    that object is `LackOf` itself).
+
+    >>> LackOf
+    <lack of>
+    >>> bool(LackOf)
+    False
+    >>> whatever = 123.456  # <- Could be nearly any object, in particular any `int `/`float`.
+    >>> LackOf == whatever
+    False
+    >>> LackOf != whatever
+    False
+    >>> LackOf < whatever
+    False
+    >>> LackOf <= whatever
+    False
+    >>> LackOf >= whatever
+    False
+    >>> LackOf > whatever
+    False
+    >>> whatever == LackOf
+    False
+    >>> whatever != LackOf
+    False
+    >>> whatever < LackOf
+    False
+    >>> whatever <= LackOf
+    False
+    >>> whatever >= LackOf
+    False
+    >>> whatever > LackOf
+    False
+    >>> LackOf == LackOf
+    False
+    >>> LackOf != LackOf
+    False
+    >>> LackOf < LackOf
+    False
+    >>> LackOf <= LackOf
+    False
+    >>> LackOf >= LackOf
+    False
+    >>> LackOf > LackOf
+    False
+    """
+
+    def __false(*_): return False
+    __bool__ = __false
+    __eq__ = __ne__ = __false
+    __lt__ = __le__ = __ge__ = __gt__ = __false
+
+    def __repr__(self):
+        return '<lack of>'
+
+LackOf = __LackOfImpl()
+
+
+
 def all_subclasses(cls):
     """
     Return a set of all direct and indirect subclasses of the given class.

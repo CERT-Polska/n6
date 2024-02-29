@@ -11,9 +11,9 @@ from n6datapipeline.base import LegacyQueuedBase
 from n6lib.auth_api import AuthAPI
 from n6lib.const import EVENT_TYPE_ENUMS
 from n6lib.context_helpers import force_exit_on_any_remaining_entered_contexts
-from n6lib.data_spec import N6DataSpec
 from n6lib.db_filtering_abstractions import RecordFacadeForPredicates
 from n6lib.log_helpers import get_logger, logging_configured
+from n6lib.record_dict import N6DataSpecWithOptionalModified
 from n6sdk.pyramid_commons.renderers import data_dict_to_json
 
 
@@ -49,7 +49,7 @@ class Anonymizer(LegacyQueuedBase):
         LOGGER.info("Anonymizer Start")
         super(Anonymizer, self).__init__(**kwargs)
         self.auth_api = AuthAPI()
-        self.data_spec = N6DataSpec()
+        self.data_spec = N6DataSpecWithOptionalModified()
 
     def input_callback(self, routing_key, body, properties):
         # Note: we do not need to use `n6lib.record_dict.RecordDict` here,
@@ -57,9 +57,20 @@ class Anonymizer(LegacyQueuedBase):
         # * previous components (such as `n6filter`) have already performed
         #   the preliminary validation (using `RecordDict`'s mechanisms);
         # * in this component we are doing the final validation anyway
-        #   using `N6DataSpec.clean_result_dict()` (below -- in the
-        #   `_get_result_dicts_and_output_body()` method).
+        #   using `N6DataSpecWithOptionalModified.clean_result_dict()`
+        #   (below -- in `_get_result_dicts_and_output_body()`).
         event_data = json.loads(body)
+
+        ####################################################################
+        # This is a *temporary hack* to clean data already put into queues #
+        # by an old -- pre-#8814 -- code...                                #
+        from n6lib.record_dict import RecordDict
+        RecordDict._update_given_data_by_pipelining_items_thru_rd(
+            event_data,
+            keys=('dip', 'address', 'enriched', 'name', 'id', 'category', 'source'))
+        # ^^^ to be removed!!! ^^ to be removed!!! ^^ to be removed!!! ^^^ #   see ticket #8899
+        ####################################################################
+
         with self.setting_error_event_info(event_data):
             event_type = routing_key.split('.', 1)[0]
             self._process_input(event_type, event_data)

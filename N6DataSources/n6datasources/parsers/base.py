@@ -764,7 +764,8 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         You may want to extend this method in your subclass --
         e.g. to filter out some items.
         """
-        return ((k, v) for k, v in parsed.items()
+        return ((k, v) if k != 'name' else (k, parsed._get_name_in_legacy_form())
+                for k, v in parsed.items()
                 if not k.startswith('_'))  # no internal flag keys
 
     def postprocess_parsed(self, data, parsed, total, item_no):

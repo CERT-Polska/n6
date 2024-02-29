@@ -2,23 +2,31 @@
 
 import json
 import unittest
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock, call, sentinel
 
 from n6datapipeline.base import LegacyQueuedBase
 from n6datapipeline.filter import Filter
 from n6lib.auth_api import InsideCriteriaResolver
 from n6lib.record_dict import RecordDict, AdjusterError
+from n6lib.unit_test_helpers import MethodProxy
 
 
 
 ## maybe TODO later: clean-up/refactor the stuff in this module...
 
-# (note that the main job of *filter* -- i.e., determining which
+# (note that one job of `n6filter` -- i.e., determining which
 # organization ids the event's `client` attribute should include
 # -- is covered also by comprehensive tests implemented within the
-# n6lib.tests.test_auth_api.TestInsideCriteriaResolver_initialization and
-# n6lib.tests.test_auth_api.TestInsideCriteriaResolver__get_client_and_urls_matched_org_ids
-# classes)
+# `n6lib.tests.test_auth_api.TestInsideCriteriaResolver__init` and
+# `n6lib.tests.test_auth_api.TestInsideCriteriaResolver_get_client_org_ids_and_urls_matched`
+# classes; see also: `n6lib.tests.test_auth_api.TestAuthAPI_get_inside_criteria_resolver`;
+#
+# also, the other job of `n6filter` -- i.e., determining which events
+# should be marked as *ignored* -- is covered also by comprehensive
+# tests implemented within the classes:
+# `n6lib.tests.test_auth_api.TestAuthAPI_get_ignore_lists_criteria_resolver__real`
+# and `n6lib.tests.test_auth_api.Test_IgnoreListsCriteriaResolver`; see also:
+# `n6lib.tests.test_auth_api.TestAuthAPI_get_ignore_lists_criteria_resolver__mocked`)
 
 
 
@@ -1066,3 +1074,18 @@ class TestFilter(unittest.TestCase):
         self.assertEqual(
             self.filter.get_client_and_urls_matched(record_dict, self.fqdn_only_categories),
             (['org11'], {'org11': [u'władcażlebów.pl']}))
+
+
+    def test__should_be_ignored(self):
+        mock = MagicMock()
+        meth = MethodProxy(Filter, mock)
+        record_dict = sentinel.record_dict
+
+        meth.should_be_ignored(record_dict)
+
+        assert mock.mock_calls == [
+            # Note: `AuthAPI.get_ignore_lists_criteria_resolver()` and
+            # the returned callable's behavior are tested separately...
+            call.auth_api.get_ignore_lists_criteria_resolver(),
+            call.auth_api.get_ignore_lists_criteria_resolver()(record_dict),
+        ]

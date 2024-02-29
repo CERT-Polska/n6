@@ -1,7 +1,7 @@
 # Changelog
 
 The *[n6](https://n6.readthedocs.io/)* project uses a versioning scheme
-**distinct from** *Semantic Versioning*. Each *n6* version's identifier
+***distinct from*** *Semantic Versioning*. Each *n6* version's identifier
 consists of three integer numbers, separated with `.` (e.g.: `4.11.2`).
 We can say it is in the `<FOREMOST>.<MAJOR>.<MINOR>` format -- where:
 
@@ -24,6 +24,13 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [4.10.0.beta1] - 2024-02-29
+
+*Note: this is a prerelease.*
+
+[**TBD:** release notes for the final release `4.10.0`]
+
+
 ## [4.5.0] - 2023-11-29
 
 ### Features and Notable Changes
@@ -31,28 +38,27 @@ Some features of this document's layout were inspired by
 #### System/Configuration/Programming-Only
 
 - [data sources, setup, config, etc/docker, tests] Globally renamed the
-  parser class `SpamhausEdrop202303Parser` to `SpamhausEdropParser`
-  (defined in `n6datasources.parsers.spamhaus` and referred to in a few
-  other places -- in particular, being the name of the-parser-dedicated
-  configuration section!) and the executable script
+  `spamhaus.edrop` parser's class `SpamhausEdrop202303Parser` (defined in
+  `n6datasources.parsers.spamhaus` and referred to in a few other places
+  -- in particular, being the name of the-parser-dedicated configuration
+  section!) to `SpamhausEdropParser`, as well as the executable script
   `n6parser_spamhausedrop202303` to `n6parser_spamhausedrop`; also, fixed
   `n6datasources.tests.parsers.test_spamhaus.TestSpamhausEdropParser` by
   removing its attribute `PARSER_RAW_FORMAT_VERSION_TAG`. The rationale
-  for these changes is that the actual parser has never had any *raw
-  format version tag* assigned.
+  for these changes is that no *raw format version tag* has ever been
+  assigned to the `spamhaus.edrop` parser.
 
 ### Less Notable Changes and Fixes
 
-- [data pipeline, lib] `n6filter`: fixed an
-  *event-ownership-criteria*-related bug (in
-  `n6lib.auth_api.InsideCriteriaResolver`'s machinery...) regarding
-  handling the (practically hardly probable yet not impossible) corner
-  case of the `0.0.0.0/32` IP network being set in Auth DB as such a
-  criterion... The bug might make `n6filter` reject all incoming data
-  (because of raised exceptions).
+- [data pipeline, lib] `n6filter`: fixed a bug (in the machinery of
+  `n6lib.auth_api.InsideCriteriaResolver`...) related to *event ownership
+  criteria* (aka *"inside" resource events criteria*) regarding the very
+  unlikely (yet not impossible) corner case of the `0.0.0.0/32` IP network
+  defined as such a criterion in Auth DB... The bug might make `n6filter`
+  reject all incoming data (because of raised exceptions).
 
-- [tests, docs] Made non-major enhancements and fixes regarding some unit
-  tests and documentation.
+- [tests, docs] Non-major enhancements and fixes regarding some unit tests
+  and documentation.
 
 #### Programming-Only
 
@@ -66,8 +72,11 @@ Some features of this document's layout were inspired by
 ### Features and Notable Changes
 
 - [data sources, config] Added support for the `shadowserver.msmq` source
-  (just by adding the *parser* for it, as there already exists one common
-  *collector* for all `shadowserver.*` sources).
+  (by adding the *parser* for it, as there already exists one common
+  *collector* for all `shadowserver.*` sources; obviously, appropriate
+  additions have been made in the *collector*'s and *parser*'s sections in
+  the `N6DataSources/n6datasources/data/conf/60_shadowserver.conf` config
+  prototype file).
 
 - [data sources, config] Removed support for the following sources:
   `blueliv.map` and `darklist-de.bl` (removed both *collectors* and
@@ -141,8 +150,8 @@ Some features of this document's layout were inspired by
   considered *fatal* (i.e. which trigger this behavior) is configurable --
   by setting the `fatal_db_api_error_codes` configuration option in the
   `recorder` section; by default, that set includes only one value: `1021`
-  (i.e., the `ERR_DISK_FULL` code -- see:
-  https://mariadb.com/kb/en/mariadb-error-codes/).
+  (i.e., the `ERR_DISK_FULL` code -- see [the error codes listing on the
+  MariaDB website](https://mariadb.com/kb/en/mariadb-error-codes/)).
 
 - [portal, rest api, stream api, data pipeline, lib] A *security-related*
   behavioral fix has been applied to the *event access rights and event
@@ -162,8 +171,9 @@ Some features of this document's layout were inspired by
   non-existent. *Note:* as the fix is also related to `n6filter`, it
   affects values of `min_ip` in the `inside_criteria` part of the JSON
   returned by the Portal API's endpoint `/info/config`; they are displayed
-  by the Portal's GUI in the *Account information* view, below the *IP
-  network filter* label -- as IP ranges' lower bounds.
+  by the Portal's GUI: in the *Account information* page, in the *"Inside"
+  resource events criteria* section, below the *IP network filter* label
+  -- as IP ranges' lower bounds.
 
 - [portal, rest api, lib] A behavioral fix related to the one described
   above (yet, this time, not related to security) has been applied to the
@@ -367,7 +377,7 @@ Among others:
 Note that some of the changes are *not* backwards compatible.
 
 
-## [Further updates of 3.0 series...]
+## Further updates of 3.0 series...
 
 [...]
 

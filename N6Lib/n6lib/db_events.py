@@ -6,34 +6,39 @@
 # <see SQLAlchemy's AUTHORS file>. SQLAlchemy is a trademark of Michael
 # Bayer (mike(&)zzzcomputing.com). All rights reserved.
 
+import datetime
 import json
 import socket
 from binascii import unhexlify
-from typing import Iterable
+from collections.abc import Iterable
 
 import sqlalchemy.types
 from sqlalchemy import (
+    Boolean,
     Column,
     String,
     DateTime,
-    Text,
 )
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import (
     scoped_session,
     sessionmaker,
     relationship,
+    validates,
 )
 from sqlalchemy.dialects import mysql
 from sqlalchemy import (
     or_,
     and_,
     null,
+    text as sqla_text,
 )
 
 from n6lib.common_helpers import (
     ip_network_tuple_to_min_max_ip,
     ip_str_to_int,
+    ip_int_to_str,
 )
 from n6lib.const import (
     LACK_OF_IPv4_PLACEHOLDER_AS_INT,
@@ -41,10 +46,12 @@ from n6lib.const import (
 )
 from n6lib.data_spec import N6DataSpec
 from n6lib.data_spec.typing_helpers import ResultDict
-from n6lib.datetime_helpers import parse_iso_datetime_to_utc
+from n6lib.datetime_helpers import (
+    datetime_utc_normalize,
+    parse_iso_datetime,
+)
 from n6lib.log_helpers import get_logger
 from n6lib.url_helpers import make_provisional_url_search_key
-from n6lib.typing_helpers import String as Str
 
 
 LOGGER = get_logger(__name__)
@@ -52,42 +59,40 @@ LOGGER = get_logger(__name__)
 
 _DBSession = scoped_session(sessionmaker(autocommit=False))
 
-
 Base = declarative_base()
-
-CustomInteger = sqlalchemy.types.Integer()
-CustomInteger = CustomInteger.with_variant(mysql.INTEGER(unsigned=True), "mysql")
 
 
 class IPAddress(sqlalchemy.types.TypeDecorator):
-    impl = CustomInteger
 
-    # `ip` cannot be NULL as it is part of the primary key
-    ### XXX: but whis field is used also for `dip` -- should it??? (see: #3490)
+    impl = sqlalchemy.types.Integer().with_variant(mysql.INTEGER(unsigned=True), 'mysql')
+
+    _LACK_OF_IPv4_AS_INT_LEGACY = -1   # <- TODO later: remove
 
     def process_bind_param(self, value, dialect):
-        if value == -1:
-            ## CR: remove or raise a loud error? (anything uses -1???)
-            return LACK_OF_IPv4_PLACEHOLDER_AS_INT
+        assert value != self._LACK_OF_IPv4_AS_INT_LEGACY  # <- Shouldn't appear. TODO later: remove
         if value is None:
-            ## XXX: ensure that process_bind_param() is (not?) called
-            ## by the SQLAlchemy machinery when `ip` value is None
+            # (neither `ip` nor `dip` can be NULL)
             return LACK_OF_IPv4_PLACEHOLDER_AS_INT
         if isinstance(value, int):
             return value
+        assert isinstance(value, str)
         try:
             return ip_str_to_int(value)
         except socket.error:
             raise ValueError
 
     def process_result_value(self, value, dialect):
-        if value is None or value == LACK_OF_IPv4_PLACEHOLDER_AS_INT:
+        assert value != self._LACK_OF_IPv4_AS_INT_LEGACY  # <- Shouldn't appear. TODO later: remove
+        if value is None:
             return None
-        return socket.inet_ntoa(value.to_bytes(4, 'big'))
+        assert isinstance(value, int)
+        if value == LACK_OF_IPv4_PLACEHOLDER_AS_INT:
+            # (neither `ip` nor `dip` can be NULL)
+            return None
+        return ip_int_to_str(value)
 
 
-
-class _HashTypeMixIn(object):
+class _HashTypeMixIn:
 
     def process_bind_param(self, value, dialect):
         if value is None:
@@ -117,9 +122,9 @@ class SHA256(_HashTypeMixIn, sqlalchemy.types.TypeDecorator):
     impl = sqlalchemy.types.BINARY(32)
 
 
-class JSONText(sqlalchemy.types.TypeDecorator):
+class JSONMediumText(sqlalchemy.types.TypeDecorator):
 
-    impl = Text
+    impl = MEDIUMTEXT
 
     def bind_processor(self, dialect):
         # Copied from SQLAlchemy's `sqlalchemy.types.PickleType`
@@ -167,19 +172,51 @@ class JSONText(sqlalchemy.types.TypeDecorator):
         return process
 
 
+def _is_ip_addr_column(col):
+    assert isinstance(col, Column)
+    return (isinstance(col.type, IPAddress)
+            or (isinstance(col.type, type) and issubclass(col.type, IPAddress)))
+
+def _is_flag_column(col):
+    assert isinstance(col, Column)
+    return (isinstance(col.type, Boolean)
+            or (isinstance(col.type, type) and issubclass(col.type, Boolean)))
+
+def _is_dt_column(col):
+    assert isinstance(col, Column)
+    return (isinstance(col.type, DateTime)
+            or (isinstance(col.type, type) and issubclass(col.type, DateTime)))
+
+def _to_utc_datetime(value):
+    if isinstance(value, str):
+        value = parse_iso_datetime(value)
+    elif not isinstance(value, datetime.datetime):
+        raise TypeError(f'unsupported type for date+time: {type(value)=!a}')
+    assert isinstance(value, datetime.datetime)
+    value = datetime_utc_normalize(value)
+    return value
+
+
 class n6ClientToEvent(Base):
+
     __tablename__ = 'client_to_event'
 
     id = Column(MD5, primary_key=True)
     time = Column(DateTime, primary_key=True)
     client = Column(String(N6DataSpec.client.max_length), primary_key=True)
 
+    assert _is_dt_column(time)  # noqa
+    @validates('time')
+    def _adjust_time(self, name, value):
+        assert name == 'time'
+        return _to_utc_datetime(value)
+
     def __init__(self, **kwargs):
         self.id = kwargs.pop("id", None)
         self.client = kwargs.pop("client", None)
-        self.time = parse_iso_datetime_to_utc(kwargs.pop("time"))
+        self.time = kwargs.pop("time")
 
-        ## we know that recorder passes in a lot of redundant **kwargs
+        ## We know that recorder passes in a lot of redundant **kwargs
         ## (appropriate rather for n6NormalizedData than for n6ClientToEvent) so
         ## we do not want to clutter the logs -- that's why the following code
         ## is commented out:
@@ -188,20 +225,41 @@ class n6ClientToEvent(Base):
         #        'n6ClientToEvent.__init__() got unexpected **kwargs: %a',
         #        kwargs)
 
-    ## XXX: is this method necessary anymore?
-    def __json__(self, request):
-        return self.client
-
-
 
 class n6NormalizedData(Base):
 
     __tablename__ = 'event'
 
-    _n6columns = dict(N6DataSpec().generate_sqlalchemy_columns(
+    _n6columns = dict(sorted(N6DataSpec().generate_sqlalchemy_columns(
         id=dict(primary_key=True),
         time=dict(primary_key=True),
-        ip=dict(primary_key=True, autoincrement=False)))
+        ip=dict(primary_key=True, autoincrement=False))))
+
+    _n6columns_ip_addr = {
+        name: col for name, col in _n6columns.items()
+        if _is_ip_addr_column(col)}
+
+    _n6columns_flag = {
+        name: col for name, col in _n6columns.items()
+        if _is_flag_column(col)}
+
+    _n6columns_dt = {
+        name: col for name, col in _n6columns.items()
+        if _is_dt_column(col)}
+
+    assert _n6columns_ip_addr.keys() == {
+        'ip',
+        'dip',
+    }
+    assert _n6columns_flag.keys() == {
+        'ignored',
+    }
+    assert _n6columns_dt.keys() == {
+        'time',
+        'modified',
+        'expires',
+        'until',
+    }
 
     locals().update(_n6columns)  # hack, but a simple one, and it works :)
 
@@ -216,28 +274,40 @@ class n6NormalizedData(Base):
         foreign_keys=[n6ClientToEvent.id],
         backref="events")
 
-    def __init__(self, **kwargs):
-        if kwargs.get('ip') is None:
-            # adding the "no IP" placeholder ('0.0.0.0') which should be
-            # transformed into 0 in the database (because `ip` cannot be
-            # NULL in our SQL db; and apparently, for unknown reason,  # XXX: <- check whether that's true...
-            # IPAddress.process_bind_param() is not called by the
-            # SQLAlchemy machinery if the value of `ip` is just None)
-            kwargs['ip'] = LACK_OF_IPv4_PLACEHOLDER_AS_STR
-        kwargs['time'] = parse_iso_datetime_to_utc(kwargs["time"])
-        kwargs['expires'] = (
-            parse_iso_datetime_to_utc(kwargs.get("expires"))
-            if kwargs.get("expires") is not None
-            else None)
-        kwargs['modified'] = (
-            parse_iso_datetime_to_utc(kwargs.get("modified"))
-            if kwargs.get("modified") is not None
-            else None)
-        for name in self._n6columns:
-            setattr(self, name, kwargs.pop(name, None))
-        ### XXX: the 'until' field is not converted here to utc datetime!
-        ### (see ticket #3113)
+    @validates(*_n6columns_ip_addr.keys())
+    def _adjust_ip_addr_column_value(self, name, value):
+        assert name in self._n6columns_ip_addr
+        # Using the "no IP" placeholder ('0.0.0.0') which should be
+        # transformed into 0 in the database (because `ip` and `dip`
+        # cannot be NULL in our SQL db)
+        # (XXX: is it necessary here, considering the `IPAddress.process_*()` methods?...)
+        if value is None:
+            value = LACK_OF_IPv4_PLACEHOLDER_AS_STR
+        return value
 
+    @validates(*_n6columns_flag.keys())
+    def _adjust_flag_column_value(self, name, value):
+        assert name in self._n6columns_flag
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return value
+        raise TypeError(f'{name}={value!a} is neither None '
+                        f'nor an instance of bool')
+
+    @validates(*_n6columns_dt.keys())
+    def _adjust_dt_column_value(self, name, value):
+        assert name in self._n6columns_dt
+        if value is None:
+            return None
+        return _to_utc_datetime(value)
+
+    def __init__(self, **kwargs):
+        for name in self._n6columns:
+            # Note: as we do this for all columns, the `@validates()`-
+            # -decorated methods (see above) are always invoked for
+            # each of the columns they are destined to.
+            setattr(self, name, kwargs.pop(name, None))
         kwargs.pop('client', None)  # here we just ignore this arg if present
         kwargs.pop('type', None)    # here we just ignore this arg if present
         if kwargs:
@@ -258,6 +328,15 @@ class n6NormalizedData(Base):
         mapping = {"url.sub": "url", "fqdn.sub": "fqdn"}
         return or_(*[getattr(cls, mapping[key]).like(u"%{}%".format(val))
                      for val in value])
+
+    @classmethod
+    def single_flag_query(cls, key, value):
+        assert len(value) == 1
+        [flag] = value
+        assert isinstance(flag, bool)
+        col = getattr(cls, key)
+        col_op = (col.is_ if flag else col.isnot)
+        return col_op(sqla_text('TRUE'))
 
     @classmethod
     def url_b64_experimental_query(cls, key, value):
@@ -313,25 +392,18 @@ class n6NormalizedData(Base):
         else:
             raise AssertionError
 
-    def to_raw_result_dict(self):
-        client_org_ids = (c.client for c in self.clients)                                    # noqa
-        return make_raw_result_dict(self, client_org_ids)
 
-
-# names of columns whose `type` attribute
+# Names of columns whose `type` attribute
 # is IPAddress or its subclass/instance
-_IP_COLUMN_NAMES = tuple(sorted(
-    name for name, column in n6NormalizedData._n6columns.items()
-    if (isinstance(column.type, IPAddress)
-        or (isinstance(column.type, type) and issubclass(column.type, IPAddress)))))
+_IP_COLUMN_NAMES = tuple(sorted(n6NormalizedData._n6columns_ip_addr.keys()))                 # noqa
 
 
-# possible "no IP" placeholder values (such that they
+# Possible "no IP" placeholder values (such that they
 # cause recording `ip` in db as 0) -- excluding None
 _NO_IP_PLACEHOLDERS = frozenset({
     LACK_OF_IPv4_PLACEHOLDER_AS_STR,
     LACK_OF_IPv4_PLACEHOLDER_AS_INT,
-    -1,  # <- legacy placeholder
+    IPAddress._LACK_OF_IPv4_AS_INT_LEGACY,   # <- TODO later: remove this one
 })
 
 
@@ -339,14 +411,14 @@ def make_raw_result_dict(column_values_source_object,  # getattr() will be used 
 
                          # a collection of client organization ids (to populate
                          # the `client` field of the result -- if not empty)
-                         client_org_ids,   # type: Iterable[Str]
+                         client_org_ids: Iterable[str],
 
                          # not real parameters, just quasi-constants for faster access
                          _getattr=getattr,
                          _all_column_objects=n6NormalizedData.__table__.columns,             # noqa
-                         _is_no_ip_placeholder=_NO_IP_PLACEHOLDERS.__contains__):
+                         _is_no_ip_placeholder=_NO_IP_PLACEHOLDERS.__contains__,
 
-    # type: (...) -> ResultDict
+                         ) -> ResultDict:
 
     # make the dict, skipping all None values
     result_dict = {
@@ -368,3 +440,17 @@ def make_raw_result_dict(column_values_source_object,  # getattr() will be used 
         result_dict['client'] = client_org_ids
 
     return result_dict
+
+
+# Below we work around a strange behavior of SQLAlchemy 1.3: the
+# `n6ClientToEvent.events` attribute is not present *until* any
+# model class is instantiated (it does not matter which one!).
+#
+# (The first assertion is commented out, as this behavior looks like
+# an SQLAlchemy's implementation incident, not an intended behavior.)
+
+#assert not hasattr(n6ClientToEvent, 'events')
+
+n6NormalizedData()
+
+assert hasattr(n6ClientToEvent, 'events')

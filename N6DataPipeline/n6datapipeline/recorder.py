@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 """
 The *recorder* component -- adds n6 events to the Event DB.
@@ -178,10 +178,11 @@ class Recorder(LegacyQueuedBase):
         pool_recycle = wait_timeout // 2
         engine = create_engine(
             self.config["uri"],
+            isolation_level='REPEATABLE READ',
             connect_args=dict(
                 charset=self.config.get(
                     "connect_charset",
-                    N6DataBackendAPI.EVENT_DB_LEGACY_CHARSET),
+                    N6DataBackendAPI.EVENT_DB_CONNECT_CHARSET_DEFAULT),
                 use_unicode=True,
                 binary_prefix=True,
                 cursorclass=N6RecorderCursor),
@@ -190,6 +191,7 @@ class Recorder(LegacyQueuedBase):
         self._install_session_variables_setter(
             engine,
             wait_timeout=wait_timeout,
+            sql_mode=N6DataBackendAPI.EVENT_DB_SQL_MODE,
             time_zone="'+00:00'")
         session_db = N6DataBackendAPI.configure_db_session(engine)
         session_db.execute(sqla_text("SELECT 1"))  # Let's crash early if db is misconfigured.

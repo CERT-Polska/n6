@@ -10,7 +10,7 @@ section on how to create that user).
 Moreover, the _n6_ infrastructure depends on:
 
 - **RabbitMQ** (an AMQP message broker),
-- **MariaDB** (a SQL database server) with the TokuDB engine.
+- **MariaDB** (a SQL database server) with the RocksDB engine.
 
 To run some _n6_ components it is also required to have installed:
 
@@ -296,13 +296,8 @@ log-basename=mysqld
 general-log
 
 [mariadb]
-# See https://mariadb.com/kb/en/tokudb-differences/ for differences
-# between TokuDB in MariaDB and TokuDB from http://www.tokutek.com/
+plugin_load_add = ha_rocksdb
 
-plugin-load-add=ha_tokudb.so
-
-[mysqld_safe]
-malloc-lib=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2
 EOT
 ```
 
@@ -311,15 +306,6 @@ Create a directory for server through socket `/var/run/mysqld/mysqld.sock`:
 ```bash
 $ sudo mkdir /run/mysqld/
 $ sudo chown -R mysql:mysql /run/mysqld/
-```
-
-Check for Transparent HugePage support on Linux. This feature causes problems if enabled, and you should turn it off (as a root).
-[Check for Transparent HugePage Support on Linux](https://mariadb.com/kb/en/library/installing-tokudb/#check-for-transparent-hugepage-support-on-linux).
-
-```bash
-# Run command as root
-$ echo never > /sys/kernel/mm/transparent_hugepage/enabled
-$ echo never > /sys/kernel/mm/transparent_hugepage/defrag
 ```
 
 To initialize the MySQL database containing the grant tables that store the server access
@@ -423,17 +409,13 @@ Make sure you have access to the database:
 $ mysql -u root -p<your_password>
 ```
 
-Check that the `TokuDB` plugin is active in MySQL prompt:
+Check that the `RocksDB` plugin is active in MySQL prompt:
 
 ```bash
 > show plugins;
 ...
-TokuDB
-TokuDB_user_data
-TokuDB_user_data_exact
-TokuDB_file_map
-TokuDB_fractal_tree_info
-TokuDB_fractal_tree_block_map
+| ROCKSDB                       | ACTIVE   | STORAGE ENGINE     | ...
+...
 ```
 
 ## MongoDB

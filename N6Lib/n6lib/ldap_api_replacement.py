@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 # + Some portions of the code in of this module (namely, those methods
 #   of the `LdapAPI` class which have a "Copied from: ..." comments in
 #   their docstrings) were copied from the *python-ldap* library
@@ -16,6 +16,11 @@ import copy
 import datetime
 import re
 import threading
+from collections.abc import Iterator
+from typing import (
+    Any,
+    Union,
+)
 
 from pyramid.decorator import reify
 from sqlalchemy import text as sqla_text
@@ -33,13 +38,15 @@ from n6lib.common_helpers import (
     as_unicode,
     splitlines_asc,
 )
-from n6lib.datetime_helpers import datetime_utc_normalize
+from n6lib.datetime_helpers import (
+    datetime_utc_normalize,
+    timestamp_from_datetime,
+)
 from n6lib.log_helpers import get_logger
 from n6lib.auth_db.models import User
 from n6lib.auth_db.config import SQLAuthDBConfigMixin
 
 __all__ = [
-    'LdapAPIConnectionError',
     'LdapAPIReplacementWrongOrgUserAPIKeyIdError',
     'LdapAPI',
     'get_node',
@@ -74,10 +81,6 @@ _N6ORG_ID_OFFICIAL_ATTR_REGEX = re.compile(
         )
         \Z
     ''', re.ASCII | re.IGNORECASE | re.VERBOSE)
-
-
-class LdapAPIConnectionError(RuntimeError):
-    """Raised on auth db connection failure."""
 
 
 class LdapAPIReplacementWrongOrgUserAPIKeyIdError(RuntimeError):
@@ -124,18 +127,22 @@ class LdapAPI(SQLAuthDBConfigMixin):
         finally:
             self._rlock.release()
 
+    # TODO later: when refactoring/revamping the *n6*'s authn/authz-related
+    #             stuff, let's remember to move whole machinery of API-key-based
+    #             authentication to `auth_db.api`...
     def authenticate_with_api_key_id(self, org_id, user_id, api_key_id):
-        with self:
-            try:
-                user = self._db_session.query(User).filter(
-                        User.is_blocked.is_(sqla_text('FALSE')),
-                        User.login == user_id,
-                        User.org_id == org_id,
-                        User.api_key_id == api_key_id).one()
-            except NoResultFound:
-                user = None
+        separate_db_session = self._db_session_maker()
+        try:
+            user = separate_db_session.query(User).filter(
+                User.is_blocked.is_(sqla_text('FALSE')),
+                User.login == user_id,
+                User.org_id == org_id,
+                User.api_key_id == api_key_id,
+            ).one_or_none()
             if user is None:
                 raise LdapAPIReplacementWrongOrgUserAPIKeyIdError(org_id, user_id, api_key_id)
+        finally:
+            separate_db_session.close()
 
     def search_structured(self):
         """
@@ -143,6 +150,7 @@ class LdapAPI(SQLAuthDBConfigMixin):
 
         Returns:
             A dict of nested dicts, making a hierarchical structure, such as:
+
               {'ou': {                              #  * node container
                   'orgs': {                         #    * node (represents LDAP entry)
                       'attrs': {                    #      * dict of LDAP entry's attributes
@@ -170,14 +178,41 @@ class LdapAPI(SQLAuthDBConfigMixin):
                                       'n6login=x@cert.pl,o=cert.pl,ou=orgs,dc=n6,dc=cert,dc=pl'],
                                   'objectClass': ['top', 'n6SystemGroup']}}}}},
                ...}
+
+            -- with an additional key: `_extra_` -- the value assigned to
+            which is a dict that maps certain keys to some data (which are
+            *not* constrained by the legacy LDAP-related convention...).
         """
+        extra_items = dict(self._generate_root_node_extra_items())
         search_results = self._search_flat()
-        return self._structuralize_search_results(
+        root_node = self._structuralize_search_results(
             search_results,
             tick_callback=self.tick_callback)
+        root_node['_extra_'] = extra_items
+        return root_node
+
+    def peek_database_ver_and_timestamp(self) -> tuple[int, float]:
+        [(_, ver), (_, timestamp)] = self._generate_database_ver_and_timestamp()
+        assert isinstance(ver, int)
+        assert isinstance(timestamp, float)
+        return ver, timestamp
 
     #
-    # Extended methods from the superclass
+    # Overridden/extended stuff from the superclass
+
+    # Note: within each transaction, we want *consistent reads* throughout
+    # the whole transaction. The `SERIALIZABLE` level would actually spoil
+    # that (!), as it would enforce using shared locks... (We *confirmed*
+    # that behavior experimentally!). That's why, here, we insist on using
+    # the `REPEATABLE READ` (rather than `SERIALIZABLE`) isolation level
+    # (those *whole-transaction-consistent reads* are especially important
+    # for our `recent_write_op_commit`-based database versioning stuff...).
+    # See: http://dev.mysql.com/doc/refman/en/innodb-consistent-read.html
+    # Also, the reduced use of locks reduces the possibility of deadlocks.
+    # Also, note that *consistent non-blocking reads* are most probably
+    # better for performance when it comes to concurrent access to Auth DB.
+    # So using here `REPEATABLE READ` (not `SERIALIZABLE`) is a triple win!
+    isolation_level = 'REPEATABLE READ'
 
     def configure_db(self):
         super(LdapAPI, self).configure_db()
@@ -186,6 +221,33 @@ class LdapAPI(SQLAuthDBConfigMixin):
 
     #
     # Non-public helpers
+
+    def _generate_root_node_extra_items(self) -> Iterator[tuple[str, Any]]:
+        yield from self._generate_database_ver_and_timestamp()
+        yield 'ignored_ip_networks', set(self._generate_ignored_ip_networks())
+
+    def _generate_database_ver_and_timestamp(self) -> Iterator[tuple[str, Union[int, float]]]:
+        recent_write_op_commit = self._db_session.query(
+            models.RecentWriteOpCommit,
+        ).order_by(
+            models.RecentWriteOpCommit.id.desc(),
+        ).limit(1).one()
+        if recent_write_op_commit.id <= 0:
+            raise AssertionError(
+                f'{recent_write_op_commit.id=}, i.e., is less than '
+                f'or equal to 0 (this should never happen!)')
+        yield 'ver', recent_write_op_commit.id
+        yield 'timestamp', timestamp_from_datetime(recent_write_op_commit.made_at)
+        self.tick_callback()
+
+    def _generate_ignored_ip_networks(self) -> Iterator[str]:
+        where_cond = models.IgnoreList.active.is_(sqla_text('TRUE'))
+        for ignore_list in self._db_session.query(models.IgnoreList).filter(where_cond):
+            assert ignore_list.active
+            self.tick_callback()
+            for ignored in ignore_list.ignored_ip_networks:
+                yield ignored.ip_network
+
 
     def _search_flat(self):
         """

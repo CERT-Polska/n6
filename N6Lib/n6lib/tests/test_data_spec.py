@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import copy
 import datetime
@@ -30,7 +30,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
     # constants related to the actual behaviour of N6DataSpec
 
     PARAM_KEYS = {
-        'id', 'rid', 'client',
+        'id', 'rid', 'client', 'ignored',
         'source', 'restriction', 'confidence', 'category',
         'time.min', 'time.max', 'time.until',
         'origin', 'name', 'target',
@@ -46,6 +46,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
 
     RESTRICTED_PARAM_KEYS = {
         'client',
+        'ignored',
         'rid',
         'restriction',
         'dip',
@@ -58,7 +59,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
     UNRESTRICTED_PARAM_KEYS = PARAM_KEYS - (RESTRICTED_PARAM_KEYS | ANONYMIZED_PARAM_KEYS)
 
     NONCUSTOM_RESULT_KEYS = {
-        'id', 'rid', 'client',
+        'id', 'rid', 'client', 'ignored',
         'source', 'restriction', 'confidence', 'category', 'time',
         'origin', 'name', 'target',
         'address', 'url', 'fqdn',
@@ -137,6 +138,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
 
     RESTRICTED_RESULT_KEYS = {
         'client',
+        'ignored',
         'rid',
         'until',
         'count',
@@ -248,6 +250,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'opt.primary': False,
         # not in raw_param_dict_base/cleaned_param_dict_base:
         'rid': False,
+        'ignored': False,
         'dip': False,
         'md5': False,
     }
@@ -257,6 +260,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
     raw_result_dict_base = {
         'id': '0123456789abcdef0123456789abcdef',
         'rid': '3456789abcdef0123456789abcdef012',
+        'ignored': False,
         'restriction': 'public',
         'source': 'some.source',
         'confidence': 'low',
@@ -310,6 +314,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
     cleaned_result_dict_base = {
         'id': '0123456789abcdef0123456789abcdef',
         'rid': '3456789abcdef0123456789abcdef012',
+        'ignored': False,
         'restriction': 'public',
         'source': 'some.source',
         'confidence': 'low',
@@ -340,7 +345,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
     restricted_access_cleaned_result_dict_base = {
         k: ('anonymized.source' if k == 'source' else v)
         for k, v in cleaned_result_dict_base.items()
-        if k != 'rid'}
+        if k not in ('rid', 'ignored')}
 
     assert raw_result_dict_base.keys() <= RESULT_KEYS
     assert raw_result_dict_base.keys() == cleaned_result_dict_base.keys()
@@ -452,6 +457,35 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
             raw=dict(
                 raw_param_dict_base,
                 rid=['3456789ABCDEF0123456789ABCDEF012']),
+            full_access=False,
+            res_limits={'request_parameters': None},
+            # not legal for non-full access
+            expected_error=ParamKeyCleaningError,
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                ignored=['']),
+            full_access=True,
+            res_limits={'request_parameters': None},
+            expected_cleaned=dict(
+                cleaned_param_dict_base,
+                ignored=[True]),
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                ignored=['no']),
+            full_access=True,
+            res_limits={'request_parameters': None},
+            expected_cleaned=dict(
+                cleaned_param_dict_base,
+                ignored=[False]),
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                ignored=['']),
             full_access=False,
             res_limits={'request_parameters': None},
             # not legal for non-full access
@@ -677,6 +711,36 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
             raw=dict(
                 raw_param_dict_base,
                 rid=['3456789ABCDEF0123456789ABCDEF012']),
+            full_access=False,
+            res_limits={'request_parameters': request_parameters},
+            # not legal for non-full access
+            # (even when in request_parameters)
+            expected_error=ParamKeyCleaningError,
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                ignored=['']),
+            full_access=True,
+            res_limits={'request_parameters': request_parameters},
+            expected_cleaned=dict(
+                cleaned_param_dict_base,
+                ignored=[True]),
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                ignored=['no']),
+            full_access=True,
+            res_limits={'request_parameters': request_parameters},
+            expected_cleaned=dict(
+                cleaned_param_dict_base,
+                ignored=[False]),
+        ),
+        param(
+            raw=dict(
+                raw_param_dict_base,
+                ignored=['no']),
             full_access=False,
             res_limits={'request_parameters': request_parameters},
             # not legal for non-full access
@@ -1618,4 +1682,4 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
     ### will become unnecessary after switching to the new DB schema:
     ## maybe TODO later:
     #def test__generate_sqlalchemy_columns...
-    # See: n6lib.tests.test_db_events.Test__n6NormalizedData.test_class_attrs()
+    # See: n6lib.tests.test_db_events.Test_n6NormalizedData.test_class_attrs()

@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2022 NASK. All rights reserved.
+# Copyright (c) 2018-2024 NASK. All rights reserved.
 
 import datetime
 import string
@@ -1500,6 +1500,32 @@ class CriteriaIPNetwork(Base):
         return cls(ip_network=value)
 
 
+class IgnoredIPNetwork(Base):
+
+    __tablename__ = 'ignored_ip_network'
+    __table_args__ = (
+        UniqueConstraint('ip_network', 'ignore_list_label'),
+        mysql_opts(),
+    )
+
+    id = col(Integer, primary_key=True)
+    ip_network = col(String(MAX_LEN_OF_IP_NETWORK), nullable=False)
+
+    ignore_list_label = col(
+        String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING),
+        ForeignKey('ignore_list.label', onupdate='CASCADE', ondelete='CASCADE'),
+        nullable=False)
+    ignore_list = rel('IgnoreList', back_populates='ignored_ip_networks')
+
+    __repr__ = attr_repr('id', 'ip_network', 'ignore_list_label')
+
+    _columns_to_validate = ['ip_network']
+
+    @classmethod
+    def from_value(cls, value):
+        return cls(ip_network=value)
+
+
 class EntityIPNetwork(Base):
 
     __tablename__ = 'entity_ip_network'
@@ -1886,6 +1912,33 @@ class Component(_ExternalInterfaceMixin, _PassEncryptMixin, Base):
     __repr__ = attr_repr('login')
 
     _columns_to_validate = ['login']
+
+
+class IgnoreList(Base):
+
+    __tablename__ = 'ignore_list'
+    __table_args__ = mysql_opts()
+
+    label = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), primary_key=True)
+    comment = col(Text)
+
+    # note: here we specify `server_default` just for pragmatic reasons...
+    active = col(Boolean, default=True, server_default=sqla_text('1'), nullable=False)
+
+    ignored_ip_networks = rel(
+        'IgnoredIPNetwork',
+        back_populates='ignore_list',
+        cascade='all, delete-orphan')
+
+    def __str__(self):
+        text = f'Ignore list "{self.label}"'
+        if not self.active:
+            text += ' (deactivated)'
+        return text
+
+    __repr__ = attr_repr('label', 'active')
+
+    _columns_to_validate = ['label']
 
 
 class Source(Base):
@@ -2441,3 +2494,16 @@ class DependantEntity(Base):
     __repr__ = attr_repr('id', 'name', 'entity_id')
 
     _columns_to_validate = ['name']
+
+
+class RecentWriteOpCommit(Base):
+
+    __tablename__ = 'recent_write_op_commit'
+    __table_args__ = mysql_opts()
+
+    id = col(Integer, primary_key=True)
+    made_at = col(mysql.DATETIME(fsp=6), nullable=False, server_default=sqla_text('NOW(6)'))
+
+    __repr__ = attr_repr('id', 'made_at')
+
+    _columns_to_validate = ['made_at']

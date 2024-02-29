@@ -1,15 +1,15 @@
-# Copyright (c) 2018-2022 NASK. All rights reserved.
+# Copyright (c) 2018-2024 NASK. All rights reserved.
 
 """
 This is a -- somewhat quick and dirty but still useful -- standalone
 script that tests some important portions of auth-related code of *n6*,
-mainly the n6lib.auth_api.AuthAPI stuff integrated with the
-n6lib.ldap_api_replacement module (SQL-auth-db-based).
+mainly the `n6lib.auth_api.AuthAPI` stuff integrated with the
+`n6lib.ldap_api_replacement` module (SQL-auth-db-based).
 
 By default, to run this script you need a running MariaDB server (e.g.,
 within a docker container) whose `root` password is equal to the value
-of the MARIADB_PASSWORD constant and whose externally visible hostname
-is equal to the value of the MARIADB_STANDARD_HOSTNAME constant (both
+of the `MARIADB_PASSWORD` constant and whose externally visible hostname
+is equal to the value of the `MARIADB_STANDARD_HOSTNAME` constant (both
 constants are defined in this module).  However, running by this script
 its own MariaDB container is also possible: then `--own-db` flag needs
 to be used... (See the comment placed at the beginning of the code of
@@ -17,28 +17,41 @@ the `own_db_context()` function.)
 
 Note: don't worry about *many* skipped tests and only a dozen (or
 something) of them actually run; many of the tests are "borrowed" from
-our main AuthAPI test suite (namely: from n6lib.tests.test_auth_api);
+our main AuthAPI test suite (namely: from `n6lib.tests.test_auth_api`);
 here we skip most of them because they are irrelevant when testing
-n6lib.ldap_api_replacement-related stuff.  As long as there are no test
-failures or errors -- everything is OK.
+`n6lib.ldap_api_replacement`-related stuff.  As long as there are no
+test failures or errors -- everything is OK.
 """
 
 import contextlib
 import datetime as dt
+import functools
+import itertools
 import logging
 import os
+import random
+import string
 import sys
+import tempfile
 import unittest
-from time import sleep
+import weakref
+from code import interact
+from pathlib import Path
+from pprint import pprint as pp  # noqa    # (<- convenience for `--interactive-console-after`...)
 from subprocess import (
     call,
     check_call,
     check_output,
 )
+from time import sleep
+from typing import Optional
 from unittest.mock import (
     ANY,
     MagicMock,
+    patch,
 )
+
+from sqlalchemy import text as sqla_text
 
 import n6lib.config
 from n6lib.auth_db import models
@@ -52,6 +65,11 @@ from n6lib.auth_db.scripts import (
 from n6lib.auth_api import (
     AuthAPI,
     AuthAPIWithPrefetching,
+)
+from n6lib.auth_related_test_helpers import (
+    EXAMPLE_DATABASE_TIMESTAMP,
+    EXAMPLE_DATABASE_TIMESTAMP_AS_DATETIME,
+    EXAMPLE_DATABASE_VER,
 )
 from n6lib.class_helpers import (
     all_subclasses,
@@ -72,41 +90,56 @@ from n6lib.tests import test_auth_api
 #
 
 FLAG_OWN_DB = '--own-db'
+FLAG_NO_TESTS = '--no-tests'
+FLAG_INTERACTIVE_CONSOLE_AFTER = '--interactive-console-after'
 FLAG_TEST_WITH_PREPARE_LEGACY_AUTH_DB = '--test-with-PrepareLegacyAuthDB'
 FLAG_TEST_AUTH_API_WITH_PREFETCHING = '--test-auth-api-with-prefetching'
+FLAG_TEST_AUTH_API_WITH_PREFETCHING_USING_PICKLE_CACHE = (
+    '--test-auth-api-with-prefetching-using-pickle-cache')
 
 RECOGNIZED_SCRIPT_FLAGS = [
     FLAG_OWN_DB,
+    FLAG_NO_TESTS,
+    FLAG_INTERACTIVE_CONSOLE_AFTER,
     FLAG_TEST_WITH_PREPARE_LEGACY_AUTH_DB,
     FLAG_TEST_AUTH_API_WITH_PREFETCHING,
+    FLAG_TEST_AUTH_API_WITH_PREFETCHING_USING_PICKLE_CACHE,
 ]
 
 MARIADB_STANDARD_HOSTNAME = 'mariadb-n6-auth-test'
 MARIADB_NAME = 'n6authtest'
 MARIADB_PASSWORD = 'n654321'
-MARIADB_ACCESSIBILITY_TIMEOUT = 300
+MARIADB_ACCESSIBILITY_TIMEOUT = 60
 
-IRRELEVANT_TEST_NAMES = {
+IRRELEVANT_TEST_CLASS_NAMES = {
     'TestAuthAPI__context_manager',
-    'TestAuthAPI__authenticate',
-    'TestAuthAPI__get_inside_criteria_resolver',
-    'TestAuthAPI__get_access_info',
-    'TestAuthAPI__get_org_actual_name',
-    'TestAuthAPI___make_request_parameters_dict',
-    'TestAuthAPI___parse_notification_time',
+    'TestAuthAPI_get_inside_criteria_resolver',
+    'TestAuthAPI_get_ignore_lists_criteria_resolver__mocked',
+    'TestAuthAPI_get_access_info',
+    'TestAuthAPI_get_org_actual_name',
+    'Test_DataPreparer__make_request_parameters_dict',
+    'Test_DataPreparer__parse_notification_time',
+    'TestInsideCriteriaResolver__init',
+    'TestInsideCriteriaResolver_get_client_org_ids_and_urls_matched',
+    'Test_IgnoreListsCriteriaResolver',
 }
-IRRELEVANT_TEST_NAME_PREFIXES = (
-    'TestInsideCriteriaResolver_initialization',
-    'TestInsideCriteriaResolver__get_client_org_ids_and_urls_matched',
-)
 
 
 #
 # Global variables
 #
 
-script_flags = None   # type: set   # to be set in `main()`
-db_host = None        # type: str   # to be set in `external_db_context()`/`own_db_context()`
+# These are always set to non-`None` values...
+script_flags: set = Optional[None]   # ...in `main()`
+db_host: str = Optional[None]        # ...in `external_db_context()`/`own_db_context()`
+
+# This is set *only* for `--test-auth-api-with-prefetching-using-pickle-cache`
+# (in `prepare_pickle_cache_dir_if_applicable()`)
+pickle_cache_dir: Optional[str] = None
+
+# This is set *only* for `--interactive-console-after` *without* `--own-db`
+# (in `main() -> _stuff_prepared_for_interactive_use()`)
+aa: Optional[test_auth_api.AuthAPI] = None
 
 
 #
@@ -119,10 +152,17 @@ def main(argv):
     _validate_script_flags()
 
     monkey_patching()
-    logging.basicConfig()
+    _configure_logging()
+
+    exit_code = 1
     db_context = _get_db_context()
     with db_context:
-        exit_code = run_tests()
+        if FLAG_NO_TESTS not in script_flags:
+            _ensure_db_server_accessible_and_db_dropped()
+            exit_code = run_tests()
+        if FLAG_INTERACTIVE_CONSOLE_AFTER in script_flags:
+            with _stuff_prepared_for_interactive_use():
+                _run_interactive_console()
     sys.exit(exit_code)
 
 
@@ -136,11 +176,49 @@ def _validate_script_flags():
               file=sys.stderr)
         sys.exit(2)
 
+def _configure_logging():
+    logging.basicConfig(
+        format='%(levelname) -10s %(asctime)s %(name) -25s: %(message)s',
+        level=(logging.INFO if FLAG_INTERACTIVE_CONSOLE_AFTER in script_flags
+               else logging.WARNING))
+    logging.getLogger('n6lib.threaded_async').setLevel(logging.WARNING)
+
 def _get_db_context():
     if FLAG_OWN_DB in script_flags:
         return own_db_context()
     else:
         return external_db_context()
+
+def _ensure_db_server_accessible_and_db_dropped():
+    with creating_and_finally_dropping_db():
+        pass
+
+@contextlib.contextmanager
+def _stuff_prepared_for_interactive_use():
+    global aa
+    with contextlib.ExitStack() as es:
+        if FLAG_OWN_DB in script_flags:
+            prepare_pickle_cache_dir_if_applicable()
+            create_and_init_db(timeout=12)
+            populate_db_with_test_data(_data_matching_those_from_auth_related_test_helpers)
+        else:
+            aa = es.enter_context(make_auth_api_testing_context())  # (just a convenience)
+        yield
+
+def _run_interactive_console():
+    interact(
+        local=globals(),
+        banner=(
+            f'\n----------------------------\n'
+            f'Entering INTERACTIVE MODE...\n\n'
+            f'* {script_flags=}\n'
+            f'* {db_host=}\n'
+            f'* {pickle_cache_dir=}\n'
+            f'----------------------------\n'),
+        exitmsg=(
+            f'\n---------------------------\n'
+            f'Exiting INTERACTIVE MODE...\n'
+            f'---------------------------\n'))
 
 
 #
@@ -151,16 +229,16 @@ def monkey_patching():
     _skip_irrelevant_tests()
     _set_expected_rest_api_resource_limits_to_defaults()
     _patch_AuthAPILdapDataBasedMethodTestMixIn()
-    _patch_TestAuthAPI__get_org_ids_to_notification_configs()
+    _patch_TestAuthAPI_get_org_ids_to_notification_configs()
     test_auth_api.LOGGER_error_mock_factory = lambda: PlainNamespace(call_count=ANY)
     n6lib.config.LOGGER = MagicMock()
 
 
 def _skip_irrelevant_tests():
     for name, obj in vars(test_auth_api).items():
-        if name in IRRELEVANT_TEST_NAMES or name.startswith(IRRELEVANT_TEST_NAME_PREFIXES):
+        if name in IRRELEVANT_TEST_CLASS_NAMES:
             assert isinstance(obj, type) and issubclass(obj, unittest.TestCase)
-            skipped = unittest.skip('test case irrelevant to ldap_api_replacement stuff')(obj)
+            skipped = unittest.skip('test class irrelevant to ldap_api_replacement stuff')(obj)
             setattr(test_auth_api, name, skipped)
 
 def _set_expected_rest_api_resource_limits_to_defaults():
@@ -181,42 +259,15 @@ def _set_expected_rest_api_resource_limits_to_defaults():
                 )
 
 def _patch_AuthAPILdapDataBasedMethodTestMixIn():
-    auth_api_class = (AuthAPIWithPrefetching
-                      if FLAG_TEST_AUTH_API_WITH_PREFETCHING in script_flags
-                      else AuthAPI)
+    test_auth_api._AuthAPILdapDataBasedMethodTestMixIn.standard_context = (
+        get_auth_api_testing_context_maker(recreate_populate_and_drop_db=True))
+    test_auth_api._AuthAPILdapDataBasedMethodTestMixIn.assert_problematic_orgs_logged = (
+        lambda *args, **kwargs: None)
 
-    @contextlib.contextmanager
-    def monkey_patched_standard_context(self, search_flat_return_value):
-        create_and_init_db(timeout=60)
-        try:
-            populate_db_with_test_data(self.__class__.__name__)
-            with self.unmemoized_root_node_getter(auth_api_class):
-                self.auth_api = auth_api_class(settings=prepare_auth_db_settings())
-                self.data_preparer = self.auth_api._data_preparer
-                try:
-                    yield
-                finally:
-                    try:
-                        if isinstance(self.auth_api, AuthAPIWithPrefetching):
-                            self.auth_api._prefetch_task.cancel_and_join()
-                    finally:
-                        self.auth_api = None
-                        self.data_preparer = None
-        finally:
-            drop_db()
-
-    def monkey_patched_assert_problematic_orgs_logged(self, *args, **kwargs):
-        pass
-
-    test_auth_api._AuthAPILdapDataBasedMethodTestMixIn.standard_context = \
-        monkey_patched_standard_context
-    test_auth_api._AuthAPILdapDataBasedMethodTestMixIn.assert_problematic_orgs_logged = \
-        monkey_patched_assert_problematic_orgs_logged
-
-def _patch_TestAuthAPI__get_org_ids_to_notification_configs():
+def _patch_TestAuthAPI_get_org_ids_to_notification_configs():
     # (let's delete all cases but the last one; note that
     # it contains the data from all previous cases)
-    del (test_auth_api.TestAuthAPI__get_org_ids_to_notification_configs
+    del (test_auth_api.TestAuthAPI_get_org_ids_to_notification_configs
          ).search_flat_return_values__and__expected_results[:-1]
 
 
@@ -229,7 +280,6 @@ def run_tests():
     suite = _make_test_suite(loader)
     exit_code = _run_test_suite(suite)
     return exit_code
-
 
 def _make_test_suite(loader):
     suite = unittest.TestSuite()
@@ -257,19 +307,8 @@ def _run_test_suite(suite):
 def external_db_context():
     global db_host
 
-    db_host = MARIADB_STANDARD_HOSTNAME
-    try:
-        # waiting for db (expected to be run externally...)
-        create_and_init_db(timeout=MARIADB_ACCESSIBILITY_TIMEOUT)
-    except RuntimeError as exc:
-        raise RuntimeError(
-            'MARIADB_ACCESSIBILITY_TIMEOUT={} passed and '
-            'still cannot connect to database! ({})'.format(
-                MARIADB_ACCESSIBILITY_TIMEOUT,
-                ascii_str(exc)))
-    else:
-        drop_db()
-        yield
+    db_host = os.environ.get('N6_QUICKTEST_EXTERNAL_DB_HOSTNAME') or MARIADB_STANDARD_HOSTNAME
+    yield
 
 
 @contextlib.contextmanager
@@ -286,16 +325,15 @@ def own_db_context():
     #    * place in your sudoers file (see: the `sudoers` and `visudo`
     #      man pages) the line:
     #      ```
-    #      <your Linux user name>  ALL = NOPASSWD: /usr/bin/docker
+    #      <your Linux username>  ALL = NOPASSWD: /usr/bin/docker
     #      ```
-    #      (where `<your Linux user name>` is your Linux user name --
-    #      who would have thought?);
+    #      (where `<your Linux username>` is, surprisingly, your Linux
+    #      username -- who would have thought? `:-O`);
     #
     # 2) run this script with the `--own-db` command-line option.
 
     DOCKER_EXECUTABLE = '/usr/bin/docker'
-    MARIADB_DOCKER_NAME = '{}-{}'.format(MARIADB_STANDARD_HOSTNAME,
-                                         make_hex_id(16))
+    MARIADB_DOCKER_NAME = f'mariadb-n6-auth-test-{make_hex_id(16)}'
     MARIADB_RUN_COMMAND = [
         DOCKER_EXECUTABLE,
         'run',
@@ -359,6 +397,20 @@ def prepare_auth_db_settings():
     }
 
 
+@contextlib.contextmanager
+def creating_and_finally_dropping_db():
+    try:
+        create_and_init_db(MARIADB_ACCESSIBILITY_TIMEOUT)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f'{MARIADB_ACCESSIBILITY_TIMEOUT=} passed and still '
+            f'cannot connect to the database! ({ascii_str(exc)})') from exc
+    try:
+        yield
+    finally:
+        drop_db()
+
+
 def create_and_init_db(timeout):
     error_msg = 'no connection attempt made'
     for i in range(timeout):
@@ -391,20 +443,37 @@ def drop_db():
 
 
 def populate_db_with_test_data(auth_api_test_class_name__or__data_maker):
-    db = SQLAuthDBConnector(db_host, MARIADB_NAME, 'root', MARIADB_PASSWORD)
-    try:
+    with auth_db_connector() as db:
+
         data_maker = _get_data_maker(auth_api_test_class_name__or__data_maker)
         with db as session:
             session.add_all(data_maker(session))
-    finally:
-        db.engine.dispose()
+
+        with db.engine.begin() as conn:
+            # (we do it this way to ease testing the
+            # `recent_write_op_commit`-related stuff...)
+            conn.execute(sqla_text('INSERT INTO recent_write_op_commit SET '
+                                   'id = :id, made_at = :made_at'),
+                         id=EXAMPLE_DATABASE_VER,
+                         made_at=EXAMPLE_DATABASE_TIMESTAMP_AS_DATETIME)
+
     _perform_optional_arrangements()
     sleep(1)
+
+
+@contextlib.contextmanager
+def auth_db_connector():
+    db = SQLAuthDBConnector(db_host, MARIADB_NAME, 'root', MARIADB_PASSWORD)
+    try:
+        yield db
+    finally:
+        db.engine.dispose()
+
 
 def _get_data_maker(auth_api_test_class_name__or__data_maker):
     if isinstance(auth_api_test_class_name__or__data_maker, str):
         auth_api_test_class_name = auth_api_test_class_name__or__data_maker
-        data_maker_name = 'data_maker_for____{}'.format(auth_api_test_class_name)
+        data_maker_name = 'data_maker_for__{}'.format(auth_api_test_class_name)
         data_maker = globals()[data_maker_name]
     else:
         data_maker = auth_api_test_class_name__or__data_maker
@@ -426,10 +495,96 @@ def _perform_optional_arrangements():
 
 
 #
+# Other settings/environment-related stuff
+#
+
+def make_auth_api_testing_context(recreate_populate_and_drop_db='auto'):
+    # Useful for`--interactive-console-after`.
+    auth_api_testing_context = get_auth_api_testing_context_maker(recreate_populate_and_drop_db)
+    return auth_api_testing_context()
+
+mc = make_auth_api_testing_context  # (<- convenience alias for `--interactive-console-after`)
+
+
+def get_auth_api_testing_context_maker(recreate_populate_and_drop_db):
+    auth_api_class = (
+        AuthAPIWithPrefetching
+        if (FLAG_TEST_AUTH_API_WITH_PREFETCHING_USING_PICKLE_CACHE in script_flags
+            or FLAG_TEST_AUTH_API_WITH_PREFETCHING in script_flags)
+        else AuthAPI)
+
+    if recreate_populate_and_drop_db == 'auto':
+        recreate_populate_and_drop_db = FLAG_OWN_DB in script_flags
+
+    if recreate_populate_and_drop_db:
+        db_cm = creating_and_finally_dropping_db
+    else:
+        db_cm = contextlib.ExitStack  # (just a dummy context manager)
+
+    @contextlib.contextmanager
+    def auth_api_testing_context(test=None, *_, **__):
+        prepare_pickle_cache_dir_if_applicable()
+        with db_cm():
+            if test is None:
+                # (especially for  `--interactive-console-after`)
+                test = PlainNamespace()
+                if recreate_populate_and_drop_db:
+                    populate_db_with_test_data(_data_matching_those_from_auth_related_test_helpers)
+            elif recreate_populate_and_drop_db:
+                populate_db_with_test_data(test.__class__.__name__)
+
+            with test_auth_api._AuthAPILdapDataBasedMethodTestMixIn.unmemoized_root_node_getter(
+                auth_api_class,
+            ):
+                test.auth_api = auth_api_class(settings=prepare_auth_api_settings())
+                test.data_preparer = test.auth_api._data_preparer
+                try:
+                    yield test.auth_api
+                finally:
+                    try:
+                        if isinstance(test.auth_api, AuthAPIWithPrefetching):
+                            test.auth_api._prefetch_task.cancel_and_join()
+                    finally:
+                        test.auth_api = None
+                        test.data_preparer = None
+
+    # It can be used, in particular, as a replacement for the auth api test methods'
+    # `standard_context` (defined in `_AuthAPILdapDataBasedMethodTestMixIn`...) --
+    # e.g., see `_patch_AuthAPILdapDataBasedMethodTestMixIn()` defined earlier.
+    return auth_api_testing_context
+
+
+def prepare_pickle_cache_dir_if_applicable():
+    global pickle_cache_dir, __pickle_cache_dir_obj
+    if FLAG_TEST_AUTH_API_WITH_PREFETCHING_USING_PICKLE_CACHE in script_flags:
+        pickle_cache_dir = os.environ.get('N6_QUICKTEST_PICKLE_CACHE_DIR')
+        if pickle_cache_dir:
+            Path(pickle_cache_dir).mkdir(mode=0o700, parents=True, exist_ok=True)
+        else:
+            __pickle_cache_dir_obj = tempfile.TemporaryDirectory()  # (to be auto-removed...)
+            pickle_cache_dir = __pickle_cache_dir_obj.name
+__pickle_cache_dir_obj = None
+
+
+def prepare_auth_api_settings():
+    settings = prepare_auth_db_settings()
+    if FLAG_TEST_AUTH_API_WITH_PREFETCHING_USING_PICKLE_CACHE in script_flags:
+        assert pickle_cache_dir is not None
+        settings |= {
+            'auth_api_prefetching.max_sleep_between_runs': '12',
+            'auth_api_prefetching.tolerance_for_outdated': '300',
+            'auth_api_prefetching.tolerance_for_outdated_on_error': '1200',
+            'auth_api_prefetching.pickle_cache_dir': pickle_cache_dir,
+            'auth_api_prefetching.pickle_cache_signature_secret': (8 * '<just for tests>'),
+        }
+    return settings
+
+
+#
 # Data related to AuthAPI test cases
 #
 
-def data_maker_for____TestAuthAPI__get_user_ids_to_org_ids(session):
+def data_maker_for__TestAuthAPI_get_user_ids_to_org_ids(session):
     yield models.Org(org_id='o1',
                      users=[models.User(login='login1@foo.bar'),
                             models.User(login='login5@foo.bar')])
@@ -442,18 +597,74 @@ def data_maker_for____TestAuthAPI__get_user_ids_to_org_ids(session):
                             models.User(login='login6@foo.bar')])
     yield models.Org(org_id='o42')
 
-def data_maker_for____TestAuthAPI__get_org_ids(session):
+def data_maker_for__TestAuthAPI_get_org_ids(session):
     yield models.Org(org_id='o1')
     yield models.Org(org_id='o2')
     yield models.Org(org_id='o3')
     yield models.Org(org_id='o4')
 
-def data_maker_for____TestAuthAPI__get_anonymized_source_mapping(session):
+def data_maker_for__TestAuthAPI_get_ignore_lists_criteria_resolver__real(session):
+    yield models.IgnoreList(
+        label='Some inactive list',
+        comment='Zażółć\nGęślą\r\nJaźń!',
+        active=False,                                           # this *ignore list* is *inactive*
+        ignored_ip_networks=[
+            models.IgnoredIPNetwork(ip_network='1.0.0.0/8'),           # (so these IP network
+            models.IgnoredIPNetwork(ip_network='200.201.202.201/31'),  # specs are irrelevant)
+        ])
+    yield models.IgnoreList(
+        label='Some active list',
+        comment='Takoż\rZażółć\nGęślą\r\nJaźń!',
+        active=True,
+        ignored_ip_networks=[
+            models.IgnoredIPNetwork(ip_network='0.0.0.0/9'),
+            models.IgnoredIPNetwork(ip_network='200.201.202.202/31'),
+        ])
+    yield models.IgnoreList(
+        label='Another active list',
+        ignored_ip_networks=[
+            models.IgnoredIPNetwork(ip_network='1.2.3.4/32'),
+            models.IgnoredIPNetwork(ip_network='200.201.202.203/32'),
+        ])
+    yield models.IgnoreList(
+        label='Also active list but without any IP network specs',
+        ignored_ip_networks=[])
+    yield models.IgnoreList(
+        label='Another inactive list',
+        active=False,                                           # this *ignore list* is *inactive*
+        ignored_ip_networks=[
+            models.IgnoredIPNetwork(ip_network='0.0.0.0/9'),           # (so these IP network
+            models.IgnoredIPNetwork(ip_network='200.201.202.202/31'),  # specs are irrelevant)
+        ])
+    yield models.IgnoreList(
+        label='Yet another active list',
+        ignored_ip_networks=[
+            # (note: this IP network specification includes
+            # meaningless *host bits* that will be ignored)
+            models.IgnoredIPNetwork(ip_network='10.20.30.123/24'),
+        ])
+    yield models.IgnoreList(
+        label='And again some active list',
+        ignored_ip_networks=[
+            models.IgnoredIPNetwork(ip_network='200.201.202.203/32'),
+            models.IgnoredIPNetwork(ip_network='1.2.3.4/32'),
+            models.IgnoredIPNetwork(ip_network='0.128.0.0/9'),
+        ])
+    yield models.IgnoreList(
+        label='And yet another inactive list',
+        active=False,                                           # this *ignore list* is *inactive*
+        ignored_ip_networks=[
+            models.IgnoredIPNetwork(ip_network='10.20.29.0/24'),       # (so these IP network
+            models.IgnoredIPNetwork(ip_network='200.201.202.202/31'),  # specs are irrelevant)
+            models.IgnoredIPNetwork(ip_network='1.2.3.0/24'),
+        ])
+
+def data_maker_for__TestAuthAPI_get_anonymized_source_mapping(session):
     yield models.Source(source_id='s1.foo', anonymized_source_id='a1.bar')
     yield models.Source(source_id='s2.foo', anonymized_source_id='a2.bar')
     yield models.Source(source_id='s6.foo', anonymized_source_id='a6.bar')
 
-def data_maker_for____TestAuthAPI__get_dip_anonymization_disabled_source_ids(session):
+def data_maker_for__TestAuthAPI_get_dip_anonymization_disabled_source_ids(session):
     yield models.Source(source_id='s1.foo',
                         anonymized_source_id='a1.bar',
                         dip_anonymization_enabled=True)
@@ -479,22 +690,22 @@ def data_maker_for____TestAuthAPI__get_dip_anonymization_disabled_source_ids(ses
                         anonymized_source_id='a8.bar',
                         dip_anonymization_enabled=True)
 
-def data_maker_for____TestAuthAPI__get_org_ids_to_access_infos(session):
+def data_maker_for__TestAuthAPI_get_org_ids_to_access_infos(session):
     return _data_matching_those_from_auth_related_test_helpers(session)
 
-def data_maker_for____TestAuthAPI__get_org_ids_to_access_infos__without_optimization(session):
+def data_maker_for__TestAuthAPI_get_org_ids_to_access_infos__without_optimization(session):
     return _data_matching_those_from_auth_related_test_helpers(session)
 
-def data_maker_for____TestAuthAPI__get_org_ids_to_access_infos__with_legacy_conditions(session):
+def data_maker_for__TestAuthAPI_get_org_ids_to_access_infos__with_legacy_conditions(session):
     return _data_matching_those_from_auth_related_test_helpers(session)
 
-def data_maker_for____TestAuthAPI__get_org_ids_to_actual_names(session):
+def data_maker_for__TestAuthAPI_get_org_ids_to_actual_names(session):
     return _data_matching_those_from_auth_related_test_helpers(session)
 
-def data_maker_for____TestAuthAPI__get_source_ids_to_subs_to_stream_api_access_infos(session):
+def data_maker_for__TestAuthAPI_get_source_ids_to_subs_to_stream_api_access_infos(session):
     return _data_matching_those_from_auth_related_test_helpers(session)
 
-def data_maker_for____TestAuthAPI__get_stream_api_enabled_org_ids(session):
+def data_maker_for__TestAuthAPI_get_stream_api_enabled_org_ids(session):
     yield models.Org(org_id='o1', stream_api_enabled=True)
     yield models.Org(org_id='o2', stream_api_enabled=False)
     yield models.Org(org_id='o3')
@@ -502,7 +713,7 @@ def data_maker_for____TestAuthAPI__get_stream_api_enabled_org_ids(session):
     yield models.Org(org_id='o5', stream_api_enabled=True)
     yield models.Org(org_id='o6')
 
-def data_maker_for____TestAuthAPI__get_stream_api_disabled_org_ids(session):
+def data_maker_for__TestAuthAPI_get_stream_api_disabled_org_ids(session):
     yield models.Org(org_id='o1', stream_api_enabled=True)
     yield models.Org(org_id='o2', stream_api_enabled=False)
     yield models.Org(org_id='o3')
@@ -510,10 +721,10 @@ def data_maker_for____TestAuthAPI__get_stream_api_disabled_org_ids(session):
     yield models.Org(org_id='o5', stream_api_enabled=True)
     yield models.Org(org_id='o6')
 
-def data_maker_for____TestAuthAPI__get_source_ids_to_notification_access_info_mappings(session):
+def data_maker_for__TestAuthAPI_get_source_ids_to_notification_access_info_mappings(session):
     return _data_matching_those_from_auth_related_test_helpers(session)
 
-def data_maker_for____TestAuthAPI__get_org_ids_to_notification_configs(session):
+def data_maker_for__TestAuthAPI_get_org_ids_to_notification_configs(session):
     yield models.Org(org_id='o1',
                      email_notification_enabled=True,
                      email_notification_addresses=[
@@ -573,7 +784,10 @@ def data_maker_for____TestAuthAPI__get_org_ids_to_notification_configs(session):
                      ],
                      stream_api_enabled=True)
 
-def data_maker_for____TestAuthAPI___get_inside_criteria(session):
+def data_maker_for__TestAuthAPI__peek_database_ver_and_timestamp(session):
+    yield models.Org(org_id='o1')  # (whatever...)
+
+def data_maker_for__Test_DataPreparer__get_inside_criteria(session):
     yield models.Org(org_id='o1',
                      inside_filter_asns=[
                          models.InsideFilterASN(asn=12),
@@ -954,7 +1168,7 @@ def _data_matching_those_from_auth_related_test_helpers(session):
 # Some direct tests of n6lib.ldap_api_replacement.LdapAPI
 #
 
-class mixin_for_tests_of__ldap_api_replacement__LdapAPI(object):
+class mixin_for_tests_of__ldap_api_replacement__LdapAPI:
 
     @classmethod
     def iter_test_case_classes(cls):
@@ -962,7 +1176,7 @@ class mixin_for_tests_of__ldap_api_replacement__LdapAPI(object):
             if isinstance(subclass, type) and issubclass(subclass, unittest.TestCase):
                 yield subclass
 
-    # noinspection PyUnresolvedReferences
+    # noinspection PyUnresolvedReferences,PyAttributeOutsideInit,PyPep8Naming
     def setUp(self):
         self.addCleanup(drop_db)
         create_and_init_db(timeout=60)
@@ -973,14 +1187,748 @@ class mixin_for_tests_of__ldap_api_replacement__LdapAPI(object):
     def data_maker(session):
         raise NotImplementedError
 
+    def run_code_under_test(self):
+        raise NotImplementedError
+
     expected_result = None
 
+
+    # noinspection PyUnresolvedReferences,PyAttributeOutsideInit
     @attr_required('expected_result')
     def test(self):
         with self.ldap_api:
-            actual_result = self.ldap_api.search_structured()
-        # noinspection PyUnresolvedReferences
-        self.assertEqual(self.expected_result, actual_result)
+
+            self.actual_result = self.run_code_under_test()
+
+        self.assertEqual(self.actual_result, self.expected_result)
+
+
+    require_covering_full_set_of_write_ops = True
+
+    # noinspection PyUnresolvedReferences
+    @attr_required('expected_result')
+    def test_also_full_isolation_from_concurrent_write_ops_and_also_audit_log_mechanisms(self):
+        # (Yes, here we test not just the `LdapAPI`'s stuff but also --
+        # more generally -- important aspects of how the Audit Log
+        # mechanisms, including the `recent_write_op_commit`-based
+        # mechanism, work...)
+        (writing_tick_callback,
+         has_covered_required_set_of_write_ops,
+         db_ver_seq) = self._prepare_concurrent_write_ops_and_audit_log_related_stuff()
+        assert not has_covered_required_set_of_write_ops()
+        assert not db_ver_seq
+        with patch.object(self.ldap_api, 'tick_callback', writing_tick_callback):
+
+            self.test()
+
+        self.assertTrue(has_covered_required_set_of_write_ops())
+        self.assertGreaterEqual(len(db_ver_seq), 1)
+        self.assertEqual(db_ver_seq, list(range(
+            EXAMPLE_DATABASE_VER + 1,
+            EXAMPLE_DATABASE_VER + 1 + len(db_ver_seq))))
+        with self.ldap_api:
+            last_db_ver, _ = self.ldap_api.peek_database_ver_and_timestamp()
+        self.assertEqual(last_db_ver, db_ver_seq[-1])
+
+    def _prepare_concurrent_write_ops_and_audit_log_related_stuff(self):
+        test_ref = weakref.ref(self)  # (<- used to avoid cycles of strong refs)
+
+        (db_connector,
+         db_audit_log_actual_entries) = self._prepare_extra_db_connector_with_patched_audit_log()
+
+        catching = contextlib.suppress(ValueError)
+        def err():
+            raise ValueError
+
+        db_ver_seq = []
+        previously_seen_db_ver = EXAMPLE_DATABASE_VER
+
+        performed_any_write_ops = False
+        performed_full_set_of_write_ops = False
+
+        if self.require_covering_full_set_of_write_ops:
+            def has_covered_required_set_of_write_ops():
+                return performed_full_set_of_write_ops
+        else:
+            def has_covered_required_set_of_write_ops():
+                return performed_any_write_ops
+
+        def writing_gen_impl():
+            nonlocal performed_any_write_ops
+            nonlocal performed_full_set_of_write_ops
+
+            # Note: thanks to the full isolation of the `LdapAPI`-related
+            # Auth DB transaction from other transactions, the following
+            # write operations do *not* affect `actual_result` checked
+            # in the `test()` method (note that they would affect it if
+            # the isolation was not real).
+
+            _expect_previously_seen_db_ver()
+            with db_connector as session:
+                # A bunch of example write operations that would affect
+                # `actual_result` if the isolation was not real...
+                such_a_user = models.User(login='user1@such.an.org.you.know')   # noqa
+                such_an_org = models.Org(
+                    org_id='such.an.org.you.know',                              # noqa
+                    users=[                                                     # noqa
+                        such_a_user,
+                        models.User(login='user2@such.an.org.you.know'),        # noqa
+                        models.User(login='user3@such.an.org.you.know'),        # noqa
+                    ],
+                )
+                session.add_all([such_a_user, such_an_org])
+                session.flush()
+                with db_connector:  # (nested transaction)
+                    such_an_org.actual_name = 'Such An Organization, You Know!'
+                    session.delete(such_a_user)
+                session.add_all(
+                    data_maker_for__TestAuthAPI_get_ignore_lists_criteria_resolver__real(session)
+                )
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(29)
+
+            performed_any_write_ops = True
+            yield
+
+            with db_connector as session:
+                # A bunch of example write operations that would affect
+                # `actual_result` if the isolation was not real...
+                my_org = session.query(models.Org).get('such.an.org.you.know')
+                for user in my_org.users:
+                    session.delete(user)
+                session.delete(my_org)
+                session.add_all(
+                    _data_matching_those_from_auth_related_test_helpers(session)
+                )
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(60)
+            yield
+
+            with db_connector:
+                # Another example write operation that would affect
+                # `actual_result` if the isolation was not real...
+                _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+            yield
+
+            with catching, db_connector:
+                _write_op()
+                err()  # (makes transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                err()
+            # (Here no operations have been attempted at all...)
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+            yield
+
+            with db_connector:
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+            yield
+
+            with db_connector:
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+            yield
+
+            with db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        pass
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+            yield
+
+            with db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(2)
+            yield
+
+            with db_connector:
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        pass
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+            yield
+
+            with db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(3)
+            yield
+
+            with db_connector:
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        pass
+                _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(2)
+            yield
+
+            with db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(3)
+            yield
+
+            with catching, db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                _write_op()
+                err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                _write_op()
+                err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    pass
+                err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        with db_connector:  # (nested savepoint)
+                            pass
+                err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+            yield
+
+            with db_connector:
+                _write_op()
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    err()  # (makes only savepoint be rolled back)
+                _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(2)
+            yield
+
+            with db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                    with catching, db_connector:  # (nested savepoint)
+                        _write_op()
+                        err()  # (makes only this savepoint be rolled back)
+                _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(3)
+            yield
+
+            with db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                    with catching, db_connector:  # (nested savepoint)
+                        _write_op()
+                        err()  # (makes only this savepoint be rolled back)
+                    _write_op()
+                _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(4)
+            yield
+
+            with db_connector:
+                _write_op()
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    with catching, db_connector:  # (nested savepoint)
+                        _write_op()
+                        err()  # (makes only this savepoint be rolled back)
+                    err()  # (makes only this savepoint be rolled back)
+                _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(2)
+            yield
+
+            with catching, db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                    err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                    err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    err()  # (makes only savepoint be rolled back)
+                _write_op()
+                err()  # (makes transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                _write_op()
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                    err()  # (makes only both savepoints be rolled back)
+                err()  # (makes transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                _write_op()
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    with catching, db_connector:  # (nested savepoint)
+                        _write_op()
+                        err()  # (makes savepoint be rolled back)
+                    err()  # (makes savepoint be rolled back)
+                err()  # (makes transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                _write_op()
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                        err()  # (makes only both savepoints be rolled back)
+                err()  # (makes transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            with catching, db_connector:
+                _write_op()
+                with db_connector:  # (nested savepoint)
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                        err()  # (makes whole transaction be rolled back)
+            # Note: the transaction has been rolled back, so db
+            # version has *not* been incremented (i.e., *no* new
+            # `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+            yield
+
+            with db_connector:
+                _write_op()
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    err()  # (makes only savepoint be rolled back)
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+
+            with db_connector:
+                _write_op()
+                with catching, db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                    err()  # (makes only savepoint be rolled back)
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+
+            with db_connector:
+                _write_op()
+                with catching, db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                        err()  # (makes only both savepoints be rolled back)
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    err()  # (makes only savepoint be rolled back)
+                _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                    err()  # (makes only savepoint be rolled back)
+                _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                        err()  # (makes only both savepoints be rolled back)
+                _write_op()
+            _expect_new_db_ver()
+            _expect_new_audit_log_entries(1)
+            yield
+
+            with catching, db_connector:
+                with db_connector:  # (nested savepoint)
+                    err()  # (makes whole transaction be rolled back)
+            with catching, db_connector:
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        err()  # (makes whole transaction be rolled back)
+            with catching, db_connector:
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        with db_connector:  # (nested savepoint)
+                            err()  # (makes whole transaction be rolled back)
+            with catching, db_connector:
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        with db_connector:  # (nested savepoint)
+                            pass
+                        err()  # (makes whole transaction be rolled back)
+            with catching, db_connector:
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        with db_connector:  # (nested savepoint)
+                            pass
+                    err()  # (makes whole transaction be rolled back)
+            with catching, db_connector:
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        with db_connector:  # (nested savepoint)
+                            pass
+                err()  # (makes whole transaction be rolled back)
+            with catching, db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    with catching, db_connector:  # (nested savepoint)
+                        with catching, db_connector:  # (nested savepoint)
+                            err()  # (makes savepoint be rolled back)
+                        err()  # (makes savepoint be rolled back)
+                    err()  # (makes savepoint be rolled back)
+                err()  # (makes transaction be rolled back)
+            # Note: each of the last seven transactions has been rolled
+            # back, so db version has *not* been incremented (i.e., *no*
+            # new `recent_write_op_commit` has been inserted). Also,
+            # *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+            yield
+
+            with db_connector:
+                pass
+            with db_connector:
+                with db_connector:  # (nested savepoint)
+                    pass
+            with db_connector:
+                with db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        pass
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    err()  # (makes savepoint be rolled back)
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        err()  # (makes both savepoints be rolled back)
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    with catching, db_connector:  # (nested savepoint)
+                        err()  # (makes savepoint be rolled back)
+                    err()  # (makes savepoint be rolled back)
+            # Note: formally, *none* of the last six transactions have
+            # been rolled back, but there were *no* write ops to be
+            # committed, so db version has *not* been incremented (i.e.,
+            # *no* new `recent_write_op_commit` has been inserted).
+            # Also, *no* audit log entries have been emitted.
+            _expect_previously_seen_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+            yield
+
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    err()  # (makes savepoint be rolled back)
+            # Note: this is a *known and tolerable* bug: db version *has*
+            # been incremented (i.e., a new `recent_write_op_commit` has
+            # been inserted), even though the nested savepoint has been
+            # rolled back and *no* other write ops have been performed
+            # (note that *no* audit log entries have been emitted).
+            _expect_new_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+            yield
+
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                        err()  # (makes both savepoints be rolled back)
+            # (The same -- known and tolerable -- bug as described above...)
+            _expect_new_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+            yield
+
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        err()  # (makes both savepoints be rolled back)
+            # (The same -- known and tolerable -- bug as described above...)
+            _expect_new_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+            yield
+
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                        _write_op()
+                        err()  # (makes both savepoints be rolled back)
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    _write_op()
+                    with db_connector:  # (nested savepoint)
+                        _write_op()
+                        _write_op()
+                        err()  # (makes both savepoints be rolled back)
+            # (The same -- known and tolerable -- bug as described above...)
+            _expect_new_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+            yield
+
+            with db_connector:
+                with catching, db_connector:  # (nested savepoint)
+                    _write_op()
+                    with catching, db_connector:  # (nested savepoint)
+                        _write_op()
+                        err()  # (makes savepoint be rolled back)
+                    err()  # (makes savepoint be rolled back)
+            # (The same -- known and tolerable -- bug as described above...)
+            _expect_new_db_ver()
+            _expect_lack_of_new_audit_log_entries()
+
+            performed_full_set_of_write_ops = True
+            yield
+
+            while True:
+                with db_connector:
+                    _write_op()
+                _expect_new_db_ver()
+                _expect_new_audit_log_entries(1)
+                yield
+
+        def _write_op():
+            session = db_connector.get_current_session()
+            assert session is not None
+            op, org = _get_op_and_org(session)
+            if op == 'insert':
+                session.add(org)
+            elif op == 'update':
+                new_name_length = random.randint(5, 20)
+                org.actual_name = ''.join(random.choices(string.ascii_letters, k=new_name_length))
+            else:
+                assert op == 'delete'
+                session.delete(org)
+            session.flush()
+
+        def _get_op_and_org(session):
+            while True:
+                op = ('insert' if len(_maybe_existing_org_ids) < 3
+                      else random.choice(['insert', 'update', 'delete']))
+                if op == 'insert':
+                    org_id = next(_new_org_id_gen)
+                    org = models.Org(org_id=org_id)                             # noqa
+                    _maybe_existing_org_ids.append(org_id)
+                else:
+                    org_id = random.choice(_maybe_existing_org_ids)
+                    org = session.query(models.Org).get(org_id)
+                    if org is None:
+                        _maybe_existing_org_ids.remove(org_id)
+                        continue
+                return op, org
+        _maybe_existing_org_ids = []
+        _new_org_id_gen = (f'example.n{i}.org' for i in itertools.count(start=1))
+
+        def _expect_previously_seen_db_ver():
+            db_ver = _fetch_current_db_ver()
+            test_ref().assertEqual(db_ver, previously_seen_db_ver)
+
+        def _expect_new_db_ver():
+            nonlocal previously_seen_db_ver
+            db_ver = _fetch_current_db_ver()
+            test_ref().assertEqual(db_ver, previously_seen_db_ver + 1)
+            db_ver_seq.append(db_ver)
+            previously_seen_db_ver = db_ver
+
+        def _fetch_current_db_ver():
+            with db_connector as session:
+                recent_write_op_commit = session.query(
+                    models.RecentWriteOpCommit,
+                ).order_by(
+                    models.RecentWriteOpCommit.id.desc(),
+                ).limit(1).one()
+                return recent_write_op_commit.id
+
+        def _expect_lack_of_new_audit_log_entries():
+            _expect_new_audit_log_entries(0)
+
+        def _expect_new_audit_log_entries(expected_new_entries_count):
+            nonlocal _expected_all_entries_count
+            _expected_all_entries_count += expected_new_entries_count
+            test_ref().assertEqual(len(db_audit_log_actual_entries), _expected_all_entries_count)
+        _expected_all_entries_count = 0
+
+        writing_gen = writing_gen_impl()
+        self.addCleanup(writing_gen.close)                                      # noqa
+        writing_tick_callback = functools.partial(next, writing_gen, None)
+
+        return (
+            writing_tick_callback,
+            has_covered_required_set_of_write_ops,
+            db_ver_seq,
+        )
+
+    def _prepare_extra_db_connector_with_patched_audit_log(self):
+        db_connector_context = auth_db_connector()
+        db_connector = db_connector_context.__enter__()
+        self.addCleanup(db_connector_context.__exit__, None, None, None)        # noqa
+        db_audit_log_actual_entries = []
+        db_connector._audit_log._logger.info = db_audit_log_actual_entries.append
+        return db_connector, db_audit_log_actual_entries
 
 
 class _test_of__ldap_api_replacement__LdapAPI__search_structured__empty_db(
@@ -990,6 +1938,9 @@ class _test_of__ldap_api_replacement__LdapAPI__search_structured__empty_db(
     @staticmethod
     def data_maker(session):
         return []
+
+    def run_code_under_test(self):
+        return self.ldap_api.search_structured()
 
     expected_result = {
         'ou': {
@@ -1002,6 +1953,11 @@ class _test_of__ldap_api_replacement__LdapAPI__search_structured__empty_db(
             'system-groups': {'attrs': {'ou': [u'system-groups']}},
         },
         'attrs': {},
+        '_extra_': {
+            'ver': EXAMPLE_DATABASE_VER,
+            'timestamp': EXAMPLE_DATABASE_TIMESTAMP,
+            'ignored_ip_networks': set(),
+        },
     }
 
 
@@ -1014,31 +1970,64 @@ class _test_of__ldap_api_replacement__LdapAPI__search_structured__example_nonemp
         criteria_category_bots = session.query(models.CriteriaCategory).filter(
             models.CriteriaCategory.category == 'bots').one()
         yield models.CriteriaContainer(
-                         label='crit1',
-                         criteria_categories=[criteria_category_bots])
-        yield models.Org(org_id='o1',
-                         actual_name='Actual Name Zażółć',
-                         email_notification_enabled=True,
-                         email_notification_addresses=[
-                             models.EMailNotificationAddress(email='address@x.foo'),
-                         ],
-                         org_groups=[
-                             models.OrgGroup(org_group_id='og1', comment=u'Oh! Zażółć \U0001f340'),
-                         ],
-                         users=[
-                             models.User(login='foo@example.org'),
-                             models.User(login='spam@example.org', password='spam'),
-                             models.User(login='parrot@example.info', is_blocked=True),
-                         ])
+            label='my-crit',
+            criteria_categories=[criteria_category_bots])
+        yield models.Org(
+            org_id='my.org',
+            actual_name='Actual Name Zażółć',
+            email_notification_enabled=True,
+            email_notification_addresses=[
+                models.EMailNotificationAddress(email='address@x.foo'),
+            ],
+            org_groups=[
+                models.OrgGroup(org_group_id='og1', comment=u'Oh! Zażółć \U0001f340'),
+            ],
+            users=[
+                models.User(login='foo@example.org'),
+                models.User(login='spam@example.org', password='spam'),
+                models.User(login='parrot@example.info', is_blocked=True),
+            ])
+        yield models.IgnoreList(
+            label='My list of ignored IP networks',
+            comment='Tralala\nZażółć\r\nBumCykCyk',
+            ignored_ip_networks=[
+                models.IgnoredIPNetwork(ip_network='0.0.0.0/4'),
+                models.IgnoredIPNetwork(ip_network='10.20.30.0/24'),
+            ])
+        yield models.IgnoreList(
+            label='Empty list :-|',
+            ignored_ip_networks=[])
+        yield models.IgnoreList(
+            label='Other list of ignored IP networks...',
+            ignored_ip_networks=[
+                models.IgnoredIPNetwork(ip_network='10.123.0.3/27'),
+            ])
+        yield models.IgnoreList(
+            label='Deactivated list :-O',
+            active=False,
+            ignored_ip_networks=[
+                models.IgnoredIPNetwork(ip_network='192.168.0.0/16'),
+                models.IgnoredIPNetwork(ip_network='0.0.0.0/4'),
+            ])
+        yield models.IgnoreList(
+            label='List with some duplicates :-/',
+            ignored_ip_networks=[
+                models.IgnoredIPNetwork(ip_network='10.123.0.3/27'),
+                models.IgnoredIPNetwork(ip_network='0.0.0.0/10'),
+                models.IgnoredIPNetwork(ip_network='0.0.0.0/4'),
+            ])
+
+    def run_code_under_test(self):
+        return self.ldap_api.search_structured()
 
     expected_result = {
         'ou': {
             'orgs': {
                 'attrs': {'ou': [u'orgs']},
                 'o': {
-                    'o1': {
+                    'my.org': {
                         'attrs': {
-                            'o': [u'o1'],
+                            'o': [u'my.org'],
                             'name': [u'Actual Name Zażółć'],
                             'n6rest-api-full-access': ['FALSE'],
                             'n6stream-api-enabled': ['FALSE'],
@@ -1104,9 +2093,9 @@ class _test_of__ldap_api_replacement__LdapAPI__search_structured__example_nonemp
             'criteria': {
                 'attrs': {'ou': [u'criteria']},
                 'cn': {
-                    'crit1': {
+                    'my-crit': {
                         'attrs': {
-                            'cn': [u'crit1'],
+                            'cn': [u'my-crit'],
                             'n6category': [u'bots'],
                         }
                     }
@@ -1116,14 +2105,42 @@ class _test_of__ldap_api_replacement__LdapAPI__search_structured__example_nonemp
             'system-groups': {'attrs': {'ou': [u'system-groups']}},
         },
         'attrs': {},
+        '_extra_': {
+            'ver': EXAMPLE_DATABASE_VER,
+            'timestamp': EXAMPLE_DATABASE_TIMESTAMP,
+            'ignored_ip_networks': {
+                '0.0.0.0/4',
+                '0.0.0.0/10',
+                '10.20.30.0/24',
+                '10.123.0.3/27',
+            },
+        },
     }
+
+
+class _test_of__ldap_api_replacement__LdapAPI__peek_database_ver_and_timestamp(
+        mixin_for_tests_of__ldap_api_replacement__LdapAPI,
+        unittest.TestCase):
+
+    data_maker = staticmethod(
+        _test_of__ldap_api_replacement__LdapAPI__search_structured__example_nonempty_db.data_maker)
+
+    def run_code_under_test(self):
+        return self.ldap_api.peek_database_ver_and_timestamp()
+
+    expected_result = (
+        EXAMPLE_DATABASE_VER,
+        EXAMPLE_DATABASE_TIMESTAMP,
+    )
+
+    require_covering_full_set_of_write_ops = False
 
 
 #
 # Tests of some directly-auth-related methods of n6lib.auth_db.api.AuthManageAPI
 #
 
-class mixin_for_tests_of__auth_db__api__AuthManageAPI(object):
+class mixin_for_tests_of__auth_db__api__AuthManageAPI:
 
     @classmethod
     def iter_test_case_classes(cls):
@@ -1131,7 +2148,7 @@ class mixin_for_tests_of__auth_db__api__AuthManageAPI(object):
             if isinstance(subclass, type) and issubclass(subclass, unittest.TestCase):
                 yield subclass
 
-    # noinspection PyUnresolvedReferences
+    # noinspection PyUnresolvedReferences,PyAttributeOutsideInit,PyPep8Naming
     def setUp(self):
         self.addCleanup(drop_db)
         create_and_init_db(timeout=60)

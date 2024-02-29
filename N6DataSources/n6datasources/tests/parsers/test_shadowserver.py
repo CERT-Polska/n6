@@ -68,6 +68,7 @@ from n6datasources.parsers.shadowserver import (
     ShadowserverSmtp202204Parser,
     ShadowserverAmqp202204Parser,
     ShadowserverMsmq202308Parser,
+    ShadowserverBgp202312Parser,
 )
 from n6datasources.tests.parsers._parser_test_mixin import ParserTestMixin
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
@@ -2802,7 +2803,7 @@ class TestShadowserverFtp202204Parserr(ParserTestMixin, unittest.TestCase):
         'restriction': 'need-to-know',
         'confidence': 'medium',
         'category': 'vulnerable',
-        'name': 'ftp, clear text pass',
+        'name': 'ftp allow password wo ssl',
     }
 
     def cases(self):
@@ -3279,6 +3280,48 @@ class TestShadowserverMsmq202308Parser(ParserTestMixin, unittest.TestCase):
                     time='2023-08-10 01:01:55',
                     address=[{'ip': '1.1.1.1'}],
                     dport=1111,
+                    proto='tcp',
+                ),
+            ]
+        )
+        
+class TestShadowserverBgp202312Parser(ParserTestMixin, unittest.TestCase):
+    
+    PARSER_SOURCE = 'shadowserver.bgp'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202312'
+    PARSER_CLASS = ShadowserverBgp202312Parser
+    PARSER_BASE_CLASS = _BaseShadowserverParser
+    PARSER_CONSTANT_ITEMS = {
+        'restriction': 'need-to-know',
+        'confidence': 'medium',
+        'category': 'vulnerable',
+        'name': 'bgp',
+    }
+    
+    def cases(self):
+        yield (
+            b'"timestamp","severity","ip","protocol","port","hostname","tag","asn","geo","region","city","naics","hostname_source","sector","message_length","message_type","message_type_int","bgp_version","sender_asn","hold_time","bgp_identifier","message2_type","message2_type_int","major_error_code","major_error_code_int","minor_error_code","minor_error_code_int"\n'
+            b'"2010-02-10 00:00:00",info,0.0.0.1,tcp,179,node01.example.com,bgp,64512,ZZ,Region,City,0,ptr,,29,OPEN,1,4,39912,,0.0.0.1,NOTIFICATION,3,Cease,6,"Connection Rejected",5\n'
+            b'"2010-02-10 00:00:01",info,0.0.0.2,tcp,179,node02.example.com,bgp,64512,ZZ,Region,City,0,,,21,NOTIFICATION,3,,,,0.0.0.2,,,Cease,6,"Connection Rejected",5\n'
+            b'"2010-02-10 00:00:02",info,0.0.0.3,tcp,179,node03.example.com,bgp,64512,ZZ,Region,City,0,ptr,,29,OPEN,1,4,65002,,0.0.0.3,NOTIFICATION,3,Cease,6,"Connection Rejected",5\n'
+            ,
+            [
+                dict(
+                    time='2010-02-10 00:00:00',
+                    address=[{'ip': "0.0.0.1"}],
+                    dport=179,
+                    proto='tcp',
+                ),
+                dict(
+                    time='2010-02-10 00:00:01',
+                    address=[{'ip': "0.0.0.2"}],
+                    dport=179,
+                    proto='tcp',
+                ),
+                dict(
+                    time='2010-02-10 00:00:02',
+                    address=[{'ip': "0.0.0.3"}],
+                    dport=179,
                     proto='tcp',
                 ),
             ]

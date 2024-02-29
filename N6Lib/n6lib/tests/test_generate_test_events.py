@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2018 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import datetime
 import random
@@ -19,7 +19,8 @@ _SIMPLE_CONFIG = {
     "possible_event_attributes": ["name", "source", "restriction", "confidence", "category",
                                   "time", "url", "fqdn", "address", "proto", "sport", "dport",
                                   "dip", "id", "rid", "client", "replaces", "status", "md5",
-                                  "origin", "sha1", "sha256", "target", "modified", "expires"],
+                                  "origin", "sha1", "sha256", "target", "modified", "expires",
+                                  "ignored"],
     "required_event_attributes": ["id", "rid", "source", "restriction", "confidence", "category",
                                   "time"],
     "dip_categories": ["bots", "cnc", "dos-attacker", "scanning", "other"],
@@ -77,6 +78,7 @@ class TestRandomEventWithParams(unittest.TestCase):
         'id': ['d41d8cd98f00b204e9800998ecf8427e', 'bd155b858cc3e76131e3a580480f66cb'],
         'rid': ['48c3b7df32017d7ba6b00c7ae1d33ee6', '4290b1ed5b6fcceef044a3444e1af155'],
         'client': ['testclient', 'testclient2'],
+        'ignored': ['False'],
         'replaces': ['eb81460b901a9358df8dd2897fc862a4', '19e342ca7281b2ae296fb868ad17d8c9'],
         'status': ['active', 'expired'],
         'md5': ['6aef738be9d369031b054ebc5235e735', '30d2a232918bc77e21010998b5501e05'],
@@ -314,11 +316,14 @@ class TestExtraParams(unittest.TestCase):
 @expand
 class TestGenerateMultipleEventData(unittest.TestCase):
 
-    _NUM_OF_EVENTS = list(range(1, 20))
+    _NUM_OF_EVENTS = list(range(0, 20))
 
     @foreach(_NUM_OF_EVENTS)
-    def test_generate_multiple_event_data(self, num):
+    def test_generate_multiple_event_data(self, num_of_events):
         """Test RandomEvent.generate_multiple_event_data() method."""
         with standard_config_patch:
-            events = list(RandomEvent.generate_multiple_event_data(num))
-        self.assertEqual(len(events), num)
+
+            yielded_events = list(RandomEvent.generate_multiple_event_data(num_of_events))
+
+        assert len(yielded_events) == num_of_events
+        assert all(isinstance(event, dict) for event in yielded_events)

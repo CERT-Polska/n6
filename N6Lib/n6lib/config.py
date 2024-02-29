@@ -704,8 +704,8 @@ class Config(DictWithSomeHooks):
         `n6lib.datetime_helpers.parse_iso_datetime_to_utc()`)
 
     `path`:
-        `"spam"` -> `pathlib.Path("spam")`
-        `"spam/"` -> `pathlib.Path("spam")`
+        `"/spam"` -> `pathlib.Path("/spam")`
+        `"/spam/"` -> `pathlib.Path("/spam")`
         `"/spam/pram"` -> `pathlib.Path("/spam/pram")`
         `"~/foo/bar" -> `pathlib.Path("/home/currentuser/foo/bar")`
         `"~someuser/foo/bar" -> `pathlib.Path("/home/someuser/foo/bar")`
@@ -738,9 +738,9 @@ class Config(DictWithSomeHooks):
              datetime.datetime(2010, 7, 20, 23, 23)]`
 
     `list_of_path`:
-        `"spam, pram/,/spam/pram,~/foo/bar , "~someuser/foo/bar"`
-        -> `[pathlib.Path("spam"),
-             pathlib.Path("pram"),
+        `"/spam, /pram/,/spam/pram,~/foo/bar , "~someuser/foo/bar"`
+        -> `[pathlib.Path("/spam"),
+             pathlib.Path("/pram"),
              pathlib.Path("/spam/pram"),
              pathlib.Path("/home/currentuser/foo/bar"),
              pathlib.Path("/home/someuser/foo/bar")]`
@@ -838,6 +838,8 @@ class Config(DictWithSomeHooks):
         p = p.expanduser()
         if not os.fspath(p).strip():  # (should not happen, but just in case...)
             raise ValueError('path is not allowed to be empty or whitespace-only')
+        if not p.is_absolute():
+            raise ValueError('path is required to be absolute (not relative)')
         return p
 
     # noinspection PyMethodParameters

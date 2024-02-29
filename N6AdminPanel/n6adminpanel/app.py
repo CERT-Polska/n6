@@ -102,6 +102,8 @@ from n6lib.auth_db.models import (
     EntityFQDN,
     EntityIPNetwork,
     EntitySector,
+    IgnoreList,
+    IgnoredIPNetwork,
     InsideFilterASN,
     InsideFilterCC,
     InsideFilterFQDN,
@@ -1021,6 +1023,15 @@ class CriteriaContainerView(CustomColumnListView):
     ]
 
 
+class IgnoreListView(ApiLookupExtraFilesMixin,
+                     CustomWithInlineFormsModelView,
+                     CustomColumnListView):
+
+    inline_models = [
+        IPNetworkInlineFormAdmin(IgnoredIPNetwork),
+    ]
+
+
 class SourceView(CustomWithInlineFormsModelView, CustomColumnListView):
 
     inline_models = [
@@ -1388,6 +1399,7 @@ class AdminPanel(ConfigMixin):
         (Org, OrgView),
         (OrgConfigUpdateRequest, OrgConfigUpdateRequestView),
         (User, UserView),
+        (IgnoreList, IgnoreListView),
         (Source, SourceView),
         (Subsource, CustomColumnAutoPKView),
         (CriteriaContainer, CriteriaContainerView),

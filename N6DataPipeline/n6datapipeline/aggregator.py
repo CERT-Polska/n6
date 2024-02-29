@@ -605,17 +605,18 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
         cleaned_payload = payload.copy()
         cleaned_payload['type'] = event_type
         cleaned_payload.pop('_group', None)
-        self._clean_count_related_stuff(cleaned_payload)
-        return cleaned_payload
 
-    # XXX: can be removed after resolving ticket #6324
-    @staticmethod
-    def _clean_count_related_stuff(cleaned_payload):
-        count_max = RecordDict.data_spec.count.max_value
-        count = cleaned_payload.get('count', 1)
-        if count > count_max:
-            cleaned_payload['count_actual'] = count
-            cleaned_payload['count'] = count_max
+        ####################################################################
+        # This is a *temporary hack* to clean data already put into the    #
+        # aggregator state by an old -- pre-#8814 -- code...               #
+        from n6lib.record_dict import RecordDict
+        RecordDict._update_given_data_by_pipelining_items_thru_rd(
+            cleaned_payload,
+            keys=('dip', 'address', 'enriched', 'name', 'id', 'category', 'source'))
+        # ^^^ to be removed!!! ^^ to be removed!!! ^^ to be removed!!! ^^^ #   see ticket #8899
+        ####################################################################
+
+        return cleaned_payload
 
     def stop(self):
         self.db.store_state()

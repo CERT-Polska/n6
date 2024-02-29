@@ -115,8 +115,8 @@ SURICATA_SNORT_CATEGORIES = {
 }
 
 
-# the value used in Event DB to denote lack of
-# IP address where NULL is not an option
+# the value used in Event DB to denote lack of `ip`/`dip` (as neither `ip`
+# nor `dip` can be NULL; see: `etc/mysql/initdb/1_create_tables.sql`...)
 LACK_OF_IPv4_PLACEHOLDER_AS_INT = 0
 LACK_OF_IPv4_PLACEHOLDER_AS_STR = '0.0.0.0'
 

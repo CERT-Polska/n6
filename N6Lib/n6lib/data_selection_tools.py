@@ -4,13 +4,13 @@
 This module provides tools to express *data selection conditions*; by
 formulating a *condition* we specify which event data records shall be
 *selected*, that is -- depending on the context -- which ones shall be
-*chosen* (when filtering a data stream) or *searched* (when querying a
-database). See the docs of the `Cond` base class for more details.
+*chosen* (when filtering a data stream) or *searched for* (when querying
+a database). See the docs of the `Cond` base class for more details.
 
 This module contains the following public stuff:
 
 * `CondBuilder`
-  -- a class implementing the main tool to create condition objects
+  -- a class providing the main tool to create condition objects
 
 * Condition classes:
 
@@ -48,10 +48,13 @@ This module contains the following public stuff:
     * `ContainsSubstringCond` (base: `RecItemParamCond`)
       -- representing the `contains the ... substring` condition
 
+    * `IsTrueCond` (base: `RecItemCond`)
+      -- representing the `is TRUE` condition
+
     * `IsNullCond` (base: `RecItemCond`)
       -- representing the `is missing/is NULL` condition
 
-    * FixedCond (base: `Cond`)
+    * `FixedCond` (base: `Cond`)
       -- representing a constant Boolean value: `TRUE` or `FALSE`
 
 * `CondVisitor` and `CondTransformer`
@@ -167,6 +170,9 @@ class CondBuilder:
 
     >>> cond_builder['url'].contains_substring('tp://sp')
     <ContainsSubstringCond: 'url', 'tp://sp'>
+
+    >>> cond_builder['ignored'].is_true()
+    <IsTrueCond: 'ignored'>
 
     >>> cond_builder['url'].is_null()
     <IsNullCond: 'url'>
@@ -378,6 +384,9 @@ class CondBuilder:
         def contains_substring(self, op_param: str, /) -> 'ContainsSubstringCond':
             return ContainsSubstringCond._make(self._rec_key, op_param)  # noqa
 
+        def is_true(self) -> 'IsTrueCond':
+            return IsTrueCond._make(self._rec_key)                       # noqa
+
         def is_null(self) -> 'IsNullCond':
             return IsNullCond._make(self._rec_key)                       # noqa
 
@@ -458,8 +467,8 @@ class Cond(Hashable):
     of this class:
 
     * represents an abstract *data selection condition* -- defining which
-      event data records shall be selected (filtered, searched...); e.g.,
-      to select "those whose `asn` is *equal to* 12345, or whose `url`
+      event data records shall be selected (when filtered or searched...);
+      for example, "those whose `asn` is *equal to* 12345, or whose `url`
       *contains* the substring `'tp://'`, provided that their `modified`
       is *greater than or equal to* `2016-10-21T22:35:45` and `category`
       is *not* equal to any item *in* `('bots', 'cnc', 'malurl')`";
@@ -497,7 +506,9 @@ class Cond(Hashable):
       standard library's `copy` module -- but the result is always the
       same object that has been passed in (note: that should not matter,
       considering immutability of condition objects -- see the previous
-      bullet point).
+      bullet point);
+
+    * can be pickled and unpickled.
 
     Note that every instance of a `Cond` subclass, taken on its own,
     represents a data selection condition as an abstract entity. That
@@ -611,6 +622,13 @@ class Cond(Hashable):
     >>> between1 != ge1 and ge1 != between1
     True
 
+    *Note* that -- no matter in which way instances of concrete `Cond`
+    subclasses are created -- you construct them *only using positional
+    arguments* (i.e., you should *not* pass any keyword arguments to
+    `Cond._make()`, or to `CondVisitor.make_cond()`, or to the interface
+    of a `CondBuilder` -- even if that appeared technically possible in
+    some cases!).
+
     >>> ge4 = (cond_builder['asn'] >= 456)
     >>> ge4
     <GreaterOrEqualCond: 'asn', 456>
@@ -672,6 +690,16 @@ class Cond(Hashable):
     >>> le1 == lt1 or lt1 == le1 or le1 == eq1 or eq1 == le1 or lt1 == eq1 or eq1 == lt1
     False
     >>> le1 != lt1 and lt1 != le1 and le1 != eq1 and eq1 != le1 and lt1 != eq1 and eq1 != lt1
+    True
+
+    >>> flag = cond_builder['ig'].is_true()
+    >>> flag
+    <IsTrueCond: 'ig'>
+    >>> flag == IsTrueCond._make('ig') == flag == some_visitor.make_cond(IsTrueCond, 'ig')
+    True
+    >>> flag == cond_builder['ig'].is_null() or cond_builder['ig'].is_null() == flag
+    False
+    >>> flag != cond_builder['ig'].is_null() or cond_builder['ig'].is_null() != flag
     True
 
     >>> missing = cond_builder['asn'].is_null()
@@ -758,11 +786,11 @@ class Cond(Hashable):
 
     >>> (eq1 == eq1 and gt1 == gt1 and ge1 == ge1 and lt1 == lt1 and le1 == le1
     ...  and in1 == in1 and between1 == between1 and csub == csub and missing == missing
-    ...  and alwaystrue1 == alwaystrue1 and alwaysfalse == alwaysfalse)
+    ...  and flag == flag and alwaystrue1 == alwaystrue1 and alwaysfalse == alwaysfalse)
     True
     >>> (eq1 != eq1 or gt1 != gt1 or ge1 != ge1 or lt1 != lt1 or le1 != le1
     ...  or in1 != in1 or between1 != between1 or csub != csub or missing != missing
-    ...  or alwaystrue1 != alwaystrue1 or alwaysfalse != alwaysfalse)
+    ...  or flag != flag or alwaystrue1 != alwaystrue1 or alwaysfalse != alwaysfalse)
     False
 
     >>> GreaterOrEqualCond('asn', 42)      # doctest: +ELLIPSIS
@@ -786,6 +814,13 @@ class Cond(Hashable):
     42
     >>> ge1.init_args
     ('asn', 42)
+
+    >>> in1.rec_key
+    'asn'
+    >>> in1.op_param
+    OPSet([42, 456])
+    >>> in1.init_args
+    ('asn', OPSet([42, 456]))
 
     >>> between1.rec_key
     'count'
@@ -869,12 +904,76 @@ class Cond(Hashable):
     >>> copy.deepcopy(alwaysfalse) is alwaysfalse
     True
 
-    *Note* that -- no matter in which way instances of concrete `Cond`
-    subclasses are created -- you construct them *only using positional
-    arguments* (i.e., you should *not* pass any keyword arguments to
-    `Cond._make()`, or to `CondVisitor.make_cond()`, or to the interface
-    of a `CondBuilder` -- even if that appeared technically possible in
-    some cases).
+    >>> import pickle
+    >>> eq1pi = pickle.loads(pickle.dumps(eq1, pickle.HIGHEST_PROTOCOL))
+    >>> gt1pi = pickle.loads(pickle.dumps(gt1, pickle.HIGHEST_PROTOCOL))
+    >>> ge1pi = pickle.loads(pickle.dumps(ge1, pickle.HIGHEST_PROTOCOL))
+    >>> lt1pi = pickle.loads(pickle.dumps(lt1, pickle.HIGHEST_PROTOCOL))
+    >>> le1pi = pickle.loads(pickle.dumps(le1, pickle.HIGHEST_PROTOCOL))
+    >>> in1pi = pickle.loads(pickle.dumps(in1, pickle.HIGHEST_PROTOCOL))
+    >>> between1pi = pickle.loads(pickle.dumps(between1, pickle.HIGHEST_PROTOCOL))
+    >>> csubpi = pickle.loads(pickle.dumps(csub, pickle.HIGHEST_PROTOCOL))
+    >>> missingpi = pickle.loads(pickle.dumps(missing, pickle.HIGHEST_PROTOCOL))
+    >>> alwaystrue1pi = pickle.loads(pickle.dumps(alwaystrue1, pickle.HIGHEST_PROTOCOL))
+    >>> alwaysfalsepi = pickle.loads(pickle.dumps(alwaysfalse, pickle.HIGHEST_PROTOCOL))
+
+    >>> (eq1pi == eq1 and gt1pi == gt1 and ge1pi == ge1 and lt1pi == lt1 and le1pi == le1
+    ...  and in1pi == in1 and between1pi == between1 and csubpi == csub and missingpi == missing
+    ...  and alwaystrue1pi == alwaystrue1 and alwaysfalsepi == alwaysfalse)
+    True
+    >>> (eq1 == eq1pi and gt1 == gt1pi and ge1 == ge1pi and lt1 == lt1pi and le1 == le1pi
+    ...  and in1 == in1pi and between1 == between1pi and csub == csubpi and missing == missingpi
+    ...  and alwaystrue1 == alwaystrue1pi and alwaysfalse == alwaysfalsepi)
+    True
+    >>> (eq1pi is not eq1 and gt1pi is not gt1 and ge1pi is not ge1 and lt1pi is not lt1
+    ...  and le1pi is not le1 and in1pi is not in1 and between1pi is not between1
+    ...  and csubpi is not csub and missingpi is not missing
+    ...  and alwaystrue1pi is not alwaystrue1 and alwaysfalsepi is not alwaysfalse)
+    True
+
+    >>> (eq1pi != eq1 or gt1pi != gt1 or ge1pi != ge1 or lt1pi != lt1 or le1pi != le1
+    ...  or in1pi != in1 or between1pi != between1 or csubpi != csub or missingpi != missing
+    ...  or alwaystrue1pi != alwaystrue1 or alwaysfalsepi != alwaysfalse)
+    False
+    >>> (eq1 != eq1pi or gt1 != gt1pi or ge1 != ge1pi or lt1 != lt1pi or le1 != le1pi
+    ...  or in1 != in1pi or between1 != between1pi or csub != csubpi or missing != missingpi
+    ...  or alwaystrue1 != alwaystrue1pi or alwaysfalse != alwaysfalsepi)
+    False
+
+    >>> (eq1pi == gt1pi or gt1pi == ge1pi or ge1pi == lt1pi or lt1pi == le1pi or le1pi == in1pi
+    ...  or in1pi == between1pi or between1pi == csubpi or csubpi == missingpi
+    ...  or missingpi == alwaystrue1pi or alwaystrue1pi == alwaysfalsepi)
+    False
+
+    >>> ge1pi.rec_key
+    'asn'
+    >>> ge1pi.op_param
+    42
+    >>> ge1pi.init_args
+    ('asn', 42)
+
+    >>> in1pi.rec_key
+    'asn'
+    >>> in1pi.op_param
+    OPSet([42, 456])
+    >>> in1pi.op_param == in1.op_param and in1pi.op_param is not in1.op_param
+    True
+    >>> in1pi.init_args
+    ('asn', OPSet([42, 456]))
+    >>> in1pi.init_args == in1.init_args and in1pi.init_args is not in1.init_args
+    True
+
+    >>> between1pi.rec_key
+    'count'
+    >>> between1pi.op_param
+    (1, 100)
+    >>> between1pi.init_args
+    ('count', (1, 100))
+
+    >>> alwaystrue1pi.truthness
+    True
+    >>> alwaystrue1pi.init_args
+    (True,)
 
 
     Compound conditions
@@ -1394,6 +1493,74 @@ class Cond(Hashable):
     ... }
     True
 
+    >>> import copy
+    >>> copy.copy(or2) is or2
+    True
+    >>> copy.copy(and2) is and2
+    True
+    >>> copy.copy(not2) is not2
+    True
+    >>> copy.deepcopy(or2) is or2
+    True
+    >>> copy.deepcopy(and2) is and2
+    True
+    >>> copy.deepcopy(not2) is not2
+    True
+
+    >>> import pickle
+    >>> not1pi = pickle.loads(pickle.dumps(not1, pickle.DEFAULT_PROTOCOL))
+    >>> not2pi = pickle.loads(pickle.dumps(not2, pickle.DEFAULT_PROTOCOL))
+    >>> not1 == not1pi == not1 and not (not1 != not1pi or not1pi != not1) and not1 is not not1pi
+    True
+    >>> not2 == not2pi == not2 and not (not2 != not2pi or not2pi != not2) and not2 is not not2pi
+    True
+    >>> not2pi == NotCond._make(
+    ...     AndCond._make(           # (different order of subconditions
+    ...         OrCond._make(        # is irrelevant for equality)
+    ...             AndCond._make(
+    ...                 LessOrEqualCond._make('asn', 42),
+    ...                 IsNullCond._make('url'),
+    ...             ),
+    ...             NotCond._make(
+    ...                 IsNullCond._make('url'),
+    ...             ),
+    ...             EqualCond._make('ip', '1.2.3.4'),
+    ...         ),
+    ...         OrCond._make(
+    ...             EqualCond._make('ip', '1.2.3.4'),
+    ...             LessOrEqualCond._make('asn', 42),
+    ...         ),
+    ...     ),
+    ... )
+    True
+    >>> not1 != not2pi != not1 and not (not1 == not2pi or not2pi == not1) and not1 is not not2pi
+    True
+    >>> not2 != not1pi != not2 and not (not2 == not1pi or not1pi == not2) and not2 is not not1pi
+    True
+    >>> not2pi != NotCond._make(
+    ...     AndCond._make(
+    ...         OrCond._make(
+    ...             EqualCond._make('ip', '1.2.3.4'),
+    ...             LessOrEqualCond._make('asn', 42),
+    ...         ),
+    ...         OrCond._make(
+    ...             AndCond._make(
+    ...                 LessOrEqualCond._make('asn', 42),
+    ...                 IsNullCond._make('url'),
+    ...             ),                                       # missing condition (`NotCond...`)
+    ...             EqualCond._make('ip', '1.2.3.4'),
+    ...         ),
+    ...     ),
+    ... )
+    True
+    >>> (not2pi.subconditions == not2.subconditions
+    ...  and not2pi.subconditions is not not2.subconditions)
+    True
+    >>> (not2pi.subcond == not2.subcond and not2pi.subcond == and2
+    ...  and not2pi.subcond is not not2.subcond
+    ...  and not2pi.subcond is not and2)
+    True
+
 
     Specific features of constructors
     =================================
@@ -1605,11 +1772,11 @@ class Cond(Hashable):
 
     An important consequence is that -- for a data record from which a
     certain *record key* is missing (*NULL*) -- the logical values of any
-    relevant `RecItemParamCond`-derived conditions are *FALSE*. (So, for
-    example, for any *data record* `rec` from which the *record key*
-    `key` is missing, for any *operation parameter* `val`, the logical
-    values of the `rec[key] < val` condition *and* the `rec[key] >= val`
-    conditon are **both** *FALSE*!)
+    relevant `RecItemCond`-derived conditions *except* `IsNullCond` are
+    *FALSE*. (So, for example, for any *data record* `rec` from which
+    the *record key* `key` is missing, for any *operation parameter*
+    `val`, the logical values of the `rec[key] < val` condition *and*
+    the `rec[key] >= val` conditon are **both** *FALSE*!)
 
     It means that, in the *general case*, a `RecItemParamCond`-derived
     condition representing a comparison operator, e.g. (for any valid
@@ -1703,11 +1870,22 @@ class Cond(Hashable):
     def __hash__(self):
         return self._hash_value
 
+    # * support for `copy.copy()`/`copy.deepcopy()`:
+
     def __copy__(self):
         return self
 
     def __deepcopy__(self, memo):
         return self
+
+    # * support for pickling and unpickling:
+
+    def __reduce__(self):
+        return (
+            object.__new__,
+            (self.__class__,),
+            self.__dict__,
+        )
 
 
     #
@@ -2014,6 +2192,8 @@ class RecItemCond(Cond):
     True
     >>> issubclass(ContainsSubstringCond, RecItemCond)
     True
+    >>> issubclass(IsTrueCond, RecItemCond)
+    True
     >>> issubclass(IsNullCond, RecItemCond)
     True
 
@@ -2166,6 +2346,8 @@ class RecItemParamCond(RecItemCond):
     >>> issubclass(ContainsSubstringCond, RecItemParamCond)
     True
 
+    >>> not issubclass(IsTrueCond, RecItemParamCond)
+    True
     >>> not issubclass(IsNullCond, RecItemParamCond)
     True
     >>> not issubclass(FixedCond, RecItemParamCond)
@@ -3791,6 +3973,65 @@ class ContainsSubstringCond(RecItemParamCond):
     op_param: str
 
 
+class IsTrueCond(RecItemCond):
+
+    """
+    The "is the specified data item, being a Boolean flag, set to TRUE?"
+    condition class.
+
+
+    Public instance attributes (aside from `init_args`)
+    ===================================================
+
+    * `rec_key` (ASCII-only `str`) -- the concerned data *record key*
+      (e.g.: `'ignored'`...).
+
+
+    Construction
+    ============
+
+    Arguments accepted by the `_make()` non-public constructor
+    ----------------------------------------------------------
+
+    * The *only* argument must be a `str` (otherwise `TypeError` is
+      raised) and it must be ASCII-only (or `ValueError` is raised);
+      the argument becomes the value of the `rec_key` attribute.
+
+    >>> c = IsTrueCond._make('ignored')
+    >>> c
+    <IsTrueCond: 'ignored'>
+    >>> c.rec_key
+    'ignored'
+    >>> c.init_args
+    ('ignored',)
+
+    >>> IsTrueCond._make(42)                    # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: ... a str (got: 42 which is an instance of int)
+
+    >>> IsTrueCond._make(bytearray('władca_żlebów'.encode('utf-8')))    # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: ... a str (got: ... which is an instance of bytearray)
+
+    >>> IsTrueCond._make('władca_żlebów')       # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    ValueError: ... requires `rec_key` being an ASCII-only str ...
+
+    >>> IsTrueCond._make()                      # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: ... missing 1 required positional argument: 'rec_key'
+
+    >>> IsTrueCond._make('ignored', 1)          # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: ... arguments ...
+    """
+
+
 class IsNullCond(RecItemCond):
 
     """
@@ -4682,6 +4923,7 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
     >>> rec = {
     ...     'source': 'foo.bar',
     ...     'category': 'bots',
+    ...     'ignored': True,
     ...     'name': 'Foo Bąr',
     ...     'address': [
     ...         {
@@ -4871,6 +5113,13 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
     >>> check(cond_builder['restriction'].contains_substring(''))
     False
 
+    >>> check(cond_builder['ignored'].is_true())
+    True
+    >>> check(cond_builder['ignored'].is_true(), r=RecordWrapperForPredicates({'ignored': False}))
+    False
+    >>> check(cond_builder['ignored'].is_true(), r=RecordWrapperForPredicates({}))
+    False
+
     >>> check(cond_builder['restriction'].is_null())
     True
     >>> check(cond_builder['name'].is_null(), r=RecordWrapperForPredicates({}))
@@ -4917,6 +5166,11 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
       ...
     TypeError: only a str can contain a substring (got: 12345 which is an instance of int)
 
+    >>> check(cond_builder['category'].is_true())  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: only a bool can be used as a TRUE/FALSE flag (got: 'bots' ... an instance of str)
+
 
     Now, let's check various compound conditions...
 
@@ -4953,6 +5207,11 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
     >>> check(cond_builder.not_(cond_builder['category'].contains_substring('bot')))
     False
     >>> check(cond_builder.not_(cond_builder['name'].contains_substring('bą')))
+    True
+    >>> check(cond_builder.not_(cond_builder['ignored'].is_true()))
+    False
+    >>> check(cond_builder.not_(cond_builder['ignored'].is_true()),
+    ...                         r=RecordWrapperForPredicates({}))
     True
     >>> check(cond_builder.not_(cond_builder['restriction'].is_null()))
     False
@@ -5007,7 +5266,8 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
     >>> F5 = b.and_(F1, t6)
     >>> F6 = b.or_(b.not_(b['category'] == 'bots'),
     ...            b.not_(b.and_(b['category'].contains_substring('bot'), b['ip'] == 169090603)),
-    ...            b.not_(b['restriction'].is_null()))
+    ...            b.not_(b['restriction'].is_null()),
+    ...            b.not_(b['ignored'].is_true()))
 
     >>> t7 = b.and_(t1, t2, t3, b.or_(t3, b.and_(F3, t1), b.and_(F3, t2), b.and_(F3, t5)),
     ...             t3, t4, t4, b.or_(t5, F5, F5),
@@ -5167,6 +5427,7 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
     >>> rec == {
     ...     'source': 'foo.bar',
     ...     'category': 'bots',
+    ...     'ignored': True,
     ...     'name': 'Foo Bąr',
     ...     'address': [
     ...         {
@@ -5234,6 +5495,11 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
       ...
     TypeError: ... requires `record` being a RecordWrapperForPredicates ...
 
+    >>> check(cond_builder['ignored'].is_true(), r=rec)  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: ... requires `record` being a RecordWrapperForPredicates ...
+
     >>> check(cond_builder['restriction'].is_null(), r=rec)  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
@@ -5250,6 +5516,7 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
 
     >>> wrong = RecordWrapperForPredicates({
     ...     'source': None,
+    ...     'ignored': None,
     ...     'name': None,
     ...     'restriction': None,
     ...     'address': [
@@ -5300,6 +5567,11 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
     TypeError: ... values being None are not supported ...
 
     >>> check(cond_builder['name'].contains_substring('Bą'), r=wrong)  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: ... values being None are not supported ...
+
+    >>> check(cond_builder['ignored'].is_true(), r=wrong)  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
     TypeError: ... values being None are not supported ...
@@ -5355,6 +5627,11 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
       ...
     TypeError: ... values being None are not supported ...
 
+    >>> check(cond_builder['asn'].is_true(), r=wrong)  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+      ...
+    TypeError: ... values being None are not supported ...
+
     >>> check(cond_builder['asn'].is_null(), r=wrong)  # doctest: +ELLIPSIS
     Traceback (most recent call last):
       ...
@@ -5372,6 +5649,9 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
     make `CondPredicateMaker` support it, you will need to adjust
     `CondPredicateMaker` by adding and/or enhancing (appropriately)
     some visiting method(s).
+
+    If you do not do that, you may observe an incorrect behaviour (!)
+    or get an error, e.g.:
 
     >>> class XYCond(Cond):
     ...     def _adapt_init_args(*_): return ()
@@ -5575,6 +5855,7 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
     ...                     ),
     ...                 ),
     ...                 b['name'].is_null(),
+    ...                 b['ignored'].is_true(),
     ...                 b.and_(
     ...                     b['category'] == 'bots',
     ...                     b['ip'].between(123, 123455),
@@ -5638,7 +5919,7 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
         return predicate
 
 
-    def visit_RecItemParamCond(self, cond: RecItemParamCond) -> _Predicate:
+    def visit_RecItemCond(self, cond: RecItemCond) -> _Predicate:
         return self._make_predicate_from_RecItemCond(
             cond,
             result_for_missing_item=False)
@@ -5733,6 +6014,15 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
             return _contains_substring(value, op_param)
 
     @staticmethod
+    def _op_func_for_IsTrueCond(value, _op_param) -> bool:
+        apply_is_true = getattr(value, 'apply_is_true', None)
+        if apply_is_true is not None:
+            # (`value` is probably an instance of `_ComparableMultiValue`)
+            return apply_is_true()
+        else:
+            return _is_true(value)
+
+    @staticmethod
     def _op_func_for_IsNullCond(_value, _op_param) -> bool:
         # Note that the `result_for_missing_item` argument passed to
         # `_make_predicate_from_RecItemCond()` is `True` -- and the
@@ -5759,6 +6049,7 @@ class RecordWrapperForPredicates:
     >>> rec = {
     ...     'source': 'foo.bar',
     ...     'category': 'bots',
+    ...     'ignored': False,
     ...     'name': 'Foo Bąr',
     ...     'address': [
     ...         {
@@ -5806,6 +6097,8 @@ class RecordWrapperForPredicates:
     >>> between_op_func(r.get('source'), ('foo.bar', 'z'))
     True
     >>> r.get('category') == 'bots' and r.get('category') == 'bots'
+    True
+    >>> r.get('ignored') == False and r.get('ignored') == 0
     True
     >>> r.get('name') == 'Foo Bąr'
     True
@@ -5903,6 +6196,8 @@ class RecordWrapperForPredicates:
     >>> between_op_func(r.get('source'), ('foo.bazz', 'z'))
     False
     >>> r.get('category') == 'BOTS' or r.get('category') == ''
+    False
+    >>> r.get('ignored') == True or r.get('ignored') == 1
     False
     >>> r.get('name') == 'Foo Bar'
     False
@@ -6067,7 +6362,8 @@ class RecordWrapperForPredicates:
 
     _get_source_value = __simple_getter
     _get_restriction_value = __simple_getter
-    _get_category_value= __simple_getter
+    _get_category_value = __simple_getter
+    _get_ignored_value = __simple_getter
     _get_name_value = __simple_getter
 
     _get_ip_value = functools.partialmethod(__address_item_getter, value_adjuster=ip_str_to_int)
@@ -6218,6 +6514,15 @@ class _ComparableMultiValue:
     Traceback (most recent call last):
       ...
     AssertionError: unsupported operation `!=` attempted! (a bug in CondPredicateMaker?)
+
+    >>> _ComparableMultiValue([True]).apply_is_true()
+    True
+    >>> _ComparableMultiValue([False]).apply_is_true()
+    False
+    >>> _ComparableMultiValue([True, False, True]).apply_is_true()
+    True
+    >>> _ComparableMultiValue([False, True, False]).apply_is_true()
+    True
     """
 
     def __init__(self, iterable: Iterable):
@@ -6267,6 +6572,13 @@ class _ComparableMultiValue:
             op(value, op_param)
             for value in self._values)
 
+    # (related to `IsTrueCond`)
+    def apply_is_true(self) -> bool:
+        op = _is_true
+        return any(
+            op(value)
+            for value in self._values)
+
 
 def _is_between(value, op_param: tuple[Any, Any]) -> bool:
     min_value, max_value = op_param
@@ -6276,9 +6588,17 @@ def _is_between(value, op_param: tuple[Any, Any]) -> bool:
 def _contains_substring(value: str, op_param: str) -> bool:
     if not isinstance(value, str):
         raise TypeError(ascii_str(
-            f"only a str can contain a substring (got: {value!r} which "
-            f"is an instance of {value.__class__.__qualname__})"))
+            f"only a str can contain a substring (got: {value!r} "
+            f"which is an instance of {value.__class__.__qualname__})"))
     return op_param in value
+
+
+def _is_true(value: bool) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError(ascii_str(
+            f"only a bool can be used as a TRUE/FALSE flag (got: {value!r} "
+            f"which is an instance of {value.__class__.__qualname__})"))
+    return value
 
 
 #
@@ -6363,6 +6683,71 @@ class CondFactoringTransformer(CondTransformer[Cond]):
     ...                     "<EqualCond: 'source', 'jkl.jkl'>>>, "
     ...             "<AndCond: "
     ...                 "<EqualCond: 'asn', 1>, "
+    ...                 "<OrCond: "
+    ...                     "<EqualCond: 'source', 'def.def'>, "
+    ...                     "<EqualCond: 'source', 'ghi.ghi'>>>>>")
+    True
+
+    >>> c1extra = b.or_(
+    ...     b.and_(
+    ...         b['restriction'] == 'public',
+    ...         b['source'] == 'abc.abc',
+    ...         b['asn'] == 42.0,
+    ...     ),
+    ...     b.and_(
+    ...         b['restriction'] == 'public',
+    ...         b['source'] == 'def.def',
+    ...         b['asn'] == 1,
+    ...         b.not_(b['ignored'].is_true()),
+    ...     ),
+    ...     b.and_(
+    ...         b['restriction'] == 'public',
+    ...         b['source'] == 'jkl.jkl',
+    ...         b['asn'] == 42,
+    ...     ),
+    ...     b.and_(
+    ...         b['restriction'] == 'public',
+    ...         b.not_(b['ignored'].is_true()),
+    ...         b['source'] == 'ghi.ghi',
+    ...         b['asn'] == 1.0,
+    ...     ),
+    ... )
+    >>> repr(c1extra) == (
+    ...     "<OrCond: "
+    ...         "<AndCond: "
+    ...             "<EqualCond: 'restriction', 'public'>, "
+    ...             "<EqualCond: 'source', 'abc.abc'>, "
+    ...             "<EqualCond: 'asn', 42.0>>, "
+    ...         "<AndCond: "
+    ...             "<EqualCond: 'restriction', 'public'>, "
+    ...             "<EqualCond: 'source', 'def.def'>, "
+    ...             "<EqualCond: 'asn', 1>, "
+    ...             "<NotCond: "
+    ...                 "<IsTrueCond: 'ignored'>>>, "
+    ...         "<AndCond: "
+    ...             "<EqualCond: 'restriction', 'public'>, "
+    ...             "<EqualCond: 'source', 'jkl.jkl'>, "
+    ...             "<EqualCond: 'asn', 42>>, "
+    ...         "<AndCond: "
+    ...             "<EqualCond: 'restriction', 'public'>, "
+    ...             "<NotCond: "
+    ...                 "<IsTrueCond: 'ignored'>>, "
+    ...             "<EqualCond: 'source', 'ghi.ghi'>, "
+    ...             "<EqualCond: 'asn', 1.0>>>")
+    True
+    >>> repr(factor_out(c1extra)) == (
+    ...     "<AndCond: "
+    ...         "<EqualCond: 'restriction', 'public'>, "
+    ...         "<OrCond: "
+    ...             "<AndCond: "
+    ...                 "<EqualCond: 'asn', 42.0>, "
+    ...                 "<OrCond: "
+    ...                     "<EqualCond: 'source', 'abc.abc'>, "
+    ...                     "<EqualCond: 'source', 'jkl.jkl'>>>, "
+    ...             "<AndCond: "
+    ...                 "<EqualCond: 'asn', 1>, "
+    ...                 "<NotCond: "
+    ...                     "<IsTrueCond: 'ignored'>>, "
     ...                 "<OrCond: "
     ...                     "<EqualCond: 'source', 'def.def'>, "
     ...                     "<EqualCond: 'source', 'ghi.ghi'>>>>>")
@@ -6999,6 +7384,7 @@ class CondEqualityMergingTransformer(CondTransformer[Cond]):
     >>> c4 = b.or_(
     ...     b['asn'] == 1.0,
     ...     b['ip'].is_null(),  # (not mergeable at all)
+    ...     b['ignored'].is_true(),  # (not mergeable at all)
     ...     b['cc'].in_(['FR', 'UA', 'PL', 'UK']),
     ...     b['asn'].in_([7, 5, 3]),
     ...     b.and_(  # (not mergeable with its parent's subconditions)
@@ -7097,6 +7483,7 @@ class CondEqualityMergingTransformer(CondTransformer[Cond]):
     ...     "<OrCond: "
     ...         "<EqualCond: 'asn', 1.0>, "
     ...         "<IsNullCond: 'ip'>, "
+    ...         "<IsTrueCond: 'ignored'>, "
     ...         "<InCond: 'cc', {'FR', 'UA', 'PL', 'UK'}>, "
     ...         "<InCond: 'asn', {7, 5, 3}>, "
     ...         "<AndCond: "
@@ -7168,6 +7555,7 @@ class CondEqualityMergingTransformer(CondTransformer[Cond]):
     ...     "<OrCond: "
     ...         "<InCond: 'asn', {1.0, 7, 5, 3, (2+0j), 42, 0, 13, 11}>, "             # (merged)
     ...         "<IsNullCond: 'ip'>, "
+    ...         "<IsTrueCond: 'ignored'>, "
     ...         "<InCond: 'cc', {'FR', 'UA', 'PL', 'UK', 'US', 'UG', 'DE', 'FL'}>, "   # (merged)
     ...         "<AndCond: "
     ...             "<NotCond: "
@@ -7405,6 +7793,7 @@ class CondDeMorganTransformer(CondTransformer[Cond]):
     ...             ),
     ...         ),
     ...         b['url'].is_null(),
+    ...         b['ignored'].is_true(),
     ...         b.and_(
     ...             b['fqdn'] == 'example.org',
     ...             b['ip'].between('1.2.3.0', '1.2.3.255'),
@@ -7428,6 +7817,7 @@ class CondDeMorganTransformer(CondTransformer[Cond]):
     ...                     "<InCond: 'cc', {'PL', 'FR', 'EN'}>, "
     ...                     "<EqualCond: 'asn', 12345>>>, "
     ...             "<IsNullCond: 'url'>, "
+    ...             "<IsTrueCond: 'ignored'>, "
     ...             "<AndCond: "
     ...                 "<EqualCond: 'fqdn', 'example.org'>, "
     ...                 "<BetweenCond: 'ip', ('1.2.3.0', '1.2.3.255')>>, "
@@ -7442,6 +7832,8 @@ class CondDeMorganTransformer(CondTransformer[Cond]):
     ...         "<InCond: 'cc', {'PL', 'FR', 'EN'}>, "
     ...         "<NotCond: "
     ...             "<IsNullCond: 'url'>>, "
+    ...         "<NotCond: "
+    ...             "<IsTrueCond: 'ignored'>>, "
     ...         "<OrCond: "
     ...             "<NotCond: "
     ...                 "<EqualCond: 'fqdn', 'example.org'>>, "

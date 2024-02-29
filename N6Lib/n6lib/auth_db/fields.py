@@ -187,11 +187,10 @@ class URLSimpleField(UnicodeLimitedField):
 class DateTimeCustomizedField(DateTimeField):
 
     min_datetime = datetime.datetime.utcfromtimestamp(0)  # 1970-01-01T00:00:00Z
+    keep_sec_fraction = False
 
     def clean_result_value(self, value):
         value = super().clean_result_value(value)
-        # get rid of the fractional part of seconds
-        value = value.replace(microsecond=0)
         # do not accept times that are *not* representable as UNIX timestamps
         if value < self.min_datetime:
             raise FieldValueError(public_message=(

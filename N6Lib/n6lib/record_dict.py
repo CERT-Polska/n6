@@ -23,6 +23,7 @@ from n6lib.class_helpers import (
     is_seq,
 )
 from n6lib.common_helpers import (
+    PY_NON_ASCII_ESCAPED_WITH_BACKSLASHREPLACE_HANDLER_REGEX,
     LimitedDict,
     as_bytes,
     ascii_str,
@@ -31,6 +32,7 @@ from n6lib.common_helpers import (
 )
 from n6lib.const import (
     CATEGORY_TO_NORMALIZED_NAME,
+    LACK_OF_IPv4_PLACEHOLDER_AS_STR,
     NAME_NORMALIZATION,
 )
 from n6lib.data_spec import (
@@ -38,6 +40,7 @@ from n6lib.data_spec import (
     FieldValueError,
     FieldValueTooLongError,
 )
+from n6lib.data_spec.fields import DateTimeFieldForN6
 from n6lib.log_helpers import get_logger
 from n6lib.url_helpers import (
     URL_SCHEME_AND_REST_LEGACY_REGEX,
@@ -362,6 +365,15 @@ def trim_domain_seq(value, max_length):
 
 
 #
+# Pipeline-specific data spec class (almost identical to `N6DataSpec`)
+
+class N6DataSpecWithOptionalModified(N6DataSpec):
+    modified = DateTimeFieldForN6(
+        in_params=None,
+        in_result=('optional', 'unrestricted'),  # <- here it is *optional*
+    )
+
+#
 # The actual record dict classes
 
 ### CR: TODO: docstrings for public methods
@@ -376,7 +388,7 @@ class RecordDict(collections_abc.MutableMapping):
     _ADJUSTER_PREFIX = 'adjust_'
     _APPENDER_PREFIX = 'append_'
 
-    data_spec = N6DataSpec()
+    data_spec = N6DataSpecWithOptionalModified()
 
     required_keys = frozenset(data_spec.result_field_specs('required'))
     optional_keys = frozenset(data_spec.result_field_specs('optional')) | {
@@ -625,9 +637,163 @@ class RecordDict(collections_abc.MutableMapping):
         sorted_items = sorted(iterable_or_mapping.items()
                               if isinstance(iterable_or_mapping, collections_abc.Mapping)
                               else iterable_or_mapping)
+
         setitem = self.__setitem__
         for key, value in sorted_items:
+
+            ####################################################################
+            # This is a *temporary hack* to clean data already put into queues #
+            # by an old -- pre-#8814 -- code...                                #
+            try:
+                def _is_no_ip_placeholder(ip):
+                    if ip is not None:
+                        try:
+                            if ipv4_to_str(ip) == LACK_OF_IPv4_PLACEHOLDER_AS_STR:
+                                return True
+                        except (ValueError, TypeError):  # noqa
+                            pass
+                    return False
+                if key == 'dip' and _is_no_ip_placeholder(value):
+                    LOGGER.warning(
+                        f'skipping `dip` whose value is equivalent to '
+                        f'{LACK_OF_IPv4_PLACEHOLDER_AS_STR!a}')
+                    continue
+                if key == 'address' and value:
+                    if hasattr(value, 'keys'):
+                        value = [value]
+                    new_address_list = [
+                        addr for addr in value
+                        if not _is_no_ip_placeholder(addr.get('ip'))]
+                    if len(new_address_list) != len(value):
+                        if not new_address_list:
+                            LOGGER.warning(
+                                f'skipping whole `address`, as all '
+                                f'its `ip` values are equivalent to '
+                                f'{LACK_OF_IPv4_PLACEHOLDER_AS_STR!a} '
+                                f'(skipped `address`: %a)', value)
+                            continue
+                        LOGGER.warning(
+                            f'skipping those address items whose `ip` values are '
+                            f'equivalent to {LACK_OF_IPv4_PLACEHOLDER_AS_STR!a} '
+                            f'(original `address`: %a; filtered `address`: %a)',
+                            value, new_address_list)
+                        value = new_address_list
+                if key == 'enriched' and isinstance(value, list) and len(value) == 2:
+                    enriched_keys, ip_to_enriched_address_keys = value
+                    new_ip_mapping = {
+                        ip: seq for ip, seq in ip_to_enriched_address_keys.items()
+                        if not _is_no_ip_placeholder(ip)}
+                    if len(new_ip_mapping) != len(ip_to_enriched_address_keys):
+                        new_enriched = [enriched_keys, new_ip_mapping]
+                        LOGGER.warning(
+                            f'skipping those IPv4 keys in `enriched[1]` which are '
+                            f'equivalent to {LACK_OF_IPv4_PLACEHOLDER_AS_STR!a} '
+                            f'(original `enriched`: %a; filtered `enriched`: %a)',
+                            value, new_enriched)
+                        value = new_enriched
+                if key == 'name':
+                    if (isinstance(value, str)
+                    ):
+                        value = value.replace('\u2013', '-')
+
+                    elif (isinstance(value, (bytes, bytearray))
+                    ):
+                        value = value.replace(b'\xe2\x80\x93', b'-')
+
+            except Exception as exc:
+                LOGGER.warning(
+                    'Igrored exception which occurred while trying to '
+                    'clean up legacy data - %s', make_exc_ascii_str(exc))
+            # ^^^ to be removed!!! ^^ to be removed!!! ^^ to be removed!!! ^^^ #   see ticket #8899
+            ####################################################################
+
             setitem(key, value)
+
+    ####################################################################
+    # This is a *temporary hack* to clean data already put into queues #
+    # or into the aggregator or comparator state by an old, pre-#8814, #
+    # code... (used in `n6aggregator`, `n6comparator`, `n6anonymizer`) #
+    @classmethod
+    def _update_given_data_by_pipelining_items_thru_rd(cls, data, keys):
+        r"""
+        >>> keys = 'dip', 'address', 'enriched', 'name', 'id', 'category', 'source'
+        >>> data_0 = {}
+        >>> RecordDict._update_given_data_by_pipelining_items_thru_rd(data_0, keys)
+        >>> data_0 == {}
+        True
+        >>> data_1 = {
+        ...     'dip': '0.1.2.3',
+        ...     'address': [{'ip': '0.00.000.0000'}, {'ip': '10.20.30.40', 'cc': 'PL', 'asn': 1}],
+        ...     'enriched': [['fqdn'], {'0.00.000.0000': ['ip'], '10.20.30.40': ['cc', 'asn']}],
+        ...     'name': 'IRC\u0105BotNet',
+        ...     'category': 'bots',
+        ...     'target': 'UNRELATED ITEM',
+        ... }
+        >>> RecordDict._update_given_data_by_pipelining_items_thru_rd(data_1, keys)
+        >>> data_1 == {
+        ...     'dip': '0.1.2.3',
+        ...     'address': [{'ip': '10.20.30.40', 'cc': 'PL', 'asn': 1}],
+        ...     'enriched': (['fqdn'], {'10.20.30.40': ['asn', 'cc']}),
+        ...     'name': 'irc-bot',
+        ...     'category': 'bots',
+        ...     'target': 'UNRELATED ITEM',
+        ... }
+        True
+        >>> data_2 = {
+        ...     'dip': '0.0.000.0',
+        ...     'address': [{'ip': '0.0.0.1'}, {'ip': '0.0.0.0', 'cc': 'PL', 'asn': 1}],
+        ...     'enriched': [['fqdn'], {'0.0.0.1': ['ip'], '0.0.0.0': ['cc', 'asn']}],
+        ...     'name': 'Zażółć Gęślą \u2013 JAŹŃ!',
+        ...     'category': 'other',
+        ...     'id': '0123456789abcdef0123456789abcdef',
+        ...     'source': 'siaua-baba.mak',
+        ...     'target': 'UNRELATED ITEM',
+        ... }
+        >>> RecordDict._update_given_data_by_pipelining_items_thru_rd(data_2, keys)
+        >>> data_2 == {
+        ...     'address': [{'ip': '0.0.0.1'}],
+        ...     'enriched': (['fqdn'], {'0.0.0.1': ['ip']}),
+        ...     'name': 'Za???? G??l? - JA??!',
+        ...     'category': 'other',
+        ...     'id': '0123456789abcdef0123456789abcdef',
+        ...     'source': 'siaua-baba.mak',
+        ...     'target': 'UNRELATED ITEM',
+        ... }
+        True
+        >>> data_3 = {
+        ...     'dip': '0.0.0.0',
+        ...     'address': [{'ip': '0.0.0.0'}, {'ip': '00.0.0.00', 'cc': 'PL', 'asn': 1}],
+        ...     'enriched': [['fqdn'], {'00.0.0.00': ['ip', 'cc', 'asn']}],
+        ...     'name': 'Zażółć Gęślą \u2013 JAŹŃ!'.encode('utf-8'),
+        ...     'category': 'bots',
+        ...     'id': '0123456789abcdef0123456789abcdef',
+        ...     'source': 'boty.ze-si0dme-poty',
+        ...     'target': 'UNRELATED ITEM',
+        ... }
+        >>> RecordDict._update_given_data_by_pipelining_items_thru_rd(data_3, keys)
+        >>> data_3 == {
+        ...     'enriched': (['fqdn'], {}),
+        ...     'name': 'za???? g??l? - ja??!',
+        ...     'category': 'bots',
+        ...     'id': '0123456789abcdef0123456789abcdef',
+        ...     'source': 'boty.ze-si0dme-poty',
+        ...     'target': 'UNRELATED ITEM',
+        ... }
+        True
+
+        """
+        _helper_rd = cls(
+            (key, val)
+            for key in keys
+            if (val := data.get(key)) is not None)
+        _adjusted = _helper_rd._dict
+        for key in keys:
+            if (val := _adjusted.get(key)) is not None:
+                data[key] = val
+            else:
+                data.pop(key, None)
+    # ^^^ to be removed!!! ^^ to be removed!!! ^^ to be removed!!! ^^^ #    see ticket #8899
+    ####################################################################
 
     # record dicts are always deep-copied (to avoid hard-to-find bugs)
     def copy(self):
@@ -706,6 +872,8 @@ class RecordDict(collections_abc.MutableMapping):
         make_multiadjuster(),
         applied_for_nonfalse(
             make_adjuster_using_data_spec('client')))
+
+    adjust_ignored = make_adjuster_using_data_spec('ignored')
 
     adjust_until = chained(
         make_adjuster_using_data_spec('until'),    # will return datetime
@@ -877,6 +1045,7 @@ class RecordDict(collections_abc.MutableMapping):
     adjust_artemis_uuid = make_adjuster_using_data_spec('artemis_uuid')
 
     adjust_block = make_adjuster_using_data_spec('block')
+
     adjust_description = make_adjuster_using_data_spec(
         'description', on_too_long=trim)
 
@@ -1034,6 +1203,7 @@ class RecordDict(collections_abc.MutableMapping):
     # the `name` adjuster is a bit more complex...
     @preceded_by(unicode_adjuster)
     def adjust_name(self, value):
+        value_before_main_adjustments = value
         category = self.get('category')
         if category is None:
             exc = RuntimeError('cannot set "name" when "category" is not set')
@@ -1041,12 +1211,21 @@ class RecordDict(collections_abc.MutableMapping):
             raise exc
         if not value:
             raise ValueError('empty value')
-        if category in CATEGORY_TO_NORMALIZED_NAME:
+
+        shall_normalize_and_check_for_nonstandard = (category in CATEGORY_TO_NORMALIZED_NAME)
+        if shall_normalize_and_check_for_nonstandard:
             value = self._get_normalized_name(value, category)
-            value = self._adjust_name_according_to_data_spec(value)
+        # TODO later: move the following to-ASCII coercion to the data spec field...
+        #             (see ticket #8898)
+        value = value.encode('ascii', 'replace').decode('ascii')  # each non-ASCII char -> '?' char
+        value = self._adjust_name_according_to_data_spec(value)
+        if shall_normalize_and_check_for_nonstandard:
             self._check_and_handle_nonstandard_name(value, category)
-        else:
-            value = self._adjust_name_according_to_data_spec(value)
+        self._name_before_main_adjustments = value_before_main_adjustments
+        assert (isinstance(value, str)
+                and value.isascii()
+                and len(value) <= self.data_spec.name.max_length)
+
         return value
 
     _adjust_name_according_to_data_spec = make_adjuster_using_data_spec(
@@ -1084,8 +1263,35 @@ class RecordDict(collections_abc.MutableMapping):
                               _already_logged=_already_logged_nonstandard_names):
         if (category, value) not in _already_logged:
             category_sublogger = NONSTANDARD_NAMES_LOGGER.getChild(category)
-            category_sublogger.warning(ascii_str(value))
+            category_sublogger.warning(value)
             _already_logged[(category, value)] = None
+
+    # The following method is intended to be called only by the parsers'
+    # machinery of computation of event `id` -- to obtain the `name` in
+    # its legacy form (so that the `id` value remains the same for the
+    # same input data, even though the behavior of `adjust_name` has
+    # changed).
+    def _get_name_in_legacy_form(self):
+        try:
+            # (see the previous-before-the-last line in the definition
+            # of `adjust_name()`)
+            value = self._name_before_main_adjustments
+        except AttributeError as exc:
+            raise AssertionError(
+                'the `_name_before_main_adjustments` record dict '
+                'instance\'s attribute should be present, because '
+                'this method is supposed to be called only if the '
+                'record dict contains the "name" key') from exc
+        else:
+            category = self.get('category')
+            assert category is not None    # (already checked by `adjust_name()`)
+            assert isinstance(value, str)  # (already coerced by `adjust_name()`)
+            # (below we mimic the old behavior of `adjust_name()`...)
+            shall_normalize_and_check_for_nonstandard = (category in CATEGORY_TO_NORMALIZED_NAME)
+            if shall_normalize_and_check_for_nonstandard:
+                value = self._get_normalized_name(value, category)
+            value = value[:255]
+            return value
 
     #
     # Appenders for multiple-adjusted attributes

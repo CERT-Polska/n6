@@ -171,6 +171,7 @@ N6_TO_INTEL_MAP = {
     'header': '',
     'iban': '',
     'id': '',
+    'ignored': '',
     'injects': '',
     'internal_ip': '',
     'ip': 'source.ip',

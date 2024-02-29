@@ -12,26 +12,26 @@ from unittest.mock import (
 
 import sqlalchemy.orm.attributes
 import sqlalchemy.orm.collections
+from sqlalchemy import Column
 from unittest_expander import (
     expand,
     foreach,
     param,
 )
 
+from n6lib.common_helpers import PlainNamespace
 from n6lib.db_events import (
-    IPAddress,
     _IP_COLUMN_NAMES,
     _NO_IP_PLACEHOLDERS,
+    n6ClientToEvent,
     n6NormalizedData,
+    make_raw_result_dict,
 )
-from n6lib.unit_test_helpers import MethodProxy
-
-
-### TODO:
-#class Test__n6ClientToEventunittest.TestCase):
-
-### TODO:
-#class Test__...
+from n6lib.sqlalchemy_related_test_helpers import sqlalchemy_type_to_str
+from n6lib.unit_test_helpers import (
+    MethodProxy,
+    TestCaseMixin,
+)
 
 
 class TestAuxiliaryConstants(unittest.TestCase):
@@ -41,8 +41,79 @@ class TestAuxiliaryConstants(unittest.TestCase):
         self.assertEqual(_NO_IP_PLACEHOLDERS, {'0.0.0.0', 0, -1})
 
 
+class _SqlaModelTestMixin:
+
+    def _get_column_sql_repr(self, col):
+        assert isinstance(self, unittest.TestCase)
+        assert isinstance(col, Column)
+        assert isinstance(col.nullable, bool)
+        r = f'{col.name} {sqlalchemy_type_to_str(col.type)}'
+        if not col.nullable:
+            r += ' NOT NULL'
+        return r
+
+
+class Test_n6ClientToEvent(_SqlaModelTestMixin, unittest.TestCase):
+
+    def test_class_attrs(self):
+        instrumented_attr_names = {
+            name for name, obj in vars(n6ClientToEvent).items()
+            if isinstance(obj, sqlalchemy.orm.attributes.InstrumentedAttribute)}
+        column_names_to_sql_reprs = {
+            name: self._get_column_sql_repr(col)
+            for name in instrumented_attr_names
+            if isinstance(col := getattr(n6ClientToEvent, name).expression, Column)}
+        self.assertEqual(
+            n6ClientToEvent.__tablename__,
+            'client_to_event')
+        self.assertEqual(
+            instrumented_attr_names,
+            {'id', 'time', 'client', 'events'})
+        self.assertEqual(
+            instrumented_attr_names - {'events'},
+            column_names_to_sql_reprs.keys())
+        self.assertEqual(
+            column_names_to_sql_reprs, {
+                'id': 'id BINARY(16) NOT NULL',
+                'time': 'time DATETIME NOT NULL',
+                'client': 'client VARCHAR(32) NOT NULL',
+            })
+
+    def test_init_and_attrs_1(self):
+        obj = n6ClientToEvent(
+            id=sen.event_id,
+            client=sen.some_client_id,
+            time='2014-04-01 01:07:42+02:00',                           # noqa
+            arbitrary_ignored_keyword_argument=sen.whatever,            # noqa
+        )
+        self.assertEqual(obj.id, sen.event_id)
+        self.assertEqual(obj.client, sen.some_client_id)
+        self.assertEqual(obj.time, datetime.datetime(2014, 3, 31, 23, 7, 42))
+        self.assertFalse(hasattr(obj, 'arbitrary_ignored_keyword_argument'))
+
+    def test_init_and_attrs_2(self):
+        obj = n6ClientToEvent(
+            time=datetime.datetime(2014, 3, 31, 23, 7, 42),
+        )
+        self.assertIsNone(obj.id)
+        self.assertIsNone(obj.client)
+        self.assertEqual(obj.time, datetime.datetime(2014, 3, 31, 23, 7, 42))
+
+    def test_init_and_attrs_3(self):
+        obj = n6ClientToEvent(
+            id=None,
+            client=None,                                                # noqa
+            time=datetime.datetime(
+                2014, 4, 1, 1, 7, 42,
+                tzinfo=datetime.timezone(datetime.timedelta(hours=2))),
+        )
+        self.assertIsNone(obj.id)
+        self.assertIsNone(obj.client)
+        self.assertEqual(obj.time, datetime.datetime(2014, 3, 31, 23, 7, 42))
+
+
 @expand
-class Test__n6NormalizedData(unittest.TestCase):
+class Test_n6NormalizedData(_SqlaModelTestMixin, unittest.TestCase):
 
     def setUp(self):
         self.mock = MagicMock()
@@ -53,7 +124,7 @@ class Test__n6NormalizedData(unittest.TestCase):
             name for name, obj in vars(n6NormalizedData).items()
             if isinstance(obj, sqlalchemy.orm.attributes.InstrumentedAttribute)}
         column_names_to_sql_reprs = {
-            str(name): str(self._get_sql_repr(obj))
+            name: self._get_column_sql_repr(obj)
             for name, obj in n6NormalizedData._n6columns.items()}
         self.assertEqual(
             n6NormalizedData.__tablename__,
@@ -81,6 +152,7 @@ class Test__n6NormalizedData(unittest.TestCase):
                 'fqdn',
                 ###'iban',
                 'id',
+                'ignored',
                 ###'injects',
                 'md5',
                 'modified',
@@ -107,17 +179,13 @@ class Test__n6NormalizedData(unittest.TestCase):
             })
         self.assertEqual(
             instrumented_attr_names - {'clients'},
-            set(n6NormalizedData._n6columns))
+            column_names_to_sql_reprs.keys())
         self.assertEqual(
             column_names_to_sql_reprs, {
-                'address': 'address TEXT',  # note: in actual db it is MEDIUMTEXT
+                'address': 'address MEDIUMTEXT',
                 'ip': 'ip INTEGER UNSIGNED NOT NULL',
                 'asn': 'asn INTEGER UNSIGNED',
-                'cc': 'cc VARCHAR(2)',
-                ###'ipv6': '',
-                ###'rdns': '',
-                ###'dir': '',
-
+                'cc': 'cc CHAR(2)',
                 'category': (
                     "category ENUM('amplifier','bots','backdoor','cnc',"
                     "'deface','dns-query','dos-attacker','dos-victim','flow',"
@@ -125,73 +193,67 @@ class Test__n6NormalizedData(unittest.TestCase):
                     "'proxy','sandbox-url','scam','scanning','server-exploit','spam',"
                     "'spam-url','tor','vulnerable','webinject') NOT NULL"),
                 'confidence': "confidence ENUM('low','medium','high') NOT NULL",
-                'count': 'count SMALLINT',
-                'custom': 'custom TEXT',  # note: in actual db it is MEDIUMTEXT
-                'dip': 'dip INTEGER UNSIGNED',
-                'dport': 'dport INTEGER',
-                ###'email': '',
+                'count': 'count INTEGER UNSIGNED',
+                'custom': 'custom MEDIUMTEXT',
+                'dip': 'dip INTEGER UNSIGNED NOT NULL',
+                'dport': 'dport SMALLINT UNSIGNED',
                 'expires': 'expires DATETIME',
                 'fqdn': 'fqdn VARCHAR(255)',
-                ###'iban': '',
                 'id': 'id BINARY(16) NOT NULL',
-                ###'injects': '',
+                'ignored': 'ignored BOOL',
                 'md5': 'md5 BINARY(16)',
-                'modified': 'modified DATETIME',
+                'modified': 'modified DATETIME NOT NULL',
                 'name': 'name VARCHAR(255)',
                 'origin': (
                     "origin ENUM('c2','dropzone','proxy','p2p-crawler',"
                     "'p2p-drone','sinkhole','sandbox','honeypot',"
                     "'darknet','av','ids','waf')"),
-                ###'phone': '',
                 'proto': "proto ENUM('tcp','udp','icmp')",
-                ###'registrar': '',
                 'replaces': 'replaces BINARY(16)',
                 'restriction': "restriction ENUM('public','need-to-know','internal') NOT NULL",
                 'rid': 'rid BINARY(16) NOT NULL',
                 'sha1': 'sha1 BINARY(20)',
                 'sha256': 'sha256 BINARY(32)',
                 'source': 'source VARCHAR(32) NOT NULL',
-                'sport': 'sport INTEGER',
+                'sport': 'sport SMALLINT UNSIGNED',
                 'status': "status ENUM('active','delisted','expired','replaced')",
-                'target': 'target VARCHAR(100)',
+                'target': (
+                    'target VARCHAR(100) '
+                    'CHARACTER SET utf8mb4 '
+                    'COLLATE utf8mb4_unicode_520_ci'),
                 'time': 'time DATETIME NOT NULL',
                 'until': 'until DATETIME',
-                'url': 'url VARCHAR(2048)',
-                ###'url_pattern': '',
-                ###'username': '',
-                ###'x509fp_sha1': '',
+                'url': (
+                    'url VARCHAR(2048) '
+                    'CHARACTER SET utf8mb4 '
+                    'COLLATE utf8mb4_bin'),
             })
 
-    def _get_sql_repr(self, col):
-        type_name = (
-            str(col.type) if not isinstance(col.type, sqlalchemy.types.Enum)
-            else 'ENUM({0})'.format(','.join(
-                    "'{0}'".format(e) for e in col.type.enums)))
-        r = '{0} {1}'.format(col.name, type_name)
-        if isinstance(col.type, IPAddress):
-            self.assertTrue(col.type.impl.mapping['mysql'].unsigned)
-            r += ' UNSIGNED'
-        self.assertIsInstance(col.nullable, bool)
-        if not col.nullable:
-            r += ' NOT NULL'
-        return r
-
     def test_init_and_attrs_1(self):
+        # noinspection PyArgumentList
         obj = self.obj = n6NormalizedData(
             id=sen.event_id,
             ip=sen.some_ip_addr,
+            dip=sen.some_other_ip_addr,
             dport=sen.some_port_number,
             time='2014-04-01 01:07:42+02:00',
+            modified='2014-04-02 01:02:03+02:00',
+            ignored=True,
         )
         self.assertEqual(obj.id, sen.event_id)
         self.assertEqual(obj.ip, sen.some_ip_addr)
+        self.assertEqual(obj.dip, sen.some_other_ip_addr)
         self.assertEqual(obj.dport, sen.some_port_number)
         self.assertEqual(
             obj.time,
             datetime.datetime(2014, 3, 31, 23, 7, 42))
+        self.assertEqual(
+            obj.modified,
+            datetime.datetime(2014, 4, 1, 23, 2, 3))
+        self.assertIs(obj.ignored, True)
 
         for name in n6NormalizedData._n6columns:
-            if name in ('id', 'ip', 'dport', 'time'):
+            if name in ('id', 'ip', 'dip', 'dport', 'time', 'modified', 'ignored'):
                 continue
             val = getattr(obj, name)
             self.assertIsNone(val)
@@ -209,29 +271,70 @@ class Test__n6NormalizedData(unittest.TestCase):
         self.assertEqual(obj.clients, [self.client2, self.client1])
 
     def test_init_and_attrs_2(self):
+        # noinspection PyArgumentList
         obj = self.obj = n6NormalizedData(
             time='2014-04-01 01:07:42+02:00',
+            modified='2014-04-02 01:02:03+02:00',
             expires='2015-04-01 01:07:43+02:00',
             until='2015-04-01 01:07:43+02:00',
+            ignored=False,
         )
         self.assertIsNone(obj.id)
         self.assertEqual(obj.ip, '0.0.0.0')  # "no IP" placeholder
+        self.assertEqual(obj.dip, '0.0.0.0')  # "no IP" placeholder
         self.assertEqual(
             obj.time,
             datetime.datetime(2014, 3, 31, 23, 7, 42))
         self.assertEqual(
+            obj.modified,
+            datetime.datetime(2014, 4, 1, 23, 2, 3))
+        self.assertEqual(
             obj.expires,
             datetime.datetime(2015, 3, 31, 23, 7, 43))
-        ### THIS IS A PROBLEM -- TO BE SOLVED IN #3113:
         self.assertEqual(
             obj.until,
-            '2015-04-01 01:07:43+02:00')
+            datetime.datetime(2015, 3, 31, 23, 7, 43))
+        self.assertIs(obj.ignored, False)
+
+    def test_init_and_attrs_3(self):
+        # noinspection PyArgumentList
+        obj = self.obj = n6NormalizedData(
+            id=None,
+            ip=None,
+            dip=None,
+            time=datetime.datetime(
+                2014, 4, 1, 1, 7, 42,
+                tzinfo=datetime.timezone(datetime.timedelta(hours=2))),
+            modified=datetime.datetime(2014, 4, 1, 23, 2, 3),
+            expires=datetime.datetime(2015, 3, 31, 23, 7, 43),
+            until=datetime.datetime(
+                2015, 4, 1, 1, 7, 43,
+                tzinfo=datetime.timezone(datetime.timedelta(hours=2))),
+            ignored=None,
+        )
+        self.assertIsNone(obj.id)
+        self.assertEqual(obj.ip, '0.0.0.0')  # "no IP" placeholder
+        self.assertEqual(obj.dip, '0.0.0.0')  # "no IP" placeholder
+        self.assertEqual(
+            obj.time,
+            datetime.datetime(2014, 3, 31, 23, 7, 42))
+        self.assertEqual(
+            obj.modified,
+            datetime.datetime(2014, 4, 1, 23, 2, 3))
+        self.assertEqual(
+            obj.expires,
+            datetime.datetime(2015, 3, 31, 23, 7, 43))
+        self.assertEqual(
+            obj.until,
+            datetime.datetime(2015, 3, 31, 23, 7, 43))
+        self.assertIsNone(obj.ignored)
 
     def test__key_query(self):
         self.mock.some_key.in_.return_value = sen.result
         act_result = self.meth.key_query('some_key', sen.value)
         self.assertIs(act_result, sen.result)
         self.mock.some_key.in_.assert_called_once_with(sen.value)
+
 
     @foreach(
         param(
@@ -269,6 +372,37 @@ class Test__n6NormalizedData(unittest.TestCase):
         else:
             with self.assertRaises(exc_type):
                 self.meth.like_query(key, value)
+
+
+    @patch('n6lib.db_events.sqla_text', return_value=sen.sqla_true)
+    def test__single_flag_query__for_true(self, sqla_text_mock):
+        self.mock.some_key.is_.return_value = sen.is_result
+
+        act_result = self.meth.single_flag_query('some_key', [True])
+
+        self.assertEqual(sqla_text_mock.mock_calls, [
+            call('TRUE'),
+        ])
+        self.assertEqual(self.mock.mock_calls, [
+            call.some_key.is_(sen.sqla_true),
+        ])
+        self.assertIs(act_result, sen.is_result)
+
+
+    @patch('n6lib.db_events.sqla_text', return_value=sen.sqla_true)
+    def test__single_flag_query__for_false(self, sqla_text_mock):
+        self.mock.some_key.isnot.return_value = sen.isnot_result
+
+        act_result = self.meth.single_flag_query('some_key', [False])
+
+        self.assertEqual(sqla_text_mock.mock_calls, [
+            call('TRUE'),
+        ])
+        self.assertEqual(self.mock.mock_calls, [
+            call.some_key.isnot(sen.sqla_true),
+        ])
+        self.assertIs(act_result, sen.isnot_result)
+
 
     @foreach(
         param(
@@ -322,7 +456,8 @@ class Test__n6NormalizedData(unittest.TestCase):
             with self.assertRaises(exc_type):
                 self.meth.ip_net_query(key, value)
         # the only operation on the key was one unequality test (against 'ip.net')
-        key.__ne__.assert_called_once_with('ip.net')
+        key.__ne__.assert_called_once_with('ip.net')                    # noqa
+
 
     @foreach(
         param(key='active.min', cmp_meth_name='__ge__'),
@@ -367,6 +502,7 @@ class Test__n6NormalizedData(unittest.TestCase):
             with self.assertRaises(exc_type):
                 self.meth.active_bl_query(key, value)
 
+
     @foreach(
         param('modified.min', cmp_meth_name='__ge__'),
         param('modified.max', cmp_meth_name='__le__'),
@@ -385,28 +521,116 @@ class Test__n6NormalizedData(unittest.TestCase):
             with self.assertRaises(exc_type):
                 self.meth.modified_query(key, value)
 
-    def test__to_raw_result_dict__1(self):
-        self.test_init_and_attrs_1()
-        self.obj.dip = sen.some_other_ip_addr
-        d = self.obj.to_raw_result_dict()
-        self.assertEqual(d, {
-            'id': sen.event_id,
-            'ip': sen.some_ip_addr,
-            'dip': sen.some_other_ip_addr,
-            'dport': sen.some_port_number,
-            'time': datetime.datetime(2014, 3, 31, 23, 7, 42),
-            'client': ['c1', 'c2'],
-        })
 
-    def test__to_raw_result_dict__2(self):
-        self.test_init_and_attrs_2()
-        self.obj.dip = '0.0.0.0'  # "no IP" placeholder
-        d = self.obj.to_raw_result_dict()
-        self.assertEqual(d, {
-            # note that ip='0.0.0.0' and dip='0.0.0.0' have been removed
-            # (see: `n6lib.const.LACK_OF_IPv4_PLACEHOLDER_AS_STR`...)
-            'time': datetime.datetime(2014, 3, 31, 23, 7, 42),
-            'expires': datetime.datetime(2015, 3, 31, 23, 7, 43),
-            ### THIS IS A PROBLEM -- TO BE SOLVED IN #3113:
-            'until': '2015-04-01 01:07:43+02:00',
-        })
+@expand
+class Test_make_raw_result_dict(TestCaseMixin, unittest.TestCase):
+
+    @foreach(
+        param(
+            colum_to_value=dict(),  # <- All columns set to None...
+            client_org_ids=set(),
+            expected_result_dict=dict(),  # (skipped all None values)
+        ),
+
+        param(
+            colum_to_value=dict(),
+            client_org_ids=frozenset({'o2', 'o1', 'o3'}),
+            expected_result_dict=dict(
+                # (added `client`,
+                # skipped all None values)
+                client=['o1', 'o2', 'o3']
+            ),
+        ),
+
+        param(
+            colum_to_value=dict(
+                dip='1.2.3.4',
+                dport=0,
+            ),
+            client_org_ids=set(),
+            expected_result_dict=dict(
+                # (skipped all None values)
+                dip='1.2.3.4',
+                dport=0,
+            ),
+        ),
+
+        param(
+            colum_to_value=dict(
+                id=sen.event_id,
+                ip='1.2.3.4',
+                dip='0.0.0.0',   # "no IP" placeholder
+                dport=42,
+                time=sen.some_dt,
+                modified=sen.some_other_dt,
+                extra_noncolumn=sen.WHATEVER,
+                another_extra_noncolumn=sen.WHAAATEVER,
+            ),
+            client_org_ids=set(),
+            expected_result_dict=dict(
+                # (skipped all None values and non-column keys,
+                # skipped `dip` set to "no IP" placeholder)
+                id=sen.event_id,
+                ip='1.2.3.4',
+                dport=42,
+                time=sen.some_dt,
+                modified=sen.some_other_dt,
+            ),
+        ),
+
+        param(
+            colum_to_value=dict(
+                id=sen.event_id,
+                ip='0.0.0.0',    # "no IP" placeholder
+                time=sen.some_dt,
+                modified=sen.some_other_dt,
+                custom={'foo': sen.WHATEVER},
+                extra_noncolumn=None,
+            ),
+            client_org_ids=['o2', 'o1', 'o3'],
+            expected_result_dict=dict(
+                # (added `client`,
+                # skipped all None values and non-column keys,
+                # skipped `ip` set to "no IP" placeholder)
+                client=['o1', 'o2', 'o3'],
+                id=sen.event_id,
+                time=sen.some_dt,
+                modified=sen.some_other_dt,
+                custom={'foo': sen.WHATEVER},
+            ),
+        ),
+
+        param(
+            colum_to_value=dict(
+                ip=0,    # "no IP" placeholder
+                dip=-1,  # "no IP" placeholder (legacy)
+                address=sen.some_address,
+                time=sen.some_dt,
+                modified=sen.some_other_dt,
+            ),
+            client_org_ids={'o1'},
+            expected_result_dict=dict(
+                # (added `client`,
+                # skipped all None values,
+                # skipped `ip` and `dip` set to "no IP" placeholders)
+                client=['o1'],
+                address=sen.some_address,
+                time=sen.some_dt,
+                modified=sen.some_other_dt,
+            ),
+        ),
+    )
+    def test(self, colum_to_value, client_org_ids, expected_result_dict):
+        column_values_source_object = self._make_row_fake(colum_to_value)
+        result_dict = make_raw_result_dict(column_values_source_object, client_org_ids)
+        self.assertEqualIncludingTypes(result_dict, expected_result_dict)
+
+    def _make_row_fake(self, colum_to_value):
+        column_to_none = dict.fromkeys(n6NormalizedData._n6columns)
+        row = PlainNamespace(**(column_to_none | colum_to_value))
+        assert row.fqdn is None  # (example of column with no value)
+        return row
+
+
+### TODO:
+#class Test_...

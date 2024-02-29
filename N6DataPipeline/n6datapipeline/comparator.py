@@ -391,6 +391,17 @@ class Comparator(LegacyQueuedBase):
         for k in list(data.keys()):
             if k.startswith("_bl-series"):
                 del data[k]
+
+        ####################################################################
+        # This is a *temporary hack* to clean data already put into queues #
+        # or into the comparator state by an old -- pre-#8814 -- code...   #
+        from n6lib.record_dict import RecordDict
+        RecordDict._update_given_data_by_pipelining_items_thru_rd(
+            data,
+            keys=('dip', 'address', 'enriched', 'name', 'id', 'category', 'source'))
+        # ^^^ to be removed!!! ^^ to be removed!!! ^^ to be removed!!! ^^^ #   see ticket #8899
+        ####################################################################
+
         return data
 
     def publish_event(self, data):

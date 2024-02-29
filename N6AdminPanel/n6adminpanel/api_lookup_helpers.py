@@ -6,7 +6,7 @@ from typing import Optional
 
 from flask import g
 from flask_admin.model import InlineFormAdmin
-from jinja2 import Markup
+from markupsafe import Markup
 from wtforms import (
     StringField,
     IntegerField,

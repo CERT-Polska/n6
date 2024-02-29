@@ -252,6 +252,27 @@ class Future(object):
                 raise self._exc_info[1]
             return self._res
 
+    def peek_result(self, default=None):
+        """
+        Check, without blocking or raising any exception, if the future
+        has already made its result value available (and if that has not
+        been spoiled by an exception or cancellation), and what that
+        result value is.
+
+        Args/kwargs:
+            `default` (optional, defaults to `None`):
+                The default value -- to be returned if the actual result
+                value cannot be retrieved.
+
+        Returns:
+            The future's result value if the check described above is
+            successful. Otherwise, the value of `default`.
+        """
+        with self._cond_var:
+            if self._done and self._exc_info is None:
+                return self._res
+            return default
+
     def done(self):
         """
         Check, without blocking or raising any exception, if the
@@ -429,6 +450,8 @@ class Task(threading.Thread):
                  cancel_and_join_at_python_exit=False,
                  force_daemon=None,
                  initial_sleep=None,
+                 initial_trigger_event=None,
+                 initial_trigger_event_timeout=30,
                  **other_thread_kwargs):
         """
         Initialization of a new `Task`.
@@ -471,6 +494,20 @@ class Task(threading.Thread):
                 If given and not `None`, `time.sleep(initial_sleep)`
                 will be called in the task's thread before running
                 the actual task's operation.
+            initial_trigger_event (optional; default: `None`):
+                If given and not `None`, its method `wait()`, with the
+                value of `initial_trigger_event_timeout` (see below) as
+                the sole positional argument, will be called in the
+                task's thread before running the actual task's operation
+                (but *after* `time.sleep(initial_sleep)` if the argument
+                `initial_sleep` is given and not `None`); if the call
+                returns false then a `RuntimeError` is raised.
+                Typically, `initial_trigger_event` (if not `None`)
+                is a `threading.Event` instance.
+            initial_trigger_event_timeout (optional; default: `30`):
+                If given and not `None`, it is supposed to be an `int`
+                or `float` number. See the above description of
+                `initial_trigger_event`.
             **other_thread_kwargs (optional):
                 Keyword arguments to be passed to `Thread.__init__()`.
 
@@ -496,6 +533,8 @@ class Task(threading.Thread):
         self._future = future
         self._cancel_and_join_at_python_exit = cancel_and_join_at_python_exit
         self._initial_sleep = initial_sleep
+        self._initial_trigger_event = initial_trigger_event
+        self._initial_trigger_event_timeout = initial_trigger_event_timeout
 
     def __repr__(self):
         repr_text = super(Task, self).__repr__()
@@ -549,6 +588,10 @@ class Task(threading.Thread):
         try:
             if self._initial_sleep is not None:
                 time.sleep(self._initial_sleep)
+            if self._initial_trigger_event is not None:
+                timeout = self._initial_trigger_event_timeout
+                if not self._initial_trigger_event.wait(timeout):
+                    raise RuntimeError(f'initial trigger event timeout ({timeout!a})')
             LOGGER.debug('Starting actual operation of %a...', self)
             self._actual_operation()
         except:

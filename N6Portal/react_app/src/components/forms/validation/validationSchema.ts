@@ -2,6 +2,7 @@ import {
   composeValidators,
   isRequired,
   maxLength,
+  mustBeAscii,
   mustBeEmail,
   mustBeLoginEmail,
   mustBeMobilePhone,
@@ -75,7 +76,11 @@ export const validatePortNumberRequired = composeValidatorsForMultivalues({
   mustBeNumber,
   mustBePortNumber
 });
-export const validateIncidentNameRequired = composeValidatorsForMultivalues({ isRequired, maxLength: maxLength(255) });
+export const validateIncidentNameRequired = composeValidatorsForMultivalues({
+  isRequired,
+  mustBeAscii,
+  maxLength: maxLength(255)
+});
 export const validateTargetRequired = composeValidatorsForMultivalues({ isRequired, maxLength: maxLength(100) });
 export const validateUrlRequired = composeValidatorsForMultivalues({
   isRequired,

@@ -1,4 +1,4 @@
-# Copyright (c) 2022 NASK. All rights reserved.
+# Copyright (c) 2022-2023 NASK. All rights reserved.
 
 import datetime
 import time
@@ -202,11 +202,10 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             expected_error=TypeError,
         ).label('6. Invalid example - argument `auth_token_cache_dir` is None.'),
     )
-    def test___init__(self,
-                      custom_domain=None,
-                      external_config=None,
-                      expected_error=None,
-                      ):
+    def test__init(self,
+                   custom_domain=None,
+                   external_config=None,
+                   expected_error=None):
 
         if expected_error is not None:
             with self.assertRaises(expected_error):
@@ -253,8 +252,8 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
                                    custom_domain=None,
                                    expected_domain=None,
                                    expected_error=None,
-                                   custom_config=DEFAULT__VALID_CLIENT_ESSENTIALS,
-                                   ):
+                                   custom_config=DEFAULT__VALID_CLIENT_ESSENTIALS):
+
         instance = BaddomainsApiClient(
             # this (valid) domain will be replaced
             # - we are not testing __init__() here
@@ -325,8 +324,8 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
                          custom_data=None,
                          expected_url=None,
                          expected_error=None,
-                         custom_config=DEFAULT__VALID_CLIENT_ESSENTIALS,
-                         ):
+                         custom_config=DEFAULT__VALID_CLIENT_ESSENTIALS):
+
         instance = BaddomainsApiClient(
             # this is just sample valid domain to let us
             # test other aspects of the client.
@@ -490,12 +489,13 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             'Just one of two mandatory keys (`key_3`) in response.'
         ),
     )
-    def test__react_to_response_dict_errors_or_checks(
+    def test__check_response_dict(
             self,
             custom_response=None,
             custom_mandatory_response_keys=None,
             custom_exc=None,
             expected_error=None):
+
         instance = BaddomainsApiClient(
             # this is just sample valid domain to let us
             # test other aspects of the client.
@@ -571,8 +571,8 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             expected_result=None,
             expected_logs_msg=None,
             expected_error=None,
-            custom_config=DEFAULT__VALID_CLIENT_ESSENTIALS,
-            ):
+            custom_config=DEFAULT__VALID_CLIENT_ESSENTIALS):
+
         self.patch(
             "n6lib.baddomains_api_client.BaddomainsApiClient._perform_custom_request",
             side_effect=perform_request_mocked_responses)
@@ -656,8 +656,8 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
             expected_result=None,
             expected_logs_msg=None,
             expected_error=None,
-            custom_config=DEFAULT__VALID_CLIENT_ESSENTIALS,
-            ):
+            custom_config=DEFAULT__VALID_CLIENT_ESSENTIALS):
+
         self.patch("n6lib.baddomains_api_client.BaddomainsApiClient._perform_custom_request",
                    side_effect=perform_request_mocked_responses)
         baddomains_api_client = BaddomainsApiClient(domain=custom_domain,
@@ -761,8 +761,8 @@ class TestBaddomainsApiClient(unittest.TestCase, TestCaseMixin):
                           expected_client_details=None,
                           expected_error=None,
                           expected_logs_msg=None,
-                          custom_config=DEFAULT__VALID_CLIENT_ESSENTIALS,
-                          ):
+                          custom_config=DEFAULT__VALID_CLIENT_ESSENTIALS):
+
         self.patch(
             "n6lib.baddomains_api_client.BaddomainsApiClient._perform_custom_request",
             side_effect=perform_request_mocked_responses)

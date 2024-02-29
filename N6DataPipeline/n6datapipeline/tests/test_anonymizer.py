@@ -18,9 +18,12 @@ from unittest_expander import (
 )
 
 from n6datapipeline.aux.anonymizer import Anonymizer
-from n6lib.const import EVENT_TYPE_ENUMS
-from n6lib.data_spec import N6DataSpec
+from n6lib.const import (
+    EVENT_TYPE_ENUMS,
+    RESTRICTION_ENUMS,
+)
 from n6lib.db_filtering_abstractions import RecordFacadeForPredicates
+from n6lib.record_dict import N6DataSpecWithOptionalModified
 from n6lib.unit_test_helpers import TestCaseMixin, MethodProxy
 from n6sdk.exceptions import (
     ResultKeyCleaningError,
@@ -34,7 +37,7 @@ class TestAnonymizer__input_callback(TestCaseMixin, unittest.TestCase):
 
     def setUp(self):
         self.event_type = 'bl-update'
-        self.event_data = {'some...': 'content...', 'id': 'some id...'}
+        self.event_data = {'some...': 'content...', 'id': '00112233445566778899aabbccddeeff'}
         self.routing_key = self.event_type + '.filtered.*.*'
         self.body = json.dumps(self.event_data).encode('ascii')
         self.resource_to_org_ids = {}
@@ -283,7 +286,7 @@ class TestAnonymizer___get_resource_to_org_ids(TestCaseMixin, unittest.TestCase)
         self.mock = MagicMock(__class__=Anonymizer)
         self.meth = MethodProxy(Anonymizer, self.mock)
 
-        self.mock.data_spec = N6DataSpec()
+        self.mock.data_spec = N6DataSpecWithOptionalModified()
         self.mock.auth_api.get_source_ids_to_subs_to_stream_api_access_infos.return_value = \
             self.s_to_s_to_saai = {
                 'src.empty': {},
@@ -428,7 +431,29 @@ class TestAnonymizer___get_resource_to_org_ids(TestCaseMixin, unittest.TestCase)
             ),
         ).label('some matching subsources and organizations (only "threats")'),
     )
-    def test_normal(self, event_data, expected_result):
+    @foreach(
+        # **For this test** the value of `ignored` should be
+        # irrelevant because we have only two predicates here:
+        # `YES_predicate()` and `NO_predicate()` (they are test-only,
+        # "mocked" predicates, i.e., they return just fixed values,
+        # without any inspection of given event data records).
+        param(ignored=sen.ABSENT),
+        param(ignored=False),
+        param(ignored=True),
+    )
+    @foreach([
+        # **For this test** the value of `restriction` should be
+        # irrelevant because we have only two predicates here:
+        # `YES_predicate()` and `NO_predicate()` (they are test-only,
+        # "mocked" predicates, i.e., they return just fixed values,
+        # without any inspection of given event data records).
+        param(restriction=restriction)
+        for restriction in RESTRICTION_ENUMS
+    ])
+    def test_normal(self, restriction, ignored, event_data, expected_result):
+        event_data = dict(event_data, restriction=restriction)
+        if ignored is not sen.ABSENT:
+            event_data['ignored'] = ignored
         expected_mock_calls = [
             call.auth_api.get_source_ids_to_subs_to_stream_api_access_infos(),
         ]
@@ -474,12 +499,12 @@ class TestAnonymizer___get_result_dicts_and_output_body(TestCaseMixin, unittest.
     event_raw_base = dict(
         id=(32 * '3'),
         rid=(32 * '4'),        # (restricted - to be skipped before *value* cleaning)
+        ignored=False,         # (restricted - to be skipped before *value* cleaning)
         source='some.source',  # (to be anonymized)
         restriction='public',
         confidence='low',
         category='malurl',
         time='2013-07-12 11:30:00',
-        modified='2013-07-12 12:31:02',
     )
 
     cleaned_base = dict(
@@ -489,7 +514,6 @@ class TestAnonymizer___get_result_dicts_and_output_body(TestCaseMixin, unittest.
         confidence='low',
         category='malurl',
         time=datetime.datetime(2013, 7, 12, 11, 30, 0),
-        modified=datetime.datetime(2013, 7, 12, 12, 31, 2),
         type=sen.TO_BE_SET,
     )
 
@@ -498,7 +522,7 @@ class TestAnonymizer___get_result_dicts_and_output_body(TestCaseMixin, unittest.
         self.mock = MagicMock(__class__=Anonymizer)
         self.meth = MethodProxy(Anonymizer, self.mock)
 
-        self.mock.data_spec = N6DataSpec()
+        self.mock.data_spec = N6DataSpecWithOptionalModified()
         self.mock.auth_api.get_anonymized_source_mapping.return_value = {
             'forward_mapping': self.forward_source_mapping,
         }
@@ -656,13 +680,10 @@ class TestAnonymizer___get_result_dicts_and_output_body(TestCaseMixin, unittest.
     @staticmethod
     def _get_expected_body_content(expected_cleaned):
         formatted_time = expected_cleaned['time'].isoformat() + 'Z'
-        formatted_modified = expected_cleaned['modified'].isoformat() + 'Z'
         assert formatted_time[10] == 'T' and formatted_time[-1] == 'Z'
-        assert formatted_modified[10] == 'T' and formatted_modified[-1] == 'Z'
         return dict(
             expected_cleaned,
-            time=formatted_time,
-            modified=formatted_modified)
+            time=formatted_time)
 
 
     @foreach(

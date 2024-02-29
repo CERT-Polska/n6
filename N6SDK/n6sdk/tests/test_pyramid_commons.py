@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2023 NASK. All rights reserved.
 
 import unittest
 from unittest.mock import (
@@ -32,7 +32,7 @@ from n6sdk.pyramid_commons import (
 )
 
 
-class Test__get_default_http_methods(unittest.TestCase):
+class Test_get_default_http_methods(unittest.TestCase):
 
     def test_for_AbstractViewBase(self):
         self.assertEqual(
@@ -45,7 +45,7 @@ class Test__get_default_http_methods(unittest.TestCase):
             'GET')
 
 
-class TestDefaultStreamViewBase__validate_url_pattern(unittest.TestCase):
+class TestDefaultStreamViewBase_validate_url_pattern(unittest.TestCase):
 
     prefix = '/some-url-path/incidents'
 
@@ -77,7 +77,7 @@ class TestDefaultStreamViewBase__validate_url_pattern(unittest.TestCase):
 
 @patch('n6sdk.pyramid_commons._pyramid_commons.registered_stream_renderers',
        new={'some': MagicMock(), 'another': MagicMock()})
-class TestDefaultStreamViewBase__concrete_view_class(unittest.TestCase):
+class TestDefaultStreamViewBase_concrete_view_class(unittest.TestCase):
 
     _KWARGS_BASE = dict(
         resource_id='/some/resource.id',
@@ -130,7 +130,7 @@ class TestDefaultStreamViewBase__concrete_view_class(unittest.TestCase):
                 renderers=['some_unregistered']))
 
 
-class TestDefaultStreamViewBase__iter_deduplicated_params(unittest.TestCase):
+class TestDefaultStreamViewBase_iter_deduplicated_params(unittest.TestCase):
 
     def test(self):
         func = DefaultStreamViewBase.iter_deduplicated_params
@@ -186,7 +186,7 @@ class TestDefaultStreamViewBase__iter_deduplicated_params(unittest.TestCase):
         ])
 
 
-class TestDefaultStreamViewBase__call_api(unittest.TestCase):
+class TestDefaultStreamViewBase_call_api(unittest.TestCase):
 
     class SomeAdjustedExc(Exception):
         def __init__(self, given_exc):
@@ -222,23 +222,42 @@ class TestDefaultStreamViewBase__call_api(unittest.TestCase):
 
         self.cls._get_renderer_name = (lambda self: 'some')
         self.cls.call_api_method = MagicMock()
-        self.cls.call_api_method.return_value = self.call_iter = iter([
-            sen.result_dict_1,
-            sen.result_dict_2,
-            sen.result_dict_3,
-        ])
+        self.cls.call_api_method.return_value = self._fake_backend_iter()
+
+        # To be set in `_fake_backend_iter()`:
+        self.backend_iter_finished = None
+
+        # To be set in `_do_call()`:
+        self.results = None
+        self.not_produced_at_all = None
 
         self.cls.get_clean_result_dict_kwargs = MagicMock(
             return_value={'kwarg': sen.kwarg})
 
         self.obj = self.cls(sen.context, self.request)
-        self.results = []
+
+    def _fake_backend_iter(self):
+        max_num_of = len(self.not_produced_at_all)
+        assert max_num_of == 3, 'internal test assumption'
+        self.backend_iter_finished = False
+        try:
+            for _ in range(max_num_of):
+                result_dict = self.not_produced_at_all.pop(0)
+                yield result_dict
+        finally:
+            self.backend_iter_finished = True
 
     def _do_call(self):
-        result_generator = self.obj.call_api()
+        self.results = []
+        self.not_produced_at_all = [
+            sen.result_dict_1,
+            sen.result_dict_2,
+            sen.result_dict_3,
+        ]
+        call_api_iterator = self.obj.call_api()
         while True:
             try:
-                self.results.append(next(result_generator))
+                self.results.append(next(call_api_iterator))
             except StopIteration:
                 break
 
@@ -257,6 +276,7 @@ class TestDefaultStreamViewBase__call_api(unittest.TestCase):
             with self.assertRaises(exc_class):
                 self._do_call()
             self.assertEqual(self.adjust_exc.call_count, 0)
+        self.assertTrue(self.backend_iter_finished)
         self.cls.get_clean_result_dict_kwargs.assert_called_once_with()
         self.cls.call_api_method.assert_called_once_with(sen.api_method)
         self.assertEqual(self.data_spec.clean_result_dict.mock_calls, [
@@ -266,13 +286,13 @@ class TestDefaultStreamViewBase__call_api(unittest.TestCase):
         self.assertEqual(self.results, [
             sen.cleaned_result_dict_1,
         ])
-        not_comsumed_result_dicts = list(self.call_iter)
-        self.assertEqual(not_comsumed_result_dicts, [
+        self.assertEqual(self.not_produced_at_all, [
             sen.result_dict_3,
         ])
 
     def test_full_success(self):
         self._do_call()
+        self.assertTrue(self.backend_iter_finished)
         self.assertEqual(self.adjust_exc.call_count, 0)
         self.cls.get_clean_result_dict_kwargs.assert_called_once_with()
         self.cls.call_api_method.assert_called_once_with(sen.api_method)
@@ -290,6 +310,7 @@ class TestDefaultStreamViewBase__call_api(unittest.TestCase):
     def test_skipping_result_when_it_is_None(self):
         self.cleaned_list[1] = None
         self._do_call()
+        self.assertTrue(self.backend_iter_finished)
         self.assertEqual(self.adjust_exc.call_count, 0)
         self.cls.get_clean_result_dict_kwargs.assert_called_once_with()
         self.cls.call_api_method.assert_called_once_with(sen.api_method)
@@ -308,13 +329,13 @@ class TestDefaultStreamViewBase__call_api(unittest.TestCase):
         with self.assertRaises(self.SomeAdjustedExc) as cm:
             self._do_call()
         self.assertIsInstance(cm.exception.given_exc, Exception)
+        self.assertIsNone(self.backend_iter_finished)  # (<- not even started)
         self.assertEqual(self.adjust_exc.call_count, 1)
         self.cls.get_clean_result_dict_kwargs.assert_called_once_with()
         self.cls.call_api_method.assert_called_once_with(sen.api_method)
         self.assertEqual(self.data_spec.clean_result_dict.call_count, 0)
         self.assertEqual(self.results, [])
-        not_comsumed_result_dicts = list(self.call_iter)
-        self.assertEqual(not_comsumed_result_dicts, [
+        self.assertEqual(self.not_produced_at_all, [
             sen.result_dict_1,
             sen.result_dict_2,
             sen.result_dict_3,
@@ -328,6 +349,7 @@ class TestDefaultStreamViewBase__call_api(unittest.TestCase):
         self.cleaned_list[1] = ResultCleaningError
         self.cls.break_on_result_cleaning_error = False
         self._do_call()
+        self.assertTrue(self.backend_iter_finished)
         self.assertEqual(LOGGER.mock_calls, [
             call.error(ANY, ANY),
         ])
@@ -376,7 +398,7 @@ class TestConfigHelper(unittest.TestCase):
     # def test...
 
     @patch('n6sdk.pyramid_commons._pyramid_commons.exc_to_http_exc')
-    def test__exception_view(self, exc_to_http_exc_mock):
+    def test_exception_view(self, exc_to_http_exc_mock):
         http_exc = HTTPNotFound('FOO')
         exc_to_http_exc_mock.return_value = http_exc
         assert http_exc.code == 404
@@ -395,7 +417,7 @@ class TestConfigHelper(unittest.TestCase):
         ])
 
     @patch('n6sdk.pyramid_commons._pyramid_commons.exc_to_http_exc')
-    def test__exception_view__http_exc_body_already_set(self, exc_to_http_exc_mock):
+    def test_exception_view__http_exc_body_already_set(self, exc_to_http_exc_mock):
         http_exc = HTTPNotFound('FOO', body=b'SPAM', content_type='text/spam')
         exc_to_http_exc_mock.return_value = http_exc
         assert http_exc.code == 404
@@ -412,7 +434,7 @@ class TestConfigHelper(unittest.TestCase):
         ])
 
 
-class Test__exc_to_http_exc(unittest.TestCase):
+class Test_exc_to_http_exc(unittest.TestCase):
 
     @patch('n6sdk.pyramid_commons._pyramid_commons.LOGGER')
     def test_HTTPException_no_server_error(self, LOGGER):
