@@ -24,7 +24,7 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
-## [4.10.0.beta1] - 2024-02-29
+## [4.10.0-beta2] - 2024-02-29
 
 *Note: this is a prerelease.*
 
@@ -434,6 +434,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **This is the first public release of *n6*.**
 
 
+[4.10.0-beta2]: https://github.com/CERT-Polska/n6/compare/v4.5.0...v4.10.0b2
 [4.5.0]: https://github.com/CERT-Polska/n6/compare/v4.4.0...v4.5.0
 [4.4.0]: https://github.com/CERT-Polska/n6/compare/v4.0.1...v4.4.0
 [4.0.1]: https://github.com/CERT-Polska/n6/compare/v4.0.0...v4.0.1
