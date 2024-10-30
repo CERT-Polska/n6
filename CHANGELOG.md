@@ -24,14 +24,14 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
-## [4.10.0-beta2] - 2024-02-29
+## [4.12.0-beta1] (2024-10-30)
 
 *Note: this is a prerelease.*
 
-[**TBD:** release notes for the final release `4.10.0`]
+[**TBD:** release notes for the final release `4.12.0`]
 
 
-## [4.5.0] - 2023-11-29
+## [4.5.0] (2023-11-29)
 
 ### Features and Notable Changes
 
@@ -67,7 +67,7 @@ Some features of this document's layout were inspired by
   version tags*.
 
 
-## [4.4.0] - 2023-11-23
+## [4.4.0] (2023-11-23)
 
 ### Features and Notable Changes
 
@@ -330,13 +330,13 @@ Some features of this document's layout were inspired by
   code.
 
 
-## [4.0.1] - 2023-06-03
+## [4.0.1] (2023-06-03)
 
 - [docs, setup] Fixed generation of the docs by upgrading `mkdocs` to the
   version `1.2.4`.
 
 
-## [4.0.0] - 2023-06-03
+## [4.0.0] (2023-06-03)
 
 **This release is a big milestone.**
 
@@ -382,7 +382,7 @@ Note that some of the changes are *not* backwards compatible.
 [...]
 
 
-## [3.0.1] - 2021-12-03
+## [3.0.1] (2021-12-03)
 
 - [docs] A bunch of fixes and improvements regarding the documentation,
   including major changes to its structure, layout and styling.
@@ -395,7 +395,7 @@ Note that some of the changes are *not* backwards compatible.
   package has been removed.
 
 
-## [3.0.0] - 2021-12-01
+## [3.0.0] (2021-12-01)
 
 **This release is a big milestone.** It includes, among others:
 
@@ -429,12 +429,12 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 [...]
 
 
-## [2.0.0] - 2018-06-22
+## [2.0.0] (2018-06-22)
 
-**This is the first public release of *n6*.**
+**The first public release of *n6*.**
 
 
-[4.10.0-beta2]: https://github.com/CERT-Polska/n6/compare/v4.5.0...v4.10.0b2
+[4.12.0-beta1]: https://github.com/CERT-Polska/n6/compare/v4.5.0...v4.12.0b1
 [4.5.0]: https://github.com/CERT-Polska/n6/compare/v4.4.0...v4.5.0
 [4.4.0]: https://github.com/CERT-Polska/n6/compare/v4.0.1...v4.4.0
 [4.0.1]: https://github.com/CERT-Polska/n6/compare/v4.0.0...v4.0.1

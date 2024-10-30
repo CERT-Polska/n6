@@ -19,6 +19,7 @@ from n6lib.auth_db.fields import (
     NoWhitespaceSecretField,
     TimeHourMinuteField,
     URLSimpleField,
+    HTTPAbsoluteURLField,
     UserLoginField,
     UUID4SecretField,
 )
@@ -31,6 +32,7 @@ from n6lib.data_spec.fields import (
     SourceField,
 )
 from n6lib.record_dict import (
+    applied_for_nonfalse,
     chained,
     make_adjuster_applying_callable,
     make_adjuster_using_data_spec,
@@ -202,6 +204,7 @@ class _AuthDBValidatorsDataSpec(BaseDataSpec):
     time_keeping_microseconds = DateTimeCustomizedField(keep_sec_fraction=True)
     time_hour_minute = TimeHourMinuteField()
     url = URLSimpleField()
+    http_absolute_url = HTTPAbsoluteURLField()
 
     registration_request_email_being_candidate_login = (
         RegistrationRequestEmailBeingCandidateLoginField())
@@ -283,6 +286,13 @@ class AuthDBValidators(object):
         _adjust_ascii_only_ldap_safe_to_unicode_stripped,
         make_adjuster_using_data_spec('component_login'))
 
+    validator_for__org_config_update_request_user_addition_or_activation_request__user_login = chained(  # noqa
+        _adjust_ascii_only_ldap_safe_to_unicode_stripped,
+        make_adjuster_using_data_spec('user_login'))
+    validator_for__org_config_update_request_user_deactivation_request__user_login = chained(
+        _adjust_ascii_only_ldap_safe_to_unicode_stripped,
+        make_adjuster_using_data_spec('user_login'))
+
     validator_for__user__api_key_id = chained(
         _adjust_to_unicode_stripped,
         make_adjuster_using_data_spec('uuid4'))
@@ -343,6 +353,26 @@ class AuthDBValidators(object):
         make_adjuster_using_data_spec('entity_extra_id_type_label'))
     validator_for__entity_extra_id__value = (
         make_adjuster_using_data_spec('entity_extra_id'))
+    
+    validator_for__agreement__label = _adjust_ascii_only_ldap_safe_to_unicode_stripped_or_none
+    validator_for__agreement__en = chained(
+        _adjust_to_unicode_stripped,
+        _adjust_to_none_if_empty_or_whitespace)
+    validator_for__agreement__pl = chained(
+        _adjust_to_unicode_stripped,
+        _adjust_to_none_if_empty_or_whitespace)
+    validator_for__agreement__url_en = chained(
+        _adjust_to_unicode_stripped,
+        applied_for_nonfalse(
+            make_adjuster_using_data_spec('http_absolute_url')),
+        _adjust_to_none_if_empty_or_whitespace)
+
+    validator_for__agreement__url_pl = chained(
+        _adjust_to_unicode_stripped,
+        applied_for_nonfalse(
+            make_adjuster_using_data_spec('http_absolute_url')),
+        _adjust_to_none_if_empty_or_whitespace)
+
 
     validator_for__recent_write_op_commit__made_at = _adjust_time_keeping_microseconds
 

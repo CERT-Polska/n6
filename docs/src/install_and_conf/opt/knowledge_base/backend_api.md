@@ -1,4 +1,4 @@
-# Backend API
+# _n6 Portal_ Backend API
 
 When it comes to the *knowledge base*, the *n6 Portal*'s backend API provides the following endpoints:
 * *Table of Contents* (`GET /knowledge_base/contents`),
@@ -13,7 +13,7 @@ URL: `/knowledge_base/contents`
 Description: getting the table of contents of the knowledge base (for logged in user)  
 Methods: `GET`  
 Authentication required: yes  
-Parameters: lack  
+Parameters: none  
 Posible HTTP responses:
 - **200 OK** - table of contents in JSON format
 - **403 Forbidden** - client is *not* authenticated
@@ -81,7 +81,7 @@ URL: `/knowledge_base/articles/<article_id>`
 Description: getting fixed article in all language versions (for logged in user)  
 Methods: `GET`  
 Authentication required: yes  
-Parameters: lack  
+Parameters: none  
 Posible HTTP responses:
 - **200 OK** - article with identifier `article_id` in JSON format
 - **403 Forbidden** - client is *not* authenticated
@@ -113,7 +113,7 @@ Parameters:
 
 Posible HTTP responses:
 - **200 OK** - subset of the table of contents in JSON format
-- **400 Bad Request** - wrong or lack of necessary parameters in HTTP request
+- **400 Bad Request** - wrong or missing parameters in HTTP request
 - **403 Forbidden** - client is *not* authenticated
 - **404 Not Found** - client is authenticated but *knowledge base* is switched off
 - **500 Internal Server Error** - error in backend API, also in case of incorrect *knowledge base* structure when it is switched on (see section "Correctnes of the structure - minimal boundary conditions" in [Content Management](management.md))

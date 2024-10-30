@@ -2727,10 +2727,10 @@ class _PrefetchingPickleStorage:
 
             # Each of the accessors provides *atomic* write operations
             # (i.e., effectively, either the whole file is successfully
-            # written, or "nothing happend"). However, it is possible
+            # written, or "nothing happened"). However, it is possible
             # that the atomic write of the *pickle file* will succeed,
             # but then -- due to whatever exception -- the *metadata
-            # file* will *not* be succesfully written, so its previous
+            # file* will *not* be successfully written, so its previous
             # version will be kept. If such a case arises, we prefer to
             # completely *remove* the metadata file -- to avoid a data
             # version mismatch (which would be detected anyway, but at
@@ -2848,7 +2848,7 @@ class _InterprocessPrefetchingSynchronizer:
         try:
             self._getjob_lock.acquire(shared=True)
             if self._job_lock.acquire(shared=True, nonblocking=True):
-                self._activity_lock_acquire_shared_immediately()
+                self._activity_lock_acquire_in_shared_mode_immediately()
                 self._job_lock.release()
                 self._getjob_lock.release()
             else:
@@ -2868,7 +2868,7 @@ class _InterprocessPrefetchingSynchronizer:
                             "fresh root node. Let's wait for it...")
                 self._job_lock.acquire(shared=True)
 
-                self._activity_lock_acquire_shared_immediately()
+                self._activity_lock_acquire_in_shared_mode_immediately()
                 self._job_lock.release()
 
             assert not self._getjob_lock.acquired_by_us
@@ -2993,7 +2993,7 @@ class _InterprocessPrefetchingSynchronizer:
                 pass   # noqa
             raise sys_exit from exc
 
-    def _activity_lock_acquire_shared_immediately(self):
+    def _activity_lock_acquire_in_shared_mode_immediately(self):
         # Thanks to this, no new job can actually be started until all
         # engaged processes -- except the one which is to do the job --
         # reach their synchronizers' `__exit__()`.

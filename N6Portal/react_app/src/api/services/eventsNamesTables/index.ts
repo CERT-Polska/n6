@@ -5,7 +5,7 @@ import { TCategory } from 'api/services/globalTypes';
 
 export type TEventsNamesTables = Partial<Record<TCategory, Record<number, Record<string, number>> | null>>;
 
-const getEventsNamesTables = async () => {
+export const getEventsNamesTables = async () => {
   try {
     const data = await customAxios.get<TEventsNamesTables>(
       `${dataController}${controllers.services.eventsNamesTables}`

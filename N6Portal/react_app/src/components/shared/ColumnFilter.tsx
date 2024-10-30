@@ -1,7 +1,7 @@
 import { FC, useState } from 'react';
 import { ColumnInstance, IdType } from 'react-table';
 import classNames from 'classnames';
-import Dropdown from 'react-bootstrap/esm/Dropdown';
+import { Dropdown } from 'react-bootstrap';
 import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as Chevron } from 'images/chevron.svg';
 
@@ -57,7 +57,9 @@ const ColumnFilter: FC<IProps> = ({ columns, customOnClick }) => {
               }}
             />
             <span className="custom-checkbox" />
-            <label className="column-filter-dropdown-label d-flex align-items-center my-1">{column.Header}</label>
+            <label className="column-filter-dropdown-label d-flex align-items-center my-1">
+              {column.Header?.toString()}
+            </label>
           </Dropdown.Item>
         ))}
       </Dropdown.Menu>

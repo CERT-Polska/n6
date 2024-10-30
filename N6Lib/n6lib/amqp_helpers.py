@@ -1,15 +1,22 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 import os
 import os.path
 import ssl as libssl
 import sys
+import time
 from datetime import datetime
 
+import pika
 import pika.credentials
+import pika.exceptions
 
 import n6lib.const
+from n6lib.log_helpers import get_logger
 from n6sdk.encoding_helpers import ascii_str
+
+
+LOGGER = get_logger(__name__)
 
 
 PIPELINE_CONFIG_SPEC_PATTERN = '''
@@ -46,6 +53,64 @@ PIPELINE_OPTIONAL_GROUPS = [
     'collectors',
     'parsers',
 ]
+
+
+class SimpleAMQPExchangeTool:
+
+    """
+    A simple tool to declare, bind and delete AMQP exchanges.
+
+    AMQP broker connection parameters are obtained by calling
+    `get_amqp_connection_params_dict()`.
+    """
+
+    CONNECTION_ATTEMPTS = 10
+    CONNECTION_RETRY_DELAY = 0.5
+
+    def __init__(self, *, rabbitmq_config_section='rabbitmq'):
+        self._connection_params_dict = get_amqp_connection_params_dict(
+            rabbitmq_config_section=rabbitmq_config_section)
+        self._connection = None
+        self._channel = None
+
+    def __enter__(self):
+        self._connection = self._make_connection()
+        self._channel = self._connection.channel()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._connection.close()
+        self._connection = None
+        self._channel = None
+
+    def declare_exchange(self, exchange, exchange_type, **kwargs):
+        self._channel.exchange_declare(exchange=exchange, exchange_type=exchange_type, **kwargs)
+        LOGGER.info('Exchange %a has been declared', ascii_str(exchange))
+
+    def bind_exchange_to_exchange(self, exchange, source_exchange, **kwargs):
+        self._channel.exchange_bind(destination=exchange, source=source_exchange, **kwargs)
+        LOGGER.info('Exchange %a has been bound to source exchange %a',
+                    ascii_str(exchange), ascii_str(source_exchange))
+
+    def delete_exchange(self, exchange, **kwargs):
+        self._channel.exchange_delete(exchange=exchange, **kwargs)
+        LOGGER.info('Exchange %a has been deleted', ascii_str(exchange))
+
+    def _make_connection(self):
+        last_exc = None
+        try:
+            for _ in range(self.CONNECTION_ATTEMPTS):
+                parameters = pika.ConnectionParameters(**self._connection_params_dict)
+                try:
+                    return pika.BlockingConnection(parameters)
+                except pika.exceptions.AMQPConnectionError as exc:
+                    time.sleep(self.CONNECTION_RETRY_DELAY)
+                    last_exc = exc
+            assert last_exc is not None
+            raise last_exc
+        finally:
+            # (Breaking the traceback-related reference cycle...)
+            del last_exc
 
 
 def get_pipeline_binding_states(pipeline_group,

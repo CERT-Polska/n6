@@ -6,6 +6,7 @@ const routeList = {
   signUp: '/sign-up',
   account: '/account',
   settings: '/settings',
+  agreementsSettings: '/agreements-settings',
   userSettings: '/user-settings',
   userSettingsMfaConfig: '/user-settings/mfa-configuration',
   incidents: '/incidents',

@@ -1,7 +1,7 @@
-import { FC, createContext, useContext } from 'react';
+import { createContext, useContext } from 'react';
 import { useMedia } from 'react-use';
 
-interface IMatchMediaContext {
+export interface IMatchMediaContext {
   isXs: boolean;
   isSm: boolean;
   isMd: boolean;
@@ -9,7 +9,7 @@ interface IMatchMediaContext {
   isXl: boolean;
 }
 
-const MatchMediaContext = createContext<IMatchMediaContext>({
+export const MatchMediaContext = createContext<IMatchMediaContext>({
   isXs: false,
   isSm: false,
   isMd: false,
@@ -17,7 +17,7 @@ const MatchMediaContext = createContext<IMatchMediaContext>({
   isXl: false
 });
 
-export const MatchMediaContextProvider: FC = ({ children }) => {
+export const MatchMediaContextProvider = ({ children }: { children: React.ReactNode }) => {
   const smallBp = useMedia('(min-width: 576px)');
   const mediumBp = useMedia('(min-width: 768px)');
   const largeBp = useMedia('(min-width: 992px)');

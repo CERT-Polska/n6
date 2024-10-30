@@ -3,7 +3,9 @@ import QRCode from 'qrcode';
 import { useTypedIntl } from 'utils/useTypedIntl';
 import { IMfaConfig } from 'api/auth/types';
 
-const MfaQRCode: FC<IMfaConfig['mfa_config']> = ({ secret_key, secret_key_qr_code_url }) => {
+const MfaQRCode: FC<IMfaConfig['mfa_config']> = (props) => {
+  const secret_key = props?.secret_key;
+  const secret_key_qr_code_url = props?.secret_key_qr_code_url;
   const [qrcodeError, toggleQrcodeError] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { messages } = useTypedIntl();

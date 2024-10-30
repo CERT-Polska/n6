@@ -1,4 +1,4 @@
-import { FC, createContext, useState, useContext, useCallback } from 'react';
+import { createContext, useState, useContext, useCallback } from 'react';
 
 type TForgotPasswordStatus = 'request_form' | 'request_error' | 'request_success' | 'reset_error' | 'reset_success';
 
@@ -23,7 +23,7 @@ const initialForgotPasswordState: IForgotPasswordState = {
 
 const ForgotPasswordContext = createContext<IForgotPasswordContext>(initialContext);
 
-export const ForgotPasswordContextProvider: FC = ({ children }) => {
+export const ForgotPasswordContextProvider = ({ children }: { children: React.ReactNode }) => {
   const [forgotPasswordState, changeForgotPasswordState] = useState<IForgotPasswordState>(initialForgotPasswordState);
 
   const updateForgotPasswordState = useCallback((state: TForgotPasswordStatus) => {

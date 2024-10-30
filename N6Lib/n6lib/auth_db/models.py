@@ -471,6 +471,32 @@ org_search_off_subsource_group_link = Table(
         primary_key=True),
     **mysql_opts())
 
+# org <-> agreement
+org_agreement_link = Table(
+    'org_agreement_link', Base.metadata,
+    Column(
+        'org_id',
+        ForeignKey('org.org_id', onupdate='CASCADE', ondelete='CASCADE'),
+        primary_key=True),
+    Column(
+        'agreement_label',
+        ForeignKey('agreement.label', onupdate='CASCADE', ondelete='CASCADE'),
+        primary_key=True),
+    **mysql_opts())
+
+# registration_request <-> agreement
+registration_request_agreement_link = Table(
+    'registration_request_agreement_link', Base.metadata,
+    Column(
+        'registration_request_id',
+        ForeignKey('registration_request.id', onupdate='CASCADE', ondelete='CASCADE'),
+        primary_key=True),
+    Column(
+        'agreement_label',
+        ForeignKey('agreement.label', onupdate='CASCADE', ondelete='CASCADE'),
+        primary_key=True),
+    **mysql_opts())
+
 # `inside`: org_group <-> subsource/subsource_group
 org_group_inside_subsource_link = Table(
     'org_group_inside_subsource_link', Base.metadata,
@@ -627,10 +653,11 @@ class Org(_ExternalInterfaceMixin, Base):
     org_id = col(String(MAX_LEN_OF_ORG_ID), primary_key=True)
     actual_name = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING))
     full_access = col(Boolean, default=False, nullable=False)
-    stream_api_enabled = col(Boolean, default=False, nullable=False)
+    stream_api_enabled = col(Boolean, default=True, nullable=False)
 
     org_groups = rel('OrgGroup', secondary=org_org_group_link, back_populates='orgs')
     users = rel('User', back_populates='org')
+    agreements = rel('Agreement', secondary=org_agreement_link, back_populates='orgs')
 
     # "Inside" access zone
     access_to_inside = col(Boolean, default=False, nullable=False)
@@ -827,6 +854,11 @@ class RegistrationRequest(_ExternalInterfaceMixin, Base):
     terms_version = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), nullable=True)
     terms_lang = col(String(MAX_LEN_OF_COUNTRY_CODE), nullable=True)
 
+    agreements = rel(
+        'Agreement',
+        secondary=registration_request_agreement_link,
+        back_populates='registration_requests')
+
     __repr__ = attr_repr('id', 'org_id', 'submitted_on', 'status')
 
     _columns_to_validate = [
@@ -916,6 +948,17 @@ class OrgConfigUpdateRequest(Base):
     actual_name_upd = col(Boolean, default=False, nullable=False)
     actual_name = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), nullable=True)
 
+    # Org users settings
+    user_addition_or_activation_requests = rel(
+        'OrgConfigUpdateRequestUserAdditionOrActivationRequest',
+        back_populates='org_config_update_request',
+        cascade='all, delete-orphan')
+
+    user_deactivation_requests = rel(
+        'OrgConfigUpdateRequestUserDeactivationRequest',
+        back_populates='org_config_update_request',
+        cascade='all, delete-orphan')
+
     # Email notification settings
     email_notification_enabled_upd = col(Boolean, default=False, nullable=False)
     email_notification_enabled = col(Boolean, default=False, nullable=False)
@@ -972,6 +1015,62 @@ def on_org_config_update_request_status_change(target, value, oldvalue, initiato
     target.pending_marker = (OrgConfigUpdateRequest._PENDING_MARKER
                              if value in ORG_REQUEST_PENDING_STATUSES
                              else None)
+
+
+class OrgConfigUpdateRequestUserAdditionOrActivationRequest(Base):
+
+    __tablename__ = 'org_config_update_request_user_addition_or_activation_request'
+    __table_args__ = (
+        UniqueConstraint('user_login', 'org_config_update_request_id'),
+        mysql_opts(),
+    )
+
+    id = col(Integer, primary_key=True)
+    user_login = col(String(MAX_LEN_OF_EMAIL), nullable=False)
+
+    org_config_update_request_id = col(
+        String(MAX_LEN_OF_ID_HEX),
+        ForeignKey('org_config_update_request.id', onupdate='CASCADE', ondelete='CASCADE'),
+        nullable=False)
+    org_config_update_request = rel(
+        'OrgConfigUpdateRequest',
+        back_populates='user_addition_or_activation_requests')
+
+    __repr__ = attr_repr('id', 'user_login', 'org_config_update_request_id')
+
+    _columns_to_validate = ['user_login']
+
+    @classmethod
+    def from_value(cls, value):
+        return cls(user_login=value)
+
+
+class OrgConfigUpdateRequestUserDeactivationRequest(Base):
+
+    __tablename__ = 'org_config_update_request_user_deactivation_request'
+    __table_args__ = (
+        UniqueConstraint('user_login', 'org_config_update_request_id'),
+        mysql_opts(),
+    )
+
+    id = col(Integer, primary_key=True)
+    user_login = col(String(MAX_LEN_OF_EMAIL), nullable=False)
+
+    org_config_update_request_id = col(
+        String(MAX_LEN_OF_ID_HEX),
+        ForeignKey('org_config_update_request.id', onupdate='CASCADE', ondelete='CASCADE'),
+        nullable=False)
+    org_config_update_request = rel(
+        'OrgConfigUpdateRequest',
+        back_populates='user_deactivation_requests')
+
+    __repr__ = attr_repr('id', 'user_login', 'org_config_update_request_id')
+
+    _columns_to_validate = ['user_login']
+
+    @classmethod
+    def from_value(cls, value):
+        return cls(user_login=value)
 
 
 class EMailNotificationAddress(Base):
@@ -1715,6 +1814,10 @@ class User(_ExternalInterfaceMixin, _PassEncryptMixin, Base):
     # changes in test fixtures/auxiliary scripts/etc.)
     is_blocked = col(Boolean, default=False, server_default=sqla_text('0'), nullable=False)
 
+    @property
+    def is_active(self):
+        return not self.is_blocked
+
     login = col(String(MAX_LEN_OF_EMAIL), nullable=False, unique=True)
     password = col(String(MAX_LEN_OF_PASSWORD_HASH))
 
@@ -2108,6 +2211,41 @@ class SystemGroup(_ExternalInterfaceMixin, Base):
     __repr__ = attr_repr('name')
 
     _columns_to_validate = ['name']
+
+
+class Agreement(_ExternalInterfaceMixin, Base):
+    
+    __tablename__ = 'agreement'
+    __table_args__ = mysql_opts()
+
+    label = col(
+        String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING),
+        primary_key=True,
+    )
+    
+    default_consent = col(Boolean, default=True, nullable=False)
+    
+    en = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), nullable=False)
+    pl = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), nullable=False)
+
+    url_en = col(String(MAX_LEN_OF_URL), nullable=True)
+    url_pl = col(String(MAX_LEN_OF_URL), nullable=True)
+    
+    orgs = rel(
+        'Org',
+        secondary=org_agreement_link,
+        back_populates='agreements')
+    registration_requests = rel(
+        'RegistrationRequest',
+        secondary=registration_request_agreement_link,
+        back_populates='agreements')
+    
+    def __str__(self):
+        return f'Agreement "{self.label}"'
+
+    _columns_to_validate = ['label', 'en', 'pl', 'url_en', 'url_pl']
+
+    __repr__ = attr_repr('label', 'en')
 
 
 class Cert(_ExternalInterfaceMixin, Base):

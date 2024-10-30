@@ -5,11 +5,12 @@ import { ReactComponent as ErrorIcon } from 'images/api-error.svg';
 import { ReactComponent as NoAccessIcon } from 'images/no-access-icon.svg';
 import { ReactComponent as NotFoundIcon } from 'images/not-found-icon.svg';
 
+export type IErrorPageVariantType = 'errBoundary' | 'apiLoader' | 'noAccess' | 'notFound';
 interface IProps {
   header: string;
   subtitle: string;
   buttonText?: string;
-  variant: 'errBoundary' | 'apiLoader' | 'noAccess' | 'notFound';
+  variant: IErrorPageVariantType;
   onClick?: () => void;
 }
 

@@ -8,4 +8,4 @@
 
 - [Initialization and Configuration](config.md)
 - [Content Management](management.md)
-- [Backend API](backend_api.md)
+- [*n6 Portal* Backend API](backend_api.md)

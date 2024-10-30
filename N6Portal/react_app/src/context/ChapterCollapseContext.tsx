@@ -1,4 +1,4 @@
-import { createContext, FC, useContext, useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 
 interface ICollapseChapterContext {
   activeArticleId?: string;
@@ -11,7 +11,7 @@ const initialContext: ICollapseChapterContext = {
 
 const CollapseChapterContext = createContext<ICollapseChapterContext>(initialContext);
 
-export const CollapseChapterContextProvider: FC = ({ children }) => {
+export const CollapseChapterContextProvider = ({ children }: { children: React.ReactNode }) => {
   const [activeArticleId, setActiveArticleId] = useState<string>();
 
   return (

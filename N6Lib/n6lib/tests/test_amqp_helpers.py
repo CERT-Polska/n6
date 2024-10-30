@@ -1,9 +1,10 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 import re
 import ssl
 import unittest
 from unittest.mock import (
+    MagicMock,
     call,
     sentinel as sen,
 )
@@ -14,13 +15,15 @@ from unittest_expander import (
     param,
 )
 
+from n6lib.amqp_helpers import (
+    SimpleAMQPExchangeTool,
+    get_amqp_connection_params_dict,
+)
 from n6lib.config import ConfigSection
 from n6lib.unit_test_helpers import (
     AnyMatchingRegex,
     TestCaseMixin,
 )
-
-from n6lib.amqp_helpers import get_amqp_connection_params_dict
 
 
 RABBITMQ_CONFIG_SPEC_PATTERN = '''
@@ -47,7 +50,120 @@ CONN_PARAM_CLIENT_PROP_INFORMATION = AnyMatchingRegex(re.compile(
 
 
 @expand
-class Test__get_amqp_connection_params_dict(unittest.TestCase, TestCaseMixin):
+class TestSimpleAMQPExchangeTool(unittest.TestCase, TestCaseMixin):
+
+    @foreach(
+        param(
+            init_kwargs=dict(),
+            expected_call_to_get_amqp_connection_params_dict=call(
+                rabbitmq_config_section="rabbitmq",
+            ),
+        ),
+        param(
+            init_kwargs=dict(
+                rabbitmq_config_section="some_custom",
+            ),
+            expected_call_to_get_amqp_connection_params_dict=call(
+                rabbitmq_config_section="some_custom",
+            ),
+        ),
+    )
+    def test__init(self, init_kwargs, expected_call_to_get_amqp_connection_params_dict):
+        get_amqp_conn_pd = self.patch('n6lib.amqp_helpers.get_amqp_connection_params_dict')
+        get_amqp_conn_pd.return_value = sen.connection_params_dict
+
+        instance = SimpleAMQPExchangeTool(**init_kwargs)
+
+        self.assertIs(instance._connection_params_dict, sen.connection_params_dict)
+        self.assertIs(instance._connection, None)
+        self.assertIs(instance._channel, None)
+        self.assertEqual(get_amqp_conn_pd.mock_calls, [
+            expected_call_to_get_amqp_connection_params_dict,
+        ])
+
+    def test__enter(self):
+        pika_connparams = self.patch('pika.ConnectionParameters')
+        pika_blockingconn = self.patch('pika.BlockingConnection')
+        block_conn_mock = MagicMock()
+        block_conn_mock.channel.return_value = sen.channel_obj
+        pika_blockingconn.return_value = block_conn_mock
+        pika_connparams.return_value = sen.conn_params
+        instance = SimpleAMQPExchangeTool.__new__(SimpleAMQPExchangeTool)
+        instance._connection = None
+        instance._channel = None
+        instance._connection_params_dict = {'some_kwargs': sen.some_value}
+
+        enter_result = instance.__enter__()
+
+        self.assertEqual(pika_connparams.mock_calls, [
+            call(some_kwargs=sen.some_value)
+        ])
+        self.assertEqual(pika_blockingconn.mock_calls, [
+            call(sen.conn_params),
+            call().channel(),
+        ])
+        self.assertIs(enter_result, instance)
+        self.assertIs(instance._connection, block_conn_mock)
+        self.assertIs(instance._channel, sen.channel_obj)
+
+    @foreach(
+        param(None, None, None),
+        param(ValueError, ValueError('foo'), sen.traceback),
+    )
+    def test__exit(self, exc_type, exc_val, exc_tb):
+        instance = SimpleAMQPExchangeTool.__new__(SimpleAMQPExchangeTool)
+        block_conn_mock = instance._connection = MagicMock()
+        instance._channel = sen.channel_obj
+
+        exit_result = instance.__exit__(exc_type, exc_val, exc_tb)
+
+        self.assertEqual(block_conn_mock.mock_calls, [call.close()])
+        self.assertIs(instance._connection, None)
+        self.assertIs(instance._channel, None)
+        self.assertFalse(exit_result)
+
+    def test_declare_exchange(self):
+        instance = SimpleAMQPExchangeTool.__new__(SimpleAMQPExchangeTool)
+        instance._channel = MagicMock()
+
+        instance.declare_exchange(exchange='o1',
+                                  exchange_type='topic',
+                                  whatever_kwargs=sen.whatever_kwargs)
+
+        self.assertEqual(instance._channel.mock_calls, [
+            call.exchange_declare(exchange='o1',
+                                  exchange_type='topic',
+                                  whatever_kwargs=sen.whatever_kwargs),
+        ])
+
+    def test_bind_exchange_to_exchange(self):
+        instance = SimpleAMQPExchangeTool.__new__(SimpleAMQPExchangeTool)
+        instance._channel = MagicMock()
+
+        instance.bind_exchange_to_exchange(exchange='o1',
+                                           source_exchange='clients',
+                                           whatever_kwargs=sen.whatever_kwargs)
+
+        self.assertEqual(instance._channel.mock_calls, [
+            call.exchange_bind(destination='o1',
+                               source='clients',
+                               whatever_kwargs=sen.whatever_kwargs),
+        ])
+
+    def test_delete_exchange(self):
+        instance = SimpleAMQPExchangeTool.__new__(SimpleAMQPExchangeTool)
+        instance._channel = MagicMock()
+
+        instance.delete_exchange('o1', whatever_kwargs=sen.whatever_kwargs)
+
+        self.assertEqual(instance._channel.mock_calls, [
+            call.exchange_delete(exchange='o1',
+                                 whatever_kwargs=sen.whatever_kwargs),
+        ])
+
+
+@expand
+class Test_get_amqp_connection_params_dict(unittest.TestCase, TestCaseMixin):
 
     def setUp(self):
         self.ConfigMock = self.patch('n6lib.config.Config')

@@ -22,7 +22,8 @@ export const controllers = {
     registerEndpoint: '/register'
   },
   orgConfig: {
-    orgConfigEndpoint: '/org_config'
+    orgConfigEndpoint: '/org_config',
+    orgAgreementsEndpoint: '/org_agreements'
   },
   services: {
     jsonDataFormat: '.json',
@@ -37,7 +38,8 @@ export const controllers = {
     articles: '/knowledge_base/articles',
     articleDownloadPdf: '/knowledge_base/articles',
     barChart: '/daily_events_counts',
-    eventsNamesTables: '/names_ranking'
+    eventsNamesTables: '/names_ranking',
+    agreements: '/agreements'
   }
 };
 

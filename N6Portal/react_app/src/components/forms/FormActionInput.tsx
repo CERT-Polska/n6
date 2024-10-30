@@ -45,9 +45,9 @@ const FormActionInput: FC<IProps & FormContextProps> = memo(
     setValue,
     getValues
   }) => {
-    const handleKeyDown = (e?: React.KeyboardEvent<HTMLInputElement>) => {
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       const currentFilterValue = getValues(name);
-      e?.key === 'Enter' && setValue(name, currentFilterValue);
+      e.key === 'Enter' && setValue(name, currentFilterValue);
     };
 
     return (

@@ -16,7 +16,7 @@ const VirtualizedList: FC<IProps> = ({ itemCount, height, className, itemSize, c
 
   return (
     <AutoSizer disableHeight>
-      {({ width }) => (
+      {({ width }: { width: number }) => (
         <VariableSizeList
           ref={listRef}
           height={height}

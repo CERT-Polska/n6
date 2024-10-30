@@ -14,7 +14,7 @@ export const getValidatedToken = (token: ParsedQs[string]): string | null => {
     const isTokenValid = Date.now() < tokenExpDate;
 
     return isTokenValid ? token : null;
-  } catch {
+  } catch (error) {
     return null;
   }
 };

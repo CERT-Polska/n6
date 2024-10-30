@@ -26,7 +26,10 @@ const initialAuthState: IAuthContext = {
 
 const KeycloakContext = createContext<IAuthContext>(initialAuthState);
 
-export const KeycloakContextProvider: FC<{ keycloak: Keycloak | KeycloakStub }> = ({ keycloak, children }) => {
+export const KeycloakContextProvider: FC<{ keycloak: Keycloak | KeycloakStub; children: React.ReactNode }> = ({
+  keycloak,
+  children
+}) => {
   function getBaseUrl() {
     // return application's base URL with trailing slashes removed
     return window.location.href.replace(/\/*(?=$)/, '');

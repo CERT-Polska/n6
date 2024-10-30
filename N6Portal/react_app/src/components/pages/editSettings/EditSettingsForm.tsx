@@ -31,7 +31,7 @@ interface IProps {
 }
 
 export type TEditSettingsFieldArray = Record<
-  'asns' | 'fqdns' | 'ip_networks' | 'notification_emails' | 'notification_times',
+  'asns' | 'fqdns' | 'ip_networks' | 'notification_emails' | 'notification_times' | 'org_user_logins',
   Record<'value', string>[]
 >;
 
@@ -166,6 +166,16 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
                 content={`${messages.signup_entity_tooltip}`}
                 id="edit-settings-actual_name"
                 className="edit-settings-tooltip"
+              />
+            </div>
+            <div className="edit-settings-input-wrapper mb-5">
+              <EditSettingsFieldArray
+                name="org_user_logins"
+                defaultValues={defaultValues.org_user_logins}
+                updatedValues={updatedValues?.org_user_logins}
+                label={`${messages.signup_user_label}`}
+                validate={validateEmailNotRequired}
+                disabled={isFormDisabled}
               />
             </div>
             <div className="edit-settings-input-wrapper-small  mb-4">

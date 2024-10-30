@@ -39,7 +39,7 @@ const UserSettingsMfaConfigForm: FC = () => {
           updateUserSettingsMfaState('success');
         }
       });
-    } catch (error) {
+    } catch (error: any) {
       const { status } = error.response || {};
 
       switch (status) {

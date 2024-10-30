@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 import contextlib
 import copy
@@ -1177,6 +1177,7 @@ class N6RegistrationView(EssentialAPIsViewMixin,
         'asns',
         'fqdns',
         'ip_networks',
+        'agreements',
     })
 
     @classmethod
@@ -1242,6 +1243,39 @@ class N6RegistrationView(EssentialAPIsViewMixin,
             return ascii_str(f'"{raw_org_id}"')
 
 
+class N6AgreementsView(EssentialAPIsViewMixin, PreparingNoParamsViewMixin, AbstractViewBase):
+
+    @classmethod
+    def get_default_http_methods(cls):
+        return 'GET'
+
+    def make_response(self):
+        with self.auth_manage_api:
+            return self.json_response(self.auth_manage_api.get_all_agreements_basic_data())
+
+        
+class N6OrgAgreementsView(EssentialAPIsViewMixin,
+                          CommaSeparatedParamValuesViewMixin,
+                          AbstractViewBase):
+    
+    params_only_from_body = True
+    multi_value_param_keys = ('agreements',)
+
+    @classmethod
+    def get_default_http_methods(cls):
+        return 'GET', 'POST'
+    
+    def make_response(self):
+        with self.auth_manage_api:
+            if self.request.method == 'POST':
+                self.auth_manage_api.update_org_agreements(
+                    org_id=self.org_id,
+                    agreements=self.params['agreements']
+                )
+            return self.json_response(
+                self.auth_manage_api.get_org_agreement_labels(org_id=self.org_id))
+
+
 class N6OrgConfigView(EssentialAPIsViewMixin,
                       CommaSeparatedParamValuesViewMixin,
                       AbstractViewBase):
@@ -1249,6 +1283,8 @@ class N6OrgConfigView(EssentialAPIsViewMixin,
     NOTICE_KEY = 'org_config_update_requested'
 
     comma_separated_only_for = multi_value_param_keys = frozenset({
+        'added_user_logins',
+        'removed_user_logins',
         'notification_emails',
         'notification_times',
         'asns',

@@ -53,7 +53,7 @@ const ForgotPasswordForm: FC<IProps> = ({ token }) => {
           updateForgotPasswordState('reset_success');
         }
       });
-    } catch (error) {
+    } catch (error: any) {
       const { status } = error.response || {};
       switch (status) {
         case 400:

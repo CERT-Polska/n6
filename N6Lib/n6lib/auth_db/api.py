@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2022 NASK. All rights reserved.
+# Copyright (c) 2019-2024 NASK. All rights reserved.
 
 from collections.abc import Iterable
 import datetime
@@ -474,6 +474,11 @@ class AuthManageAPI(_AuthDatabaseAPI):
             in_params='optional',
             auto_strip=True,
         ),
+        agreements=UnicodeLimitedField(
+            in_params='optional',
+            auto_strip=True,
+            max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING
+        ),
     )
     def create_registration_request(self,
 
@@ -491,7 +496,8 @@ class AuthManageAPI(_AuthDatabaseAPI):
                                     notification_emails=(),
                                     asns=(),
                                     fqdns=(),
-                                    ip_networks=()):
+                                    ip_networks=(),
+                                    agreements=()):
 
         now = datetime.datetime.utcnow()
 
@@ -516,6 +522,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             asns=sorted(set(asns)),
             fqdns=sorted(set(fqdns)),
             ip_networks=sorted(set(ip_networks)),
+            agreements=sorted(set(agreements)),
         )
 
         init_kwargs = new_req_pure_data.copy()
@@ -532,7 +539,10 @@ class AuthManageAPI(_AuthDatabaseAPI):
                 for fqdn in init_kwargs.pop('fqdns')],
             ip_networks=[
                 models.RegistrationRequestIPNetwork.from_value(ip_network)
-                for ip_network in init_kwargs.pop('ip_networks')])
+                for ip_network in init_kwargs.pop('ip_networks')],
+            agreements=[
+                self._get_by_primary_key(models.Agreement, label)
+                for label in init_kwargs.pop('agreements')])
 
         # noinspection PyArgumentList
         new_req = models.RegistrationRequest(**init_kwargs)
@@ -608,7 +618,8 @@ class AuthManageAPI(_AuthDatabaseAPI):
                 for obj in req.fqdns],
             inside_filter_ip_networks=[
                 models.InsideFilterIPNetwork.from_value(obj.ip_network)
-                for obj in req.ip_networks])
+                for obj in req.ip_networks],
+            agreements=req.agreements)
 
         self._db_session.add(new_org)
         self._db_session.flush()
@@ -642,6 +653,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
         req = org.pending_config_update_request
         return dict(
             org_id=org.org_id,
+            org_user_logins=self.get_org_user_logins(org_id=org.org_id, only_nonblocked=True),
             actual_name=org.actual_name,
             notification_enabled=org.email_notification_enabled,
             notification_language=org.email_notification_language,
@@ -653,6 +665,53 @@ class AuthManageAPI(_AuthDatabaseAPI):
             ip_networks=_attr_list(org.inside_filter_ip_networks, 'ip_network'),
             update_info=(None if req is None
                          else _pure_data_from_org_config_update_request(req)))
+        
+        
+    def get_all_agreements_basic_data(self):
+        agreements = self._db_session.query(models.Agreement).all()
+        def as_dict(agreement: models.Agreement):
+            return dict(
+                label=agreement.label,
+                default_consent=agreement.default_consent,
+                en=agreement.en,
+                pl=agreement.pl,
+                url_en=agreement.url_en,
+                url_pl=agreement.url_pl,
+            ) 
+        return [as_dict(agreement) for agreement in agreements]
+        
+        
+    @cleaning_kwargs_as_params_with_data_spec(
+        org_id=OrgIdField(
+            single_param=True,
+            in_params='required',
+            auto_strip=True,
+        ),
+    )
+    def get_org_agreement_labels(self, org_id):
+        org = self._get_by_primary_key(models.Org, org_id)
+        return _attr_list(org.agreements, 'label')
+    
+    
+    @cleaning_kwargs_as_params_with_data_spec(
+        org_id=OrgIdField(
+            single_param=True,
+            in_params='required',
+            auto_strip=True,
+        ),
+        agreements=UnicodeLimitedField(
+            in_params='optional',
+            auto_strip=True,
+            max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
+        ),
+    )
+    def update_org_agreements(self, org_id, agreements=()):
+        org = self._get_by_primary_key(models.Org, org_id)
+        new_objects = (
+            self._get_by_primary_key(models.Agreement, label)
+            for label in sorted(set(agreements)) if label
+        )
+        self._replace_related_objects(org.agreements, new_objects=new_objects)
 
 
     @cleaning_kwargs_as_params_with_data_spec(
@@ -699,6 +758,14 @@ class AuthManageAPI(_AuthDatabaseAPI):
         ),
 
         # multi-value params:
+        added_user_logins=EmailCustomizedField(
+            in_params='optional',
+            auto_strip=True,
+        ),
+        removed_user_logins=EmailCustomizedField(
+            in_params='optional',
+            auto_strip=True,
+        ),
         notification_emails=EmailCustomizedField(
             in_params='optional',
             auto_strip=True,
@@ -727,6 +794,8 @@ class AuthManageAPI(_AuthDatabaseAPI):
                                          # *optional param* arguments:
                                          additional_comment=None,
                                          actual_name=None,
+                                         added_user_logins=None,
+                                         removed_user_logins=None,
                                          notification_enabled=None,
                                          notification_language=None,
                                          notification_emails=None,
@@ -740,6 +809,18 @@ class AuthManageAPI(_AuthDatabaseAPI):
         if actual_name is not None:
             init_kwargs['actual_name_upd'] = True
             init_kwargs['actual_name'] = actual_name or None
+
+        if added_user_logins:
+            init_kwargs['user_addition_or_activation_requests'] = [
+                models.OrgConfigUpdateRequestUserAdditionOrActivationRequest.from_value(org_user)
+                for org_user in sorted(set(added_user_logins))
+            ]
+        if removed_user_logins:
+            init_kwargs['user_deactivation_requests'] = [
+                models.OrgConfigUpdateRequestUserDeactivationRequest.from_value(org_user)
+                for org_user in sorted(set(removed_user_logins))
+            ]
+
         if notification_enabled is not None:
             init_kwargs['email_notification_enabled_upd'] = True
             init_kwargs['email_notification_enabled'] = notification_enabled
@@ -832,8 +913,9 @@ class AuthManageAPI(_AuthDatabaseAPI):
 
         org = req.org
         if org is None:
-            raise AuthDatabaseAPIError('Org config update request #{} does not have its `org`?!'
-                                       .format(ascii_str(req_id)))
+            raise AuthDatabaseAPIError(f'Org config update request '
+                                       f'#{ascii_str(req_id)} does '
+                                       f'not have its `org`?!')
 
         assert isinstance(org, models.Org)
 
@@ -866,12 +948,91 @@ class AuthManageAPI(_AuthDatabaseAPI):
                 models.InsideFilterIPNetwork.from_value(obj.ip_network)
                 for obj in req.ip_networks))
 
+    @cleaning_kwargs_as_params_with_data_spec(
+        req_id=IdHexField(
+            single_param=True,
+            in_params='required',
+            auto_strip=True,
+        ),
+        _non_param_kwarg_names={'msg', 'warn'},
+    )
+    def update_org_users_according_to_org_config_update_request(self, req_id, *, msg, warn):
+        req = self._get_by_primary_key(models.OrgConfigUpdateRequest, req_id)
+        assert isinstance(req, models.OrgConfigUpdateRequest)
+
+        org = req.org
+        if org is None:
+            raise AuthDatabaseAPIError(f'Org config update request '
+                                       f'#{ascii_str(req_id)} does '
+                                       f'not have its `org`?!')
+
+        assert isinstance(org, models.Org)
+
+        for user_req in req.user_addition_or_activation_requests:
+            self._add_or_activate_user(org, user_req, msg, warn)
+        for user_req in req.user_deactivation_requests:
+            self._deactivate_user(org, user_req, msg, warn)
+
+    def _add_or_activate_user(self, org, user_req, msg, warn):
+        assert isinstance(user_req, models.OrgConfigUpdateRequestUserAdditionOrActivationRequest)
+
+        login = user_req.user_login
+        try:
+            user = self._get_user_by_login(login, for_update=True)
+        except AuthDatabaseAPILookupError:
+            self.create_new_user(org, user_id=login)
+            msg(f'User {login!a} has been created.')
+        else:
+            if user.org_id != org.org_id:
+                warn(f'User {login!a} belongs to another '
+                     f'organization! (so cannot be unblocked '
+                     f'from here => remains unmodified!)')
+            elif user.is_blocked:
+                user.password = None
+                user.api_key_id = None
+                user.mfa_key_base = None
+                user.is_blocked = False
+                msg(f'User {login!a} has been unblocked (and their '
+                    f'authentication stuff has been purged).')
+            else:
+                warn(f'User {login!a} is already unblocked (so '
+                     f'cannot be unblocked => remains unmodified).')
+
+    def _deactivate_user(self, org, user_req, msg, warn):
+        assert isinstance(user_req, models.OrgConfigUpdateRequestUserDeactivationRequest)
+
+        login = user_req.user_login
+        try:
+            user = self._get_user_by_login(login, for_update=True)
+        except AuthDatabaseAPILookupError:
+            warn(f'User {login!a} does not exist '
+                 f'(so cannot be blocked).')
+        else:
+            if user.org_id != org.org_id:
+                warn(f'User {login!a} belongs to another '
+                     f'organization! (so cannot be blocked '
+                     f'from here => remains unmodified!)')
+            else:
+                user.password = None
+                user.api_key_id = None
+                user.mfa_key_base = None
+                if user.is_blocked:
+                    warn(f'User {login!a} is already blocked (so '
+                         f'cannot be blocked; their authentication '
+                         f'stuff has been purged).')
+                else:
+                    user.is_blocked = True
+                    msg(f'User {login!a} has been blocked (and their '
+                        f'authentication stuff has been purged).')
+
 
 def _pure_data_from_org_config_update_request(req):
     assert isinstance(req, models.OrgConfigUpdateRequest)
     req_pure_data = {
         'update_request_time': req.submitted_on.replace(microsecond=0),
-        'requesting_user': req.requesting_user_login
+        'requesting_user': req.requesting_user_login,
+        'added_user_logins': _attr_list(req.user_addition_or_activation_requests, 'user_login'),
+        'removed_user_logins': _attr_list(req.user_deactivation_requests, 'user_login'),
     }
     if req.additional_comment:
         req_pure_data['additional_comment'] = req.additional_comment

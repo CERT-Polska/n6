@@ -1,6 +1,6 @@
 import { Validate } from 'react-hook-form';
 import { SelectOption } from 'components/shared/customSelect/CustomSelect';
-import { IRequestParams, TCategory, TProto } from 'api/services/globalTypes';
+import { IRequestParams, TCategory, TProto, TRestriction } from 'api/services/globalTypes';
 import {
   validateAsnNumberRequired,
   validatePortNumberRequired,
@@ -34,6 +34,7 @@ export interface IIncidentsForm
   urlSub?: string;
   category?: SelectOption<TCategory>[];
   proto?: SelectOption<TProto>[];
+  restriction?: SelectOption<TRestriction>[];
 }
 
 const categoryList = [
@@ -71,6 +72,12 @@ const protoList = [
   { value: 'icmp', label: 'ICMP' }
 ];
 
+const restrictionList = [
+  { value: 'public', label: 'Public' },
+  { value: 'need-to-know', label: 'Need to know' },
+  { value: 'internal', label: 'Internal' }
+];
+
 export type TFilterName = keyof IIncidentsForm;
 
 export type TFilter =
@@ -97,7 +104,9 @@ export type TFilter =
       validateTimeRequired?: Record<string, Validate<string>>;
     };
 
-type TStoreValue = { value?: string | SelectOption<TCategory>[] | SelectOption<TProto>[] };
+type TStoreValue = {
+  value?: string | SelectOption<TCategory>[] | SelectOption<TProto>[] | SelectOption<TRestriction>[];
+};
 type TStoreFilter = ({ isDate: true } | TFilter) & TStoreValue;
 
 export type TStoredFilter = Record<keyof IIncidentsForm, TStoreFilter>;
@@ -134,6 +143,13 @@ export const allFilters: TFilter[] = [
     options: protoList,
     validate: { isRequired }
   },
+  {
+    name: 'restriction',
+    label: 'incidents_form_restriction',
+    type: 'select',
+    options: restrictionList,
+    validate: { isRequired }
+  },
   { name: 'sha1', label: 'incidents_form_sha1', type: 'input', validate: validateSha1Required },
   { name: 'source', label: 'incidents_form_source', type: 'input', validate: validateSourceRequired },
   { name: 'sport', label: 'incidents_form_sport', type: 'input', validate: validatePortNumberRequired },
@@ -147,20 +163,21 @@ export const allFilters: TFilter[] = [
   { name: 'urlSub', label: 'incidents_form_url_sub', type: 'input', validate: validateUrlPartRequired }
 ];
 
-const convertDateAndTime = (date: string, time: string) => {
+export const convertDateAndTime = (date: string, time: string) => {
   const [days, month, year] = date.split('-').map((comp) => parseInt(comp));
   const [hours, minutes] = time.split(':').map((comp) => parseInt(comp));
   const convertedDate = new Date(Date.UTC(year, month - 1, days, hours, minutes));
   return convertedDate;
 };
 
-const convertObjectArrToString = (options: SelectOption<TCategory | TProto>[]): string =>
+export const convertObjectArrToString = (options: SelectOption<TCategory | TProto | TRestriction>[]): string =>
   options.map((opt) => opt.value).join(',');
 
 export const optLimit = 1000;
 
 export const parseIncidentsFormData = (data: IIncidentsForm): IRequestParams => {
-  const { category, proto, fqdnSub, ipNet, urlSub, startDate, startTime, endDate, endTime, ...rest } = data;
+  const { category, proto, fqdnSub, ipNet, urlSub, startDate, startTime, endDate, endTime, restriction, ...rest } =
+    data;
 
   const newData = {
     ...rest,
@@ -169,6 +186,7 @@ export const parseIncidentsFormData = (data: IIncidentsForm): IRequestParams => 
     ...(endDate && endTime ? { 'time.max': convertDateAndTime(endDate, endTime) } : {}),
     ...(category ? { category: convertObjectArrToString(category) } : {}),
     ...(proto ? { proto: convertObjectArrToString(proto) } : {}),
+    ...(restriction ? { restriction: convertObjectArrToString(restriction) } : {}),
     ...(fqdnSub ? { 'fqdn.sub': fqdnSub } : {}),
     ...(ipNet ? { 'ip.net': ipNet } : {}),
     ...(urlSub ? { 'url.sub': urlSub } : {})

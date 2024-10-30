@@ -42,13 +42,13 @@ class _BaseSpamhausBlacklistParser(BlackListParser):
                                        r"\d{4}[ ]*(\d{2}:?){3}[ ]*GMT)",
                                        re.ASCII | re.IGNORECASE)
     bl_current_time_format = "%a, %d %b %Y %H:%M:%S GMT"
+    
+    ignored_csv_raw_row_prefixes = ';'
 
     def parse(self, data):
         raw_events = csv.reader(data['csv_raw_rows'], quotechar='"')
         for row in raw_events:
             row = row[0]
-            if row.startswith(';'):
-                continue
             fields = split_csv_row(row, delimiter=';')
             if len(fields) == 2:
                 cidr, sbl = strip_fields(fields)
@@ -93,12 +93,12 @@ class SpamhausBotsParser(BaseParser):
         'category': 'bots',
         'origin': 'sinkhole',
     }
+    
+    ignored_csv_raw_row_prefixes = ';'
 
     def parse(self, data):
         rows = csv.reader(data['csv_raw_rows'], delimiter=',', quotechar='"')
         for row in rows:
-            if row[0].startswith(';'):
-                continue
             ip, _asn, _cc, timestamp, name, fqdn, dip, dport, sport, proto = strip_fields(row)
             with self.new_record_dict(data) as parsed:
                 parsed['time'] = datetime.utcfromtimestamp(int(timestamp))

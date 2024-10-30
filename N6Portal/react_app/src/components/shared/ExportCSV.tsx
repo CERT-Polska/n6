@@ -11,82 +11,83 @@ interface IProps {
   resource?: TAvailableResources;
 }
 
+export const headers = [
+  {
+    label: 'Time',
+    key: 'time'
+  },
+  {
+    label: 'Category',
+    key: 'category'
+  },
+  {
+    label: 'Name',
+    key: 'name'
+  },
+  {
+    label: 'IP',
+    key: 'ip'
+  },
+  {
+    label: 'ASN',
+    key: 'asn'
+  },
+  {
+    label: 'Country',
+    key: 'cc'
+  },
+  {
+    label: 'FQDN',
+    key: 'fqdn'
+  },
+  {
+    label: 'Source',
+    key: 'source'
+  },
+  {
+    label: 'Confidence',
+    key: 'confidence'
+  },
+  {
+    label: 'URL',
+    key: 'url'
+  },
+  {
+    label: 'Origin',
+    key: 'origin'
+  },
+  {
+    label: 'Protocol',
+    key: 'proto'
+  },
+  {
+    label: 'Src.port',
+    key: 'sport'
+  },
+  {
+    label: 'Dest.port',
+    key: 'dport'
+  },
+  {
+    label: 'Dest.IP',
+    key: 'dip'
+  },
+  {
+    label: 'MD5',
+    key: 'md5'
+  },
+  {
+    label: 'SHA1',
+    key: 'sha1'
+  },
+  {
+    label: 'Target',
+    key: 'target'
+  }
+];
+
 const ExportCSV: FC<IProps> = ({ data, resource = 'empty' }) => {
   const { messages } = useTypedIntl();
-  const headers = [
-    {
-      label: 'Time',
-      key: 'time'
-    },
-    {
-      label: 'Category',
-      key: 'category'
-    },
-    {
-      label: 'Name',
-      key: 'name'
-    },
-    {
-      label: 'IP',
-      key: 'ip'
-    },
-    {
-      label: 'ASN',
-      key: 'asn'
-    },
-    {
-      label: 'Country',
-      key: 'cc'
-    },
-    {
-      label: 'FQDN',
-      key: 'fqdn'
-    },
-    {
-      label: 'Source',
-      key: 'source'
-    },
-    {
-      label: 'Confidence',
-      key: 'confidence'
-    },
-    {
-      label: 'URL',
-      key: 'url'
-    },
-    {
-      label: 'Origin',
-      key: 'origin'
-    },
-    {
-      label: 'Protocol',
-      key: 'proto'
-    },
-    {
-      label: 'Src.port',
-      key: 'sport'
-    },
-    {
-      label: 'Dest.port',
-      key: 'dport'
-    },
-    {
-      label: 'Dest.IP',
-      key: 'dip'
-    },
-    {
-      label: 'MD5',
-      key: 'md5'
-    },
-    {
-      label: 'SHA1',
-      key: 'sha1'
-    },
-    {
-      label: 'Target',
-      key: 'target'
-    }
-  ];
 
   const time = format(new Date(), 'yyyyMMddHHmmss');
   const filename = `n6${resource.replaceAll('/', '-')}${time}.csv`;

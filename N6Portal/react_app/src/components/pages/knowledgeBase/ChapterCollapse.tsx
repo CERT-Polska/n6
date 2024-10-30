@@ -14,6 +14,7 @@ interface IProps {
 interface ICollapseToggleButton {
   active: boolean;
   handleChange: () => void;
+  children: React.ReactNode;
 }
 
 const CollapseToggleButton: FC<ICollapseToggleButton> = ({ children, handleChange, active }) => {

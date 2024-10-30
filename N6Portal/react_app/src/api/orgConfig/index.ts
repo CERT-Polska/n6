@@ -3,7 +3,7 @@ import { useQuery, UseQueryOptions, UseQueryResult } from 'react-query';
 import { controllers, customAxios, dataController } from 'api';
 import { IOrgConfig } from 'api/orgConfig/types';
 
-const getOrgConfig = async (): Promise<IOrgConfig> => {
+export const getOrgConfig = async (): Promise<IOrgConfig> => {
   try {
     const payload = await customAxios.get<IOrgConfig>(`${dataController}${controllers.orgConfig.orgConfigEndpoint}`);
     return payload.data;

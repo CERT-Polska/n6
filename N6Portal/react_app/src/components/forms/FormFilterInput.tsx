@@ -30,7 +30,7 @@ type IProps = {
   validate?: Record<string, Validate<string>>;
 };
 
-const parseValue = (value: string, keepWhitespaces = false) => {
+export const parseValue = (value: string, keepWhitespaces = false) => {
   const removeWhitespaces = (v: string) =>
     keepWhitespaces ? v.trim().replaceAll(/\s*,\s*/g, ',') : v.replaceAll(/\s+/g, '');
   const removeMultipleCommas = (v: string) => v.replace(/(,+)/g, ',');
@@ -65,9 +65,9 @@ const FormFilterInput: FC<IProps & FormContextProps> = memo(
     const fieldsWithWhitespaces = ['name'];
     const keepWhitespaces = fieldsWithWhitespaces.includes(name);
 
-    const handleKeyDown = (e?: React.KeyboardEvent<HTMLInputElement>) => {
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       const currentFilterValue = getValues(name);
-      e?.key === 'Enter' && setValue(name, parseValue(currentFilterValue, keepWhitespaces));
+      e.key === 'Enter' && setValue(name, parseValue(currentFilterValue, keepWhitespaces));
     };
 
     return (

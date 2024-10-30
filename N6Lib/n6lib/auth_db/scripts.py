@@ -4,6 +4,7 @@ import argparse
 import ast
 import contextlib
 import getpass
+import json
 import os
 import os.path as osp
 import sys
@@ -28,6 +29,7 @@ from n6lib.auth_db import (
     MYSQL_CHARSET,
     MYSQL_COLLATE,
 )
+from n6lib.auth_db import models
 from n6lib.auth_db.models import (
     Base,
     CriteriaCategory,
@@ -475,7 +477,6 @@ class PopulateAuthDB(BaseAuthDBScript):
         'dataplane.telnetlogin',
         'dataplane.vncrfb',
         'greensnow-co.list-txt',
-        'malwarepatrol.malurl',
         'openphish.web-bl',
         'sblam.spam',
         'shadowserver.adb',
@@ -685,6 +686,87 @@ class PopulateAuthDB(BaseAuthDBScript):
         org.access_to_threats = self.access_to_threats
 
 
+class ImportToAuthDB(BaseAuthDBScript):
+
+    """
+    A very simple tool to import records to Auth DB.
+
+    WARNING: this is an *experimental script* (it may be removed or changed
+    even in minor releases of *n6* without any warnings/announcements/etc.).
+    """
+
+    _SUPPORTED_MODEL_NAMES = [
+        name for name, cls in vars(models).items()
+        if isinstance(cls, type) and issubclass(cls, Base) and hasattr(cls, 'from_value')
+    ]
+
+    @classmethod
+    def make_argument_parser(cls, prog):
+        parser = super().make_argument_parser(prog)
+        parser.add_argument('model_name',
+                            metavar='MODEL_NAME',
+                            choices=cls._SUPPORTED_MODEL_NAMES,
+                            help=(f'supported Auth DB model name (one of: '
+                                  f'{", ".join(cls._SUPPORTED_MODEL_NAMES)})'))
+        parser.add_argument('input_file',
+                            metavar='INPUT_FILE',
+                            type=argparse.FileType('r', encoding='utf-8'),
+                            help=('input file path (or "-" to read from '
+                                  'standard input), whose each line '
+                                  'provides the main field value'))
+        parser.add_argument('-c', '--constant-fields',
+                            metavar='JSON',
+                            default='{}',
+                            help=('JSON-ed dict of constant values '
+                                  'for additional fields (if any)'))
+        return parser
+
+    def __init__(self,
+                 model_name,
+                 input_file,
+                 constant_fields,
+                 **kwargs):
+        self._model_name = model_name
+        self._input_file = input_file
+        self._constant_fields = constant_fields
+        super().__init__(**kwargs)
+
+    def run(self):
+        self.msg(f'Inserting {self._model_name} records...')
+        try:
+            model_cls = getattr(models, self._model_name)
+            constant_field_name_to_val = json.loads(self._constant_fields)
+            unknown_field_names = constant_field_name_to_val.keys() - set(dir(model_cls))
+            if unknown_field_names:
+                raise ValueError(
+                    f'unknown field names for {self._model_name}: '
+                    + ', '.join(sorted(map(ascii, unknown_field_names))))
+            inserted_count = 0
+            with self.db_connector:
+                for line in self._input_file:
+                    input_value = line.strip()
+                    if not input_value:
+                        continue
+                    new = model_cls.from_value(input_value)
+                    for name, val in constant_field_name_to_val.items():
+                        setattr(new, name, val)
+                    try:
+                        with self.db_connector:
+                            self.db_session.add(new)
+                    except Exception as exc:
+                        self.msg_warn(f'Could not insert record for '
+                                      f'{input_value=!a} ({ascii_str(exc)}).')
+                    else:
+                        inserted_count += 1
+        except ValueError as exc:
+            self.msg_error(f'Error related to input data ({ascii_str(exc)}). '
+                           f'No {self._model_name} records inserted!')
+            return 1
+        else:
+            self.msg(f'OK, inserted {inserted_count} {self._model_name} record(s).')
+            return 0
+
+
 def create_and_initialize_auth_db():
     CreateAndInitializeAuthDB.run_from_commandline(sys.argv)
 
@@ -695,3 +777,7 @@ def drop_auth_db():
 
 def populate_auth_db():
     PopulateAuthDB.run_from_commandline(sys.argv)
+
+
+def import_to_auth_db():
+    ImportToAuthDB.run_from_commandline(sys.argv)

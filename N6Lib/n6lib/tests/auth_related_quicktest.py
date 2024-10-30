@@ -708,18 +708,18 @@ def data_maker_for__TestAuthAPI_get_source_ids_to_subs_to_stream_api_access_info
 def data_maker_for__TestAuthAPI_get_stream_api_enabled_org_ids(session):
     yield models.Org(org_id='o1', stream_api_enabled=True)
     yield models.Org(org_id='o2', stream_api_enabled=False)
-    yield models.Org(org_id='o3')
+    yield models.Org(org_id='o3', stream_api_enabled=False)
     yield models.Org(org_id='o4', stream_api_enabled=False)
-    yield models.Org(org_id='o5', stream_api_enabled=True)
-    yield models.Org(org_id='o6')
+    yield models.Org(org_id='o5')
+    yield models.Org(org_id='o6', stream_api_enabled=False)
 
 def data_maker_for__TestAuthAPI_get_stream_api_disabled_org_ids(session):
     yield models.Org(org_id='o1', stream_api_enabled=True)
     yield models.Org(org_id='o2', stream_api_enabled=False)
-    yield models.Org(org_id='o3')
+    yield models.Org(org_id='o3', stream_api_enabled=False)
     yield models.Org(org_id='o4', stream_api_enabled=False)
-    yield models.Org(org_id='o5', stream_api_enabled=True)
-    yield models.Org(org_id='o6')
+    yield models.Org(org_id='o5')
+    yield models.Org(org_id='o6', stream_api_enabled=False)
 
 def data_maker_for__TestAuthAPI_get_source_ids_to_notification_access_info_mappings(session):
     return _data_matching_those_from_auth_related_test_helpers(session)
@@ -748,7 +748,7 @@ def data_maker_for__TestAuthAPI_get_org_ids_to_notification_configs(session):
                      ],
                      email_notification_language='PL',
                      email_notification_business_days_only=False,
-                     )
+                     stream_api_enabled=False)
     yield models.Org(org_id='o3',
                      actual_name='testname3',
                      email_notification_enabled=True,
@@ -761,8 +761,7 @@ def data_maker_for__TestAuthAPI_get_org_ids_to_notification_configs(session):
                          models.EMailNotificationTime(notification_time=dt.time(13)),
                      ],
                      email_notification_language='en',
-                     email_notification_business_days_only=True,
-                     stream_api_enabled=True)
+                     email_notification_business_days_only=True)
     yield models.Org(org_id='o4',
                      email_notification_enabled=False,
                      email_notification_times=[
@@ -771,7 +770,8 @@ def data_maker_for__TestAuthAPI_get_org_ids_to_notification_configs(session):
                      ],
                      email_notification_addresses=[
                          models.EMailNotificationAddress(email='address@dn4.pl'),
-                     ])
+                     ],
+                     stream_api_enabled=False)
     yield models.Org(org_id='o5',
                      actual_name='testname5',
                      email_notification_enabled=True,
@@ -980,7 +980,7 @@ def _data_matching_those_from_auth_related_test_helpers(session):
     o2 = models.Org(
         org_id='o2',
         org_groups=[go1, go3],
-        full_access=False, stream_api_enabled=True, email_notification_enabled=True,
+        full_access=False, email_notification_enabled=True,
 
         access_to_inside=False,
         inside_subsources=[p7, p9],
@@ -1013,7 +1013,7 @@ def _data_matching_those_from_auth_related_test_helpers(session):
     o4 = models.Org(
         org_id='o4',
         org_groups=[go2],
-        full_access=False, stream_api_enabled=True, email_notification_enabled=True,
+        full_access=False, email_notification_enabled=True,
 
         access_to_inside=True,
         inside_subsources=[p5],
@@ -1122,6 +1122,7 @@ def _data_matching_those_from_auth_related_test_helpers(session):
     )
     o10 = models.Org(
         org_id='o10',
+        stream_api_enabled=False,
 
         access_to_inside=True,
         inside_subsources=[p4],
@@ -1136,6 +1137,7 @@ def _data_matching_those_from_auth_related_test_helpers(session):
     )
     o11 = models.Org(
         org_id='o11',
+        stream_api_enabled=False,
 
         access_to_inside=True,
 
@@ -1144,7 +1146,7 @@ def _data_matching_those_from_auth_related_test_helpers(session):
     o12 = models.Org(
         org_id='o12',
         org_groups=[go1],
-        full_access=False, stream_api_enabled=True, email_notification_enabled=True,
+        full_access=False, email_notification_enabled=True,
 
         inside_subsources=[p1],
 
@@ -1979,6 +1981,7 @@ class _test_of__ldap_api_replacement__LdapAPI__search_structured__example_nonemp
             email_notification_addresses=[
                 models.EMailNotificationAddress(email='address@x.foo'),
             ],
+            stream_api_enabled=False,
             org_groups=[
                 models.OrgGroup(org_group_id='og1', comment=u'Oh! Zażółć \U0001f340'),
             ],

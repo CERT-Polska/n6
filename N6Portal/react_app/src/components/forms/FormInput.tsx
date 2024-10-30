@@ -10,8 +10,8 @@ import FormRenderErrorMsg from 'components/forms/FormRenderErrorMsg';
 import FormRenderCharCounter from 'components/forms/FormRenderCharCounter';
 import { ReactComponent as ResetIcon } from 'images/reset.svg';
 
-type FormInputType = 'text' | 'email' | 'password';
-type FormInputAs = 'input' | 'textarea' | typeof MaskedInput;
+export type FormInputType = 'text' | 'email' | 'password';
+export type FormInputAs = 'input' | 'textarea' | typeof MaskedInput;
 
 // bad @types/react-input-mask fix
 interface IBeforeMaskedValueChangeProps {

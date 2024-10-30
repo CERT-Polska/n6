@@ -97,6 +97,7 @@ setup(
         'n6create_and_initialize_auth_db = n6lib.auth_db.scripts:create_and_initialize_auth_db',
         'n6drop_auth_db = n6lib.auth_db.scripts:drop_auth_db',
         'n6populate_auth_db = n6lib.auth_db.scripts:populate_auth_db',
+        'n6import_to_auth_db = n6lib.auth_db.scripts:import_to_auth_db',
         'n6prepare_legacy_auth_db_for_alembic = '
             'n6lib.auth_db._before_alembic.script_preparing_for_alembic'
             ':prepare_legacy_auth_db_for_alembic',

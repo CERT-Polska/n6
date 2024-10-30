@@ -33,9 +33,6 @@ n6collector_dataplanevncrfb = n6datasources.collectors.dataplane:DataplaneVncrfb
 ## greensnow-co.*
 n6collector_greensnowcolisttxt = n6datasources.collectors.greensnow_co:GreenSnowCoListTxtCollector_main
 
-## malwarepatrol.*
-n6collector_malwarepatrolmalurl = n6datasources.collectors.malwarepatrol:MalwarepatrolMalurlCollector_main
-
 ## openphish.*
 n6collector_openphishwebbl = n6datasources.collectors.openphish:OpenphishWebBlCollector_main
 
@@ -58,6 +55,9 @@ n6collector_stopforumspam = n6datasources.collectors.stopforum:StopForumSpamColl
 
 ## turris-cz.*
 n6collector_turrisczgreylistcsv = n6datasources.collectors.turris_cz:TurrisCzGreylistCsvCollector_main
+
+## withaname.*
+n6collector_withanameddosia = n6datasources.collectors.withaname:WithanameDdosiaCollector_main
 
 ## zoneh.*
 n6collector_zonehrss = n6datasources.collectors.zoneh:ZonehRssCollector_main
@@ -199,6 +199,9 @@ n6parser_stopforumspam = n6datasources.parsers.stopforum:StopForumSpamParser_mai
 
 ## turris-cz.*
 n6parser_turrisczgreylistcsv202401 = n6datasources.parsers.turris_cz:TurrisCzGreylistCsv202401Parser_main
+
+## withaname.*
+n6parser_withanameddosia = n6datasources.parsers.withaname:WithanameDdosiaParser_main
 
 ## zoneh.*
 n6parser_zonehrss = n6datasources.parsers.zoneh:ZonehRssParser_main

@@ -8,6 +8,7 @@ interface IPrivateRouteProps {
   path: string;
   exact: boolean;
   redirectPath: string;
+  children: React.ReactNode;
 }
 
 const PrivateRoute: FC<IPrivateRouteProps> = ({ children, redirectPath, ...rest }) => {

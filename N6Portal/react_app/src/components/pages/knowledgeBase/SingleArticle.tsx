@@ -84,7 +84,7 @@ const SingleArticle: FC = () => {
           className="md-content"
           children={data.content[locale]}
           components={{
-            code({ node: _node, inline, className, children, ref: _, ...props }) {
+            code({ node: _node, inline, className, children, ...props }) {
               const match = /language-(\w+)/.exec(className || '');
               return !inline && match ? (
                 <SyntaxtHighlighter children={String(children).replace(/\n$/, '')} language={match[1]} {...props} />

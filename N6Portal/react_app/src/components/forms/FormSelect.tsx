@@ -79,12 +79,10 @@ const FormSelectWrapper: FC<IProps> = (props) => {
   const hasErrors = name in errors;
   const isTouched = name in touchedFields;
 
-  const isInvalid = useMemo(() => validateField({ isSubmitted, isSubmitSuccessful, hasErrors, isTouched }), [
-    isSubmitted,
-    isSubmitSuccessful,
-    hasErrors,
-    isTouched
-  ]);
+  const isInvalid = useMemo(
+    () => validateField({ isSubmitted, isSubmitSuccessful, hasErrors, isTouched }),
+    [isSubmitted, isSubmitSuccessful, hasErrors, isTouched]
+  );
 
   return (
     <FormSelect

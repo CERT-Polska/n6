@@ -3,7 +3,7 @@ import { useQuery, UseQueryOptions, UseQueryResult } from 'react-query';
 import { controllers, customAxios, dataController } from 'api';
 import { IArticle, IArticlesList } from 'api/services/kb/types';
 
-const getArticles = async (): Promise<IArticlesList> => {
+export const getArticles = async (): Promise<IArticlesList> => {
   try {
     const payload = await customAxios.get<IArticlesList>(`${dataController}${controllers.services.articlesList}`);
     return payload.data;
@@ -12,7 +12,7 @@ const getArticles = async (): Promise<IArticlesList> => {
   }
 };
 
-const getArticle = async (articleId: string): Promise<IArticle> => {
+export const getArticle = async (articleId: string): Promise<IArticle> => {
   try {
     const payload = await customAxios.get<IArticle>(`${dataController}${controllers.services.articles}/${articleId}`);
     return payload.data;

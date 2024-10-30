@@ -5,7 +5,7 @@ import { dictionary } from 'dictionary';
 export type FormFieldValue = string | File | SelectOption<string | boolean | number> | null;
 
 type PickKeysWithValidationPrefix<T> = keyof { [K in keyof T as K extends `validation_${infer _}` ? K : never]: T[K] };
-type ValidationMessageKeyname = PickKeysWithValidationPrefix<typeof dictionary['pl']>;
+type ValidationMessageKeyname = PickKeysWithValidationPrefix<(typeof dictionary)['pl']>;
 type CheckValue = number;
 
 export type CheckMessageKeyname = `${ValidationMessageKeyname}#${CheckValue}`;

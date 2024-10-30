@@ -1,6 +1,6 @@
 import { FC, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import Dropdown from 'react-bootstrap/esm/Dropdown';
+import { Dropdown } from 'react-bootstrap';
 import classNames from 'classnames';
 import { useTypedIntl } from 'utils/useTypedIntl';
 import routeList from 'routes/routeList';

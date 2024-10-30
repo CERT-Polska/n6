@@ -3,8 +3,8 @@ import { AxiosError } from 'axios';
 import { Col, Dropdown, Row } from 'react-bootstrap';
 import classNames from 'classnames';
 import { useMutation } from 'react-query';
-import { IdType } from 'react-table';
-import { useTable, useSortBy, useFlexLayout, Column, Cell } from 'react-table';
+import { CellProps, IdType } from 'react-table';
+import { useTable, useSortBy, useFlexLayout, Column } from 'react-table';
 import { useTypedIntl } from 'utils/useTypedIntl';
 import { IRequestParams } from 'api/services/globalTypes';
 import { getSearch, IFilterResponse } from 'api/services/search';
@@ -23,13 +23,114 @@ import { ReactComponent as Chevron } from 'images/chevron.svg';
 import { TAvailableResources } from 'api/services/info/types';
 
 export const STORED_COLUMNS_KEY = 'userHiddenColumns';
-const defaultColumnsSet = ['origin', 'proto', 'dport', 'dip', 'target', 'sport', 'md5', 'sha1'];
+export const defaultColumnsSet = ['origin', 'proto', 'dport', 'dip', 'target', 'sport', 'md5', 'sha1'];
+
+export const getColumnsWithProps = (messages: Record<string, string>) => [
+  {
+    Header: messages.incidents_column_header_time,
+    accessor: 'time',
+    width: 160
+  },
+  {
+    Header: messages.incidents_column_header_category,
+    accessor: 'category'
+  },
+  {
+    Header: messages.incidents_column_header_name,
+    accessor: 'name',
+    width: 150,
+    className: 'td-truncated td-break',
+    Cell: ({ value, row }: CellProps<object>) => <TrimmedUrl id={row.id + 'name'} value={value} trimmedLength={20} />
+  },
+  {
+    Header: messages.incidents_column_header_ip,
+    accessor: 'ip',
+    width: 150
+  },
+  {
+    Header: messages.incidents_column_header_asn,
+    accessor: 'asn',
+    width: 140
+  },
+  {
+    Header: messages.incidents_column_header_cc,
+    accessor: 'cc',
+    width: 90
+  },
+  {
+    Header: messages.incidents_column_header_fqdn,
+    accessor: 'fqdn',
+    width: 220,
+    className: 'td-truncated td-break',
+    Cell: ({ value, row }: CellProps<object>) => <TrimmedUrl id={row.id + 'fqdn'} value={value} trimmedLength={45} />
+  },
+  {
+    Header: messages.incidents_column_header_source,
+    accessor: 'source',
+    minWidth: 240,
+    className: 'td-truncated td-break',
+    Cell: ({ value, row }: CellProps<object>) => <TrimmedUrl id={row.id + 'source'} value={value} trimmedLength={55} />
+  },
+  {
+    Header: messages.incidents_column_header_confidence,
+    accessor: 'confidence'
+  },
+  {
+    Header: messages.incidents_column_header_url,
+    accessor: 'url',
+    className: 'td-truncated',
+    Cell: ({ value, row }: CellProps<object>) => <TrimmedUrl id={row.id} value={value} trimmedLength={24} />,
+    width: 200
+  },
+  {
+    Header: messages.incidents_column_header_origin,
+    accessor: 'origin',
+    width: 150
+  },
+  {
+    Header: messages.incidents_column_header_proto,
+    accessor: 'proto'
+  },
+  {
+    Header: messages.incidents_column_header_sport,
+    accessor: 'sport',
+    width: 130
+  },
+  {
+    Header: messages.incidents_column_header_dport,
+    accessor: 'dport',
+    width: 130
+  },
+  {
+    Header: messages.incidents_column_header_dip,
+    accessor: 'dip',
+    width: 140
+  },
+  {
+    Header: messages.incidents_column_header_md5,
+    accessor: 'md5',
+    width: 300
+  },
+  {
+    Header: messages.incidents_column_header_sha1,
+    accessor: 'sha1',
+    width: 400
+  },
+  {
+    Header: messages.incidents_column_header_target,
+    accessor: 'target'
+  },
+  {
+    Header: messages.incidents_column_header_restriction,
+    accessor: 'restriction'
+  }
+];
 
 interface IColumnAddedProps {
   className?: string;
 }
 
-type ColumnWithProps = Column & IColumnAddedProps;
+export type ColumnWithProps = Column & IColumnAddedProps;
 
 const storeColumnsOnToggle = (columnId: IdType<unknown>, isVisible: boolean) => {
   const storedHiddenColumns = storageAvailable('localStorage') ? localStorage.getItem(STORED_COLUMNS_KEY) : null;
@@ -57,11 +158,15 @@ const Incidents: FC = () => {
   const { messages } = useTypedIntl();
   const { availableResources } = useAuthContext();
   const [currentTab, setCurrentTab] = useState(availableResources[0]);
-  const { mutateAsync, data: mutationData, status: mutationStatus, error, reset } = useMutation<
-    IFilterResponse,
-    AxiosError,
-    IRequestParams
-  >((params: IRequestParams) => getSearch(params, currentTab));
+  const {
+    mutateAsync,
+    data: mutationData,
+    status: mutationStatus,
+    error,
+    reset
+  } = useMutation<IFilterResponse, AxiosError, IRequestParams>((params: IRequestParams) =>
+    getSearch(params, currentTab)
+  );
   const data = useMemo(() => (mutationData && parseResponseData(mutationData.data)) || [], [mutationData]);
 
   const handleChangeTab = (tabPath: TAvailableResources) => {
@@ -69,105 +174,7 @@ const Incidents: FC = () => {
     reset();
   };
 
-  const columns = useMemo<ColumnWithProps[]>(
-    () => [
-      {
-        Header: messages.incidents_column_header_time,
-        accessor: 'time',
-        width: 160
-      },
-      {
-        Header: messages.incidents_column_header_category,
-        accessor: 'category'
-      },
-      {
-        Header: messages.incidents_column_header_name,
-        accessor: 'name',
-        width: 150,
-        className: 'td-truncated td-break',
-        Cell: ({ value, row }: Cell) => <TrimmedUrl id={row.id + 'name'} value={value} trimmedLength={20} />
-      },
-      {
-        Header: messages.incidents_column_header_ip,
-        accessor: 'ip',
-        width: 150
-      },
-      {
-        Header: messages.incidents_column_header_asn,
-        accessor: 'asn',
-        width: 140
-      },
-      {
-        Header: messages.incidents_column_header_cc,
-        accessor: 'cc',
-        width: 90
-      },
-      {
-        Header: messages.incidents_column_header_fqdn,
-        accessor: 'fqdn',
-        width: 220,
-        className: 'td-truncated td-break',
-        Cell: ({ value, row }: Cell) => <TrimmedUrl id={row.id + 'fqdn'} value={value} trimmedLength={45} />
-      },
-      {
-        Header: messages.incidents_column_header_source,
-        accessor: 'source',
-        minWidth: 240,
-        className: 'td-truncated td-break',
-        Cell: ({ value, row }: Cell) => <TrimmedUrl id={row.id + 'source'} value={value} trimmedLength={55} />
-      },
-      {
-        Header: messages.incidents_column_header_confidence,
-        accessor: 'confidence'
-      },
-      {
-        Header: messages.incidents_column_header_url,
-        accessor: 'url',
-        className: 'td-truncated',
-        Cell: ({ value, row }: Cell) => <TrimmedUrl id={row.id} value={value} trimmedLength={24} />,
-        width: 200
-      },
-      {
-        Header: messages.incidents_column_header_origin,
-        accessor: 'origin',
-        width: 150
-      },
-      {
-        Header: messages.incidents_column_header_proto,
-        accessor: 'proto'
-      },
-      {
-        Header: messages.incidents_column_header_sport,
-        accessor: 'sport',
-        width: 130
-      },
-      {
-        Header: messages.incidents_column_header_dport,
-        accessor: 'dport',
-        width: 130
-      },
-      {
-        Header: messages.incidents_column_header_dip,
-        accessor: 'dip',
-        width: 140
-      },
-      {
-        Header: messages.incidents_column_header_md5,
-        accessor: 'md5',
-        width: 300
-      },
-      {
-        Header: messages.incidents_column_header_sha1,
-        accessor: 'sha1',
-        width: 400
-      },
-      {
-        Header: messages.incidents_column_header_target,
-        accessor: 'target'
-      }
-    ],
-    [messages]
-  );
+  const columns = useMemo<ColumnWithProps[]>(() => getColumnsWithProps(messages), [messages]);
 
   const { getTableProps, getTableBodyProps, headerGroups, rows, prepareRow, allColumns } = useTable(
     {

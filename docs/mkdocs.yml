@@ -2,7 +2,7 @@ site_name: "n6 Documentation"
 site_url: "https://n6.readthedocs.io"
 site_description: "The documentation of n6 - a system to collect, manage and distribute security information on a large scale."
 
-copyright: "Copyright (c) 2013-2023 Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network)."
+copyright: "Copyright (c) 2013-2024 Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network)."
 repo_url: "https://github.com/CERT-Polska/n6"
 edit_uri: ""
 
@@ -12,17 +12,20 @@ nav:
   - Home: index.md
   - data_flow_overview.md
   - changelog.md
-  - Installation and Configuration:
+  - n6’s Public APIs:
+      - REST API: usage/restapi.md
+      - Stream API: usage/streamapi.md
+  - Your Own Instance of n6:
       - Docker-Based Installation: install_and_conf/docker.md
-      - Step-by-Step Installation:
-          - Step-by-Step Installation: install_and_conf/step_by_step/index.md
-          - System Preparation: install_and_conf/step_by_step/system.md
-          - Installation of n6 Components: install_and_conf/step_by_step/installation.md
-          - Configuration of n6 Pipeline: install_and_conf/step_by_step/pipeline_config.md
-          - Examining Data Flow: install_and_conf/step_by_step/examining_data_flow.md
-          - Certificates: install_and_conf/step_by_step/certificates.md
-          - Configuration of n6 Web Components: install_and_conf/step_by_step/web_components_config.md
-          - Supervisor: install_and_conf/step_by_step/supervisor.md
+#      - Step-by-Step Installation:
+#          - Step-by-Step Installation: install_and_conf/step_by_step/index.md
+#          - System Preparation: install_and_conf/step_by_step/system.md
+#          - Installation of n6 Components: install_and_conf/step_by_step/installation.md
+#          - Configuration of n6 Pipeline: install_and_conf/step_by_step/pipeline_config.md
+#          - Examining Data Flow: install_and_conf/step_by_step/examining_data_flow.md
+#          - Certificates: install_and_conf/step_by_step/certificates.md
+#          - Configuration of n6 Web Components: install_and_conf/step_by_step/web_components_config.md
+#          - Supervisor: install_and_conf/step_by_step/supervisor.md
       - Optional Features (selected topics):
           - Optional Features (selected topics): install_and_conf/opt/index.md
           - Running IntelMQ Bots in n6 Pipeline:
@@ -33,7 +36,13 @@ nav:
               - Knowledge Base in n6 Portal: install_and_conf/opt/knowledge_base/index.md
               - Initialization and Configuration: install_and_conf/opt/knowledge_base/config.md
               - Content Management: install_and_conf/opt/knowledge_base/management.md
-              - Backend API: install_and_conf/opt/knowledge_base/backend_api.md
+              - n6 Portal Backend API: install_and_conf/opt/knowledge_base/backend_api.md
+          - Organization Agreements:
+              - Organization Agreements: install_and_conf/opt/optional_agreements/index.md
+              - The Agreement Model: install_and_conf/opt/optional_agreements/model.md
+              - Management in n6 Admin Panel: install_and_conf/opt/optional_agreements/manage.md
+              - Appearance in n6 Portal: install_and_conf/opt/optional_agreements/portal.md
+              - n6 Portal Backend API: install_and_conf/opt/optional_agreements/api.md
 #  - Developer Guides:
 #      - Implementing a New Data Source:
 #          - Implementing a New Data Source: dev_guides/new_source/index.md
@@ -49,8 +58,6 @@ nav:
 #              - dev_guides/new_source/parsers/baseclasses.md
 #              - dev_guides/new_source/parsers/hifreq.md
 #              - dev_guides/new_source/parsers/testing.md
-  - APIs (selected topics):
-      - Stream API: usage/streamapi.md
 
 theme:
   name: material

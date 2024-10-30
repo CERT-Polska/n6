@@ -149,7 +149,7 @@ class AbuseChUrlhausUrlsCollector(_BaseAbuseChDownloadingTimeOrderedRowsCollecto
         return None
 
     def _obtain_abuse_info_dicts(self, fresh_rows: list[str]) -> list[dict]:
-        abuse_info_dicts = [self._make_abuse_info_dict(row) for row in fresh_rows[:5]]
+        abuse_info_dicts = [self._make_abuse_info_dict(row) for row in fresh_rows]
         return abuse_info_dicts
 
     def _make_abuse_info_dict(self, row: str) -> dict:

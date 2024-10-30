@@ -31,7 +31,7 @@ const UserSettingsMfaConfiguration: FC = () => {
           history.push(routeList.userSettingsMfaConfig);
         }
       });
-    } catch (error) {
+    } catch (error: any) {
       const { status } = error.response || {};
       if (status === 403) resetAuthState();
       toggleShowApiError(true);

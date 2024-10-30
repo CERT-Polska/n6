@@ -1715,12 +1715,12 @@ class OPSet(Set[_ElemT_co], Reversible[_ElemT_co], Hashable):
     False
     >>> {1, 2, 6, 3, 8} < s
     False
+    >>> e > e
+    False
+    >>> e > s
+    False
     >>> s > e
     True
-    >>> e < s
-    True
-    >>> e < e
-    False
     >>> s > set()
     True
     >>> set() < s
@@ -1778,11 +1778,11 @@ class OPSet(Set[_ElemT_co], Reversible[_ElemT_co], Hashable):
     False
     >>> frozenset({1, 2, 6, 3, 8}) <= s
     False
+    >>> e >= e
+    True
+    >>> e >= s
+    False
     >>> s >= e
-    True
-    >>> e <= s
-    True
-    >>> e <= e
     True
     >>> s >= frozenset({})
     True
@@ -1841,11 +1841,11 @@ class OPSet(Set[_ElemT_co], Reversible[_ElemT_co], Hashable):
     False
     >>> {1: None, 2: None, 6: None, 3: None, 8: None}.keys() > s
     False
-    >>> s < e
+    >>> e < e
     False
     >>> e < s
     True
-    >>> e < e
+    >>> s < e
     False
     >>> s < {}.keys()
     False
@@ -1904,12 +1904,12 @@ class OPSet(Set[_ElemT_co], Reversible[_ElemT_co], Hashable):
     False
     >>> {1, 2, 6, 3, 8} >= s
     False
-    >>> s <= e
-    False
-    >>> e <= s
-    True
     >>> e <= e
     True
+    >>> e <= s
+    True
+    >>> s <= e
+    False
     >>> s <= set()
     False
     >>> set() >= s
@@ -3126,8 +3126,8 @@ class DictWithSomeHooks(dict):
     def __or__(self, other):
         if not isinstance(other, Mapping):
             return NotImplemented
-        # (the following `dict()` and both `.items()` calls may seem
-        # redundant, but they are here for a reason -- to impose modest
+        # (the following `dict()` call and both `.items()` calls may seem
+        # redundant, but they are here for a reason -- to impose limited
         # yet well-defined requirements on the engaged types' interfaces)
         other_as_plain_dict = dict(other.items())
         merged_items = super().__or__(other_as_plain_dict).items()
@@ -3136,8 +3136,8 @@ class DictWithSomeHooks(dict):
     def __ror__(self, other):
         if not isinstance(other, Mapping):
             return NotImplemented
-        # (the following `dict()` and both `.items()` calls may seem
-        # redundant, but they are here for a reason -- to impose modest
+        # (the following `dict()` call and both `.items()` calls may seem
+        # redundant, but they are here for a reason -- to impose limited
         # yet well-defined requirements on the engaged types' interfaces)
         other_as_plain_dict = dict(other.items())
         merged_items = super().__ror__(other_as_plain_dict).items()

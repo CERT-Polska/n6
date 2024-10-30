@@ -184,9 +184,9 @@ Values in this configuration template create a default order of components in n6
 Now, let us try to run one of _n6_ parsers!
 
 ```bash
-(env)$ n6parser_abusechfeodotracker202110
+(env)$ n6parser_certplshield
 n6: INFO       2020-01-16 12:31:17,313 UTC n6lib.log_helpers         in configure_logging() (#133): logging configuration loaded from '/home/dataman/.n6/logging.conf'
-n6: INFO       2020-01-16 12:31:17,316 UTC n6lib.config              in _load_n6_config_files() (#1042): Config files read properly: "/home/dataman/.n6/00_global.conf", "/home/dataman/.n6/02_archiveraw.conf", "/home/dataman/.n6/05_enrich.conf", "/home/dataman/.n6/07_aggregator.conf", "/home/dataman/.n6/07_comparator.conf", "/home/dataman/.n6/09_auth_db.conf", "/home/dataman/.n6/21_recorder.conf", "/home/dataman/.n6/23_filter.conf", "/home/dataman/.n6/60_abuse_ch.conf", "/home/dataman/.n6/60_misp.conf", "/home/dataman/.n6/60_spam404_com.conf", [...]
+n6: INFO       2020-01-16 12:31:17,316 UTC n6lib.config              in _load_n6_config_files() (#1042): Config files read properly: "/home/dataman/.n6/00_global.conf", "/home/dataman/.n6/02_archiveraw.conf", "/home/dataman/.n6/05_enrich.conf", "/home/dataman/.n6/07_aggregator.conf", "/home/dataman/.n6/07_comparator.conf", "/home/dataman/.n6/09_auth_db.conf", "/home/dataman/.n6/21_recorder.conf", "/home/dataman/.n6/23_filter.conf", "/home/dataman/.n6/60_abuse_ch.conf", "/home/dataman/.n6/60_cert_pl.conf", "/home/dataman/.n6/60_misp.conf", "/home/dataman/.n6/60_spam404_com.conf", [...]
 n6: INFO       2020-01-16 12:31:17,319 UTC n6.base.queue             in connect() (#459): Connecting to localhost
 n6: INFO       2020-01-16 12:31:17,320 UTC pika.adapters.base_connection in _create_and_connect_to_socket() (#212): Connecting to ::1:5672
 n6: INFO       2020-01-16 12:31:17,324 UTC n6.base.queue             in on_connection_open() (#492): Connection opened
@@ -198,7 +198,7 @@ is connected with the RabbitMQ server. Log in to RabbitMQ's management graphical
 going to `http://localhost:15672` in web browser and check the tab **queues**. There should be a new entry:
 
 ```text
-abuse-ch.feodotracker.202110
+cert-pl.shield
 ```
 
 You can close the parser with `CTRL + c`. It will gracefully close the connection and exit.
@@ -410,10 +410,10 @@ configured and running. Then run:
 The `n6archiveraw` process stops on `SIGINT` (`CTRL + c`) or `SIGTERM` signal. After a few seconds,
 all messages from the `dba` queue should be consumed by `n6archiveraw`.
 
-Now, as a `dataman` user, run some n6 collector (for example the _AbuseChFeodoTrackerCollector_):
+Now, as a `dataman` user, run some n6 collector (for example the _CertPlShieldCollector_):
 
 ```bash
-(env_py3)$ n6collector_abusechfeodotracker
+(env_py3)$ n6collector_certplshield
 ```
 
 A collector should collect data, send gathered data to the message broker (RabbitMQ) and quit.
@@ -434,8 +434,8 @@ There should be logs similar to examples below:
 n6: INFO 2020-01-16 16:53:21,973 UTC pika.adapters.base_connection in _create_and_connect_to_socket() (#212): Connecting to ::1:5672
 n6: INFO 2020-01-16 16:53:21,976 UTC n6.base.queue             in on_connection_open() (#492): Connection opened
 n6: INFO 2020-01-16 16:53:21,976 UTC n6.base.queue             in open_channels() (#537): Creating new channels
-n6: INFO 2020-01-16 16:53:22,436 UTC n6.archiver.archive_raw   in create_indexes() (#366): Create indexes: 'rid' on collection: u'abuse-ch.feodotracker.202110.files'
-n6: INFO 2020-01-16 16:53:22,534 UTC n6.archiver.archive_raw   in create_indexes() (#366): Create indexes: 'md5' on collection: u'abuse-ch.feodotracker.202110.files'
+n6: INFO 2020-01-16 16:53:22,436 UTC n6.archiver.archive_raw   in create_indexes() (#366): Create indexes: 'rid' on collection: u'cert-pl.shield.files'
+n6: INFO 2020-01-16 16:53:22,534 UTC n6.archiver.archive_raw   in create_indexes() (#366): Create indexes: 'md5' on collection: u'cert-pl.shield.files'
 ```
 
 Check the MongoDB database:
@@ -445,10 +445,10 @@ $ mongo -u admin -p password --authenticationDatabase n6
 > use n6;
 > db.getCollectionNames()
 [
-    "abuse-ch.feodotracker.202110.chunks",
-    "abuse-ch.feodotracker.202110.files",
+    "cert-pl.shield.chunks",
+    "cert-pl.shield.files",
 ]
-> db.getCollection('abuse-ch.feodotracker.202110.files').find()
+> db.getCollection('cert-pl.shield.files').find()
 { "_id" : ObjectId("5e2095026e95522c7f86929c"), "received" : ISODate("2020-01-16T16:47:08Z"), "contentType" : "text/csv", "chunkSize" : 261120, "length" : 219846, "uploadDate" : ISODate("2020-01-16T16:53:22.655Z"), "http_last_modified" : "2020-01-11 14:00:00", "rid" : "8173d72f6d69142ceaa9cfa9ae908506", "md5" : "3a22aff3d9a3099f509d4cec45fe72ea" }
 ```
 

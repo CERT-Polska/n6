@@ -2,9 +2,11 @@
 
 import contextlib
 import dataclasses
+import functools
 import hashlib
 import math
 import os
+import random
 import re
 import secrets
 import shutil
@@ -61,7 +63,7 @@ __all__ = [
 # Static typing helpers
 #
 
-AnyPath = Union[str, bytes, Path, os.PathLike]
+AnyPath = Union[str, bytes, os.PathLike[str], os.PathLike[bytes]]
 
 
 #
@@ -93,7 +95,7 @@ class FileAccessor:
     `open_file()` helper when it comes to reading, and the subset of
     them accepted by `AtomicallySavedFile()` when it comes to writing)
     -- *excluding* the `mode` argument, which is determined automatically
-    (respectively, as: `'rt'`, `'rb'`, `'wt'`, `'wb'`). Subclasses may
+    (respectively, as: `'rt'`, `'wt'`, `'rb'`, `'wb'`). Subclasses may
     define other sets of accepted keyword-only arguments (possibly --
     yet not necessarily -- being supersets or subsets of those standard
     ones).
@@ -103,12 +105,17 @@ class FileAccessor:
 
     ***
 
-    Anyway, let's show the basics...
+    Anyway, let's show the basics.
+
+    We need to prepare auxiliary stuff for our examples...
 
     >>> import pathlib, tempfile
     >>> our_dir_obj = tempfile.TemporaryDirectory(prefix='n6-test-n6lib.file_helpers-')
     >>> our_dir = as_path(our_dir_obj.name)  # `as_path()` is another helper defined in this module
     >>> our_path = our_dir / 'test-file'
+
+    Now, let's create our first instance.
+
     >>> accessor = FileAccessor(our_path)
 
     The specified target path is accessible as the `path` attribute:
@@ -121,7 +128,7 @@ class FileAccessor:
     >>> repr(accessor) == f'<FileAccessor path={our_path!r}>'
     True
 
-    Let's prepare some data for further examples...
+    OK, let's prepare some data for further examples...
 
     >>> example_text = 'uważny\nturysta\n...'
     >>> len(example_text)
@@ -132,7 +139,7 @@ class FileAccessor:
     >>> len(example_bytes)
     19
 
-    First, let's confirm that all writes are atomic:
+    Now, let's start with confirming that all writes are atomic:
 
     >>> with accessor.text_atomic_writer() as file:
     ...     file.write(example_text)
@@ -301,6 +308,7 @@ class FileAccessor:
                                 **given_kwargs) -> ContextManager[IO]:
         (open_kwargs,
          rest_kwargs) = self._adjust_and_split_kwargs(mode=mode, **given_kwargs)
+        self._validate_open_kwargs(**open_kwargs)
         file_cm = self._get_file_cm(self.path, mode, open_kwargs, **rest_kwargs)
         if file_cm is None:
             raise NotImplementedError(ascii_str(
@@ -322,7 +330,7 @@ class FileAccessor:
             # (behavior similar to that of our `open_file()` helper)
             open_kwargs.setdefault('encoding', 'utf-8')
         rest_kwargs = given_kwargs
-        rest_kwargs.setdefault('set_on_success', {})
+        rest_kwargs.setdefault('_set_on_success', {})
         return open_kwargs, rest_kwargs
 
     def _get_names_of_supported_open_kwargs(self, mode: str) -> set[str]:
@@ -334,6 +342,20 @@ class FileAccessor:
             # (not supported by `AtomicallySavedFile`)
             names.update({'closefd', 'opener'})
         return names
+
+    def _validate_open_kwargs(self, **open_kwargs) -> None:
+        pass  # (can be overridden/extended in subclasses)
+
+    def _get_file_cm(self,
+                     path: Path,
+                     mode: str,
+                     open_kwargs: KwargsDict,
+                     **rest_kwargs) -> Optional[ContextManager[IO]]:
+        if self._is_pure_reader_mode(mode):
+            return self._pure_reader_cm(path, mode, open_kwargs, **rest_kwargs)
+        if self._is_atomic_writer_mode(mode):
+            return self._atomic_writer_cm(path, mode, open_kwargs, **rest_kwargs)
+        return None
 
     def _is_text_mode(self, mode: str) -> bool:
         return not self._is_binary_mode(mode)
@@ -347,24 +369,13 @@ class FileAccessor:
     def _is_atomic_writer_mode(self, mode: str) -> bool:
         return ('w' in mode) and ('+' not in mode)
 
-    def _get_file_cm(self,
-                     path: Path,
-                     mode: str,
-                     open_kwargs: KwargsDict,
-                     **rest_kwargs) -> Optional[ContextManager[IO]]:
-        if self._is_pure_reader_mode(mode):
-            return self._pure_reader_cm(path, mode, open_kwargs, **rest_kwargs)
-        if self._is_atomic_writer_mode(mode):
-            return self._atomic_writer_cm(path, mode, open_kwargs, **rest_kwargs)
-        return None
-
     @contextlib.contextmanager
     def _pure_reader_cm(self,
                         path: Path,
                         mode: str,
                         open_kwargs: KwargsDict,
                         *,
-                        set_on_success: dict,
+                        _set_on_success: dict,
                         **unexpected_kwargs) -> Generator[IO]:
         if unexpected_kwargs:
             raise self._get_unexpected_kwargs_error(**unexpected_kwargs)
@@ -383,7 +394,7 @@ class FileAccessor:
                           mode: str,
                           open_kwargs: KwargsDict,
                           *,
-                          set_on_success: dict,
+                          _set_on_success: dict,
                           **unexpected_kwargs) -> Generator[IO]:
         if unexpected_kwargs:
             raise self._get_unexpected_kwargs_error(**unexpected_kwargs)
@@ -404,11 +415,11 @@ class FileAccessor:
     def _enclosing_cm(self,
                       file_cm: ContextManager[IO],
                       *,
-                      set_on_success: dict,
+                      _set_on_success: dict,
                       **_) -> Generator[IO]:
         with file_cm as file:
             yield file
-        for attr_name, obj in set_on_success.items():
+        for attr_name, obj in _set_on_success.items():
             setattr(self, attr_name, obj)
 
 
@@ -439,16 +450,9 @@ class StampedFileAccessor(FileAccessor):
 
     ***
 
-    A *minor limitation* is that *for text I/O* **only** encodings being
-    supersets of ASCII (such as `utf-8`, `windows-1252`, `iso-8859-...`)
-    are supported. The behavior is *undefined* if an encoding which *is
-    not ASCII-based* is used (i.e., exceptions may be raised or silently
-    wrong behavior may be observed -- just don't do that). Obviously,
-    this limitation does *not* apply to *binary I/O*.
+    OK, let's start with the basics.
 
-    ***
-
-    OK, let's start with the basics...
+    We need to prepare auxiliary stuff for our examples...
 
     >>> import pathlib, string, tempfile, time
     >>> HEX_DIGITS_LOWERCASE = set(string.hexdigits.lower().encode('ascii'))
@@ -465,7 +469,7 @@ class StampedFileAccessor(FileAccessor):
     True
     >>> isinstance(acc.path, pathlib.Path) and acc.path == our_path
     True
-    >>> acc.time_func is time.time   # <- This is the default, you can change it (see below...).
+    >>> acc.time_func is time.time   # <- This is the default, you can customize it (see below...).
     True
     >>> own_stamper_id = acc.own_stamper_id   # <- We did not specify it (but see below...), so a
     >>> isinstance(own_stamper_id, bytes)     #    securely random id has been generated for us.
@@ -542,8 +546,8 @@ class StampedFileAccessor(FileAccessor):
     >>> len(example_bytes)
     19
 
-    Now, let's check that, as in the case of `FileAccessor`, all writes
-    are atomic:
+    Now, let's confirm that, as in the case of `FileAccessor`, all
+    writes are atomic:
 
     >>> with acc.text_atomic_writer() as file:
     ...     file.write(example_text)
@@ -682,6 +686,29 @@ class StampedFileAccessor(FileAccessor):
     True
     >>> acc2.last_read_or_written_timestamp == -42.599999
     True
+
+    ***
+
+    One *limitation* is that *for text I/O*, **only** encodings being
+    supersets of ASCII (such as `utf-8`, `windows-1252`, `iso-8859-...`)
+    are supported correctly. If an *ASCII-incompatible* encoding is
+    detected, `ValueError` is raised:
+
+    >>> with acc.text_reader(encoding='cp500'):
+    ...    pass
+    ...
+    Traceback (most recent call last):
+      ...
+    ValueError: encoding='cp500' is unsupported as it is not ASCII-compatible
+
+    >>> with acc.text_atomic_writer(encoding='cp500'):
+    ...    pass
+    ...
+    Traceback (most recent call last):
+      ...
+    ValueError: encoding='cp500' is unsupported as it is not ASCII-compatible
+
+    Obviously, this limitation does *not* apply to *binary I/O*.
 
     ***
 
@@ -837,7 +864,7 @@ class StampedFileAccessor(FileAccessor):
     ***
 
     In the following example we inspect some internal details (note that
-    they *may change when the implementation changes*.
+    they *may change when the implementation changes*).
 
     >>> with acc2.binary_atomic_writer() as file:
     ...     file.write(example_bytes)
@@ -924,7 +951,7 @@ class StampedFileAccessor(FileAccessor):
     _meta_field_properties: dict[str, _FieldProps]
 
     def _get_meta_field_properties(self) -> dict[str, _FieldProps]:
-        _STAMPER_ID_LENGTH = 40                                         # noqa
+        _stamper_id_length = 40
         meta_field_properties = {
             'separator': self._FieldProps(
                 regex=re.compile(rb'\A%b\Z' % (
@@ -940,13 +967,13 @@ class StampedFileAccessor(FileAccessor):
                 length=(self._TIMESTAMP_INT_DIGITS + 1 + self._TIMESTAMP_FRACT_DIGITS),
             ),
             'stamper id': self._FieldProps(
-                regex=re.compile(rb'\A[0-9a-f]{%d}\Z' % _STAMPER_ID_LENGTH),
-                length=_STAMPER_ID_LENGTH,
+                regex=re.compile(rb'\A[0-9a-f]{%d}\Z' % _stamper_id_length),
+                length=_stamper_id_length,
             ),
         }
         if __debug__:
             _example_timestamp_raw = self._TIMESTAMP_RAW_FORMAT % 123.456
-            _example_stamper_id = _STAMPER_ID_LENGTH * b'a'
+            _example_stamper_id = _stamper_id_length * b'a'
             assert meta_field_properties['separator'].regex.search(self._FIELD_SEPARATOR)
             assert meta_field_properties['separator'].length == len(self._FIELD_SEPARATOR)
             assert meta_field_properties['timestamp'].regex.search(_example_timestamp_raw)
@@ -980,18 +1007,49 @@ class StampedFileAccessor(FileAccessor):
         stamper_id_str = secrets.token_hex(nbytes=hex_digits_count // 2)
         return stamper_id_str.encode('ascii')
 
+    def _validate_open_kwargs(self, **open_kwargs) -> None:
+        super()._validate_open_kwargs(**open_kwargs)
+        if 'encoding' in open_kwargs:
+            self._verify_encoding_seems_ascii_compatible(open_kwargs['encoding'])
+
+    def _verify_encoding_seems_ascii_compatible(self, encoding: str) -> None:
+        ascii_s = self._sample_ascii_str
+        ascii_b = ascii_s.encode('ascii', 'strict')
+        try:
+            encoded = ascii_s.encode(encoding, 'strict')
+            if encoded != ascii_b:
+                raise ValueError(f'{encoded=!a} not equal to expected {ascii_b!a}')
+            decoded = ascii_b.decode(encoding, 'strict')
+            if decoded != ascii_s:
+                raise ValueError(f'{decoded=!a} not equal to expected {ascii_s!a}')
+        except ValueError as exc:
+            raise ValueError(
+                f'{encoding=!a} is unsupported as it is not ASCII-compatible'
+            ) from exc
+
+    @functools.cached_property
+    def _sample_ascii_str(self) -> str:
+        ascii_count = 128
+        ascii_range = range(ascii_count)
+        code_seq = []
+        code_seq.extend(ascii_range)
+        code_seq.extend(reversed(ascii_range))
+        code_seq.extend(random.sample(ascii_range, k=ascii_count))
+        code_seq.extend(random.choices(ascii_range, k=ascii_count))
+        return ''.join(map(chr, code_seq))
+
     @contextlib.contextmanager
     def _pure_reader_cm(self,
                         path: Path,
                         mode: str,
                         open_kwargs: KwargsDict,
                         *,
-                        set_on_success: dict,
+                        _set_on_success: dict,
                         minimum_timestamp: Union[int, float, None] = None,
                         **kwargs) -> Generator[IO]:
 
         with super()._pure_reader_cm(path, mode, open_kwargs,
-                                     set_on_success=set_on_success,
+                                     _set_on_success=_set_on_success,
                                      **kwargs) as file:
             (timestamp,
              stamper_id) = self._parse_header(file)
@@ -1002,7 +1060,7 @@ class StampedFileAccessor(FileAccessor):
 
             yield file
 
-        set_on_success.update(
+        _set_on_success.update(
             last_read_or_written_timestamp=timestamp,
             last_read_timestamp=timestamp,
             last_read_stamper_id=stamper_id,
@@ -1031,7 +1089,7 @@ class StampedFileAccessor(FileAccessor):
         if not value.isascii():
             raise ValueError(
                 f'not a valid {field_name} ({value!a} '
-                f'contains some non-ASCII stuff)')
+                f'contains some non-ASCII bytes)')
         regex = self._meta_field_properties[field_name].regex
         if regex.search(value) is None:
             raise ValueError(
@@ -1044,13 +1102,13 @@ class StampedFileAccessor(FileAccessor):
                           mode: str,
                           open_kwargs: KwargsDict,
                           *,
-                          set_on_success: dict,
+                          _set_on_success: dict,
                           **kwargs) -> Generator[IO]:
 
         timestamp_raw = self._current_timestamp_raw()
 
         with super()._atomic_writer_cm(path, mode, open_kwargs,
-                                       set_on_success=set_on_success,
+                                       _set_on_success=_set_on_success,
                                        **kwargs) as file:
             # (`file` is supposed to be from an `AtomicallySavedFile`/`NamedTemporaryFile`...)
             assert getattr(file, 'name', '').startswith(tempfile.gettempdir())
@@ -1065,7 +1123,7 @@ class StampedFileAccessor(FileAccessor):
                 raise RuntimeError('not allowed to change header by overwriting it')
 
         timestamp = float(timestamp_raw)
-        set_on_success.update(
+        _set_on_success.update(
             last_read_or_written_timestamp=timestamp,
             last_written_timestamp=timestamp,
         )
@@ -1125,7 +1183,9 @@ class SignedStampedFileAccessor(StampedFileAccessor):
 
     ***
 
-    OK, again, let's start with the basics...
+    OK, again, let's start with the basics.
+
+    We need to prepare auxiliary stuff for our examples...
 
     >>> import pathlib, string, tempfile, time
     >>> HEX_DIGITS_LOWERCASE = set(string.hexdigits.lower().encode('ascii'))
@@ -1142,7 +1202,7 @@ class SignedStampedFileAccessor(StampedFileAccessor):
     True
     >>> isinstance(acc.path, pathlib.Path) and acc.path == our_path
     True
-    >>> acc.time_func is time.time   # <- This is the default, you can change it (see below...).
+    >>> acc.time_func is time.time   # <- This is the default, you can customize it (see below...).
     True
     >>> own_stamper_id = acc.own_stamper_id   # <- We did not specify it (but see below...), so a
     >>> isinstance(own_stamper_id, bytes)     #    securely random id has been generated for us.
@@ -1190,8 +1250,8 @@ class SignedStampedFileAccessor(StampedFileAccessor):
     >>> len(example_bytes)
     19
 
-    Now, let's check that, as in the case of the base classes, all writes
-    are atomic:
+    Now, let's confirm that, as in the case of the base classes, all
+    writes are atomic:
 
     >>> with acc.text_atomic_writer() as file:
     ...     file.write(example_text)
@@ -1497,6 +1557,30 @@ class SignedStampedFileAccessor(StampedFileAccessor):
 
     ***
 
+    A `StampedFileAccessor`-specific *limitation* applies also here:
+    *for text I/O*, **only** encodings being supersets of ASCII (such
+    as `utf-8`, `windows-1252`, `iso-8859-...`) are supported correctly.
+    If an *ASCII-incompatible* encoding is detected, `ValueError` is
+    raised:
+
+    >>> with acc.text_reader(encoding='cp500'):
+    ...    pass
+    ...
+    Traceback (most recent call last):
+      ...
+    ValueError: encoding='cp500' is unsupported as it is not ASCII-compatible
+
+    >>> with acc.text_atomic_writer(encoding='cp500'):
+    ...    pass
+    ...
+    Traceback (most recent call last):
+      ...
+    ValueError: encoding='cp500' is unsupported as it is not ASCII-compatible
+
+    Obviously, this limitation does *not* apply to *binary I/O*.
+
+    ***
+
     Note that when reading, as in the case of the `StampedFileAccessor`
     superclass, you can request to check that the file's timestamp is
     not older (not smaller) than the specified value -- then, if it is,
@@ -1566,8 +1650,8 @@ class SignedStampedFileAccessor(StampedFileAccessor):
     >>> acc.last_read_or_written_timestamp == 8192.42
     True
 
-    Note, however, that the (this-class-specific) signature is *not*
-    "seen" by `seek()`/`tell()` at all!
+    Note, however, that the signature (specific to this class) is *not*
+    "seen" by `seek()` and `tell()` at all!
 
     Also, note that any attempt to change any part of the aforementioned
     header (`StampedFileAccessor`-superclass-specific) will be detected
@@ -2029,7 +2113,7 @@ class SignedStampedFileAccessor(StampedFileAccessor):
 
                 yield file
 
-                dummy_signature = self._prepare_new_signature()
+                dummy_signature = self._prepare_new_signature(hash_obj=None)
                 assert target_writer.tell() == 0
                 target_writer.write(dummy_signature)
                 target_writer.flush()
@@ -2057,7 +2141,7 @@ class SignedStampedFileAccessor(StampedFileAccessor):
         # Note: here `path` is ignored.
         return tempfile.NamedTemporaryFile(mode, prefix=__name__, **open_kwargs)
 
-    def _prepare_new_signature(self, hash_obj: Optional[HashObj] = None) -> bytes:
+    def _prepare_new_signature(self, hash_obj: Optional[HashObj]) -> bytes:
         sig_hexdigest = (
             hash_obj.hexdigest().encode('ascii') if hash_obj is not None
             else self._meta_field_properties['sig-hexdigest'].length * b'0')
@@ -2069,4 +2153,45 @@ class SignedStampedFileAccessor(StampedFileAccessor):
 #
 
 def as_path(path: AnyPath) -> Path:
+    """
+    Convert an object representing a filesystem path to an instance of
+    `pathlib.Path`.
+
+    Args:
+        `path`:
+            An object representing a filesystem path: a `str` or `bytes`
+            object, or any *path-like* object (e.g., a `pathlib.Path`).
+            By *path-like* object we mean an object whose class provides
+            an implementation of `__fspath__()` (which should return a
+            `str` or `bytes` object; see the docs of `os.PathLike`...).
+
+    Returns:
+        A `pathlib.Path` instance derived from the given `path`.
+
+    >>> p1 = as_path('/some/thing')
+    >>> p2 = as_path(b'/some/thing/')
+    >>> import pathlib
+    >>> p3 = as_path(pathlib.PurePath('/some/thing/'))
+    >>> p4 = as_path(pathlib.Path('/some/thing'))
+    >>> class MyPathLike:
+    ...     def __init__(self, fspath):
+    ...         self._fspath = fspath
+    ...     def __fspath__(self):
+    ...         return self._fspath
+    ...
+    >>> p5 = as_path(MyPathLike('/some/thing///'))
+    >>> p6 = as_path(MyPathLike(b'///some/thing'))
+    >>> isinstance(p1, pathlib.Path) and p1 == pathlib.Path('/some/thing')
+    True
+    >>> isinstance(p2, pathlib.Path) and p2 == pathlib.Path('/some/thing')
+    True
+    >>> isinstance(p3, pathlib.Path) and p3 == pathlib.Path('/some/thing')
+    True
+    >>> isinstance(p4, pathlib.Path) and p4 == pathlib.Path('/some/thing')
+    True
+    >>> isinstance(p5, pathlib.Path) and p5 == pathlib.Path('/some/thing')
+    True
+    >>> isinstance(p6, pathlib.Path) and p6 == pathlib.Path('/some/thing')
+    True
+    """
     return Path(os.fsdecode(path))

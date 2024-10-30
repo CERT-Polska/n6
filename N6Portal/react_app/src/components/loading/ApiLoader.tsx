@@ -1,4 +1,4 @@
-import { FC, useEffect } from 'react';
+import React, { FC, useEffect } from 'react';
 import { Redirect } from 'react-router-dom';
 import { AxiosError } from 'axios';
 import ApiLoaderFallback from 'components/errors/ApiLoaderFallback';
@@ -9,23 +9,25 @@ interface IProps {
   status: string;
   error: AxiosError | null;
   noError?: boolean;
+  children: React.ReactNode;
 }
 
 const ApiLoader: FC<IProps> = ({ status, children, error, noError }) => {
   const { resetAuthState } = useAuthContext();
+  const statusCode = error?.response?.status;
 
   useEffect(() => {
-    if (error?.response?.status === 403) {
+    if (statusCode === 403) {
       resetAuthState();
     }
-  }, [error?.response?.status, resetAuthState]);
+  }, [statusCode, resetAuthState]);
 
   switch (status) {
     case 'error':
-      if (error?.response?.status === 403 || error?.response?.status === 401) {
+      if (statusCode === 403 || statusCode === 401) {
         return noError ? <>{children}</> : <Redirect to={routeList.noAccess} />;
       } else {
-        return <ApiLoaderFallback />;
+        return <ApiLoaderFallback statusCode={statusCode} />;
       }
     case 'fetching':
     case 'idle':

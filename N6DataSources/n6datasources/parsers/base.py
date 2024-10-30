@@ -7,9 +7,13 @@ Parser base classes + auxiliary tools.
 import dataclasses
 import hashlib
 import io
+import re
 import sys
 from datetime import datetime
-from typing import SupportsBytes
+from typing import (
+    SupportsBytes,
+    Union,
+)
 
 import pika
 
@@ -31,7 +35,10 @@ from n6lib.config import (
 )
 from n6lib.csv_helpers import csv_string_io
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
-from n6lib.log_helpers import get_logger, logging_configured
+from n6lib.log_helpers import (
+    get_logger,
+    logging_configured,
+)
 from n6lib.record_dict import (
     AdjusterError,
     RecordDict,
@@ -112,6 +119,9 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
     # (see: get_output_bodies())
     allow_empty_results = False
 
+    # prefixes of rows to be filtered out by `CsvRawRows` while reading CSV-like data
+    ignored_csv_raw_row_prefixes: Union[str, tuple[str, ...], None] = None
+
 
     #
     # Auxiliary classes
@@ -122,10 +132,35 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
         """A class of an iterable that can be used as a CSV reader's source."""
 
         raw: bytes
+        ignored_csv_raw_row_prefixes: Union[str, tuple[str, ...], None] = None
+
+        _RAW_BYTES_ROW_REGEX = re.compile(
+            rb'''
+                [^\n\r]*
+                (?:
+                    \n
+                |
+                    \r
+                    \n?
+                |
+                    \Z
+                )
+            ''',
+            re.VERBOSE,
+        )
 
         def __iter__(self) -> io.StringIO:
-            decoded = self.raw.decode('utf-8', 'surrogateescape')
-            return csv_string_io(decoded)
+            if self.ignored_csv_raw_row_prefixes is None:
+                raw_text = self.raw.decode('utf-8', 'surrogateescape')
+            else:
+                raw_text_rows = (
+                    b.group().decode('utf-8', 'surrogateescape')
+                    for b in self._RAW_BYTES_ROW_REGEX.finditer(self.raw))
+                raw_text = ''.join(
+                    row for row in raw_text_rows
+                    if not row.startswith(self.ignored_csv_raw_row_prefixes)
+                )
+            return csv_string_io(raw_text)
 
 
     #
@@ -385,7 +420,10 @@ class BaseParser(ConfigMixin, LegacyQueuedBase):
             else None)
 
         data['raw'] = body
-        data['csv_raw_rows'] = self.CsvRawRows(raw=body)
+        data['csv_raw_rows'] = self.CsvRawRows(
+            raw=body,
+            ignored_csv_raw_row_prefixes=self.ignored_csv_raw_row_prefixes
+        )
 
         return data
 

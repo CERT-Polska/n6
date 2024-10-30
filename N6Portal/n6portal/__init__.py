@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 # Ensure all monkey-patching provided by `n6lib`
 # and `n6sdk` is applied as early as possible.
@@ -36,6 +36,8 @@ from n6lib.pyramid_commons import (
     N6MFAConfigView,
     N6NamesRankingView,
     N6OrgConfigView,
+    N6OrgAgreementsView,
+    N6AgreementsView,
     N6PasswordForgottenView,
     N6PasswordResetView,
     N6PortalRootFactory,
@@ -233,6 +235,13 @@ RESOURCES = [
         http_methods=('GET', 'POST'),
         permission='auth',
     ),
+    HttpResource(
+        resource_id='/org_agreements',
+        url_pattern='/org_agreements',
+        view_base=N6OrgAgreementsView,
+        http_methods=('GET', 'POST'),
+        permission='auth',
+    ),
 
     # * API key management (configuring REST API authentication):
 
@@ -267,6 +276,16 @@ RESOURCES = [
         view_base=N6KnowledgeBaseSearchView,
         http_methods='GET',
         permission='auth',
+    ),
+    
+    # * Agreements list
+
+    HttpResource(
+        resource_id='/agreements',
+        url_pattern='/agreements',
+        view_base=N6AgreementsView,
+        http_methods='GET',
+        permission='all',
     ),
 ]
 

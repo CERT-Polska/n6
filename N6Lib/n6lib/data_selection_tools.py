@@ -467,7 +467,7 @@ class Cond(Hashable):
     of this class:
 
     * represents an abstract *data selection condition* -- defining which
-      event data records shall be selected (when filtered or searched...);
+      event data records shall be selected (when being filtered/searched);
       for example, "those whose `asn` is *equal to* 12345, or whose `url`
       *contains* the substring `'tp://'`, provided that their `modified`
       is *greater than or equal to* `2016-10-21T22:35:45` and `category`
@@ -2392,10 +2392,10 @@ class RecItemParamCond(RecItemCond):
             # avoid a lot of confusion related to those differences.
             # (Note that there is a parameterless condition class --
             # derived directly from `RecItemCond` -- representing the
-            # *is missing from data record* condition: `IsNullCond`
+            # *is missing from data record* condition: `IsNullCond`.)
             # See also: the "Pure Boolean (two-valued) logic" and "Keys
             # missing from data records" sections of the docs of the
-            # `Cond` class.)
+            # `Cond` class.
             raise TypeError('parameters being None are not supported')
         return op_param
 
@@ -4199,7 +4199,7 @@ class CondVisitor(Generic[_VisitorOutput], Callable[..., _VisitorOutput]):
     * shall be named according to the pattern: `visit_<name of concrete
       or abstract Cond subclass>` (where *name* is just `__qualname__`
       of that `Cond` subclass) -- for example: `visit_EqualCond`, or
-      `visit_NotCond`, or `visit_CompondCond`, or `visit_RecItemCond`,
+      `visit_NotCond`, or `visit_CompoundCond`, or `visit_RecItemCond`,
       or even (catch-all) `visit_Cond`;
 
     * shall take at least one positional argument (*not* counting `self`);
@@ -4800,7 +4800,7 @@ class CondTransformer(CondVisitor[_TransformerOutput]):
     >>> c3  # doctest: +ELLIPSIS
     <NotCond: <OrCond: <AndCond: ...'fqdn'>>, ...'count', -3>>, <GreaterCond: 'asn', 12345>>>
 
-    As said earlier, if the top-level condition is to be *ommited* then
+    As said earlier, if the top-level condition is to be *omitted* then
     just `None` is returned by the called transformer:
 
     >>> c4 = cond_builder['count'].between(-1000, 1000)
@@ -5934,7 +5934,7 @@ class CondPredicateMaker(CondVisitor[_Predicate]):
     def visit_FixedCond(self, cond: FixedCond) -> _Predicate:
         truthness = cond.truthness
 
-        def predicate(record):
+        def predicate(record):                                           # noqa
             return truthness
 
         return predicate
@@ -7867,7 +7867,7 @@ class CondDeMorganTransformer(CondTransformer[Cond]):
     NotImplementedError: CondDeMorganTransformer.visit_NotCond() does not support negated XYCond
     """
 
-    def visit_NotCond(self, cond: NotCond) -> Cond:                     # noqa
+    def visit_NotCond(self, cond: NotCond) -> Cond:                      # noqa
         subcond = cond.subcond
         assert not isinstance(subcond, NotCond)   # (`NotCond` guarantees that)
 

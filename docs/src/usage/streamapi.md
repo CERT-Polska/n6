@@ -68,7 +68,7 @@ Additionally, there is a **type** attribute that can take following values:
 
 ### Example 1
 
-Subscription to all available events for client `nask.pl` (no filtering):
+Subscription to all available events for organization `nask.pl` (no filtering):
 
 ```
 SUBSCRIBE

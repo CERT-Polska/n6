@@ -3,7 +3,7 @@ import { useQuery, UseQueryOptions, UseQueryResult } from 'react-query';
 import { controllers, customAxios, dataController } from 'api';
 import { IInfo, IInfoConfig } from 'api/services/info/types';
 
-const getInfo = async (): Promise<IInfo> => {
+export const getInfo = async (): Promise<IInfo> => {
   try {
     const payload = await customAxios.get<IInfo>(`${dataController}${controllers.services.info}`);
     return payload.data;
@@ -12,7 +12,7 @@ const getInfo = async (): Promise<IInfo> => {
   }
 };
 
-const getInfoConfig = async (): Promise<IInfoConfig> => {
+export const getInfoConfig = async (): Promise<IInfoConfig> => {
   try {
     const payload = await customAxios.get<IInfoConfig>(`${dataController}${controllers.services.infoConfig}`);
     return payload.data;

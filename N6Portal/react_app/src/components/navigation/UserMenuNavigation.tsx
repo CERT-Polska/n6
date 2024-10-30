@@ -1,5 +1,5 @@
 import { FC, useState } from 'react';
-import Dropdown from 'react-bootstrap/esm/Dropdown';
+import { Dropdown } from 'react-bootstrap';
 import { DropdownItemProps } from 'react-bootstrap/esm/DropdownItem';
 import { useMutation } from 'react-query';
 import { Link, useHistory } from 'react-router-dom';
@@ -11,9 +11,11 @@ import useAuthContext from 'context/AuthContext';
 import LanguagePicker from 'components/shared/LanguagePicker';
 
 import { ReactComponent as User } from 'images/user.svg';
+import { useAgreements } from 'api/services/agreements';
 
 const UserMenuNavigation: FC = () => {
   const { resetAuthState } = useAuthContext();
+  const { data: agreements } = useAgreements();
   const { messages } = useTypedIntl();
   const history = useHistory();
   const logoutFn = useMutation(getLogout);
@@ -66,6 +68,13 @@ const UserMenuNavigation: FC = () => {
         <Dropdown.Item as={Link} to={routeList.settings} className="p-3">
           {messages.header_nav_settings}
         </Dropdown.Item>
+        {agreements?.length ? (
+          <Dropdown.Item as={Link} to={routeList.agreementsSettings} className="p-3">
+            {messages.header_nav_agreements_settings}
+          </Dropdown.Item>
+        ) : (
+          <></>
+        )}
         <Dropdown.Divider className="m-0" />
         <Dropdown.Item className="p-3">
           <LanguagePicker mode="text" />

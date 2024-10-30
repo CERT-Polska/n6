@@ -21,12 +21,14 @@ services:
     image: n6_base
     build:
       context: .
-      dockerfile: docker/base/Dockerfile
+      dockerfile: docker/base/deb12/Dockerfile
   worker:
     image: n6_worker
     build:
       context: .
-      dockerfile: ./docker/worker/Dockerfile
+      dockerfile: docker/worker/Dockerfile
+    depends_on:
+        - base
     container_name: n6
     hostname: n6
     command: >
@@ -38,7 +40,9 @@ services:
     image: n6_web
     build:
       context: .
-      dockerfile: ./docker/web/Dockerfile
+      dockerfile: docker/web/Dockerfile
+    depends_on:
+        - base
     hostname: apache
     restart: always
     container_name: web
@@ -56,7 +60,7 @@ services:
     image: n6_rabbit
     build:
       context: .
-      dockerfile: ./docker/rabbit/Dockerfile
+      dockerfile: docker/rabbit/Dockerfile
     hostname: rabbit
     restart: always
     container_name: rabbit
@@ -100,7 +104,7 @@ services:
     image: n6_mysql
     build:
       context: .
-      dockerfile: ./docker/mysql/Dockerfile
+      dockerfile: docker/mysql/Dockerfile
     hostname: mysql
     restart: always
     environment:
@@ -112,6 +116,19 @@ services:
     volumes:
       - ./volume/mysql:/var/lib/mysql
       - ./etc/mysql/initdb:/docker-entrypoint-initdb.d
+    networks:
+      - n6-pub-net
+  mailhog:
+    image: n6_mailhog
+    build:
+      context: .
+      dockerfile: docker/mailhog/Dockerfile
+    hostname: mailhog
+    restart: always
+    container_name: n6_mailhog
+    ports:
+      - 1025:1025
+      - 8025:8025
     networks:
       - n6-pub-net
 

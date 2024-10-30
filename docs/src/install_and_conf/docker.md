@@ -8,21 +8,15 @@
 ## Opening remarks
 
 This short guide describes how to run, for testing and exploration, the
-latest version of _n6_ -- using the _Docker_ and _Docker-Compose_ tools.
+latest version of *n6* -- using the _Docker_ and _docker compose_ tools.
 
-The goal of this guide is to give you an example of how you can run _n6_
+The goal of this guide is to give you an example of how you can run *n6*
 in the easiest possible way, so that you can learn -- by monitoring and
-experimenting -- how the _n6_ system works and how you can interact with
+experimenting -- how the *n6* system works and how you can interact with
 it. Keep in mind that this guide was designed for linux-based systems.
-Even with usage of _Docker_ and _Docker-Compose_ -- we cannot guarantee --
+Even with usage of _Docker_ and _docker compose_ -- we cannot guarantee --
 that it will work on other systems such as Windows or Mac OS.
 
-!!! note
-
-    If you wish to explore the *n6*'s ecosystem a bit more profoundly
-    you may want to familiarize yourself with the [Step-by-Step
-    Installation](../install_and_conf/step_by_step/index.md) guide
-    as well.
 
 !!! warning "Disclaimer: what these materials _are_ and what they are _not_"
 
@@ -53,12 +47,9 @@ that it will work on other systems such as Windows or Mac OS.
 ## Requirements
 
 - _Docker Engine_ installed (a reasonably new version)
-- _Docker-Compose_ installed (a reasonably new version)
-- The _n6_ [source code repository](https://github.com/CERT-Polska/n6) cloned
+- _Docker Compose_ installed (a reasonably new version)
+- The *n6* [source code repository](https://github.com/CERT-Polska/n6) cloned
 
-!!! note
-
-    _n6_ currently works with _Docker-Compose_. The project should build just fine with _Docker Compose_, but at this moment, we cannot guarantee that everything works on _Docker Compose V2_.
 
 ## Building the environment
 
@@ -66,10 +57,10 @@ that it will work on other systems such as Windows or Mac OS.
 
     Make sure you are in the top-level directory of the cloned source code repository.
 
-To build our demonstrational _n6_ environment we use [Docker-Compose](https://docs.docker.com/compose/) which binds all the services needed to run the _n6_ infrastructure.
+To build our demonstrational *n6* environment we use [Docker Compose](https://docs.docker.com/compose/) which binds all the services needed to run the *n6* infrastructure.
 
 ```bash
-docker-compose build
+docker compose build
 ```
 
 The result of the process are ready-to-use docker images.
@@ -99,56 +90,60 @@ n6_rabbit           latest              841d42d17010        20 minutes ago      
 n6_web              latest              1f219d032515        21 minutes ago      2.39GB
 n6_worker           latest              ec6c16c8bee5        22 minutes ago      1.67GB
 n6_base             latest              1263daaf01e0        22 minutes ago      1.42GB
+n6_mailhog          latest              8df1ccd08649        22 minutes ago      392MB
 ```
 
 ## Basic features of the prepared Docker stack
 
-_n6_-specific Docker images to be run:
+*n6*-specific Docker images to be run:
 
-- `n6_worker` -- Python environment running the _n6_ pipeline stuff (collectors, parsers etc.)
-- `n6_mysql` -- MariaDB database instance, running the _n6_'s Event DB and Auth DB
+- `n6_worker` -- Python environment running the *n6* pipeline stuff (collectors, parsers etc.)
+- `n6_mysql` -- MariaDB database instance, running the *n6*'s Event DB and Auth DB
 - `n6_rabbit` -- RabbitMQ message broker
-- `n6_web` -- _n6_ services: REST API, Portal API+GUI, Admin Panel
+- `n6_web` -- *n6* services: REST API, Portal API+GUI, Admin Panel
 
 Another image we also make use of:
 
-- `n6_mongo:4.2` -- MongoDB database (NoSQL) running the _n6_'s Archive DB
-- `n6_base` -- Dependencies running the _n6_'s
+- `n6_mongo:4.2` -- MongoDB database (NoSQL) running the *n6*'s Archive DB
+- `n6_base` -- Dependencies running the *n6*'s
 
 By default, the stack exposes the following ports:
 
 - 80 -- redirects to 443 (to use HTTPS)
-- 443 -- _n6_ Portal GUI + _n6_ Portal API (`/api`)
-- 3001 -- _n6_ Portal GUI parameterization configurator
-- 4443 -- _n6_ REST API
-- 4444 -- _n6_ Admin Panel
+- 443 -- *n6* Portal GUI + *n6* Portal API (`/api`)
+- 3001 -- *n6* Portal GUI parameterization configurator
+- 4443 -- *n6* REST API
+- 4444 -- *n6* Admin Panel
+- 1025 -- Mailhog SMTP Server
+- 8025 -- Mailhog Web GUI
 - 15671 -- RabbitMQ Management
 
 !!! note
 
     Make sure that all ports are not used by your localhost.
     If a port is used by another service, please change it in the
-    `docker-compose.yml` file and for GUI parameterization configurator
+    `docker compose.yml` file and for GUI parameterization configurator
     you also need to change port in `run_app_server.js` in `N6Porta/reactapp/config/`
 
 ## Launching the system
 
-To start the n6 environment, execute:
+To start the *n6* environment, execute:
 
 ```bash
-docker-compose up
+docker compose up
 ```
 
 Now, give Docker a few minutes to initialize.
 
 !!! tip
 
-    You can add the `-d` flag to run the stuff in the background (*detached mode*).
+    You can use the `-d` flag to run the application in the background (*detached mode*).
 
-To use port **3001** you need to run the Portal GUI parameterization configurator:
+Port  **3001** is used by the Portal GUI parameterization configurator.
+It is not necessary for n6 to work. Therefore to use it you need to set it up manually:
 
 ```bash
-docker-compose exec web bash
+docker compose exec web bash
 ```
 
 Then
@@ -165,7 +160,7 @@ script (use the `-D` flag to first drop any existing Auth DB tables, and
 the `-y` flag to suppress any confirmation prompts):
 
 ```bash
-docker-compose run --rm worker n6create_and_initialize_auth_db -D -y
+docker compose run --rm worker n6create_and_initialize_auth_db -D -y
 ```
 ```
 Output:
@@ -206,9 +201,9 @@ Output:
 * The 'n6create_and_initialize_auth_db' script exits gracefully.
 ```
 
-Here you go! _n6_ is ready to use.
+Here you go! *n6* is ready to use.
 
-But, please, read on (to learn, in particular, how to get into _n6_...).
+But, please, read on (to learn, in particular, how to get into *n6*...).
 
 ### Populating the Auth DB with example data
 
@@ -216,13 +211,13 @@ Let us add some example data to the Auth DB, in particular, creating an example 
 You will be prompted to enter the user's password. Remember it. You will need it to log in to the n6 Portal.
 
 ```bash
-docker-compose run --rm worker n6populate_auth_db -F -i -t -s -p example.com login@example.com
+docker compose run --rm worker n6populate_auth_db -F -i -t -s -p example.com login@example.com
 ```
 
 To see the results, restart (or reload) the `apache2` service:
 
 ```bash
-docker-compose exec web apache2ctl restart
+docker compose exec web apache2ctl restart
 ```
 
 !!! warning "As mentioned in disclaimer"
@@ -245,16 +240,62 @@ There should be new records in the following Auth DB tables: `org`,
 ### Multi-Factor Authentication Setup
 
 In your browser, type URL _https://localhost/_, where the password authentication pages will appear.
-Insert credentials to log in. Login: _login@example.com_ and password configured while creating account.
+Insert credentials to log in. Login: _login@example.com_ and _password configured while creating account_.
 Then follow the directions in _Multi-Factor Authentication Setup_.
-You might encounter _session expired_ or similar error after you set your _Multi-Factor Authentication_, don't mind it and just log in again, **but** wait for the **new** code to appear in your authentication application/extension.
+
+## Checking availability of services and monitoring the system
+
+**RabbitMQ Management (with RabbitMQ-generated GUI):**
+
+- URL: [https://localhost:15671/](https://localhost:15671/)
+- login: `guest`
+- password: `guest`
+
+**n6 Admin Panel:**
+
+- URL: [https://localhost:4444/org](https://localhost:4444/org)
+
+**n6 Portal API user authentication status:**
+
+- URL: [https://localhost/api/info](https://localhost/api/info)
+
+**n6 Portal GUI:**
+
+- URL: [https://localhost/](https://localhost/)
+
+- Credentials to log in:
+  - username: `login@example.com`,
+  - organization: `example.com`,
+  - password: `entered when calling the n6populate_auth_db script`.
+
+**Mailhog Web GUI:**
+
+- URL: [https://localhost:8025/](https://localhost:8025/)
+
+
+### Additional tools
+
+**MongoDB Compass / Studio 3T Free - client GUI for MongoDB:**
+
+- Connection:
+
+  - name: any, e.g.: `n6-open`
+  - hostname: `localhost`
+  - port: `27017`
+
+- Authentication:
+
+  - database name: `n6` or `admin`
+  - username: `admin`
+  - password: `password`
+  - auth mechanism: `MONGODB-CR` or `Default` in MongoDB Compass
 
 ## Working with Docker environment
 
 Start `worker` container in the interactive mode:
 
 ```bash
-docker-compose exec worker bash
+docker compose exec worker bash
 ```
 
 First, look at the container's directory structure:
@@ -278,48 +319,48 @@ Some files and directories are worth mentioning -- namely:
 
 - the **`entrypoint.sh`** script wraps the given command, adding a
   necessary Python environment. It is used on every run/execution
-  of the `worker` image. For example, we can run an _n6_ collector
+  of the `worker` image. For example, we can run a *n6* collector
   script in two ways:
 
-  - `docker-compose exec worker ./entrypoint.sh n6collector_abusechfeodotracker`
+  - `docker compose exec worker ./entrypoint.sh n6collector_certplshield`
     or
-  - `docker-compose exec worker bash` and then `./entrypoint.sh n6collector_abusechfeodotracker`
+  - `docker compose exec worker bash` and then `./entrypoint.sh n6collector_certplshield`
 
 !!! note
-    You could also go with `docker-compose run worker ...`, but keep in mind that it will
-    create new worker container. While using **run** command, you don't need to use `./entrypoint.sh` before `n6collector_abusechfeodotracker`.
+    You could also go with `docker compose run worker ...`, but keep in mind that it will
+    create new worker container. While using **run** command, you don't need to use `./entrypoint.sh` before `n6collector_certplshield`.
 
-- the **`logs`** directory contains log files created by _n6_ components.
-  Every collector, parser or other _n6_ component will write its logs
+- the **`logs`** directory contains log files created by *n6* components.
+  Every collector, parser or other *n6* component will write its logs
   here.
 
   **The `logs` directory will be lost on every container stop. You can
   use the Docker's _volumes_ feature to make the directory persistent.**
 
 - the **`supervisord`** directory contains Supervisor-related configuration
-  files; the subdirectory **`programs`** contains a list of _n6_ components
+  files; the subdirectory **`programs`** contains a list of *n6* components
   that will be run by the _supervisord_ process. You are free to **mount
   the `programs` directory as a _volume_ into the container** and add more
   parsers.
 
-- the **`n6`** directory contains the cloned repository. The _n6_
+- the **`n6`** directory contains the cloned repository. The *n6*
   infrastructure has been installed with the `develop` option. This
   means that you can mount the whole locally cloned `n6` directory
   as a _volume_ into the container. As a result, every change in locally
-  stored _n6_ code will be immediately applied inside the container on
-  every `docker-compose run <n6parser/collector/etc>` (without the need
-  to reinstall _n6_ each time).
+  stored *n6* code will be immediately applied inside the container on
+  every `docker compose run <n6parser/n6collector/n6component>` (without the need
+  to reinstall *n6* each time).
 
 ## Supervisor
 
 !!! note
 
-    This setup requires running `docker-compose up`.
+    This setup requires running `docker compose up`.
 
 Run `supervisorctl` to examine the status of all n6 components:
 
 ```bash
-docker-compose exec worker supervisorctl -c supervisord/supervisord.conf
+docker compose exec worker supervisorctl -c supervisord/supervisord.conf
 ```
 ```
 Output:
@@ -339,19 +380,21 @@ run by Supervisor.
 Components being run by Supervisor work as daemon processes. Running
 a parser triggers creation of a per-data-source RabbitMQ queue.
 
+## Collecting data
+
 In the interactive mode, after executing `source ./entrypoint.sh`, you can type,
-in bash, `n6` + the `TAB` key to see all available _n6_ executable scripts.
+in bash, `n6` + the `TAB` key to see all available *n6* executable scripts.
 To see some data flowing through components via message broker,
-run one of the collectors, e.g.:`n6collector_abusechfeodotracker`.
+run one of the collectors, e.g.:`n6collector_certplshield`.
 
 ```bash
-docker-compose exec worker bash
+docker compose exec worker bash
 ```
 ```bash
 source ./entrypoint.sh
 ```
 ```bash
-n6collector_abusechfeodotracker
+n6collector_certplshield
 ```
 
 Now you can log in to the n6 portal and:
@@ -362,20 +405,26 @@ Now you can log in to the n6 portal and:
 
 and Events will load. If you used different collectors you can also add filters to search events. To see more detailed information on how n6 store the data, you might want to connect to MariaDB database via terminal or GUI client.
 
-You can also use REST API, but to do so you need to set your API KEY.
+## Using REST API
+
+*n6* provide you with REST API, but to use it you need to set your API KEY.
+
+### Setting API KEY
+
 To set your API KEY follow these steps:
 
+- Log into *n6* Portal.
 - Click the user icon located in the top right corner.
-- Go to user settings
-- Under multi-factor authentication you will see API key section
-- click **generate key**
+- Go to user settings.
+- Under multi-factor authentication you will see API key section.
+- Click **generate key**.
 - Now you can click on the generated key to copy it to clickboard.
 
 Then you can make a request to the REST API, for example to obtain the collected
 data (if any) for the current user, do:
 
 ```bash
-docker-compose exec worker bash
+docker compose exec worker bash
 ```
 ```bash
 curl -k 'https://web:4443/search/events.json?time.min=2015-01-01T00:00:00' -H 'Authorization: Bearer YOUR_API_KEY'
@@ -383,90 +432,15 @@ curl -k 'https://web:4443/search/events.json?time.min=2015-01-01T00:00:00' -H 'A
 
 And you should see some json data.
 
-! note
-To see any data in REST API you need to run the collector e.g.:`n6collector_abusechfeodotracker`.
-
-## Checking availability of services and watching the system
-
-**RabbitMQ Management (with RabbitMQ-generated GUI):**
-
-- URL: [https://localhost:15671/](https://localhost:15671/)
-- login: `guest`
-- password: `guest`
-
-**n6 Admin Panel:**
-
-- URL: [https://localhost:4444/org](https://localhost:4444/org)
-
-**n6 Portal API user authentication status:**
-
-- URL: [https://localhost/api/info](https://localhost/api/info)
-
-**n6 Portal GUI:**
-
-- URL: [https://localhost/](https://localhost/)
-
-- Credentials to log in, when using login+password authentication: username: `login@example.com`, organization: `example.com`, password: `entered when calling the n6populate_auth_db script`.
-
-#### Additional tools
-
-**MongoDB Compass / Studio 3T Free - client GUI for MongoDB:**
-
-- Connection:
-
-  - name: any, e.g.: "n6-open"
-  - hostname: `localhost`
-  - port: `27017`
-
-- Authentication:
-
-  - database name: `n6` or `admin`
-  - username: `admin`
-  - password: `password`
-  - auth mechanism: `MONGODB-CR` or `Default` in MongoDB Compass
-
 !!! note
-    Studio 3T Free requires account and has unskippable free trial of Studio 3T.
-    If you don't want to register, you can use MongoDB Compass.
 
-**MongoDB - interactive mode:**
-
-```bash
-docker-compose exec mongo bash
-```
-```bash
-mongo --host mongo n6 -u admin -p password
-```
-
-**MySQL Workbench - client GUI for SQL database:**
-
-- Connection name: any, e.g.: "Local n6 instance"
-- Connection method: Standard TCP/IP
-- Hostname: `localhost`
-- Port: `3306`
-- Username: `root`
-- Password: `password`
-
-!!! note
-    MySQL Workbench will warn you about incompatible/nonstandard version of server.
-    You receive that warning, because you are actually connecting to MariaDB server.
-    It's only informing you about possible problems, not detected ones. Therefore it can be ignored.
-    However, if you want to avoid any possible errors, you can use other clients that support
-    MariaDB directly (e.g. DBeaver community edition).
-
-**MySQL - Interactive mode:**
-
-```bash
-docker-compose exec mysql bash
-```
-```bash
-mysql --host mysql --user root -ppassword
-```
+    By default, there is no data available in the REST API. To fetch and view data, you need to run the collector—for example, by executing 
+    `n6collector_certplshield`.
 
 ## Shutdown and cleanup
 
 Stop and remove all containers, network bridge and Docker images:
 
 ```bash
-docker-compose down --rmi all -v
+docker compose down --rmi all -v
 ```

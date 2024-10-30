@@ -902,7 +902,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             expected_body_content={
                 "source": "ham.spam",
                 "type": "foobar",
-                "count": 2 ** 32 -1,
+                "count": 2 ** 32 - 1,
             },
         ).label("maximum count (unrealistically big...)"),
     ])

@@ -1,10 +1,11 @@
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 # (note: this package provides the actual n6-specific versions of the
 # Pyramid-related n6 stuff -- based on the `n6sdk` stuff, but richer/
 # /more sophisticated...)
 
 from n6lib.pyramid_commons._pyramid_commons import (
+    N6AgreementsView,
     N6APIKeyView,
     N6DailyEventsCountsView,
     N6DashboardView,
@@ -22,6 +23,7 @@ from n6lib.pyramid_commons._pyramid_commons import (
     N6MFAConfigConfirmView,
     N6MFAConfigView,
     N6NamesRankingView,
+    N6OrgAgreementsView,
     N6OrgConfigView,
     N6PasswordForgottenView,
     N6PasswordResetView,
@@ -49,6 +51,7 @@ from n6lib.pyramid_commons._tween_factories import (
 
 
 __all__ = [
+    'N6AgreementsView',
     'N6APIKeyView',
     'N6DailyEventsCountsView',
     'N6DashboardView',
@@ -66,6 +69,7 @@ __all__ = [
     'N6MFAConfigConfirmView',
     'N6MFAConfigView',
     'N6NamesRankingView',
+    'N6OrgAgreementsView',
     'N6OrgConfigView',
     'N6PasswordForgottenView',
     'N6PasswordResetView',

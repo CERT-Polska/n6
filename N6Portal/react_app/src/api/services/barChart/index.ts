@@ -3,7 +3,7 @@ import { useQuery, UseQueryOptions, UseQueryResult } from 'react-query';
 import { controllers, dataController, customAxios } from 'api';
 import { TBarChart } from 'api/services/barChart/types';
 
-const getBarChart = async (): Promise<TBarChart> => {
+export const getBarChart = async (): Promise<TBarChart> => {
   try {
     const payload = await customAxios.get(`${dataController}${controllers.services.barChart}`);
     return payload.data;

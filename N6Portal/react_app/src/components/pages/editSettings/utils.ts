@@ -5,6 +5,7 @@ import { convertArrayToStringWithoutEmptyValues } from 'utils/convertFormData';
 
 export const prepareDefaultValues = (data: IOrgConfig): TEditSettingsForm => {
   const {
+    org_user_logins,
     notification_emails,
     notification_times,
     asns,
@@ -17,6 +18,7 @@ export const prepareDefaultValues = (data: IOrgConfig): TEditSettingsForm => {
 
   return {
     ...rest,
+    org_user_logins: convertArrayToArrayOfObjects(org_user_logins, true),
     asns: convertArrayToArrayOfObjects(asns, true),
     fqdns: convertArrayToArrayOfObjects(fqdns, true),
     ip_networks: convertArrayToArrayOfObjects(ip_networks, true),
@@ -34,7 +36,7 @@ export const prepareUpdatedValues = (data: IUpdateInfo): Partial<TEditSettingsFo
     // replace the notification_addresses key to match notification_emails and simplify logic
     const parsedKey = key === 'notification_addresses' ? 'notification_emails' : (key as keyof TEditSettingsForm);
     const parsedValue = value instanceof Array ? convertArrayToArrayOfObjects(value) : value;
-    updatedEntries[parsedKey] = parsedValue;
+    updatedEntries[parsedKey] = parsedValue as any;
   });
 
   return updatedEntries;
@@ -69,7 +71,25 @@ export const parseSubmitData = (data: TEditSettingsForm, defaultValues: TEditSet
     })
     .map(([key, value]) => [key, value instanceof Array ? convertArrayToStringWithoutEmptyValues(value) : `${value}`]);
 
-  return Object.fromEntries(editedEntries);
+  const addedUserLogins = data.org_user_logins
+    .filter((user) => !defaultValues.org_user_logins.some((defaultUser) => defaultUser.value === user.value))
+    .map((user) => user.value);
+
+  const removedUserLogins = defaultValues.org_user_logins
+    .filter((defaultUser) => !data.org_user_logins.some((user) => user.value === defaultUser.value))
+    .map((user) => user.value);
+
+  if (addedUserLogins.length > 0) {
+    editedEntries.push(['added_user_logins', addedUserLogins.join(',')]);
+  }
+
+  if (removedUserLogins.length > 0) {
+    editedEntries.push(['removed_user_logins', removedUserLogins.join(',')]);
+  }
+
+  return {
+    ...Object.fromEntries(editedEntries)
+  };
 };
 
 export const getMissingFields = (
@@ -77,7 +97,6 @@ export const getMissingFields = (
   updatedValues: Array<Record<'value', string>>,
   appendIndex?: boolean // custom index is used in FieldArray insert() method
 ): Array<Record<'value' | 'id', string>> => {
-  if (!defaultValues || !updatedValues) return [];
   return defaultValues
     .filter((fieldA) => updatedValues.every((fieldB) => fieldA.value && fieldB.value !== fieldA.value))
     .map((field, id) => ({
@@ -90,6 +109,6 @@ export const getUpdatedFields = (
   defaultValues: Array<Record<'value', string>>,
   updatedValues?: Array<Record<'value', string>>
 ): Array<Record<'value', string>> => {
-  if (!updatedValues || !defaultValues) return [];
+  if (!updatedValues || !defaultValues) return []; // NOTE: Boolean([]) is always true
   return updatedValues.filter((fieldA) => !defaultValues.some((fieldB) => fieldA.value === fieldB.value));
 };

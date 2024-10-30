@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2022 NASK. All rights reserved.
+# Copyright (c) 2018-2024 NASK. All rights reserved.
 
 import datetime
 import re
@@ -182,6 +182,17 @@ class URLSimpleField(UnicodeLimitedField):
     max_length = MAX_LEN_OF_URL
     disallow_empty = True
     decode_error_handling = 'strict'
+
+    
+class HTTPAbsoluteURLField(URLSimpleField):
+    
+    def _validate_value(self, value: string):
+        if not value.startswith(('https://', 'http://')):
+            raise FieldValueError(
+                public_message=ascii_str(
+                    f'"{value}" is not an absolute HTTP/HTTPS URL.'
+                ))
+        return super()._validate_value(value)
 
 
 class DateTimeCustomizedField(DateTimeField):

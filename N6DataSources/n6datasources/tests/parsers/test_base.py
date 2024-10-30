@@ -179,15 +179,83 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
             'config_group',
         })
 
-
-    def test__CsvRawRows(self):
-        raw = (
-            b'foo,BAR\r\n'
-            b'"spam spam spam ","\xc5\x81 \xdd"\n'
-            b'a,"b b b"\r'
-            b'"x",y')
-
-        csv_raw_rows = BaseParser.CsvRawRows(raw)
+    @foreach([
+        param(
+            ignored_csv_raw_row_prefixes = None,
+            raw = (
+                b'foo,BAR\r'
+                b'"spam spam spam ","\xc5\x81 \xdd"\n'
+                b'a,"b b b"\r\n'
+                b'"x",y'
+            ),
+            expected_csv_raw_rows_list = [
+                'foo,BAR\r',
+                '"spam spam spam ","Ł \udcdd"\n',  # (<- non-UTF-8 byte decoded to lone surrogate)
+                'a,"b b b"\r\n',
+                '"x",y',
+            ],
+            expected_csv_reader_list = [
+                ['foo', 'BAR'],
+                ['spam spam spam ', 'Ł \udcdd'],
+                ['a', 'b b b'],
+                ['x', 'y'],
+            ]
+        ),
+        param(
+            ignored_csv_raw_row_prefixes = 'foo',
+            raw = (
+                b'foo,BAR\r'
+                b'"spam spam spam ","\xc5\x81 \xdd"\n'
+                b'a,"b b b"\r\n'
+                b'"x",y'
+            ),
+            expected_csv_raw_rows_list = [
+                '"spam spam spam ","Ł \udcdd"\n',  # (<- non-UTF-8 byte decoded to lone surrogate)
+                'a,"b b b"\r\n',
+                '"x",y',
+            ],
+            expected_csv_reader_list = [
+                ['spam spam spam ', 'Ł \udcdd'],
+                ['a', 'b b b'],
+                ['x', 'y'],
+            ]
+        ),
+        param(
+            ignored_csv_raw_row_prefixes = ('foo', 'p'),
+            raw = (
+                b'foo,BAR\r'
+                b'"spam spam spam ","\xc5\x81 \xdd"\n'
+                b'FOO,bar\r'
+                b'p\n'          # <- unquoted p
+                b'a,"b b b"\r\n'
+                b'"p"\n'        # <- quoted p
+                b'"x",y'
+            ),
+            expected_csv_raw_rows_list = [
+                '"spam spam spam ","Ł \udcdd"\n',  # (<- non-UTF-8 byte decoded to lone surrogate)
+                'FOO,bar\r',
+                'a,"b b b"\r\n',
+                '"p"\n',
+                '"x",y',
+            ],
+            expected_csv_reader_list = [
+                ['spam spam spam ', 'Ł \udcdd'],
+                ['FOO', 'bar'],
+                ['a', 'b b b'],
+                ['p'],
+                ['x', 'y'],
+            ]
+        )
+    ])
+    def test__CsvRawRows(
+            self,
+            ignored_csv_raw_row_prefixes,
+            raw,
+            expected_csv_raw_rows_list,
+            expected_csv_reader_list
+        ):
+        
+        csv_raw_rows = BaseParser.CsvRawRows(raw, ignored_csv_raw_row_prefixes)
 
         # (Note: is a multiple-use iterable, not a one-shot iterator.)
         csv_raw_rows_iterator = iter(csv_raw_rows)
@@ -202,25 +270,28 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
         self.assertIsInstance(csv_raw_rows_iterator, io.StringIO)
         self.assertIsNot(csv_raw_rows_iterator, csv_raw_rows_another_iterator)
         self.assertEqual(csv_raw_rows_list, csv_raw_rows_another_list)
-        self.assertEqual(csv_raw_rows_list, [
-            # (`io.StringIO` was made with `newline=''`: *universal newlines*
-            # recognition is enabled, but newline characters are left intact;
-            # that's how it should be prepared for a CSV reader...)
-            'foo,BAR\r\n',
-            '"spam spam spam ","Ł \udcdd"\n',  # (<- non-UTF-8 byte decoded to lone surrogate)
-            'a,"b b b"\r',
-            '"x",y',
-        ])
-        self.assertEqual(list(csv_reader), [
-            ['foo', 'BAR'],
-            ['spam spam spam ', 'Ł \udcdd'],
-            ['a', 'b b b'],
-            ['x', 'y'],
-        ])
-        # (Note: `==` and `!=` based on the content of the `raw` attribute.)
+
+        # (`io.StringIO` was made with `newline=''`: *universal newlines*
+        # recognition is enabled, but newline characters are left intact;
+        # that's how it should be prepared for a CSV reader...)
+        self.assertEqual(csv_raw_rows_list, expected_csv_raw_rows_list)
+        self.assertEqual(list(csv_reader), expected_csv_reader_list)
+        
+        # (Note: `==` and `!=` are based on the attributes: `raw` and
+        # `ignored_csv_raw_row_prefixes`.)
         self.assertEqual(csv_raw_rows.raw, raw)
-        self.assertEqual(csv_raw_rows, BaseParser.CsvRawRows(raw))
-        self.assertNotEqual(csv_raw_rows, BaseParser.CsvRawRows(raw + b'x'))
+        self.assertEqual(
+            csv_raw_rows,
+            BaseParser.CsvRawRows(raw, ignored_csv_raw_row_prefixes)
+        )
+        self.assertNotEqual(
+            csv_raw_rows,
+            BaseParser.CsvRawRows(raw + b'x', ignored_csv_raw_row_prefixes)
+        )
+        self.assertNotEqual(
+            csv_raw_rows,
+            BaseParser.CsvRawRows(raw, ignored_csv_raw_row_prefixes='something-else')
+        )
 
 
     def test__run_script(self):
@@ -927,15 +998,48 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
             routing_key='provider.channel',
             expected_source='provider.channel',
             expected_raw_format_version_tag=None,
+            ignored_csv_raw_row_prefixes='some_prefix',
         ),
         param(
             routing_key='provider.channel.202208',
             expected_source='provider.channel',
             expected_raw_format_version_tag='202208',
+            ignored_csv_raw_row_prefixes='some_prefix',
+        ),
+        param(
+            routing_key='provider.channel',
+            expected_source='provider.channel',
+            expected_raw_format_version_tag=None,
+            ignored_csv_raw_row_prefixes=None,
+        ),
+        param(
+            routing_key='provider.channel.202208',
+            expected_source='provider.channel',
+            expected_raw_format_version_tag='202208',
+            ignored_csv_raw_row_prefixes=None,
+        ),
+        param(
+            routing_key='provider.channel',
+            expected_source='provider.channel',
+            expected_raw_format_version_tag=None,
+            ignored_csv_raw_row_prefixes=('some_prefix', 'some_other_prefix'),
+        ),
+        param(
+            routing_key='provider.channel.202208',
+            expected_source='provider.channel',
+            expected_raw_format_version_tag='202208',
+            ignored_csv_raw_row_prefixes=('some_prefix', 'some_other_prefix'),
         ),
     )
-    def test__prepare_data(self, routing_key, expected_source, expected_raw_format_version_tag):
+    def test__prepare_data(
+            self,
+            routing_key,
+            expected_source,
+            expected_raw_format_version_tag,
+            ignored_csv_raw_row_prefixes
+        ):
         self.mock.CsvRawRows = BaseParser.CsvRawRows
+        self.mock.ignored_csv_raw_row_prefixes = ignored_csv_raw_row_prefixes
 
         data = self.meth.prepare_data(
             routing_key=routing_key,
@@ -953,7 +1057,9 @@ class TestBaseParser(TestCaseMixin, unittest.TestCase):
             'source': expected_source,
             'raw_format_version_tag': expected_raw_format_version_tag,
             'raw': b'<some body>',
-            'csv_raw_rows': BaseParser.CsvRawRows(b'<some body>'),
+            'csv_raw_rows': BaseParser.CsvRawRows(
+                b'<some body>', ignored_csv_raw_row_prefixes
+            ),
         })
 
 

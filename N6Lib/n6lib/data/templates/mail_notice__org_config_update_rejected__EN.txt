@@ -7,6 +7,14 @@ the request to update the configuration of your organization, submitted by the u
 
 The details of the rejected update are listed below.
 
+{%- if data_dict.update_info.added_user_logins or data_dict.update_info.removed_user_logins %}
+
+* The organization's *users*:
+  * [currently] {{ data_dict.org_user_logins|default(['(none)'], boolean=true)|join(', ') }}
+  * + [added according to the rejected update] {{ data_dict.update_info.added_user_logins|default(['(none)'], boolean=true)|join(', ') }}
+  * - [removed according to the rejected update] {{ data_dict.update_info.removed_user_logins|default(['(none)'], boolean=true)|join(', ') }}
+{%- endif %}
+
 {%- set key_descr_pairs = [
             ("actual_name", "The actual name of the organization"),
             ("notification_enabled", "Whether e-mail notifications on new security events should be delivered"),
@@ -89,6 +97,10 @@ variable which is a dictionary that contains the items described below.
       (string or None, e.g.: 'The Ministry of Silly Walks')
       -- the actual name of the concerned organization
 
+    * 'org_user_logins'
+      (list [possibly empty] of strings, e.g.: ['you@example.org', 'me@example.org'])
+      -- the logins of all organization's non-blocked users
+
     * 'notification_enabled'
       (True or False)
       -- whether e-mail notifications on events
@@ -157,6 +169,18 @@ variable which is a dictionary that contains the items described below.
            (optional; string)
            -- the facultative message from the user who submitted the
               *organization config update request*
+
+         [the following two items, both required, represent the update
+         actions regarding the organization's selected users; depending on
+         a requested action, a user's login lands in the corresponding list]
+
+         * 'added_user_logins'
+           (required; list [possibly empty] of strings, e.g.: ['you@example.org', 'me@example.org'])
+           -- the logins of the users requested to be added to the organization
+
+         * 'removed_user_logins'
+           (required; list [possibly empty] of strings, e.g.: ['you@example.org', 'me@example.org'])
+           -- the logins of the users requested to be removed from the organization
 
          [the following items, all optional, represent the corresponding
          items of the organization config *as if they were updated*

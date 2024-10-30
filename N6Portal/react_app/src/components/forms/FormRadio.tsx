@@ -6,7 +6,7 @@ import { validateField } from 'components/forms/validation/validators';
 import FormRenderErrorMsg from 'components/forms/FormRenderErrorMsg';
 import { compareFieldState, FormContextProps } from 'components/forms/utils';
 
-interface IRadioOption {
+export interface IRadioOption {
   value: string;
   label: string;
   disabled?: boolean;
@@ -96,12 +96,10 @@ const FormRadioWrapper: FC<IProps> = (props) => {
   const isTouched = name in touchedFields;
   const isDirty = name in dirtyFields;
 
-  const isInvalid = useMemo(() => validateField({ isSubmitted, isSubmitSuccessful, hasErrors, isTouched }), [
-    isSubmitted,
-    isSubmitSuccessful,
-    hasErrors,
-    isTouched
-  ]);
+  const isInvalid = useMemo(
+    () => validateField({ isSubmitted, isSubmitSuccessful, hasErrors, isTouched }),
+    [isSubmitted, isSubmitSuccessful, hasErrors, isTouched]
+  );
 
   return <FormRadio {...props} {...methods} isInvalid={isInvalid} isDirty={isDirty} />;
 };

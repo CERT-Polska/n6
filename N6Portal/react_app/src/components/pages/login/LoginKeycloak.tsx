@@ -1,6 +1,5 @@
 import { useState, useEffect, FC } from 'react';
 import { useMutation } from 'react-query';
-import { AxiosError } from 'axios';
 import { Redirect } from 'react-router';
 import { postLoginKeycloak } from 'api/auth';
 import routeList from 'routes/routeList';
@@ -19,7 +18,7 @@ const LoginKeycloak: FC = () => {
         setIsLoggedIn(true);
         setLoginStatus(data.status);
       },
-      onError: (exc: AxiosError) => {
+      onError: (exc: any) => {
         if (exc && exc.response && exc.response.data) {
           setLoginStatus(exc.response.data.status);
         }

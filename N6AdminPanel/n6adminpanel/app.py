@@ -1,6 +1,7 @@
-# Copyright (c) 2018-2023 NASK. All rights reserved.
+# Copyright (c) 2018-2024 NASK. All rights reserved.
 
 import ast
+import collections
 import json
 import os
 import re
@@ -82,6 +83,7 @@ from n6lib.auth_db.api import AuthManageAPI
 from n6lib.auth_db.audit_log import AuditLog
 from n6lib.auth_db.config import SQLAuthDBConfigMixin
 from n6lib.auth_db.models import (
+    Agreement,
     CACert,
     Cert,
     Component,
@@ -116,6 +118,8 @@ from n6lib.auth_db.models import (
     OrgConfigUpdateRequestEMailNotificationTime,
     OrgConfigUpdateRequestFQDN,
     OrgConfigUpdateRequestIPNetwork,
+    OrgConfigUpdateRequestUserAdditionOrActivationRequest,
+    OrgConfigUpdateRequestUserDeactivationRequest,
     OrgGroup,
     RegistrationRequest,
     RegistrationRequestASN,
@@ -609,6 +613,7 @@ class OrgView(ApiLookupExtraFilesMixin, CustomWithInlineFormsModelView):
         'access_to_inside',
         'access_to_threats',
         'access_to_search',
+        'agreements',
     ]
     form_columns = [
         'org_id',
@@ -646,6 +651,8 @@ class OrgView(ApiLookupExtraFilesMixin, CustomWithInlineFormsModelView):
         'inside_filter_fqdns',
         'inside_filter_ip_networks',
         'inside_filter_urls',
+        # optional agreements:
+        'agreements',
     ]
     form_rules = [
         rules.Header('Organization basic data'),
@@ -695,6 +702,9 @@ class OrgView(ApiLookupExtraFilesMixin, CustomWithInlineFormsModelView):
 
         rules.Header('Related entity'),
         rules.Field('entity'),
+        
+        rules.Header('Accepted agreements'),
+        rules.Field('agreements'),
     ]
     inline_models = [
         UserInlineFormAdmin(User),
@@ -753,6 +763,8 @@ class RegistrationRequestView(ApiLookupExtraFilesMixin,
         'email',
 
         'email_notification_language',
+        
+        'agreements',
     ]
 
     column_descriptions = {
@@ -790,6 +802,7 @@ class RegistrationRequestView(ApiLookupExtraFilesMixin,
 
         'terms_version',
         'terms_lang',
+        'agreements',
     ]
     form_args = {
         'org_id': FQDN_FIELD_ARGS,
@@ -833,6 +846,9 @@ class RegistrationRequestView(ApiLookupExtraFilesMixin,
         rules.Header('Legal information'),
         rules.Field('terms_version'),
         rules.Field('terms_lang'),
+        
+        rules.Header('Accepted agreements'),
+        rules.Field('agreements'),
     ]
     org_request_handler_kit = org_request_helpers.registration_request_handler_kit
     inline_models = [
@@ -875,6 +891,9 @@ class OrgConfigUpdateRequestView(ApiLookupExtraFilesMixin,
 
         'actual_name_upd',
         'actual_name',
+
+        'user_addition_or_activation_requests',
+        'user_deactivation_requests',
 
         'email_notification_enabled_upd',
         'email_notification_enabled',
@@ -923,6 +942,10 @@ class OrgConfigUpdateRequestView(ApiLookupExtraFilesMixin,
         rules.Field('actual_name_upd'),
         rules.Field('actual_name'),
 
+        rules.Header('Updates of organization users'),
+        rules.Field('user_addition_or_activation_requests'),
+        rules.Field('user_deactivation_requests'),
+
         rules.Header('Updates of "Inside" event criteria'),
         rules.Field('asns_upd'),
         rules.Field('asns'),
@@ -945,6 +968,8 @@ class OrgConfigUpdateRequestView(ApiLookupExtraFilesMixin,
     inline_models = [
         OrgConfigUpdateRequestEMailNotificationAddress,
         OrgConfigUpdateRequestEMailNotificationTime,
+        OrgConfigUpdateRequestUserAdditionOrActivationRequest,
+        OrgConfigUpdateRequestUserDeactivationRequest,
         ASNInlineFormAdmin(OrgConfigUpdateRequestASN),
         OrgConfigUpdateRequestFQDN,
         IPNetworkInlineFormAdmin(OrgConfigUpdateRequestIPNetwork),
@@ -958,8 +983,9 @@ class UserView(_PasswordFieldHandlerMixin,
 
     column_descriptions = {
         'login': 'User\'s login (and e-mail address).',
+        'is_active': 'Is user NOT blocked? (this is negated "Is Blocked" field).',
     }
-    column_list = ['login', 'org', 'system_groups']
+    column_list = ['login', 'org', 'system_groups', 'is_active']
     form_columns = [
         'is_blocked',
         'login',
@@ -1289,6 +1315,27 @@ class CustomIndexView(AdminIndexView):
         if msg is not None:
             resp['msg'] = msg
         return json.dumps(resp)
+    
+    
+class AgreementView(CustomColumnListView):
+
+    can_view_details = True
+    column_list = [
+        'label',
+        'en',
+        'pl',
+        'default_consent',
+    ]
+    form_rules = [
+        rules.Field('label'),
+        rules.Field('en'),
+        rules.Field('url_en'),
+        rules.Field('pl'),
+        rules.Field('url_pl'),
+        rules.Field('default_consent'),
+        rules.Field('orgs'),
+        rules.Field('registration_requests'),
+    ]
 
 
 class _AuthManageAPIAdapter(AuthManageAPI):
@@ -1413,6 +1460,7 @@ class AdminPanel(ConfigMixin):
         (Entity, EntityView),
         (EntitySector, CustomColumnListView),
         (EntityExtraIdType, CustomColumnListView),
+        (Agreement, AgreementView),
     ]
 
     def __init__(self, engine):
@@ -1527,6 +1575,7 @@ class AdminPanel(ConfigMixin):
         g.n6_mail_notices_api = self._mail_notices_api
         g.n6_auth_manage_api_adapter = self._auth_manage_api_adapter
         g.n6_org_config_info = None
+        g.n6_org_users_update_flash_seq = collections.deque()
 
         # Attribute used by the `_MFAKeyBaseFieldHandlerMixin` stuff:
         g.n6_user_mfa_key_base_erased = False

@@ -11,10 +11,13 @@ import LanguagePicker from 'components/shared/LanguagePicker';
 import SignUpSuccess from 'components/pages/signUp/SignUpSuccess';
 import SignUpWizard from 'components/pages/signUp/SignUpWizard';
 import { signup_terms } from 'dictionary';
+import ApiLoader from 'components/loading/ApiLoader';
+import { useAgreements } from 'api/services/agreements';
 
 export type TTosVersions = Record<TUserAgentLocale, string>;
 
 const SignUp: FC = () => {
+  const { data: agreements, status, error } = useAgreements();
   const { messages } = useTypedIntl();
   const [formStep, setFormStep] = useState(1);
   const [tosVersions, changeTosVersions] = useState<TTosVersions>({
@@ -44,7 +47,9 @@ const SignUp: FC = () => {
         <h1 className="signup-title mb-5 text-center">
           {messages.signup_title} <span>({formStep}/2)</span>
         </h1>
-        <SignUpStepTwo changeStep={setFormStep} tosVersions={tosVersions} />
+        <ApiLoader status={status} error={error}>
+          {agreements && <SignUpStepTwo changeStep={setFormStep} tosVersions={tosVersions} agreements={agreements} />}
+        </ApiLoader>
       </SignUpWizard>
       <SignUpWizard pageIdx={3} formStep={formStep}>
         <SignUpSuccess />

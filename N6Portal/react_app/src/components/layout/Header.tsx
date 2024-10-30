@@ -19,7 +19,8 @@ const Header: FC = () => {
     routeList.account,
     routeList.userSettings,
     routeList.userSettingsMfaConfig,
-    routeList.settings
+    routeList.settings,
+    routeList.agreementsSettings
   ];
   const hasInsideAccess = availableResources.includes('/report/inside');
 

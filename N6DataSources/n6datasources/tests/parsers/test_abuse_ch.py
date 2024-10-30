@@ -15,7 +15,7 @@ from n6datasources.tests.parsers._parser_test_mixin import ParserTestMixin
 class TestAbuseChFeodotracker202110Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'abuse-ch.feodotracker'
-    PARSER_RAW_FORMAT_VERSION_TAG  = '202110'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202110'
     PARSER_CLASS = AbuseChFeodoTracker202110Parser
     PARSER_BASE_CLASS = BaseParser
     PARSER_CONSTANT_ITEMS = {

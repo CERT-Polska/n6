@@ -1,4 +1,4 @@
-import { FC, createContext, useState, useCallback, useContext } from 'react';
+import { createContext, useState, useCallback, useContext } from 'react';
 import { useQueryClient } from 'react-query';
 import { useTypedIntl } from 'utils/useTypedIntl';
 import { useInfo } from 'api/services/info';
@@ -18,9 +18,10 @@ interface IAuthState {
   orgActualName: string;
   apiKeyAuthEnabled?: boolean;
   knowledgeBaseEnabled?: boolean;
+  fullAccess?: boolean;
 }
 
-interface IAuthContext extends IAuthState {
+export interface IAuthContext extends IAuthState {
   useInfoFetching: boolean;
   getAuthInfo: () => void;
   resetAuthState: () => void;
@@ -31,7 +32,8 @@ const initialAuthState: IAuthState = {
   availableResources: [],
   contextStatus: PermissionsStatus.initial,
   orgId: '',
-  orgActualName: ''
+  orgActualName: '',
+  fullAccess: false
 };
 
 const initialContext: IAuthContext = {
@@ -41,13 +43,14 @@ const initialContext: IAuthContext = {
   resetAuthState: () => null
 };
 
-const AuthContext = createContext<IAuthContext>(initialContext);
+export const AuthContext = createContext<IAuthContext>(initialContext);
 
-export const AuthContextProvider: FC = ({ children }) => {
+export const AuthContextProvider = ({ children }: { children: React.ReactNode }) => {
   const queryClient = useQueryClient();
   const { messages } = useTypedIntl();
   const [authState, setAuthState] = useState<IAuthState>(initialAuthState);
   const [hasInfoApiError, setHasInfoApiError] = useState(false);
+  const [responseStatusCode, setResponseStatusCode] = useState<number | undefined>(undefined);
 
   const info = useInfo({
     onSuccess: ({
@@ -56,7 +59,8 @@ export const AuthContextProvider: FC = ({ children }) => {
       available_resources,
       org_id,
       org_actual_name,
-      knowledge_base_enabled
+      knowledge_base_enabled,
+      full_access
     }) => {
       const apiKeyAuthEnabled = api_key_auth_enabled ? { apiKeyAuthEnabled: api_key_auth_enabled } : {};
       setAuthState({
@@ -66,10 +70,12 @@ export const AuthContextProvider: FC = ({ children }) => {
         availableResources: available_resources ?? [],
         contextStatus: PermissionsStatus.fetched,
         orgId: org_id ?? '',
-        orgActualName: org_actual_name ?? ''
+        orgActualName: org_actual_name ?? '',
+        fullAccess: full_access ?? false
       });
     },
-    onError: () => {
+    onError: (error) => {
+      setResponseStatusCode(error?.response?.status);
       setAuthState(initialAuthState);
       setHasInfoApiError(true);
     }
@@ -86,7 +92,16 @@ export const AuthContextProvider: FC = ({ children }) => {
   }, [queryClient, info]);
 
   if (hasInfoApiError) {
-    throw new Error(`${messages['errApiLoader_header']}`);
+    switch (responseStatusCode) {
+      case 401:
+        throw new Error(`${messages['errApiLoader_statusCode_401_header']}`);
+      case 403:
+        throw new Error(`${messages['errApiLoader_statusCode_403_header']}`);
+      case 500:
+        throw new Error(`${messages['errApiLoader_statusCode_500_header']}`);
+      default:
+        throw new Error(`${messages['errApiLoader_header']}`);
+    }
   }
 
   return (

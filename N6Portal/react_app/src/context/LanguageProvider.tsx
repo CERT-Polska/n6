@@ -1,19 +1,19 @@
-import { createContext, FC, useEffect, useState, useContext } from 'react';
+import { createContext, useEffect, useState, useContext } from 'react';
 import { IntlProvider } from 'react-intl';
 import { dictionary } from 'dictionary';
 import { getUserAgentLocale, STORED_LANG_KEY } from 'utils/language';
 import { storageAvailable } from 'utils/storageAvailable';
 
 export const UserAgentLocale = ['en', 'pl'] as const;
-export type TUserAgentLocale = typeof UserAgentLocale[number];
+export type TUserAgentLocale = (typeof UserAgentLocale)[number];
 
 interface ILanguageContext {
   handleChangeLang: (lang: TUserAgentLocale) => void;
 }
 
-const LanguageContext = createContext({} as ILanguageContext);
+export const LanguageContext = createContext({} as ILanguageContext);
 
-export const LanguageProvider: FC = ({ children }) => {
+export const LanguageProvider = ({ children }: { children: React.ReactNode }) => {
   const localStoredLang = storageAvailable('localStorage')
     ? (localStorage.getItem(STORED_LANG_KEY) as TUserAgentLocale | null)
     : null;

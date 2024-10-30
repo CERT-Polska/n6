@@ -64,7 +64,7 @@ class Future(object):
           -- changes the state to *cancelled*;
 
       you can confirm a future `f` is in this state by testing the condition:
-      `not f.done()`
+      `not f.done()`; an equivalent check is: `f.state_label == 'unfinished'`;
 
 
     * *successful* -- entered when the result value is set;
@@ -95,7 +95,8 @@ class Future(object):
 
       you can confirm a future `f` is in this state by testing the condition:
       `f.done() and not f.peek_exc_info()` (note that this order of the
-      component expressions makes the test resistant to race-conditions)
+      component expressions makes the test resistant to race-conditions);
+      an equivalent (and simpler) check is: `f.state_label == 'successful'`;
 
 
     * *failed* -- entered when the resultant exception is set;
@@ -130,7 +131,8 @@ class Future(object):
 
       you can confirm a future `f` is in this state by testing the condition:
       `f.peek_exc_info() and not f.cancelled()` (note that this order of the
-      component expressions makes the test resistant to race-conditions)
+      component expressions makes the test resistant to race-conditions);
+      an equivalent (and simpler) check is: `f.state_label == 'failed'`;
 
 
     * *cancelled* -- entered when the future is `cancel()`-ed
@@ -158,10 +160,11 @@ class Future(object):
           -- returns `True` (immediately);
 
         * `cancel()`
-          -- does nothing.
+          -- does nothing;
 
       you can confirm a future `f` is in this state by testing the condition:
-      `f.cancelled()`
+      `f.cancelled()`; an equivalent check is: `f.state_label == 'cancelled'`.
+
     """
 
     #
@@ -180,16 +183,16 @@ class Future(object):
                 instance, used to guard the access to the future's state
                 data (its resultant value/exception and whether the
                 future has been cancelled) and to notify any callers
-                blocked on `result()`.  Typically you do not need
-                to specify it explicitly; if not given or `None`, a
+                blocked on `result()`.  Typically, you do not need
+                to specify it explicitly; if `None` or not given, a
                 `threading.Condition` instance is created automatically.
             cancel_event (optional):
                 An event object, i.e., a `threading.Event` instance,
                 used internally when dealing with future cancellation
                 (in particular, it is an important element of the
                 implementation of the `cancel()`, `cancelled()` and
-                `sleep_until_cancelled` methods).  Typically you do not
-                need to specify it explicitly; if not given or `None`,
+                `sleep_until_cancelled` methods).  Typically, you do not
+                need to specify it explicitly; if `None` or not given,
                 a `threading.Event` instance is created automatically.
             repr_token (optional):
                 Can be specified to make the `repr()` of the instance
@@ -206,8 +209,8 @@ class Future(object):
         self._repr_token = repr_token
         self._done = False
         self._res = None
-        # (Note: *exc info* tuple, needed in Py2 to remember the
-        # traceback, can be replaced just by *exception* in Py3...)
+        # (maybe TODO: *exc info* tuple, needed in Py2 to remember the
+        # traceback, can be replaced just with *exception* in Py3...)
         self._exc_info = None
 
     @property
@@ -344,7 +347,7 @@ class Future(object):
                 seconds (or fractions thereof).
 
         Returns:
-            `True` if the future is cancelled (in the moment just
+            `True` if the future is cancelled (at the moment just
             before returning from the function); `False` otherwise.
         """
         if max_duration is not None:
@@ -468,7 +471,7 @@ class Task(threading.Thread):
                 target function.
             future (optional):
                 A `Future` instance to become the future owned by the
-                task.  If not given or `None`, a new `Future` instance
+                task.  If `None` or not given, a new `Future` instance
                 is created automatically.
             cancel_and_join_at_python_exit (optional; default: `False`):
                 A flag indicating whether an `atexit` callback shall

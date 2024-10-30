@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 import collections
 import contextlib
@@ -17,7 +17,6 @@ import traceback
 
 from pika.exceptions import AMQPConnectionError
 
-from n6lib.amqp_getters_pushers import AMQPThreadedPusher, DoNotPublish
 from n6lib.common_helpers import (
     ascii_str,
     dump_condensed_debug_msg,
@@ -31,6 +30,11 @@ from n6lib.const import (
     SCRIPT_BASENAME,
     TOPLEVEL_N6_PACKAGES,
 )
+
+
+# To be imported from `n6lib.amqp_getters_pushers` when actually needed
+# in `AMQPHandler.__init__()` (not here, to avoid a circular import).
+AMQPThreadedPusher = DoNotPublish = None
 
 
 #
@@ -204,6 +208,14 @@ class AMQPHandler(logging.Handler):
                  msg_count_window=None,
                  msg_count_max=None,
                  **super_kwargs):
+
+        global AMQPThreadedPusher, DoNotPublish
+        if AMQPThreadedPusher is None:
+            assert DoNotPublish is None
+            from n6lib.amqp_getters_pushers import AMQPThreadedPusher, DoNotPublish
+        assert AMQPThreadedPusher is not None
+        assert DoNotPublish is not None
+
         if exchange_declare_kwargs is None:
             exchange_declare_kwargs = self.DEFAULT_EXCHANGE_DECLARE_KWARGS
         if rk_template is None:
@@ -270,6 +282,8 @@ class AMQPHandler(logging.Handler):
 
 
     def _make_record_serializer(self):
+        assert DoNotPublish is not None
+        _DoNotPublish = DoNotPublish
         defaultdict = collections.defaultdict
         formatter = logging.Formatter()
         json_encode = json.JSONEncoder(default=reprlib.repr).encode
@@ -352,7 +366,7 @@ class AMQPHandler(logging.Handler):
 
         def serialize_record(record):
             if not _should_publish(record):
-                return DoNotPublish
+                return _DoNotPublish
             record_attrs = record_attrs_proto.copy()
             record_attrs.update((limit_str(ascii_str(key),
                                            char_limit=record_key_max_length),

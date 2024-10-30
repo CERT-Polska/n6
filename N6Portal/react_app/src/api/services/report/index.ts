@@ -3,7 +3,7 @@ import { UseQueryOptions, UseQueryResult, useQuery } from 'react-query';
 import { controllers, dataController, jsonDataFormat, customAxios } from 'api';
 import { IRequestParams, IResponse } from 'api/services/globalTypes';
 
-const getReportThreats = async (params: IRequestParams): Promise<IResponse[]> => {
+export const getReportThreats = async (params: IRequestParams): Promise<IResponse[]> => {
   try {
     const payload = await customAxios.get(`${dataController}${controllers.services.reportThreats}${jsonDataFormat}`, {
       params
@@ -14,7 +14,7 @@ const getReportThreats = async (params: IRequestParams): Promise<IResponse[]> =>
   }
 };
 
-const getReportInside = async (params: IRequestParams): Promise<IResponse[]> => {
+export const getReportInside = async (params: IRequestParams): Promise<IResponse[]> => {
   try {
     const payload = await customAxios.get(`${dataController}${controllers.services.reportInside}${jsonDataFormat}`, {
       params

@@ -14,6 +14,7 @@ from unittest_expander import (
 
 from n6lib.auth_db.fields import CategoryCustomizedField
 from n6lib.auth_db.models import (
+    Agreement,
     CACert,
     Cert,
     CriteriaASN,
@@ -48,6 +49,8 @@ from n6lib.auth_db.models import (
     OrgConfigUpdateRequestEMailNotificationTime,
     OrgConfigUpdateRequestFQDN,
     OrgConfigUpdateRequestIPNetwork,
+    OrgConfigUpdateRequestUserAdditionOrActivationRequest,
+    OrgConfigUpdateRequestUserDeactivationRequest,
     OrgGroup,
     RegistrationRequest,
     RegistrationRequestEMailNotificationAddress,
@@ -455,10 +458,48 @@ class TestValidators(unittest.TestCase):
                                   FieldValueError,
                                   expected_msg_pattern)
 
-    def test_too_long_url(self):
-        tested_value = 'a' * 2049
+    @foreach(
+        (InsideFilterURL, 'url'),
+        (Agreement, 'url_en'),
+        (Agreement, 'url_pl'),
+    )
+    def test_too_long_url(self, model, tested_arg):
+        tested_value = 'https://' + 'a' * 2041
         with self.assertRaises(FieldValueTooLongError):
-            InsideFilterURL(url=tested_value)
+            model(**{tested_arg: tested_value})
+        
+    @foreach(
+        param(val='https://example.com'),
+        param(val='https://www.example.com/some/thing'),
+        param(val='http://example.com?some=param&another=one'),
+        param(val='http://www.example.com'),
+        param(val='https://'),
+        param(val='http://'),
+    )
+    @foreach(
+        param(model=Agreement, tested_arg='url_pl'),
+        param(model=Agreement, tested_arg='url_en'),
+    )    
+    def test_http_absolute_url(self, model, tested_arg, val):
+        self._test_proper_values(model, {tested_arg: val})
+        
+    @foreach(
+        param(val='ftp://example.com/'),
+        param(val='/some/path?some=query'),
+        param(val='HTTP://test.com'),
+        param(val='HTTPS://test.com'),
+        param(val='   abcd     1234    '
+        '------- 22222222 +++++'),
+        param(val='a' * 2048),
+    )    
+    @foreach(
+        param(model=Agreement, tested_arg='url_pl'),
+        param(model=Agreement, tested_arg='url_en'),
+    )    
+    def test_illegal_http_absolute_url(self, model, tested_arg, val):
+        expected_msg_pattern = 'is not an absolute HTTP/HTTPS URL.'
+        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
+
 
     @foreach(list(CATEGORY_ENUMS) + list(map('  {}  '.format, CATEGORY_ENUMS)))
     def test_category(self, val):
@@ -498,18 +539,23 @@ class TestValidators(unittest.TestCase):
                                   r'\bnot a valid event category\b')
 
     @foreach(
-        'info@example.com',
-        'ex123@example.com',
-        '  valid.v_a-l@s-p-a-m.example.com  ',
-        'another-val@email',
-        '123@321.org',
-        'so}me@example',
-        'so{me@example',
-        'so$&?!me@example',
+        param(model=User, tested_arg='login'),
+        param(model=OrgConfigUpdateRequestUserAdditionOrActivationRequest, tested_arg='user_login'),
+        param(model=OrgConfigUpdateRequestUserDeactivationRequest, tested_arg='user_login'),
     )
-    def test_user_login(self, val):
-        self._test_proper_values(User,
-                                 {'login': val},
+    @foreach(
+        param(val='info@example.com'),
+        param(val='ex123@example.com'),
+        param(val='  valid.v_a-l@s-p-a-m.example.com  '),
+        param(val='another-val@email'),
+        param(val='123@321.org'),
+        param(val='so}me@example'),
+        param(val='so{me@example'),
+        param(val='so$&?!me@example'),
+    )
+    def test_user_login(self, model, tested_arg, val):
+        self._test_proper_values(model,
+                                 {tested_arg: val},
                                  expecting_stripped_string=True)
 
     @foreach(
@@ -538,24 +584,29 @@ class TestValidators(unittest.TestCase):
                                  expecting_stripped_string=True)
 
     @foreach(
-        'uPPercase@example.com',
-        'no-at-sign',
-        '.some@example.com',
-        'some..some@example.com',
-        'some....some@example.com',
-        'some.@example.com',
-        'lo:gin@example.com',
-        'lo   gin@example.com',
-        '@example.com',
-        'some@some@example.com',
-        'some@s_p_a_m.example.com',
-        '123@321.123',
-        'some@domain-with-UPPERcase.example.com',
+        param(model=User, tested_arg='login'),
+        param(model=OrgConfigUpdateRequestUserAdditionOrActivationRequest, tested_arg='user_login'),
+        param(model=OrgConfigUpdateRequestUserDeactivationRequest, tested_arg='user_login'),
     )
-    def test_illegal_user_login(self, val):
+    @foreach(
+        param(val='uPPercase@example.com'),
+        param(val='no-at-sign'),
+        param(val='.some@example.com'),
+        param(val='some..some@example.com'),
+        param(val='some....some@example.com'),
+        param(val='some.@example.com'),
+        param(val='lo:gin@example.com'),
+        param(val='lo   gin@example.com'),
+        param(val='@example.com'),
+        param(val='some@some@example.com'),
+        param(val='some@s_p_a_m.example.com'),
+        param(val='123@321.123'),
+        param(val='some@domain-with-UPPERcase.example.com'),
+    )
+    def test_illegal_user_login(self, model, tested_arg, val):
         expected_msg_pattern = (r'\bnot a valid user login\b|\billegal character')
-        self._test_illegal_values(User,
-                                  {'login': val},
+        self._test_illegal_values(model,
+                                  {tested_arg: val},
                                   FieldValueError,
                                   expected_msg_pattern)
 
@@ -890,10 +941,13 @@ class TestValidators(unittest.TestCase):
         param(model=OrgConfigUpdateRequestEMailNotificationAddress, tested_arg='email'),
         param(model=RegistrationRequest, tested_arg='email'),
         param(model=RegistrationRequestEMailNotificationAddress, tested_arg='email'),
+        param(model=OrgConfigUpdateRequestUserAdditionOrActivationRequest, tested_arg='user_login'),
+        param(model=OrgConfigUpdateRequestUserDeactivationRequest, tested_arg='user_login'),
         param(model=CriteriaContainer, tested_arg='label'),
         param(model=Subsource, tested_arg='label'),
         param(model=SubsourceGroup, tested_arg='label'),
         param(model=IgnoreList, tested_arg='label'),
+        param(model=Agreement, tested_arg='label'),
         param(model=SystemGroup, tested_arg='name'),
         param(model=CACert, tested_arg='ca_label'),
     )
@@ -908,9 +962,12 @@ class TestValidators(unittest.TestCase):
         (Component, 'login'),
         (User, 'login'),
         (RegistrationRequest, 'email'),
+        (OrgConfigUpdateRequestUserAdditionOrActivationRequest, 'user_login'),
+        (OrgConfigUpdateRequestUserDeactivationRequest, 'user_login'),
         (CriteriaContainer, 'label'),
         (Subsource, 'label'),
         (SubsourceGroup, 'label'),
+        (Agreement, 'label'),
         (SystemGroup, 'name'),
         (CACert, 'ca_label'),
     )
@@ -925,6 +982,11 @@ class TestValidators(unittest.TestCase):
         param(model=SubsourceGroup, tested_arg='label'),
         param(model=CriteriaContainer, tested_arg='label'),
         param(model=IgnoreList, tested_arg='label'),
+        param(model=Agreement, tested_arg='label'),
+        param(model=Agreement, tested_arg='en'),
+        param(model=Agreement, tested_arg='pl'),
+        param(model=Agreement, tested_arg='url_en'),
+        param(model=Agreement, tested_arg='url_pl'),
         param(model=SystemGroup, tested_arg='name'),
         param(model=Cert, tested_arg='creator_details'),
         param(model=Cert, tested_arg='revocation_comment'),
@@ -975,6 +1037,8 @@ class TestValidators(unittest.TestCase):
         param(model=RegistrationRequest, tested_arg='terms_lang'),
         param(model=EMailNotificationAddress, tested_arg='email'),
         param(model=OrgConfigUpdateRequestEMailNotificationAddress, tested_arg='email'),
+        param(model=OrgConfigUpdateRequestUserAdditionOrActivationRequest, tested_arg='user_login'),
+        param(model=OrgConfigUpdateRequestUserDeactivationRequest, tested_arg='user_login'),
         param(model=RegistrationRequest, tested_arg='email'),
         param(model=RegistrationRequestEMailNotificationAddress, tested_arg='email'),
         param(model=Entity, tested_arg='email'),

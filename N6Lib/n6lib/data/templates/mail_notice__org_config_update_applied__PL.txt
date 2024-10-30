@@ -8,6 +8,25 @@ Propozycja zaktualizowania konfiguracji Twojej organizacji, zgłoszona przez uż
 Poniżej przedstawiamy szczegóły tej aktualizacji, już zastosowanej do
 konfiguracji Twojej organizacji.
 
+{%- if data_dict.update_info.added_user_logins or data_dict.update_info.removed_user_logins %}
+
+* Użytkownicy należący do organizacji:
+  * [poprzednio] {{ data_dict.org_user_logins|default(['(-)'], boolean=true)|join(', ') }}
+  * + [dodani] {{ data_dict.update_info.added_user_logins|default(['(-)'], boolean=true)|join(', ') }}
+  * - [usunięci] {{ data_dict.update_info.removed_user_logins|default(['(-)'], boolean=true)|join(', ') }}
+
+  {%- if data_dict.update_info.added_user_logins
+  ----------------------------------------------------------------------
+  Witamy Nowych Użytkowników! Aby ustawić hasło logowania do Portalu n6,
+  wejdź na stronę logowania, użyj linku *Nie pamiętam hasła* i postępuj
+  zgodnie z wyświetlanymi instrukcjami. Przy pierwszym logowaniu do
+  Portalu n6, system poprosi Cię o skonfigurowanie uwierzytelniania
+  wieloskładnikowego (postępuj zgodnie z instrukcjami wyświetlanymi
+  przez Portal n6).
+  ----------------------------------------------------------------------
+  {%- endif %}
+{%- endif %}
+
 {%- set key_descr_pairs = [
             ("actual_name", "Właściwa nazwa aktualizacji"),
             ("notification_enabled", "Czy mają być wysyłane powiadomienia mailowe o nowych zdarzeniach bezpieczeństwa"),
@@ -24,8 +43,8 @@ konfiguracji Twojej organizacji.
         {%- set upd_value = data_dict.update_info[key] %}
 
         {%- if key == 'notification_enabled' %}
-            {%- set old_value = 'yes' if old_value else 'no' %}
-            {%- set upd_value = 'yes' if upd_value else 'no' %}
+            {%- set old_value = 'tak' if old_value else 'nie' %}
+            {%- set upd_value = 'tak' if upd_value else 'nie' %}
         {%- elif upd_value is sequence and upd_value is not string %}
             {%- if key == 'notification_times' %}
                 {%- set old_formatted = [] %}
@@ -44,8 +63,8 @@ konfiguracji Twojej organizacji.
         {%- endif %}
 
 * {{ description }}:
-  * [poprzednio] {{ old_value|default('(not set)', boolean=true) }}
-  * [obecnie] {{ upd_value|default('(not set)', boolean=true) }}
+  * [poprzednio] {{ old_value|default('(nie ustawiono)', boolean=true) }}
+  * [obecnie] {{ upd_value|default('(nie ustawiono)', boolean=true) }}
 
     {%- endif %}
 {%- endfor %}
@@ -89,6 +108,10 @@ variable which is a dictionary that contains the items described below.
     * 'actual_name'
       (string or None, e.g.: 'The Ministry of Silly Walks')
       -- the actual name of the concerned organization
+
+    * 'org_user_logins'
+      (list [possibly empty] of strings, e.g.: ['you@example.org', 'me@example.org'])
+      -- the logins of all organization's non-blocked users
 
     * 'notification_enabled'
       (True or False)
@@ -158,6 +181,18 @@ variable which is a dictionary that contains the items described below.
            (optional; string)
            -- the facultative message from the user who submitted the
               *organization config update request*
+
+         [the following two items, both required, represent the update
+         actions regarding the organization's selected users; depending on
+         a requested action, a user's login lands in the corresponding list]
+
+         * 'added_user_logins'
+           (required; list [possibly empty] of strings, e.g.: ['you@example.org', 'me@example.org'])
+           -- the logins of the users requested to be added to the organization
+
+         * 'removed_user_logins'
+           (required; list [possibly empty] of strings, e.g.: ['you@example.org', 'me@example.org'])
+           -- the logins of the users requested to be removed from the organization
 
          [the following items, all optional, represent the current state
          of the corresponding items of the organization config, i.e.,

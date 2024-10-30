@@ -94,12 +94,10 @@ const FormCheckboxWrapper: FC<IProps> = (props) => {
   const isTouched = name in touchedFields;
   const isDirty = name in dirtyFields;
 
-  const isInvalid = useMemo(() => validateField({ isSubmitted, isSubmitSuccessful, hasErrors, isTouched }), [
-    isSubmitted,
-    isSubmitSuccessful,
-    hasErrors,
-    isTouched
-  ]);
+  const isInvalid = useMemo(
+    () => validateField({ isSubmitted, isSubmitSuccessful, hasErrors, isTouched }),
+    [isSubmitted, isSubmitSuccessful, hasErrors, isTouched]
+  );
 
   return <FormCheckbox {...props} {...methods} isInvalid={isInvalid} isDirty={isDirty} />;
 };

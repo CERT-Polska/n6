@@ -1,4 +1,4 @@
-import { createContext, FC, useContext, useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { TUserAgentLocale } from 'context/LanguageProvider';
 import { useTypedIntl } from 'utils/useTypedIntl';
 
@@ -18,7 +18,7 @@ const initialContext: IKBSearchContext = {
 
 const KBSearchContext = createContext<IKBSearchContext>(initialContext);
 
-export const KBSearchContextProvider: FC = ({ children }) => {
+export const KBSearchContextProvider = ({ children }: { children: React.ReactNode }) => {
   const { locale } = useTypedIntl();
 
   const [queryLang, setQueryLang] = useState(locale);

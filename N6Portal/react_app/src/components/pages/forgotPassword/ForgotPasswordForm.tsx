@@ -40,7 +40,7 @@ const ForgotPasswordForm: FC = () => {
           updateForgotPasswordState('request_success');
         }
       });
-    } catch (error) {
+    } catch (error: any) {
       const { status } = error.response || {};
       switch (status) {
         case 400:

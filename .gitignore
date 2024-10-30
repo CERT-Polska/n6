@@ -98,3 +98,7 @@ site/
 
 # n6 data on docker runtime
 volume
+
+# n6portal stuff
+N6Portal/react_app/build/
+N6Portal/react_app/coverage/

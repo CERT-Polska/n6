@@ -1,4 +1,4 @@
-import { FC, createContext, useState, useContext, useCallback } from 'react';
+import { createContext, useState, useContext, useCallback } from 'react';
 import { ILogin } from 'api/auth/types';
 
 type TLoginStatus = 'login' | '2fa' | '2fa_error' | '2fa_config' | '2fa_config_error' | '2fa_config_success';
@@ -27,7 +27,7 @@ const initialLoginState: ILoginState = {
 
 const LoginContext = createContext<ILoginContext>(initialContext);
 
-export const LoginContextProvider: FC = ({ children }) => {
+export const LoginContextProvider = ({ children }: { children: React.ReactNode }) => {
   const [loginState, changeLoginState] = useState<ILoginState>(initialLoginState);
 
   const updateLoginState = useCallback((state: TLoginStatus, mfaData?: ILogin) => {

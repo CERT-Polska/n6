@@ -36,12 +36,12 @@ export const getLogout = async (): Promise<void> => {
   }
 };
 
-const getMfaConfig = async (): Promise<IMfaConfig | null> => {
+export const getMfaConfig = async (): Promise<IMfaConfig | null> => {
   try {
     const payload = await customAxios.get<IMfaConfig>(`${dataController}${controllers.auth.mfaConfig}`);
     return payload.data;
-  } catch (reason) {
-    if (reason.response.status === 403) {
+  } catch (reason: any) {
+    if (reason.response?.status === 403) {
       // do not respond with 403 response to avoid resetting the auth
       // state and falling into the infinite loop
       return null;
@@ -56,7 +56,7 @@ export const useMfaConfig = (
   return useQuery('mfaConfig', (): Promise<IMfaConfig | null> => getMfaConfig(), options);
 };
 
-const getApiKey = async (): Promise<IApiKey> => {
+export const getApiKey = async (): Promise<IApiKey> => {
   try {
     const payload = await customAxios.get<IApiKey>(`${dataController}${controllers.auth.apiKey}`);
     return payload.data;

@@ -1,6 +1,7 @@
 type TConfidence = 'low' | 'medium' | 'high';
 export type TProto = 'tcp' | 'udp' | 'icmp';
 type TStatus = 'active' | 'delisted' | 'expired' | 'replaced';
+export type TRestriction = 'public' | 'need-to-know' | 'internal';
 type TName =
   | 'zeus'
   | 'feodo'
@@ -78,6 +79,7 @@ export interface IRequestParams {
   name?: string | TName;
   'opt.limit'?: number;
   proto?: string;
+  restriction?: string;
   sha1?: string;
   source?: string;
   sport?: string;
@@ -97,11 +99,12 @@ export interface IResponse {
   origin?: TOrigin;
   confidence: TConfidence;
   category: TCategory;
-  time: Date;
+  time: string;
   name?: TName;
   md5?: string;
   sha1?: string;
   proto?: TProto;
+  restriction?: TRestriction;
   address?: IAddress[];
   sport?: number;
   dport?: number;

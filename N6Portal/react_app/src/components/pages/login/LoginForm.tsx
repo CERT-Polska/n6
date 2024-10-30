@@ -49,7 +49,7 @@ const LoginForm: FC = () => {
           updateLoginState('2fa', data);
         }
       });
-    } catch (error) {
+    } catch (error: any) {
       const { data, status } = error.response || {};
       if (status === 403 && data) updateLoginState('2fa_config', data);
       else toggleAuthError(true);

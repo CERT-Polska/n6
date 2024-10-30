@@ -3,6 +3,7 @@ export interface IUpdateInfo {
   requesting_user: string | null;
   additional_comment?: string;
   actual_name?: string | null;
+  org_user_logins?: string[];
   asns?: number[];
   fqdns?: string[];
   ip_networks?: string[];
@@ -15,6 +16,7 @@ export interface IUpdateInfo {
 export interface IOrgConfig {
   org_id: string;
   actual_name: string | null;
+  org_user_logins: string[];
   asns: number[];
   fqdns: string[];
   ip_networks: string[];

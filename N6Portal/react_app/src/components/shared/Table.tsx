@@ -1,4 +1,4 @@
-import { FC, useRef, useMemo, useCallback, useState } from 'react';
+import { FC, useRef, useMemo, useCallback, useState, CSSProperties } from 'react';
 import { Cell, ColumnInstance, HeaderGroup, Row, TableBodyProps, TableProps } from 'react-table';
 import classnames from 'classnames';
 import VirtualizedList from 'components/shared/VirtualizedList';
@@ -54,7 +54,7 @@ const Table: FC<IProps> = ({ getTableProps, getTableBodyProps, headerGroups, row
   }, [rows.length, fullView]);
 
   const RenderRow = useCallback(
-    ({ index, style }) => {
+    ({ index, style }: { index: any; style: CSSProperties | undefined }) => {
       const row = rows[index];
       const hasLastRow = rows.length > 5 && index >= rows.length - 2;
       prepareRow(row);
@@ -103,7 +103,7 @@ const Table: FC<IProps> = ({ getTableProps, getTableBodyProps, headerGroups, row
                       <div
                         {...column.getHeaderProps(
                           column.getSortByToggleProps({
-                            title: `${messages.incidents_header_sort_by_tooltip}${column.Header}`
+                            title: `${messages.incidents_header_sort_by_tooltip}${column.Header?.toString()}`
                           })
                         )}
                         className="th"

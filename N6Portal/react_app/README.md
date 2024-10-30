@@ -1,21 +1,29 @@
-# n6Portal React GUI
+# *n6 Portal*-frontend-related commands
 
-## Instalacja systemu zarządzania pakietami
+## Install *yarn* (Package Management System)
 
 npm install --global yarn
 
-### Alternatywne sposoby instalacji yarn
+### Alternative Ways to Install *yarn*
 
 https://classic.yarnpkg.com/en/docs/install
 
-## Instalacja zależności
+## Install Dependencies
 
 yarn
 
-## Uruchomienie wersji deweloperskiej
+## Run Development Version
 
 yarn start
 
-## Zbudowanie wersji produkcyjnej
+## Build Production Version
 
 yarn build-prod
+
+## Check Code Style
+
+yarn run lint-check
+
+## Automatically Fix Code Style
+
+yarn run lint-write

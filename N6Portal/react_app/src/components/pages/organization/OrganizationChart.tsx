@@ -33,7 +33,7 @@ const options: ChartOptions<'bar'> = {
       labels: {
         boxWidth: 20,
         boxHeight: 20,
-        filter: (item, data) => data.datasets[item.datasetIndex].data.some((value) => !!value)
+        filter: (item, data) => data.datasets[item.datasetIndex as number].data.some((value) => !!value)
       }
     }
   },

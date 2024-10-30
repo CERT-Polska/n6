@@ -2,6 +2,8 @@ import { Dispatch, FC, SetStateAction, useEffect, useState } from 'react';
 import { AxiosError } from 'axios';
 import { useMutation } from 'react-query';
 import { useForm, FormProvider, SubmitHandler } from 'react-hook-form';
+import { FormCheck } from 'react-bootstrap';
+import { Link } from 'react-router-dom';
 import { useTypedIntl } from 'utils/useTypedIntl';
 import FormInput from 'components/forms/FormInput';
 import FormRadio from 'components/forms/FormRadio';
@@ -22,6 +24,7 @@ import {
 import Tooltip from 'components/shared/Tooltip';
 import { postRegister } from 'api/register';
 import { getParsedRegisterData } from 'utils/parseRegisterData';
+import { IAgreement } from 'api/services/agreements';
 
 export interface IStepTwoForm {
   org_id: string;
@@ -39,11 +42,15 @@ export interface IStepTwoForm {
 interface IProps {
   changeStep: Dispatch<SetStateAction<number>>;
   tosVersions: TTosVersions;
+  agreements: IAgreement[];
 }
 
-const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions }) => {
+const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
   const { messages, locale } = useTypedIntl();
   const [hasSubmitError, setHasSubmitError] = useState(false);
+  const [checkedAgreements, setCheckedAgreements] = useState(
+    agreements.filter((a) => a.default_consent).map((a) => a.label) as string[]
+  );
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -72,6 +79,7 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions }) => {
 
     formData.append('terms_lang', locale.toUpperCase());
     formData.append('terms_version', tosVersions[locale]);
+    formData.append('agreements', checkedAgreements.join());
 
     try {
       await sendRegistrationData(formData, {
@@ -163,6 +171,35 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions }) => {
               />
             }
           />
+          {agreements?.map((agreement) => (
+            <div className="form-checkbox-wrapper custom-checkbox-input">
+              <FormCheck.Input
+                className="form-checkbox-input"
+                type="checkbox"
+                id={`checkbox-${agreement.label}`}
+                onChange={() => {
+                  checkedAgreements.includes(agreement.label)
+                    ? setCheckedAgreements(checkedAgreements.filter((label) => label !== agreement.label))
+                    : setCheckedAgreements([...checkedAgreements, agreement.label]);
+                }}
+                defaultChecked={agreement.default_consent}
+              />
+              <span className="custom-checkbox" />
+              <FormCheck.Label className="form-checkbox-label" htmlFor={`checkbox-${agreement.label}`}>
+                {`${agreement[locale]} `}
+                {agreement.url_en && locale === 'en' && (
+                  <Link to={{ pathname: agreement.url_en }} target="_blank">
+                    {messages.agreements_see_more}
+                  </Link>
+                )}
+                {agreement.url_pl && locale === 'pl' && (
+                  <Link to={{ pathname: agreement.url_pl }} target="_blank">
+                    {messages.agreements_see_more}
+                  </Link>
+                )}
+              </FormCheck.Label>
+            </div>
+          ))}
           <SignUpButtons isSubmitting={formState.isSubmitting} submitText={`${messages.signup_btn_submit}`} />
           {hasSubmitError && (
             <p className="text-danger mt-4 font-smaller text-center">{messages.signup_error_message}</p>

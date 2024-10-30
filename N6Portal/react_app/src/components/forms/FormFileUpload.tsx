@@ -5,7 +5,6 @@ import { validateField } from 'components/forms/validation/validators';
 import { compareFileUpload, FormContextProps } from 'components/forms/utils';
 import FormRenderErrorMsg from 'components/forms/FormRenderErrorMsg';
 import FormRenderSelectedFile from 'components/forms/FormRenderSelectedFile';
-
 interface IProps {
   name: string;
   fieldNameToReset?: string;
@@ -80,12 +79,10 @@ const FormFileUploadWrapper: FC<IProps> = (props) => {
   // it's not set automatically and there is no shouldTouch attribute in the setValue config
   const isTouched = true;
 
-  const isInvalid = useMemo(() => validateField({ isSubmitted, isSubmitSuccessful, hasErrors, isTouched }), [
-    isSubmitted,
-    isSubmitSuccessful,
-    hasErrors,
-    isTouched
-  ]);
+  const isInvalid = useMemo(
+    () => validateField({ isSubmitted, isSubmitSuccessful, hasErrors, isTouched }),
+    [isSubmitted, isSubmitSuccessful, hasErrors, isTouched]
+  );
 
   const watchedValue = useWatch({ name, defaultValue: getValues(name) || null });
 

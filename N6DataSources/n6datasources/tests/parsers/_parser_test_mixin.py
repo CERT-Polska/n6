@@ -70,6 +70,8 @@ class ParserTestMixin(TestCaseMixin):
     # it can be overridden in subclasses
     # (e.g. with 'assertCountEqual' -- to disable checking of event ordering)
     ASSERT_RESULTS_EQUAL = 'assertEqual'
+    # it can be overridden on subclasses' instances
+    custom_expected_output_event_type = None
 
     def test_basics(self):
         self.assertIn(self.PARSER_BASE_CLASS, self.PARSER_CLASS.__bases__)
@@ -82,13 +84,15 @@ class ParserTestMixin(TestCaseMixin):
         if self.PARSER_RAW_FORMAT_VERSION_TAG is sentinel.not_set:
             # Parser's `default_binding_key`
             # is just equal to `PARSER_SOURCE`
-            # (e.g., "abuse-ch.feodotracker")
+            # (e.g., "cert-pl.shield")
             self.assertEqual(len(split_default_binding_key), 2)
         else:
             assert re.fullmatch(r'[0-9]{6}', self.PARSER_RAW_FORMAT_VERSION_TAG)  # (e.g. "202110")
             # Parser's `default_binding_key` consists of
             # `PARSER_SOURCE` and `PARSER_RAW_FORMAT_VERSION_TAG`
-            # (e.g., "abuse-ch.feodotracker.202110")
+            # (e.g., "cert-pl.shield.202409" -- which does not exist,
+            # but is an example of how the `PARSER_RAW_FORMAT_VERSION_TAG`
+            # looks like)
             self.assertEqual(len(split_default_binding_key), 3)
             self.assertEqual(split_default_binding_key[2], self.PARSER_RAW_FORMAT_VERSION_TAG)
 
@@ -146,7 +150,9 @@ class ParserTestMixin(TestCaseMixin):
             'timestamp': self.MESSAGE_TIMESTAMP,
             'headers': dict(**self.MESSAGE_EXTRA_HEADERS),
         })
-        if issubclass(self.PARSER_CLASS, BlackListParser):
+        if self.custom_expected_output_event_type is not None:
+            event_type = self.custom_expected_output_event_type
+        elif issubclass(self.PARSER_CLASS, BlackListParser):
             assert not issubclass(self.PARSER_CLASS, AggregatedEventParser)
             event_type = 'bl'
         elif issubclass(self.PARSER_CLASS, AggregatedEventParser):

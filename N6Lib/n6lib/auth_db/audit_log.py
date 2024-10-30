@@ -10,7 +10,10 @@ from sqlalchemy import (
     event,
     text as sqla_text,
 )
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import (
+    Connection,
+    Engine,
+)
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.inspection import inspect
 from sqlalchemy.orm import scoped_session
@@ -57,7 +60,7 @@ from n6lib.typing_helpers import (
 LOGGER = get_logger(__name__)
 
 
-class AuditLog(object):
+class AuditLog:
 
     """
     Trace and log changes -- insertions, updates and deletions -- that
@@ -75,7 +78,12 @@ class AuditLog(object):
             used to make changes in the Auth DB that are to be traced
             and logged. (Typically, the callable is an instance of
             `sqlalchemy.orm.session.sessionmaker` or
-            `sqlalchemy.orm.scoped_session`.)
+            `sqlalchemy.orm.scoped_session`.) An additional requirement
+            is that all produced sessions need to be bound to *the same
+            engine*, being an instance of `sqlalchemy.engine.Engine`,
+            and *only* to it. (Generally, the consequences of failing to
+            meet those requirements are undefined -- exceptions and/or
+            incorrect behaviors are likely...)
 
         `external_meta_items_getter` (required):
             An argumentless callable that, when called, returns a
@@ -215,9 +223,7 @@ class AuditLog(object):
             # code will be a *new* session (and, thanks to that, all
             # appropriate event handlers will be then properly called).
             session_factory.remove()
-        if detected_session_type is not Session and issubclass(detected_session_type, Session):
-            return bind, detected_session_type
-        else:
+        if detected_session_type is Session or not issubclass(detected_session_type, Session):
             raise TypeError(
                 '`session_factory` needs to be an object that, when '
                 'called, returns a session object whose type is *not* '
@@ -242,6 +248,14 @@ class AuditLog(object):
                 '`scoped_session`) that produces sessions used to make '
                 'changes in the Auth DB that you want to be logged by '
                 'the Audit Log machinery.')
+        if not isinstance(bind, Engine):
+            raise TypeError(
+                f"Wrong type of `session.get_bind()`'s result: {bind!a}! "
+                f'Details: `session_factory` needs to be an object that, '
+                f'when called, returns a session object whose method '
+                f'`get_bind()` returns a `sqlalchemy.engine.Engine` '
+                f'instance.')
+        return bind, detected_session_type
 
     def _register_event_handlers(self):
         session_type = self._relevant_session_type
@@ -275,6 +289,7 @@ class AuditLog(object):
 
     def _after_transaction_create(self, session, transaction):
         assert isinstance(session, self._relevant_session_type)
+        self._verify_and_get_session_bind(session)
         self._set_empty_entry_builders_list_on(transaction)
         if self._does_represent_actual_db_transaction(transaction):
             # Let's do this cleanup to be sure we do not have attached to the
@@ -349,7 +364,7 @@ class AuditLog(object):
         try:
             if self._does_represent_actual_db_transaction(transaction):
                 self._discard_request_to_record_write_op_commit(session)
-                self._try_delete_not_so_recent_write_op_commit_records()
+                self._try_delete_not_so_recent_write_op_commit_records(session)
         finally:
             # This cleanup part is not strictly necessary --
             # but let's be tidy. :-)
@@ -475,7 +490,8 @@ class AuditLog(object):
             random_id=make_hex_id(length=12))
 
     def _get_db_url_from_session(self, session):
-        return session.bind.url.__to_string__(hide_password=True)
+        bind = self._verify_and_get_session_bind(session)
+        return bind.url.__to_string__(hide_password=True)
 
     # * Storing, retrieving, moving and removing entry builders:
 
@@ -569,9 +585,10 @@ class AuditLog(object):
     def _record_write_op_commit(self, conn: Connection) -> None:
         conn.execute('INSERT INTO recent_write_op_commit SET made_at = DEFAULT')
 
-    def _try_delete_not_so_recent_write_op_commit_records(self) -> None:
+    def _try_delete_not_so_recent_write_op_commit_records(self, session: Session) -> None:
+        bind = self._verify_and_get_session_bind(session)
         try:
-            with self._bind.connect() as conn, conn.begin():
+            with bind.connect() as conn, conn.begin():
                 [[time_of_newest_rec]] = conn.execute(
                     'SELECT made_at FROM recent_write_op_commit '
                     'ORDER BY id DESC LIMIT 1')
@@ -641,8 +658,17 @@ class AuditLog(object):
             assert self._get_entry_builders_list_from(transaction) == []
             transaction = transaction.parent
 
+    def _verify_and_get_session_bind(self, session):
+        bind = session.get_bind()
+        if bind is not self._bind:
+            raise RuntimeError(
+                f'{bind=!a} from session.get_bind() is not '
+                f'{self._bind=!a}')
+        assert isinstance(bind, Engine)
+        return bind
 
-class _ModelInstanceWrapper(object):
+
+class _ModelInstanceWrapper:
 
     """
     A wrapper around an Auth DB ORM model instance (i.e., over an

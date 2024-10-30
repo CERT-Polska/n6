@@ -1,7 +1,7 @@
 import { isValid, parse } from 'date-fns';
 import isAscii from 'validator/lib/isAscii';
 import isURL from 'validator/lib/isURL';
-import { FormState, Validate, ValidateResult } from 'react-hook-form';
+import { FieldValues, FormState, Validate, ValidateResult } from 'react-hook-form';
 import {
   FormFieldValue,
   TValidateMultiValues,
@@ -28,7 +28,7 @@ import isObject from 'utils/isObject';
 type ValidationFormState = {
   isTouched: boolean;
   hasErrors: boolean;
-} & Pick<FormState<unknown>, 'isSubmitted' | 'isSubmitSuccessful'>;
+} & Pick<FormState<FieldValues>, 'isSubmitted' | 'isSubmitSuccessful'>;
 
 export const validateField = ({
   isSubmitted,
@@ -62,7 +62,7 @@ export const composeValidators = (
   Object.entries(validators).reduce((prev, curr) => ({ ...prev, [curr[0]]: curr[1] }), {});
 
 export const isRequired: Validate<FormFieldValue> = (value) => {
-  if (value instanceof File) return true;
+  if (value instanceof File) return true; // TODO: fix File reference problem for test env in Node 16 or less
   else if (isObject(value) && value) return !Object.keys(value).length ? 'validation_isRequired' : true;
   else return !value ? 'validation_isRequired' : true;
 };
@@ -149,7 +149,7 @@ export const mustBePortNumber: Validate<FormFieldValue> = (value) =>
     ? true
     : 'validation_mustBePortNumber';
 
-const validateIpAddress = (value: string, isPartOfIpNetwork = false) => {
+export const validateIpAddress = (value: string, isPartOfIpNetwork = false) => {
   // Examples of IP addresses presumed invalid:
   // - Single IP address: 0.0.0.0 (However, 0.0.0.0/0-32 is accepted as a valid IP network range)
   // - IP addresses with leading zeros: 1.1.1.01

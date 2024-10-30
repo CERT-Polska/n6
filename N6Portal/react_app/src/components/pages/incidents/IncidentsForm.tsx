@@ -25,6 +25,7 @@ import {
 } from 'components/pages/incidents/utils';
 import IncidentsFilter from 'components/pages/incidents/IncidentsFilter';
 import { storageAvailable } from 'utils/storageAvailable';
+import useAuthContext from 'context/AuthContext';
 
 interface IProps {
   dataLength: number;
@@ -34,6 +35,10 @@ interface IProps {
 const FILTERS_STORAGE = 'userFilters';
 
 const IncidentsForm: FC<IProps> = ({ dataLength, refetchData }) => {
+  const { fullAccess } = useAuthContext();
+  const availableFilters: TFilter[] = fullAccess
+    ? allFilters
+    : allFilters.filter((filter) => filter.name !== 'restriction');
   const { messages, formatMessage } = useTypedIntl();
   const [selectedFilters, setSelectedFilters] = useState<TFilter[]>([]);
 
@@ -92,7 +97,7 @@ const IncidentsForm: FC<IProps> = ({ dataLength, refetchData }) => {
     localStorage.setItem(FILTERS_STORAGE, JSON.stringify(storedFilters));
   };
 
-  const filtersToAdd = allFilters.filter((filter) => !selectedFilters.find((elem) => elem.name === filter.name));
+  const filtersToAdd = availableFilters.filter((filter) => !selectedFilters.find((elem) => elem.name === filter.name));
 
   useEffect(() => {
     if (dataLength >= optLimit) {

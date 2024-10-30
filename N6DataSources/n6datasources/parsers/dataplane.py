@@ -32,12 +32,11 @@ class _DataplaneBaseParser(BlackListParser):
 
     # can be set in concrete classes if needed
     name_item = None
+    ignored_csv_raw_row_prefixes = '#'
 
     def parse(self, data):
         rows = csv.reader(data['csv_raw_rows'], delimiter='|', quotechar='"')
         for row in rows:
-            if row[0].startswith("#"):
-                continue
             # fields: "ASN", "ASname", "ipaddr", "lastseen", "category"
             _, _, ip, lastseen, _ = strip_fields(row)
 

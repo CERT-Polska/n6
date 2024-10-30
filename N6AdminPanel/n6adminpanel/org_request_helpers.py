@@ -1,9 +1,10 @@
-# Copyright (c) 2020-2021 NASK. All rights reserved.
+# Copyright (c) 2020-2024 NASK. All rights reserved.
 
-from collections.abc import Iterable
+import collections
 import html
 import re
 import string
+from collections.abc import Iterable
 from typing import Union
 
 from flask import (
@@ -530,7 +531,7 @@ class _OrgConfigUpdateRequestStatusTransitionHandlerKit(_BaseStatusTransitionHan
                                                           target_status)
         self._verify_update_request_is_the_pending_one(org_request)
         self._remember_org_config_info(org_request)
-        self._update_org_according_to_request(org_request)
+        self._update_org_and_users_according_to_request(org_request)
 
     def _verify_update_request_is_the_pending_one(self, org_request):
         assert isinstance(org_request, models.OrgConfigUpdateRequest)
@@ -547,11 +548,20 @@ class _OrgConfigUpdateRequestStatusTransitionHandlerKit(_BaseStatusTransitionHan
             g.n6_org_config_info = oc_info = api.get_org_config_info(org_id=org_request.org_id)
             assert oc_info.get('update_info') is not None
 
-    def _update_org_according_to_request(self, org_request):
+    def _update_org_and_users_according_to_request(self, org_request):
         assert isinstance(org_request, models.OrgConfigUpdateRequest)
         assert org_request.id is not None
+
+        flash_seq = g.n6_org_users_update_flash_seq
+        if flash_seq or not isinstance(flash_seq, collections.deque):
+            raise AssertionError(f"{flash_seq=!a}")
+
         with g.n6_auth_manage_api_adapter as api:
             api.update_org_according_to_org_config_update_request(req_id=org_request.id)
+            api.update_org_users_according_to_org_config_update_request(
+                req_id=org_request.id,
+                msg=(lambda text: flash_seq.append([text])),
+                warn=(lambda text: flash_seq.append([text, "warning"])))
 
     def _after_status_transition_to_accepted(self,
                                              org_request,
@@ -559,19 +569,29 @@ class _OrgConfigUpdateRequestStatusTransitionHandlerKit(_BaseStatusTransitionHan
                                              target_status,
                                              concerned_org_id):
         assert isinstance(org_request, models.OrgConfigUpdateRequest)
+
         flash('Organization config update request accepted. '
               'Organization "{}" updated.'.format(concerned_org_id))
+        self._flash_messages_from(flash_seq=g.n6_org_users_update_flash_seq)
+
         LOGGER.info('Successfully changed status of %a - from %a to %a. '
                     'Successfully updated organization %a.',
                     org_request,
                     ascii_str(old_status),
                     ascii_str(target_status),
                     ascii_str(concerned_org_id))
+
         assert org_request.id is not None
         assert g.n6_org_config_info is not None
         assert g.n6_org_config_info['org_id'] == concerned_org_id
         self.try_to_send_mail_notices(notice_key='org_config_update_applied',
                                       req_id=org_request.id)
+
+    def _flash_messages_from(self, flash_seq):
+        assert isinstance(flash_seq, collections.deque)
+        while flash_seq:
+            args = flash_seq.popleft()
+            flash(*args)
 
     def _after_status_transition_to_other(self,
                                           org_request,

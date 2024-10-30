@@ -4,6 +4,7 @@ import { IPrivateRouteElem, IRouteElem } from 'routes/types';
 
 const Account = AsyncLoader(() => import('components/pages/account/Account'));
 const EditSettings = AsyncLoader(() => import('components/pages/editSettings/EditSettings'));
+const AgreementsSettings = AsyncLoader(() => import('components/pages/agreementsSettings/AgreementsSettings'));
 const UserSettings = AsyncLoader(() => import('components/pages/userSettings/UserSettings'));
 const UserSettingsMfaConfig = AsyncLoader(
   () => import('components/pages/userSettingsMfaConfig/UserSettingsMfaConfigForm')
@@ -38,6 +39,11 @@ export const privateRoutes: IPrivateRouteElem[] = [
   {
     path: routeList.settings,
     component: <EditSettings />,
+    redirectPath: routeList.noAccess
+  },
+  {
+    path: routeList.agreementsSettings,
+    component: <AgreementsSettings />,
     redirectPath: routeList.noAccess
   },
   {
