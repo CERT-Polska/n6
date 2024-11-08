@@ -2,7 +2,7 @@
 
 ## Overview
 
-Organization _Agreements_ are managed as objects stored in _Auth DB_. Those objects may be viewed, added, edited and deleted [using the Admin Panel](manage.md).
+_Agreements_ are managed as objects stored in _Auth DB_. Those objects may be viewed, added, edited and deleted [using the Admin Panel](manage.md).
 
 ## _Agreement_'s fields
 

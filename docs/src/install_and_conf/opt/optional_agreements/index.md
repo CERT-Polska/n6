@@ -2,7 +2,7 @@
 
 ## Opening remarks
 
-**Optional agreements** is a set of configurable entries in *n6 Admin Panel* which allows users of *n6 Portal* (being a part of a particular *n6* instance) to agree to additional terms provided by the instance's admin. The set of those terms is empty by default, but can be easily populated in *n6 Admin Panel* via the *Agreements* tab. This guide provides all the necessary information to set up these agreements.
+_Organization Agreements_ is a set of _additional optional terms_ provided by the administrators of a particular _n6_ instance. They are configurable via _n6 Admin Panel_. Users of _n6 Portal_ can select the terms they want to agree to on behalf of their organizations. This guide provides all necessary information about the feature (in particular, how to set it up).
 
 ## This guide's contents
 

@@ -2,30 +2,30 @@
 
 ## Overview
 
-Introducing Organization _Agreements_ to an _n6_ instance causes minor changes in the _n6 Portal_'s appearance, allowing users to interact with the agreements, i.e., agree or disagree (in the name of the user's organization) to the agreements' terms.
+Introducing any _Agreements_ within an _n6_ instance causes minor changes to the _n6 Portal_'s appearance, allowing users to interact with the agreements, i.e., to agree or disagree (in the name of the user's organization) to the agreements' terms.
 
 ## Registration form
 
-If any agreements have been created, they are shown at the bottom of the second page of the *registration form*. Whether they are checked by default or not is determined by the `default_consent` flag (as per [schema](model.md/#agreement-schema)).
+If any agreements exist, they are shown at the bottom of the second page of the _registration form_. Whether they are checked by default or not is determined by the `default_consent` flag (as per [schema](model.md/#agreement-schema)).
 
 ![Registration form agreement](img/registration_form.png)
-_Registration form. Notice the **See more** hyperlink which takes the user to `url_en`, in this case `https://example.website.com`. This hyperlink is to be rendered only if the URL for the current language is provided._
+_Registration form. Notice the **See more** hyperlink which takes the user to `url_en`, in this case `https://example.website.com`. This hyperlink is to be rendered only if the URL for the current language is defined._
 
-## Navigation bar
+## Navigation bar (menu)
 
-When at least one agreement is provided, a new navigation bar item becomes available to users: _Organization agreements_.
+When at least one agreement is provided, a new menu item becomes available to users: _Organization agreements_.
 
 ![Navigation bar](img/navigation_bar.png)
 _Navigation bar with additional **Organization agreements** item. This item would not be there if no agreements have been created._
 
-## Organization agreements menu
+## _Organization agreements_ page
 
-In **Organization agreements**, all agreements are visible, and users are able to manage their _Org_'s agreements by clicking the checkboxes.
+On the **Organization agreements** page, all agreements are visible, and users are able to manage their _Org_'s agreements by clicking the checkboxes.
 
 ![Organization agreements menu](img/organization_agreements_item.png)
-_Organization agreements menu with a single item. Notice that it is not checked as accepted even though it has `default_consent=True`._
+_Organization agreements page. Here: with a single agreement item. Note that the item is not checked as accepted even though the agreement's flag `default_consent` is set (that flag refers only to the registration form)._
 
-If there are no agreements, the URI `/agreements-settings` is not available via the GUI and only a stub page is presented with the information that no agreements are available.
+If there are no agreements, a short message is presented, informing that no agreements are available.
 
 ![Organization agreements menu with no items](img/organization_agreements_empty.png)
-_Organization agreements menu with a stub message._
+_Organization agreements page with no agreements._

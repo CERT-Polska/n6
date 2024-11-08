@@ -2,7 +2,7 @@
 
 ## Overview
 
-With the implementation of Organization _Agreements_, two new endpoints were introduced: `/agreements` and `/org_agreements`, along with some changes to the `/register` endpoint.
+With the implementation of _Agreements_, two new endpoints were introduced: `/agreements` and `/org_agreements`, along with some changes to the `/register` endpoint.
 
 ## `/agreements`
 
@@ -69,7 +69,7 @@ Example response data (`POST`):
 
 ## `/register`
 
-With the implementation of Organization _Agreements_, a new field was added to the *n6 Portal*'s form corresponding to this endpoint. The field receives a list of the labels of the agreements accepted by the client's organization.
+With the implementation of _Agreements_, a new field – `agreements` – was added to the *n6 Portal*'s form corresponding to this endpoint. The field receives a list of the labels of the agreements accepted by the client's organization.
 
 ```json
 -----------------------------17310712402843492328469257347

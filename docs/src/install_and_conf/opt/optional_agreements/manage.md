@@ -2,11 +2,11 @@
 
 ## Overview
 
-Managing Organization _Agreements_ does not differ from managing other models in _n6 Admin Panel_. This documentation provides visual guidance and information on managing _Agreements_ and their relations.
+Managing _Agreements_ does not differ from managing other models in _n6 Admin Panel_. This documentation provides visual guidance and information on managing _Agreements_ and their relations.
 
 ## Adding _Agreements_
 
-As mentioned in the introduction, by default _n6_ does not provide any optional agreements by itself. They can be added using the Admin Panel, under the _Agreement_ tab.
+By default, _n6_ does not provide any agreements by itself. They can be added using the Admin Panel, under the _Agreement_ tab.
 
 ![Empty Agreement tab](img/agreement_tab_empty.png)
 _Empty Agreement tab in List view._

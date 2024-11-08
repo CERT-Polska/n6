@@ -1,7 +1,7 @@
 # Changelog
 
 The *[n6](https://n6.readthedocs.io/)* project uses a versioning scheme
-***distinct from*** *Semantic Versioning*. Each *n6* version's identifier
+_**distinct from** Semantic Versioning_. Each *n6* version's identifier
 consists of three integer numbers, separated with `.` (e.g.: `4.11.2`).
 We can say it is in the `<FOREMOST>.<MAJOR>.<MINOR>` format -- where:
 
@@ -24,7 +24,7 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
-## [4.12.0-beta1] (2024-10-30)
+## [4.12.0-beta2] (2024-11-08)
 
 *Note: this is a prerelease.*
 
@@ -434,7 +434,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **The first public release of *n6*.**
 
 
-[4.12.0-beta1]: https://github.com/CERT-Polska/n6/compare/v4.5.0...v4.12.0b1
+[4.12.0-beta2]: https://github.com/CERT-Polska/n6/compare/v4.5.0...v4.12.0b2
 [4.5.0]: https://github.com/CERT-Polska/n6/compare/v4.4.0...v4.5.0
 [4.4.0]: https://github.com/CERT-Polska/n6/compare/v4.0.1...v4.4.0
 [4.0.1]: https://github.com/CERT-Polska/n6/compare/v4.0.0...v4.0.1
