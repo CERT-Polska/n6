@@ -28,11 +28,32 @@ export const prepareDefaultValues = (data: IOrgConfig): TEditSettingsForm => {
   };
 };
 
-export const prepareUpdatedValues = (data: IUpdateInfo): Partial<TEditSettingsForm> => {
-  const { update_request_time: _update_request_time, requesting_user: _requesting_user, ...rest } = data;
+export const prepareUpdatedValues = (data: IUpdateInfo, org_user_logins: string[] = []): Partial<TEditSettingsForm> => {
+  const {
+    update_request_time: _update_request_time,
+    requesting_user: _requesting_user,
+    added_user_logins,
+    removed_user_logins,
+    ...rest
+  } = data;
   const updatedEntries: Partial<TEditSettingsForm> = {};
 
+  // Handle special case for user logins
+  if ((added_user_logins && added_user_logins.length > 0) || (removed_user_logins && removed_user_logins.length > 0)) {
+    // Get the base user logins from the default values
+    const baseUserLogins = org_user_logins as string[];
+
+    // Add new users and remove deleted ones
+    const updatedUserLogins = [...baseUserLogins, ...(added_user_logins || [])].filter(
+      (login) => !(removed_user_logins || []).includes(login)
+    );
+
+    updatedEntries.org_user_logins = convertArrayToArrayOfObjects(updatedUserLogins);
+  }
+
   Object.entries(rest).forEach(([key, value]) => {
+    // Skip org_user_logins as it's handled above
+    if (key === 'org_user_logins') return;
     // replace the notification_addresses key to match notification_emails and simplify logic
     const parsedKey = key === 'notification_addresses' ? 'notification_emails' : (key as keyof TEditSettingsForm);
     const parsedValue = value instanceof Array ? convertArrayToArrayOfObjects(value) : value;

@@ -1,4 +1,4 @@
-#  Copyright (c) 2021-2022 NASK. All rights reserved.
+#  Copyright (c) 2021-2024 NASK. All rights reserved.
 
 import base64
 import hashlib
@@ -29,8 +29,10 @@ ACCEPTABLE_DRIFT_IN_TIME_STEP_WINDOWS = 1
 
 MFA_CODE_NUM_OF_DIGITS = 6
 MFA_CODE_STR_PATTERN = '{:0%s}' % MFA_CODE_NUM_OF_DIGITS
-MFA_CODE_MAX_ACCEPTABLE_AGE_IN_SECONDS = (TIME_STEP_WINDOW_IN_SECONDS *
-                                          (ACCEPTABLE_DRIFT_IN_TIME_STEP_WINDOWS + 1))
+MFA_CODE_MAX_VALIDITY_DURATION_IN_SECONDS = (TIME_STEP_WINDOW_IN_SECONDS *
+                                             (ACCEPTABLE_DRIFT_IN_TIME_STEP_WINDOWS * 2 + 1))
+# Let us be resistant to some system clock turbulence...
+DELAY_TO_BE_SURE_THAT_MFA_CODE_EXPIRES = MFA_CODE_MAX_VALIDITY_DURATION_IN_SECONDS + 3
 
 
 def generate_new_mfa_key_base() -> str:

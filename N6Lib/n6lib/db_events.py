@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 #
 # For some portions of the code (marked in the comments as copied from
 # SQLAlchemy -- which is a library licensed under the MIT license):
@@ -326,8 +326,14 @@ class n6NormalizedData(Base):
     @classmethod
     def like_query(cls, key, value):
         mapping = {"url.sub": "url", "fqdn.sub": "fqdn"}
-        return or_(*[getattr(cls, mapping[key]).like(u"%{}%".format(val))
-                     for val in value])
+        col = getattr(cls, mapping[key])
+        return or_(*[
+            # Note: Each `col.contains(val, autoescape=True)` call is
+            # translated into a suitable `LIKE` SQL condition, with
+            # `%` and `_` escaped as appropriate (given that they are
+            # wildcard characters in `LIKE` patterns).
+            col.contains(val, autoescape=True)
+            for val in value])
 
     @classmethod
     def single_flag_query(cls, key, value):

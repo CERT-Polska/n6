@@ -1,4 +1,4 @@
-# Copyright (c) 2016-2023 NASK. All rights reserved.
+# Copyright (c) 2016-2024 NASK. All rights reserved.
 
 """
 Generic MISP collector.
@@ -168,7 +168,7 @@ class MispCollector(StatefulCollectorMixin, BaseDownloadingCollector, BaseCollec
 
     @property
     def custom_converters(self) -> dict:
-        return {'tlp': self._convert_tlp}
+        return super().custom_converters | {'tlp': self._convert_tlp}
 
     @classmethod
     def _convert_tlp(cls, s: str) -> Optional[str]:

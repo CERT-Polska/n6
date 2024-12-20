@@ -1,4 +1,4 @@
-# Copyright (c) 2022-2023 NASK. All rights reserved.
+# Copyright (c) 2022-2024 NASK. All rights reserved.
 
 import unittest
 from unittest.mock import (
@@ -2104,19 +2104,49 @@ class TestRipeApiClient(unittest.TestCase):
         ).label('Valid ASN'),
 
         param(
-            asn_seq=['111', '222', '333'],
-            expected_asn_seq=['111', '222', '333'],
-        ).label('Three valid ASN'),
+            asn_seq=['0', '4294967295', '222'],
+            expected_asn_seq=['0', '4294967295', '222'],
+        ).label('Three valid ASNs'),
+
+        # Note: each of the next 6 cases includes a value that is *not*
+        # valid, even though it would be accepted by `int()`.
 
         param(
-            asn_seq=['11111111111', '222', '333'],
+            asn_seq=['0', '4294967296', '222'],
             expected_error=ValueError,
-        ).label('One of provided ASN is not valid (more than 10 digits).'),
+        ).label('One of the values represents a number which is too big'),
+
+        param(
+            asn_seq=['222', '-1'],
+            expected_error=ValueError,
+        ).label('One of the values represents a negative number'),
+
+        param(
+            asn_seq=['222', '+333'],
+            expected_error=ValueError,
+        ).label('One of the values contains a non-decimal character (plus)'),
+
+        param(
+            asn_seq=['222', ' 333'],
+            expected_error=ValueError,
+        ).label('One of the values contains a blank character (space)'),
+
+        param(
+            asn_seq=['222', '333\n'],
+            expected_error=ValueError,
+        ).label('One of the values contains a blank character (linefeed)'),
+
+        param(
+            asn_seq=['\N{DEVANAGARI DIGIT SIX}', '333'],
+            expected_error=ValueError,
+        ).label('One of the values contains a non-ASCII decimal digit'),
+
+        # The next 2 cases include just plain non-number values.
 
         param(
             asn_seq=['this_is_not_ASN', '222', '333'],
             expected_error=ValueError,
-        ).label('One of provided ASN is not a number.'),
+        ).label('One of the values does not represent a number'),
 
         param(
             asn_seq=[''],

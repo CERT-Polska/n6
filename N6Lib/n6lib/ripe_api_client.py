@@ -1,10 +1,11 @@
-# Copyright (c) 2022-2023 NASK. All rights reserved.
+# Copyright (c) 2022-2024 NASK. All rights reserved.
 
 import json
 from typing import Optional
 
 from requests.exceptions import HTTPError
 
+from n6lib.data_spec.fields import ASNFieldForN6
 from n6lib.http_helpers import RequestPerformer
 from n6lib.log_helpers import get_logger
 from n6sdk.regexes import IPv4_CIDR_NETWORK_REGEX
@@ -153,20 +154,12 @@ class RIPEApiClient:
 
     @staticmethod
     def _get_validated_as_numbers(asn_seq: Optional[list]) -> Optional[list]:
-        """
-        Note: this is a very simplified validation, our goal is just
-        to verify - briefly - if the provided list contains only strings
-        that look like ASNs.
-        """
         if asn_seq is not None:
             invalid = []
             for asn in asn_seq:
-                if not 0 < len(asn) <= 10:
-                    invalid.append(asn)
-                    continue
-                try:
-                    int(asn)
-                except ValueError:
+                if not (asn.isascii()
+                        and asn.isdecimal()
+                        and ASNFieldForN6.min_value <= int(asn) <= ASNFieldForN6.max_value):
                     invalid.append(asn)
             if invalid:
                 raise ValueError(

@@ -9,7 +9,7 @@ Supervisor is a system for controlling processes' state under UNIX,
 useful to manage the _n6_ pipeline (`N6DataPipeline`) components and (`N6DataSources`) sources.
 
 ```bash
-(env)$ pip install supervisor
+(env_py3k)$ pip install supervisor
 ```
 
 ## Configuration
@@ -20,19 +20,19 @@ You can find example configuration in _n6_ repository, in
 `/home/dataman/n6/etc/supervisord/supervisord.conf`.
 
 ```bash
-(env)$ mkdir -p ~/supervisord/{log,programs}
-(env)$ cp ~/n6/etc/supervisord/supervisord.conf ~/supervisord
+(env_py3k)$ mkdir -p ~/supervisord/{log,programs}
+(env_py3k)$ cp ~/n6/etc/supervisord/supervisord.conf ~/supervisord
 ```
 
 Generate config files for _n6_ parsers and copy them to the `supervisord` directory:
 
 ```bash
-(env)$ cd ~/n6/etc/supervisord/
-(env)$ python get_parsers_conf.py
-(env)$ cp programs/*.conf ~/supervisord/programs
+(env_py3k)$ cd ~/n6/etc/supervisord/
+(env_py3k)$ python get_parsers_conf.py
+(env_py3k)$ cp programs/*.conf ~/supervisord/programs
 ```
 
-If you install _n6_ in a different Virtualenv than recommended (i.e., other than `env`),
+If you install _n6_ in a different Virtualenv than recommended (i.e., other than `env_py3k`),
 then you have to adjust a proper path in all of the files in `n6/etc/supervisord/programs` in
 the `PATH` environment variable and in the `command` option:
 
@@ -46,7 +46,7 @@ environment=PATH="/home/dataman/<ENV_NAME>/bin/"
 To run the `supervisord` process:
 
 ```bash
-(env)$ supervisord -c ~/supervisord/supervisord.conf
+(env_py3k)$ supervisord -c ~/supervisord/supervisord.conf
 ```
 
 ## Controlling the processes

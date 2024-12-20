@@ -1,10 +1,11 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 import json
 import logging
 import os
 import os.path
 import socket
+import ssl
 import sys
 import threading
 import time
@@ -15,8 +16,17 @@ from unittest.mock import ANY, MagicMock, call, patch, sentinel
 from unittest_expander import expand, foreach, param
 
 from n6lib.amqp_getters_pushers import DoNotPublish
+from n6lib.amqp_helpers import (
+    GUEST_PASSWORD,
+    GUEST_USERNAME,
+)
 from n6lib.const import ETC_DIR, USER_DIR
-from n6lib.unit_test_helpers import TestCaseMixin
+from n6lib.tests.test_amqp_helpers import CONN_PARAM_CLIENT_PROP_INFORMATION
+from n6lib.unit_test_helpers import (
+    AnyInstanceOf,
+    AnyMatchingRegex,
+    TestCaseMixin,
+)
 from n6lib.log_helpers import (
     _LOGGER,
     AMQPHandler,
@@ -390,6 +400,345 @@ class Test___LOGGER(unittest.TestCase):
         self.assertIs(_LOGGER, logging.getLogger('n6lib.log_helpers'))
 
 
+@expand
+class TestAMQPHandler__init__interactions_with_other_stuff(TestCaseMixin, unittest.TestCase):
+
+    def setUp(self):
+        self.m = MagicMock()
+
+        self.patch('queue.Queue', self.m.Queue_cls)
+        self.patch('threading.Thread', self.m.Thread_cls)
+        self.patch('pika.credentials.ExternalCredentials', self.m.ExternalCredentials_cls)
+        self.patch('pika.credentials.PlainCredentials', self.m.PlainCredentials_cls)
+        self.patch('n6lib.log_helpers.AMQPThreadedPusher', self.m.AMQPThreadedPusher_cls)
+        self.patch('n6lib.log_helpers.DoNotPublish', sentinel.DoNotPublish)
+        self.patch('n6lib.log_helpers.print', self.m.print)
+        self.patch_object(AMQPHandler, '_make_record_serializer', self.m._make_record_serializer)
+
+        self.m.Queue_cls.return_value = sentinel.Queue_instance
+        self.m.ExternalCredentials_cls.return_value = sentinel.ExternalCredentials_instance
+        self.m.PlainCredentials_cls.return_value = sentinel.PlainCredentials_instance
+        self.m.AMQPThreadedPusher_cls.return_value = sentinel.AMQPThreadedPusher_instance
+        self.m._make_record_serializer.return_value = sentinel.serializer
+
+    @foreach([
+        param(
+            init_kwargs=dict(
+                connection_params_dict={
+                    'host': 'example.com',
+                    'port': 1234,
+                    'ssl': True,
+                    'ssl_ca_certs': '/some/ca-certs/file',
+                    'ssl_certfile': '/some/cert/file',
+                    'ssl_keyfile': '/some/key/file',
+                },
+            ),
+            expected_calls=[
+                call.Queue_cls(),
+                call.Thread_cls(
+                    target=AnyInstanceOf(types.MethodType),
+                    kwargs=dict(
+                        error_fifo=sentinel.Queue_instance,
+                        error_logger=logging.getLogger(AMQPHandler.ERROR_LOGGER),
+                    ),
+                ),
+                call.ExternalCredentials_cls(),
+                call._make_record_serializer(),
+                call.AMQPThreadedPusher_cls(
+                    connection_params_dict={
+                        # Note: this dict *has been* prepared with
+                        # `get_amqp_connection_params_dict_from_args()`.
+                        'host': 'example.com',
+                        'port': 1234,
+                        'ssl': True,
+                        'ssl_options': {
+                            'ca_certs': '/some/ca-certs/file',
+                            'certfile': '/some/cert/file',
+                            'keyfile': '/some/key/file',
+                            'cert_reqs': ssl.CERT_REQUIRED,
+                        },
+                        'credentials': sentinel.ExternalCredentials_instance,
+                        'client_properties': {
+                            'information': CONN_PARAM_CLIENT_PROP_INFORMATION,
+                        },
+                    },
+                    exchange=dict(
+                        AMQPHandler.DEFAULT_EXCHANGE_DECLARE_KWARGS,
+                        exchange='logging',
+                    ),
+                    prop_kwargs=AMQPHandler.DEFAULT_PROP_KWARGS,
+                    serialize=sentinel.serializer,
+                    error_callback=AnyInstanceOf(types.FunctionType),
+                ),
+                call.Thread_cls().start(),
+            ],
+            expected_level=logging.NOTSET,
+        ).label(
+            'quite typical modern `connection_params_dict` with SSL auth, '
+            'no other arguments'
+        ),
+
+        param(
+            init_kwargs=dict(
+                connection_params_dict={
+                    'host': 'example.com',
+                    'port': 1234,
+                    'ssl': True,
+                    'ssl_ca_certs': '/some/ca-certs/file',
+                    'password_auth': True,
+                    'username': 'somebody@example.info',
+                    'password': 'Example Password',
+                },
+                exchange='some-custom-exchange',
+                exchange_declare_kwargs=dict(
+                    some_key='some value',
+                    another_key=42,
+                ),
+                rk_template=sentinel.WHATEVER,
+                prop_kwargs=dict(
+                    example_key=sentinel.EXAMPLE_VALUE,
+                    and_another_one=123.456,
+                ),
+                other_pusher_kwargs=dict(
+                    queues_to_declare=sentinel.SOME_QUEUES,
+                    exchanges_to_declare=sentinel.SOME_EXCHANGES,
+                ),
+                error_logger_name='n6lib.tests.test_log_helpers.my-custom-error-logger',
+                msg_count_window=sentinel.WHATEVER,
+                msg_count_max=sentinel.WHATEVER,
+                level=logging.INFO,
+            ),
+            expected_calls=[
+                call.Queue_cls(),
+                call.Thread_cls(
+                    target=AnyInstanceOf(types.MethodType),
+                    kwargs=dict(
+                        error_fifo=sentinel.Queue_instance,
+                        error_logger=logging.getLogger(
+                            'n6lib.tests.test_log_helpers.my-custom-error-logger',
+                        ),
+                    ),
+                ),
+                call.PlainCredentials_cls(
+                    'somebody@example.info',
+                    'Example Password',
+                ),
+                call._make_record_serializer(),
+                call.AMQPThreadedPusher_cls(
+                    connection_params_dict={
+                        # Note: this dict *has been* prepared with
+                        # `get_amqp_connection_params_dict_from_args()`.
+                        'host': 'example.com',
+                        'port': 1234,
+                        'ssl': True,
+                        'ssl_options': {
+                            'ca_certs': '/some/ca-certs/file',
+                            'cert_reqs': ssl.CERT_REQUIRED,
+                        },
+                        'credentials': sentinel.PlainCredentials_instance,
+                        'client_properties': {
+                            'information': CONN_PARAM_CLIENT_PROP_INFORMATION,
+                        },
+                    },
+                    exchange=dict(
+                        exchange='some-custom-exchange',
+                        some_key='some value',
+                        another_key=42,
+                    ),
+                    prop_kwargs=dict(
+                        example_key=sentinel.EXAMPLE_VALUE,
+                        and_another_one=123.456,
+                    ),
+                    serialize=sentinel.serializer,
+                    error_callback=AnyInstanceOf(types.FunctionType),
+                    queues_to_declare=sentinel.SOME_QUEUES,
+                    exchanges_to_declare=sentinel.SOME_EXCHANGES,
+                ),
+                call.Thread_cls().start(),
+            ],
+            expected_level=logging.INFO,
+        ).label(
+            'quite typical modern `connection_params_dict` with password auth, '
+            'and a bunch of other arguments...'
+        ),
+
+        param(
+            init_kwargs=dict(
+                connection_params_dict={
+                    'host': 'example.com',
+                    'port': 1234,
+                },
+            ),
+            expected_calls=[
+                call.Queue_cls(),
+                call.Thread_cls(
+                    target=AnyInstanceOf(types.MethodType),
+                    kwargs=dict(
+                        error_fifo=sentinel.Queue_instance,
+                        error_logger=logging.getLogger(AMQPHandler.ERROR_LOGGER),
+                    ),
+                ),
+                call.print(
+                    '\n*** WARNING: ***',
+                    AnyMatchingRegex(r'communication will \*not\* be TLS-secured'),
+                    sep='\n\n',
+                    end='\n\n',
+                    file=sys.stderr,
+                ),
+                call.PlainCredentials_cls(
+                    GUEST_USERNAME,
+                    GUEST_PASSWORD,
+                ),
+                call.print(
+                    '\n*** WARNING: ***',
+                    AnyMatchingRegex(r'\*guest\* pseudo-authentication'),
+                    sep='\n\n',
+                    end='\n\n',
+                    file=sys.stderr,
+                ),
+                call._make_record_serializer(),
+                call.AMQPThreadedPusher_cls(
+                    connection_params_dict={
+                        # Note: this dict *has been* prepared with
+                        # `get_amqp_connection_params_dict_from_args()`.
+                        'host': 'example.com',
+                        'port': 1234,
+                        'ssl': False,
+                        'credentials': sentinel.PlainCredentials_instance,
+                        'client_properties': {
+                            'information': CONN_PARAM_CLIENT_PROP_INFORMATION,
+                        },
+                    },
+                    exchange=dict(
+                        AMQPHandler.DEFAULT_EXCHANGE_DECLARE_KWARGS,
+                        exchange='logging',
+                    ),
+                    prop_kwargs=AMQPHandler.DEFAULT_PROP_KWARGS,
+                    serialize=sentinel.serializer,
+                    error_callback=AnyInstanceOf(types.FunctionType),
+                ),
+                call.Thread_cls().start(),
+            ],
+            expected_level=logging.NOTSET,
+        ).label(
+            'minimal (unrecommended) modern `connection_params_dict`, '
+            'no other arguments'
+        ),
+
+        param(
+            init_kwargs=dict(
+                connection_params_dict={},
+            ),
+            expected_calls=[
+                call.Queue_cls(),
+                call.Thread_cls(
+                    target=AnyInstanceOf(types.MethodType),
+                    kwargs=dict(
+                        error_fifo=sentinel.Queue_instance,
+                        error_logger=logging.getLogger(AMQPHandler.ERROR_LOGGER),
+                    ),
+                ),
+                call.print(
+                    '\n*** WARNING: ***',
+                    AnyMatchingRegex(r'^The .* first argument .* in the legacy format'),
+                    AnyMatchingRegex(r'^Please, consider making'),
+                    AnyMatchingRegex(r'^The support for'),
+                    sep='\n\n',
+                    end='\n\n',
+                    file=sys.stderr,
+                ),
+                call._make_record_serializer(),
+                call.AMQPThreadedPusher_cls(
+                    connection_params_dict={
+                        # Note: this dict has *not* been prepared with
+                        # `get_amqp_connection_params_dict_from_args()`.
+                    },
+                    exchange=dict(
+                        AMQPHandler.DEFAULT_EXCHANGE_DECLARE_KWARGS,
+                        exchange='logging',
+                    ),
+                    prop_kwargs=AMQPHandler.DEFAULT_PROP_KWARGS,
+                    serialize=sentinel.serializer,
+                    error_callback=AnyInstanceOf(types.FunctionType),
+                ),
+                call.Thread_cls().start(),
+            ],
+            expected_level=logging.NOTSET,
+        ).label(
+            'empty (unrecommended, legacy) `connection_params_dict`, '
+            'no other arguments'
+        ),
+
+        param(
+            init_kwargs=dict(
+                connection_params_dict={
+                    'host': 'example.com',
+                    'port': 1234,
+                    'ssl': True,
+                    'ssl_options': {
+                        'ca_certs': '/some/ca-certs/file',
+                        'certfile': '/some/cert/file',
+                        'keyfile': '/some/key/file',
+                    },
+                    'credentials': sentinel.WHATEVER,
+                },
+            ),
+            expected_calls=[
+                call.Queue_cls(),
+                call.Thread_cls(
+                    target=AnyInstanceOf(types.MethodType),
+                    kwargs=dict(
+                        error_fifo=sentinel.Queue_instance,
+                        error_logger=logging.getLogger(AMQPHandler.ERROR_LOGGER),
+                    ),
+                ),
+                call.print(
+                    '\n*** WARNING: ***',
+                    AnyMatchingRegex(r'^The .* first argument .* in the legacy format'),
+                    AnyMatchingRegex(r'^Please, consider making'),
+                    AnyMatchingRegex(r'^The support for'),
+                    sep='\n\n',
+                    end='\n\n',
+                    file=sys.stderr,
+                ),
+                call._make_record_serializer(),
+                call.AMQPThreadedPusher_cls(
+                    connection_params_dict={
+                        # Note: this dict has *not* been prepared with
+                        # `get_amqp_connection_params_dict_from_args()`.
+                        'host': 'example.com',
+                        'port': 1234,
+                        'ssl': True,
+                        'ssl_options': {
+                            'ca_certs': '/some/ca-certs/file',
+                            'certfile': '/some/cert/file',
+                            'keyfile': '/some/key/file',
+                        },
+                        'credentials': sentinel.WHATEVER,
+                    },
+                    exchange=dict(
+                        AMQPHandler.DEFAULT_EXCHANGE_DECLARE_KWARGS,
+                        exchange='logging',
+                    ),
+                    prop_kwargs=AMQPHandler.DEFAULT_PROP_KWARGS,
+                    serialize=sentinel.serializer,
+                    error_callback=AnyInstanceOf(types.FunctionType),
+                ),
+                call.Thread_cls().start(),
+            ],
+            expected_level=logging.NOTSET,
+        ).label(
+            'example non-empty legacy (unrecommended) `connection_params_dict`, '
+            'no other arguments'
+        ),
+    ])
+    def test(self, init_kwargs, expected_level, expected_calls):
+        handler = AMQPHandler(**init_kwargs)
+
+        self.assertEqual(handler.level, expected_level)
+        self.assertEqual(self.m.mock_calls, expected_calls)
+
+
 class _AMQPHandlerTestCaseMixin(TestCaseMixin):
 
     @staticmethod
@@ -437,10 +786,7 @@ class _AMQPHandlerTestCaseMixin(TestCaseMixin):
 class TestAMQPHandler_cooperation_with_real_logger(_AMQPHandlerTestCaseMixin, unittest.TestCase):
 
     def setUp(self):
-        self._pika_patcher = patch('n6lib.amqp_getters_pushers.pika')
-        self.pika_mock = self._pika_patcher.start()
-        self.addCleanup(self._pika_patcher.stop)
-
+        self.pika_mock = self.patch('n6lib.amqp_getters_pushers.pika')
         self.pika_mock.BasicProperties.side_effect = lambda **kwargs: kwargs
         conn_mock = self.pika_mock.BlockingConnection.return_value = MagicMock()
         self.channel_mock = conn_mock.channel.return_value = MagicMock()

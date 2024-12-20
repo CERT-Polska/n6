@@ -1,23 +1,11 @@
 # Step-by-Step Installation
 
-!!! warning "TODO note"
-
-    **This guide needs essential updates regarding:**
-
-    * **The migration of *n6* from Python 2.7 to 3.9** (as well as the
-      related upgrades applied to other software in use, including the OS).
-      Notably, the current implementation of the *n6* data pipeline resides in
-      the top-level dir `N6DataPipeline` (Python-3-only), *not* in the removed
-      top-level dir `N6Core` (where the legacy Python-2 stuff used to be kept).
-
-    * **The swich to a brand new frontend of *n6 Portal*** (*React*-based).
-
 ## Opening remarks
 
-The goal of this guide is to give you an example of how you can glue the
-relevant elements together in a (relatively) easy way, so that you can
-learn -- by setting up your own _n6_ instance, running it, then
-monitoring and experimenting with it -- how the _n6_ system works and
+The goal of this guide is to show you how to set up your own instance of *n6* and give you deeper understanding of *n6* system. 
+You can also delve deeper into each of the component or even glue the
+relevant elements together. So that you can learn -- by setting up your own *n6* instance, running it, then
+monitoring and experimenting with it -- how the *n6* system works and
 how you can interact with it.
 
 !!! note
@@ -51,11 +39,18 @@ how you can interact with it.
     public.
 
 ## This guide's contents
+The quick installation path:
 
 - [System Preparation](system.md)
-- [Installation of _n6_ Components](installation.md)
-- [Configuration of _n6_ Pipeline](pipeline_config.md)
-- [Examination of _n6_ data flow](examining_data_flow.md)
+- [Installation of *n6* Components](installation.md)
+- [Pre-Setup Configuration](config.md)
+- [Setting Up Instance of *n6*](setup.md)
+- [Check n6 Data Flow & Web Services](check.md)
+
+To delve deeper:
+
+- [Configuration of *n6* Pipeline](pipeline_config.md)
+- [Examination of *n6* Data Flow](examining_data_flow.md)
 - [Certificates](certificates.md)
-- [Configuration of _n6_ Web Components](web_components_config.md)
+- [Configuration of *n6* Web Components](web_components_config.md)
 - [Supervisor](supervisor.md)

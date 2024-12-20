@@ -67,7 +67,7 @@ services:
     environment:
       - RABBITMQ_CONFIG_FILE=/volume/rabbitmq/conf/rabbitmq.conf
       - RABBITMQ_USER=login@example.com
-      - RABBITMQ_PASSWORD=n6component
+      - RABBITMQ_PASSWORD=ourExamplePasswd
     ports:
       - 5671:5671 #  TLS connections
       - 5672:5672 #  TCP connections

@@ -1,6 +1,7 @@
-# Copyright (c) 2023 NASK. All rights reserved.
+# Copyright (c) 2023-2024 NASK. All rights reserved.
 
 import dataclasses
+import pathlib
 from os.path import expanduser as orig_os_path_expanduser
 from ssl import CERT_REQUIRED
 from unittest.mock import (
@@ -20,6 +21,10 @@ from unittest_expander import (
 
 from n6datasources.collectors.amqp import AMQPCollector
 from n6datasources.tests.collectors._collector_test_helpers import BaseCollectorTestCase
+from n6lib.amqp_helpers import (
+    GUEST_PASSWORD,
+    GUEST_USERNAME,
+)
 from n6lib.unit_test_helpers import (
     AnyInstanceOf,
     AnyMatchingRegex,
@@ -34,7 +39,7 @@ class TestAMQPCollector(BaseCollectorTestCase):
 
     HOME_DIR = '/home/whoever'
     CONFIG_CONTENT = '''
-        [amqp_collector__not_doing_exchange_declare_and_bind]
+        [amqp_collector__not_doing_exchange_declare_and_bind__with_ssl_auth]
 
         source_provider = example-provider
         source_channel = example-channel
@@ -55,7 +60,7 @@ class TestAMQPCollector(BaseCollectorTestCase):
         input_queue_binding_keys = irrelevant
 
 
-        [amqp_collector__doing_exchange_declare_and_bind]
+        [amqp_collector__doing_exchange_declare_and_bind__with_ssl_auth]
 
         source_provider = example-prov-2
         source_channel = example-chan-2
@@ -69,6 +74,11 @@ class TestAMQPCollector(BaseCollectorTestCase):
         input_ssl_certfile = ~/certs/cert2.pem
         input_ssl_keyfile = ~/certs/key2.pem
 
+        # (these 3 could be omitted, as in the previous section)
+        input_password_auth = 0
+        input_username =
+        input_password =
+
         input_queue_name = example-input-amqp-queue-2
 
         input_queue_exchange = example-input-amqp-exchange-2
@@ -76,23 +86,43 @@ class TestAMQPCollector(BaseCollectorTestCase):
         input_queue_binding_keys = example.binding.key.first, example.binding.key.second
 
 
-        [amqp_collector__doing_exchange_declare_and_bind__without_any_binding_key__without_ssl]
+        [amqp_collector__doing_exchange_declare_and_bind__with_password_auth]
 
         source_provider = example-prov-3
         source_channel = example-chan-3
 
         input_host = rabbit3
         input_port = 5673
-        input_heartbeat_interval = 40
+        input_heartbeat_interval = 76543
 
-        input_ssl = False
-        input_ssl_ca_certs =
-        input_ssl_certfile =
-        input_ssl_keyfile =
+        input_ssl = true
+        input_ssl_ca_certs = ~/certs/n6-CA/cacert3.pem
+
+        input_password_auth = true
+        input_username = my-user@example.com
+        input_password = password*password
 
         input_queue_name = example-input-amqp-queue-3
 
         input_queue_exchange = example-input-amqp-exchange-3
+        input_queue_exchange_type = topic
+        input_queue_binding_keys = example.binding.key.first, example.binding.key.second
+
+
+        [amqp_collector__doing_exchange_declare_and_bind__without_any_binding_key__without_ssl__without_any_auth]
+
+        source_provider = example-prov-4
+        source_channel = example-chan-4
+
+        input_host = rabbit4
+        input_port = 5674
+        input_heartbeat_interval = 40
+
+        input_ssl = no
+
+        input_queue_name = example-input-amqp-queue-4
+
+        input_queue_exchange = example-input-amqp-exchange-4
         input_queue_exchange_type = fanout
         input_queue_binding_keys =
     '''
@@ -130,7 +160,7 @@ class TestAMQPCollector(BaseCollectorTestCase):
         }
 
         yield param(
-            cmdline_args=['amqp_collector__not_doing_exchange_declare_and_bind'],
+            cmdline_args=['amqp_collector__not_doing_exchange_declare_and_bind__with_ssl_auth'],
             input_channel_consume_result=cls._ConsumeResultStub(
                 (None, None, None),
                 # * input message A
@@ -234,7 +264,7 @@ class TestAMQPCollector(BaseCollectorTestCase):
         )
 
         yield param(
-            cmdline_args=['amqp_collector__doing_exchange_declare_and_bind'],
+            cmdline_args=['amqp_collector__doing_exchange_declare_and_bind__with_ssl_auth'],
             input_channel_consume_result=cls._ConsumeResultStub(
                 # * input message A
                 (cls._AMQPMethodStub(sentinel.delivery_tag_A), sentinel.unused, b'body-A'),
@@ -353,32 +383,41 @@ class TestAMQPCollector(BaseCollectorTestCase):
         )
 
         yield param(
-            cmdline_args=[
-                'amqp_collector__doing_exchange_declare_and'
-                '_bind__without_any_binding_key__without_ssl',
-
-                # (maybe TODO: make it cause error, see #8745...)
-                '<ignored extra positional arg>',
-            ],
+            cmdline_args=['amqp_collector__doing_exchange_declare_and_bind__with_password_auth'],
             input_channel_consume_result=cls._ConsumeResultStub(
                 # * input message A
                 (cls._AMQPMethodStub(sentinel.delivery_tag_A), sentinel.unused, b'body-A'),
+                # * input message B
+                (cls._AMQPMethodStub(sentinel.delivery_tag_B), sentinel.unused, b'body-B'),
+                (None, None, None),
+                (None, None, None),
+                (None, None, None),
+                (None, None, None),
+                # * input message C
+                (cls._AMQPMethodStub(sentinel.delivery_tag_C), sentinel.unused, b'body-C'),
             ),
             expected_recorded_actions=[
                 # * setup
                 call.collector_module.pika.ConnectionParameters(
                     host='rabbit3',
                     port=5673,
-                    heartbeat_interval=40,
-                    ssl=False,
-                    ssl_options={},
+                    heartbeat_interval=76543,
+                    ssl=True,
+                    ssl_options=dict(
+                        ca_certs=f'{cls.HOME_DIR}/certs/n6-CA/cacert3.pem',
+                        cert_reqs=CERT_REQUIRED,
+                    ),
+                    credentials=pika.credentials.PlainCredentials(
+                        'my-user@example.com',
+                        'password*password',
+                    ),
                     client_properties={'information': AnyInstanceOf(str)},
                 ),
                 call.collector_module.pika.BlockingConnection(sentinel.conn_parameters),
                 call.input_conn.channel(),
-                call.collector._input_channel.exchange_declare(
+                call.collector._input_channel.exchange_declare(         # (<- note this)
                     'example-input-amqp-exchange-3',
-                    'fanout',
+                    'topic',
                     durable=True,
                 ),
                 call.collector._input_channel.queue_declare(
@@ -388,6 +427,12 @@ class TestAMQPCollector(BaseCollectorTestCase):
                 call.collector._input_channel.queue_bind(               # (<- note this)
                     'example-input-amqp-queue-3',
                     'example-input-amqp-exchange-3',
+                    routing_key='example.binding.key.first',
+                ),
+                call.collector._input_channel.queue_bind(               # (<- note this)
+                    'example-input-amqp-queue-3',
+                    'example-input-amqp-exchange-3',
+                    routing_key='example.binding.key.second',
                 ),
                 call.collector_module.LOGGER.info('Starting publishing...'),
                 call.collector_module.LOGGER.info('Consuming messages from the input queue...'),
@@ -403,6 +448,114 @@ class TestAMQPCollector(BaseCollectorTestCase):
                 ),
                 call.collector.publish_output(
                     'example-prov-3.example-chan-3',   # routing_key
+                    b'body-A',                         # body
+                    expected_prop_kwargs,              # prop_kwargs
+                ),
+                call.pub_iter_yield('FLUSH_OUT'),
+                call.collector._input_channel.basic_ack(sentinel.delivery_tag_A),
+
+                # * input message B
+                call.collector_module.LOGGER.debug(
+                    'Got a message (%a %a %a).',
+                    cls._AMQPMethodStub(sentinel.delivery_tag_B), sentinel.unused, b'body-B',
+                ),
+                call.collector.publish_output(
+                    'example-prov-3.example-chan-3',   # routing_key
+                    b'body-B',                         # body
+                    expected_prop_kwargs,              # prop_kwargs
+                ),
+                call.pub_iter_yield('FLUSH_OUT'),
+                call.collector._input_channel.basic_ack(sentinel.delivery_tag_B),
+
+                # * no input message
+                call.collector_module.LOGGER.debug('Got nothing.'),
+                call.pub_iter_yield(None),
+
+                # * no input message
+                call.collector_module.LOGGER.debug('Got nothing.'),
+                call.pub_iter_yield(None),
+
+                # * no input message
+                call.collector_module.LOGGER.debug('Got nothing.'),
+                call.pub_iter_yield(None),
+
+                # * no input message
+                call.collector_module.LOGGER.debug('Got nothing.'),
+                call.pub_iter_yield(None),
+
+                # * input message C
+                call.collector_module.LOGGER.debug(
+                    'Got a message (%a %a %a).',
+                    cls._AMQPMethodStub(sentinel.delivery_tag_C), sentinel.unused, b'body-C',
+                ),
+                call.collector.publish_output(
+                    'example-prov-3.example-chan-3',   # routing_key
+                    b'body-C',                         # body
+                    expected_prop_kwargs,              # prop_kwargs
+                ),
+                call.pub_iter_yield('FLUSH_OUT'),
+                call.collector._input_channel.basic_ack(sentinel.delivery_tag_C),
+
+                # * finalization
+                call.collector._input_channel.close(),
+                call.input_conn.close(),
+            ],
+        )
+
+        yield param(
+            cmdline_args=[
+                'amqp_collector__doing_exchange_declare_and'
+                '_bind__without_any_binding_key__without_ssl__without_any_auth',
+
+                # (maybe TODO: make it cause error, see #8745...)
+                '<ignored extra positional arg>',
+            ],
+            input_channel_consume_result=cls._ConsumeResultStub(
+                # * input message A
+                (cls._AMQPMethodStub(sentinel.delivery_tag_A), sentinel.unused, b'body-A'),
+            ),
+            expected_recorded_actions=[
+                # * setup
+                call.collector_module.pika.ConnectionParameters(
+                    host='rabbit4',
+                    port=5674,
+                    heartbeat_interval=40,
+                    ssl=False,
+                    credentials=pika.credentials.PlainCredentials(
+                        GUEST_USERNAME,
+                        GUEST_PASSWORD,
+                    ),
+                    client_properties={'information': AnyInstanceOf(str)},
+                ),
+                call.collector_module.pika.BlockingConnection(sentinel.conn_parameters),
+                call.input_conn.channel(),
+                call.collector._input_channel.exchange_declare(
+                    'example-input-amqp-exchange-4',
+                    'fanout',
+                    durable=True,
+                ),
+                call.collector._input_channel.queue_declare(
+                    'example-input-amqp-queue-4',
+                    durable=True,
+                ),
+                call.collector._input_channel.queue_bind(               # (<- note this)
+                    'example-input-amqp-queue-4',
+                    'example-input-amqp-exchange-4',
+                ),
+                call.collector_module.LOGGER.info('Starting publishing...'),
+                call.collector_module.LOGGER.info('Consuming messages from the input queue...'),
+                call.collector._input_channel.consume(
+                    'example-input-amqp-queue-4',
+                    inactivity_timeout=3.0,  # (see collector's `_get_input_queue_message_timeout`)
+                ),
+
+                # * input message A
+                call.collector_module.LOGGER.debug(
+                    'Got a message (%a %a %a).',
+                    cls._AMQPMethodStub(sentinel.delivery_tag_A), sentinel.unused, b'body-A',
+                ),
+                call.collector.publish_output(
+                    'example-prov-4.example-chan-4',   # routing_key
                     b'body-A',                         # body
                     expected_prop_kwargs,              # prop_kwargs
                 ),
@@ -465,8 +618,8 @@ class TestAMQPCollector(BaseCollectorTestCase):
         home_dir = self.HOME_DIR
 
         def os_path_expanduser_wrapper(path):
-            if isinstance(path, str) and path.startswith('~/'):
-                path = f"{home_dir}/{path.removeprefix('~/')}"
+            if isinstance(path, pathlib.Path) and str(path).startswith('~/'):
+                path = pathlib.Path(f"{home_dir}/{str(path).removeprefix('~/')}")
             return orig_os_path_expanduser(path)
 
         def _get_input_connection_params_dict_wrapper(self):

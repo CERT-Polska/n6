@@ -15,7 +15,7 @@ konfiguracji Twojej organizacji.
   * + [dodani] {{ data_dict.update_info.added_user_logins|default(['(-)'], boolean=true)|join(', ') }}
   * - [usunięci] {{ data_dict.update_info.removed_user_logins|default(['(-)'], boolean=true)|join(', ') }}
 
-  {%- if data_dict.update_info.added_user_logins
+  {%- if data_dict.update_info.added_user_logins %}
   ----------------------------------------------------------------------
   Witamy Nowych Użytkowników! Aby ustawić hasło logowania do Portalu n6,
   wejdź na stronę logowania, użyj linku *Nie pamiętam hasła* i postępuj

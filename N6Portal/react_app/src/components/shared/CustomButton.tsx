@@ -5,9 +5,9 @@ import { Button } from 'react-bootstrap';
 import LoadingSpinner from 'components/shared/LoadingSpinner';
 
 interface IProps extends ButtonHTMLAttributes<Element> {
-  variant: 'primary' | 'secondary' | 'outline' | 'filter' | 'link';
+  variant: 'primary' | 'secondary' | 'outline' | 'filter' | 'link' | '';
   icon?: ReactElement;
-  iconPlacement?: 'right' | 'left';
+  iconPlacement?: 'right' | 'left' | 'center';
   ariaLabel?: string;
   className?: string;
   text: string;

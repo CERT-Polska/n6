@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2023 NASK. All rights reserved.
+# Copyright (c) 2020-2024 NASK. All rights reserved.
 
 """
 Generic AMQP collector.
@@ -10,7 +10,12 @@ from n6datasources.collectors.base import (
     BaseCollector,
     add_collector_entry_point_functions,
 )
-from n6lib.amqp_helpers import get_amqp_connection_params_dict_from_args
+from n6lib.amqp_helpers import (
+    AMQPConnectionParamsError,
+    get_amqp_connection_params_dict_from_args,
+)
+from n6lib.common_helpers import ascii_str
+from n6lib.config import ConfigError
 from n6lib.log_helpers import get_logger
 
 
@@ -40,17 +45,38 @@ class AMQPCollector(BaseCollector):
 
         [{config_section_name_from_cmdline_arg}]
 
-        source_provider :: str
-        source_channel :: str
+        source_provider :: str   ; 1st segment of the data source identifier
+        source_channel :: str    ; 2nd segment of the data source identifier
 
-        input_host :: str
-        input_port :: int
-        input_heartbeat_interval :: int
-        input_ssl :: bool
-        input_ssl_ca_certs :: str
-        input_ssl_certfile :: str
-        input_ssl_keyfile :: str
+        #
+        # Collector's-input-dedicated connection to RabbitMQ
 
+        input_host :: str   ; RabbitMQ server's hostname or IP address
+        input_port :: int   ; RabbitMQ server's port number
+        input_heartbeat_interval :: int   ; AMQP heartbeat interval
+
+        input_ssl :: bool   ; always recommended to be true (at least on production systems)
+
+        # Path of CA certificate(s) file:
+        input_ssl_ca_certs = :: str   ; needs to be specified *if* `input_ssl` is true
+
+        # Path of client certificate file & path of that certificate's private
+        # key file, both related to client-certificate-based authentication:
+        input_ssl_certfile = :: str   ; these two are relevant only if `input_ssl` is
+        input_ssl_keyfile = :: str    ; true *and* `input_password_auth` is false
+
+        # Options related to username-and-password-based authentication:
+        input_password_auth = false :: bool
+        input_username = :: str       ; relevant only if `input_password_auth` is true
+        input_password = :: str       ; relevant only if `input_password_auth` is true
+        # ^ Note: if `input_password_auth` is true and `input_username` is set to
+        # a non-empty value other than guest, `input_password` needs to be set to
+        # a secret password being at least 16 characters long.
+
+        #
+        # Collector's-input-data-related RabbitMQ exchanges and queues
+
+        # Name of AMQP input queue:
         input_queue_name :: str
 
         # Note: if you set `input_queue_exchange` to an empty string,
@@ -106,7 +132,7 @@ class AMQPCollector(BaseCollector):
                 if self._input_channel is not None and self._input_channel.is_open:
                     self._input_channel.close()
         finally:
-            # closing connection is important so we want to
+            # closing connection is important, so we want to
             # perform it even if closing channel failed somehow
             if input_conn is not None and input_conn.is_open:
                 input_conn.close()
@@ -117,14 +143,27 @@ class AMQPCollector(BaseCollector):
             pika.ConnectionParameters(**conn_kwargs))
 
     def _get_input_connection_params_dict(self):
-        return get_amqp_connection_params_dict_from_args(
-            host=self.config['input_host'],
-            port=self.config['input_port'],
-            heartbeat_interval=self.config['input_heartbeat_interval'],
-            ssl=self.config['input_ssl'],
-            ca_certs=self.config['input_ssl_ca_certs'],
-            certfile=self.config['input_ssl_certfile'],
-            keyfile=self.config['input_ssl_keyfile'])
+        try:
+            return get_amqp_connection_params_dict_from_args(
+                host=self.config['input_host'],
+                port=self.config['input_port'],
+                heartbeat_interval=self.config['input_heartbeat_interval'],
+
+                ssl=self.config['input_ssl'],
+                ssl_ca_certs=self.config['input_ssl_ca_certs'],
+                ssl_certfile=self.config['input_ssl_certfile'],
+                ssl_keyfile=self.config['input_ssl_keyfile'],
+
+                password_auth=self.config['input_password_auth'],
+                username=self.config['input_username'],
+                password=self.config['input_password'],
+            )
+        except AMQPConnectionParamsError as exc:
+            raise ConfigError(
+                f'in section '
+                f'{ascii_str(self._config_section_name_from_cmdline_arg)}: '
+                f'{ascii_str(exc)}'
+            ) from exc
 
     def _declare_input_exchange_if_needed(self):
         if self.config['input_queue_exchange']:

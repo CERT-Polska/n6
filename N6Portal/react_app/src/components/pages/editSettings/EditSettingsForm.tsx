@@ -1,4 +1,4 @@
-import { FC, useState, useRef, useEffect, useMemo } from 'react';
+import { FC, useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { AxiosError } from 'axios';
 import { useForm, FormProvider, SubmitHandler, SubmitErrorHandler } from 'react-hook-form';
 import { ToastContainer, toast } from 'react-toastify';
@@ -22,7 +22,7 @@ import {
   validateTime
 } from 'components/forms/validation/validationSchema';
 import { isRequired, maxLength } from 'components/forms/validation/validators';
-import EditSettingsFieldArray from 'components/pages/editSettings/EditSettingsFieldArray';
+import CustomFieldArray from 'components/shared/CustomFieldArray';
 import { prepareDefaultValues, prepareUpdatedValues, parseSubmitData } from 'components/pages/editSettings/utils';
 import { TApiResponse } from 'components/forms/utils';
 
@@ -51,7 +51,9 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
 
   // prepare defaultValues and updatedValues if available
   const [defaultValues, updatedValues] = useMemo(() => {
-    const updatedVal = currentSettings.update_info ? { ...prepareUpdatedValues(currentSettings.update_info) } : null;
+    const updatedVal = currentSettings.update_info
+      ? { ...prepareUpdatedValues(currentSettings.update_info, currentSettings.org_user_logins) }
+      : null;
     const defaultVal = { ...prepareDefaultValues(currentSettings) };
 
     return [defaultVal, updatedVal];
@@ -132,6 +134,18 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
     reset(updatedDefaultValues);
   }, [defaultValues, updatedValues, submitResponse, setValue, getValues, reset]);
 
+  // Prevent form submission on pressing Enter key
+  const preventEnterSubmit = useCallback((event: KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+    }
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener('keydown', preventEnterSubmit);
+    return () => document.removeEventListener('keydown', preventEnterSubmit);
+  }, [preventEnterSubmit]);
+
   return (
     <div className="edit-settings-wrapper font-bigger">
       {currentSettings.update_info && (
@@ -143,7 +157,11 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
       <div className="edit-settings-form-wrapper">
         <h1>{messages.edit_settings_title}</h1>
         <FormProvider {...methods}>
-          <form onSubmit={handleSubmit(onSubmit, onError)} {...disabledFormOnClickCapture}>
+          <form
+            aria-label="org-settings-form"
+            onSubmit={handleSubmit(onSubmit, onError)}
+            {...disabledFormOnClickCapture}
+          >
             <div className="edit-settings-input-wrapper mb-4">
               <FormInput name="org_id" label={`${messages.signup_domain_label}`} disabled />
               <Tooltip
@@ -169,11 +187,12 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
               />
             </div>
             <div className="edit-settings-input-wrapper mb-5">
-              <EditSettingsFieldArray
+              <CustomFieldArray
                 name="org_user_logins"
+                header={messages.edit_settings_header_users}
                 defaultValues={defaultValues.org_user_logins}
                 updatedValues={updatedValues?.org_user_logins}
-                label={`${messages.signup_user_label}`}
+                label={`${messages.edit_settings_label_user}`}
                 validate={validateEmailNotRequired}
                 disabled={isFormDisabled}
               />
@@ -212,12 +231,13 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
               />
             </div>
             <div className="edit-settings-break"></div>
-            <div className="edit-settings-input-wrapper mb-5">
-              <EditSettingsFieldArray
+            <div className="edit-settings-input-wrapper mb-3">
+              <CustomFieldArray
                 name="notification_times"
+                header={messages.edit_settings_header_notification_times}
                 defaultValues={defaultValues.notification_times}
                 updatedValues={updatedValues?.notification_times}
-                label={`${messages.account_email_notification_times}`}
+                label={`${messages.edit_settings_label_notification_time}`}
                 disabled={isFormDisabled}
                 validate={validateTime}
                 timeInput
@@ -225,80 +245,84 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
                   <Tooltip
                     content={`${messages.edit_settings_notification_times_tooltip}`}
                     id="edit-settings-notification_times"
-                    className="edit-settings-tooltip"
+                    className="edit-settings-field-array-tooltip"
                   />
                 }
               />
             </div>
-            <div className="edit-settings-input-wrapper mb-5">
-              <EditSettingsFieldArray
-                name="fqdns"
-                defaultValues={defaultValues.fqdns}
-                updatedValues={updatedValues?.fqdns}
-                label={`${messages.signup_fqdn_label}`}
-                validate={validateDomainNotRequired}
-                disabled={isFormDisabled}
-                tooltip={
-                  <Tooltip
-                    content={`${messages.signup_fqdn_tooltip}`}
-                    id="edit-settings-fqdns"
-                    className="edit-settings-tooltip"
-                  />
-                }
-              />
-            </div>
-            <div className="edit-settings-input-wrapper mb-5">
-              <EditSettingsFieldArray
+            <div className="edit-settings-input-wrapper mb-3">
+              <CustomFieldArray
                 name="notification_emails"
+                header={messages.edit_settings_header_email_addresses_for_notifications}
                 defaultValues={defaultValues.notification_emails}
                 updatedValues={updatedValues?.notification_emails}
-                label={`${messages.signup_notificationEmails_label}`}
+                label={`${messages.edit_settings_label_email_address_for_notifications}`}
                 validate={validateEmailNotRequired}
                 disabled={isFormDisabled}
                 tooltip={
                   <Tooltip
                     content={`${messages.signup_notificationEmails_tooltip}`}
                     id="edit-settings-notification_emails"
-                    className="edit-settings-tooltip"
+                    className="edit-settings-field-array-tooltip"
                   />
                 }
               />
             </div>
-            <div className="edit-settings-input-wrapper mb-5">
-              <EditSettingsFieldArray
+            <div className="edit-settings-input-wrapper mb-3">
+              <CustomFieldArray
+                name="fqdns"
+                header={messages.edit_settings_header_fqdns}
+                defaultValues={defaultValues.fqdns}
+                updatedValues={updatedValues?.fqdns}
+                label={`${messages.edit_settings_label_fqdn}`}
+                validate={validateDomainNotRequired}
+                disabled={isFormDisabled}
+                tooltip={
+                  <Tooltip
+                    content={`${messages.signup_fqdn_tooltip}`}
+                    id="edit-settings-fqdns"
+                    className="edit-settings-field-array-tooltip"
+                  />
+                }
+              />
+            </div>
+            <div className="edit-settings-input-wrapper mb-3">
+              <CustomFieldArray
                 name="asns"
+                header={messages.edit_settings_header_asns}
                 defaultValues={defaultValues.asns}
                 updatedValues={updatedValues?.asns}
-                label={`${messages.signup_asn_label}`}
+                label={`${messages.edit_settings_label_asn}`}
                 validate={validateAsnNumber}
                 disabled={isFormDisabled}
                 tooltip={
                   <Tooltip
                     content={`${messages.signup_asn_tooltip}`}
                     id="edit-settings-asns"
-                    className="edit-settings-tooltip"
+                    className="edit-settings-field-array-tooltip"
                   />
                 }
               />
             </div>
-            <div className="edit-settings-input-wrapper mb-5">
-              <EditSettingsFieldArray
+            <div className="edit-settings-input-wrapper mb-3">
+              <CustomFieldArray
                 name="ip_networks"
+                header={messages.edit_settings_header_ip_networks}
                 defaultValues={defaultValues.ip_networks}
                 updatedValues={updatedValues?.ip_networks}
-                label={`${messages.signup_ipNetwork_label}`}
+                label={`${messages.edit_settings_label_ip_network}`}
                 validate={validateIpNetwork}
                 disabled={isFormDisabled}
                 tooltip={
                   <Tooltip
                     content={`${messages.signup_ipNetwork_tooltip}`}
                     id="edit-settings-ip_networks"
-                    className="edit-settings-tooltip"
+                    className="edit-settings-field-array-tooltip"
                   />
                 }
               />
             </div>
-            <div className="edit-settings-input-wrapper mb-4">
+            <div className="edit-settings-additional-comment mb-4">
               <FormInput
                 name="additional_comment"
                 as="textarea"

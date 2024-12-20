@@ -37,7 +37,7 @@ class SpamhausBotsCollector(BaseDownloadingCollector, BaseSimpleCollector):
             'key': self.config['api_key']
         }
         req = PreparedRequest()
-        req.prepare_url(base, params)
+        req.prepare_url(base, params)  # XXX: why this way???
         return req.url
 
     def get_source(self, **kwargs):

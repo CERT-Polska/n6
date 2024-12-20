@@ -1,20 +1,16 @@
 # _n6 Portal_ Backend API
 
-## Overview
-
 With the implementation of _Agreements_, two new endpoints were introduced: `/agreements` and `/org_agreements`, along with some changes to the `/register` endpoint.
 
 ## `/agreements`
 
-Description: returns a list of all agreements and their contents.  
-Methods: `GET`  
-Authentication required: no  
-Parameters: none  
-Possible HTTP responses:
-
-- **200 OK** - agreements list in JSON format
-- **403 Forbidden** - client is _not_ authenticated
-- **500 Internal Server Error** - error in backend API
+- Description: returns a list of all agreements and their contents
+- Methods: `GET`
+- Authentication required: no
+- Parameters: none
+- Possible HTTP responses:
+    - **200 OK** -- _Agreement_ data list (in JSON format)
+    - **500 Internal Server Error** -- error in backend API
 
 Example output:
 
@@ -33,17 +29,16 @@ Example output:
 
 ## `/org_agreements`
 
-Description: returns a list of labels of the agreements accepted by the organization to which the logged-in user belongs.  
-Methods: `GET, POST`
-Authentication required: yes  
-Parameters:
-- `GET` - none
-- `POST` - form-data with the key `agreements` (the labels of the agreements user wants to exclusively agree to – in the name of their organization).
-
-Possible HTTP responses:
-- **200 OK** - list of agreements labels
-- **403 Forbidden** - client is _not_ authenticated
-- **500 Internal Server Error** - error in backend API
+- Description: returns a list of labels of the agreements accepted by the organization to which the logged-in user belongs
+- Methods: `GET`, `POST`
+- Authentication required: yes
+- Parameters:
+    - `GET` -- none
+    - `POST` -- form-data with the key `agreements` (the labels of the agreements user wants to exclusively agree to -- on behalf of their organization).
+- Possible HTTP responses:
+    - **200 OK** -- list of _Agreement_ labels
+    - **403 Forbidden** -- client is _not_ authenticated
+    - **500 Internal Server Error** -- error in backend API
 
 Example output (`GET`):
 

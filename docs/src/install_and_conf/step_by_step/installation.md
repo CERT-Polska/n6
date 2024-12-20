@@ -11,16 +11,6 @@ First, change the shell user to `dataman`:
 $ su - dataman
 ```
 
-## Obtaining the source code
-
-Being logged in as `dataman`, with this user's home directory as the
-current working directory, clone the _n6_ Git repository (to
-`/home/dataman/n6`):
-
-```bash
-$ git clone https://github.com/CERT-Polska/n6.git n6
-```
-
 ## Installing specific python version
 
 If you already have Python 3.9 installed skip this step.

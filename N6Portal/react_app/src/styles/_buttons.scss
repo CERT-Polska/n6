@@ -109,6 +109,9 @@
       margin-left: sizeToRem(12);
       order: 1;
     }
+    &.center {
+      margin: 0;
+    }
 
     svg {
       height: 100%;

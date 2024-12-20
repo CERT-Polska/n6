@@ -3,6 +3,7 @@
 import collections
 import contextlib
 import functools
+import inspect
 import json
 import logging
 import logging.config
@@ -257,6 +258,9 @@ class AMQPHandler(logging.Handler):
                 # (to break any traceback-related reference cycle)
                 exc_info = exc = None  # noqa
 
+        if isinstance(connection_params_dict, dict):
+            connection_params_dict = self._get_actual_conn_params_dict(connection_params_dict)
+
         # pusher instance
         self._pusher = AMQPThreadedPusher(
             connection_params_dict=connection_params_dict,
@@ -269,6 +273,57 @@ class AMQPHandler(logging.Handler):
 
         # start error logging co-thread
         self._error_logging_thread.start()
+
+    def _get_actual_conn_params_dict(self, given_dict):
+        # (avoiding error related to circular imports...)
+        from n6lib.amqp_helpers import get_amqp_connection_params_dict_from_args
+
+        warn = functools.partial(
+            print,
+            '\n*** WARNING: ***',
+            sep='\n\n',
+            end='\n\n',
+            file=sys.stderr,
+        )
+        if self._is_in_modern_format(given_dict):
+            with get_amqp_connection_params_dict_from_args.set_log_warning_func(warn):
+                prepared_dict = get_amqp_connection_params_dict_from_args(**given_dict)
+            return prepared_dict
+        warn(
+            (
+                'The dict obtained by the AMQPHandler constructor as '
+                'its first argument seems to be in the legacy format, '
+                'so (keeping the legacy behavior) no errors will be '
+                'raised and no warnings will be printed if the content '
+                'of that dict suffers from certain kinds of problems...'
+            ),
+            (
+                'Please, consider making that argument be specified '
+                'using the modern format, i.e., as a dict of **kwargs '
+                'ready to be passed to the function n6lib.amqp_helpers.'
+                'get_amqp_connection_params_dict_from_args().'
+            ),
+            (
+                'The support for the legacy format will be dropped in '
+                'a future version of *n6*.'
+            ),
+        )
+        return given_dict
+
+    def _is_in_modern_format(self, given_dict):
+        # Is it a dict of **kwargs ready to be passed to the
+        # function get_amqp_connection_params_dict_from_args()`?
+
+        # (avoiding error related to circular imports...)
+        from n6lib.amqp_helpers import get_amqp_connection_params_dict_from_args
+
+        sig = inspect.signature(get_amqp_connection_params_dict_from_args)
+        try:
+            sig.bind(**given_dict)
+        except TypeError:
+            return False
+        return True
+
 
     @classmethod
     def _error_logging_loop(cls, error_fifo, error_logger):

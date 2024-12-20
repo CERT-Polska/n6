@@ -1,78 +1,114 @@
 # n6 Stream API
 
-The stream API complements the REST API of the n6 platform. The stream API
-allows to receive events asynchronously, near real-time. The JSON data format is
-identical with the one used in the REST API (with a single exception: see next
-sections).
+The API described in this document complements [*n6 REST API*](restapi.md).
+The *Stream API* makes it possible to receive events asynchronously, in
+near real-time. The JSON data format is similar to the one used in the
+*REST API* (but there are a few differences, see [*Data
+format*](#data-format) below...).
+
 
 ## Transport layer
 
-The stream API is based on STOMP (Simple Text Oriented Message Protocol).
+*n6 Stream API* is based on STOMP ([Simple Text Oriented Message
+Protocol](https://stomp.github.io/)).
 
-Connections are authenticated by the following credentials:
+Connections are authenticated using the following credentials:
 
-* `username` -- the *n6* user's **login** (being an e-mail address);
-* `passcode` -- the *n6* user's **API key** (the same which can be used
-  to authenticate to the *n6* REST API; a user can generate their *n6*
-  API key by their own via the *n6* Portal).
+- `username` -- the *n6* user's **login** (being an e-mail address);
+- `passcode` -- the *n6* user's **API key** (the same which can be used
+  to authenticate to *n6 REST API*; a user can generate a new *API key*
+  through *n6 Portal*).
 
-Address of the STOMP server: **n6stream-new.cert.pl:61614**
+In the case of the CERT Polska's instance of *n6*, the address of the STOMP
+server is **`n6stream.cert.pl:61614`**.
 
-Supported STOMP versions: 1.0, 1.1, 1.2. TLS is mandatory. We recommend to
-use the most recent version of the protocol (1.2) and the OpenSSL cryptographic
+The supported STOMP versions are: *1.0*, *1.1* and *1.2*. The use of
+[TLS](https://en.wikipedia.org/wiki/Transport_Layer_Security) is
+mandatory. We recommend using the most recent version of the protocol
+(*1.2*) and of the [OpenSSL](https://openssl-library.org/) cryptographic
 library.
 
-To receive data from *n6*, the client must subscribe to an appropriate STOMP
-destination. The client uses the destination header to define which of the available
-events should be delivered through the connection. The format is as follows (ABNF
-syntax):
+To receive data, the client must subscribe to an appropriate STOMP destination.
+The client uses the destination header to define which of the available events
+should be delivered through the connection. The format can be described with
+the following [ABNF](https://datatracker.ietf.org/doc/html/rfc2234) syntax rule:
 
 ```
-destination = "destination:/exchange/" id "/" resource "."
-category "." source-provider "." source-channel
+destination = "destination:/exchange/" org-id "/" resource "."
+              category "." source-provider "." source-channel
 ```
 
-Meaning of the variables:
+-- where:
 
-- **id**: *n6* client organization identifier (the user organization's domain name
-  registered in the *n6* system)
-- **resource**: analogous to the REST API resource, can take one of the following
-  values
-  - `inside`: events that occurred within the client’s network
-  - `threats`: data on threats relevant to the recipient, might not be present
-    in the client’s network (e.g. command and control servers)
-- **category**: equal to value of the category field in events
-- **source-provider** and **source-channel**: the two components of the
-  identifier of the source of the information (*source provider*: the
-  label of a group of sources which is, typically, provided by one
-  organization or person; *source channel*: the label of a specific feed)
+- **_org-id_** is the client's organization identifier (the user organization's
+  domain name registered in the *n6* system).
 
-Except id, each of the variables can be substituted by an asterisk (\*), which matches
-any value.
+- **_resource_** identifies the desired scope of data to be retrieved. Available
+  *resources* are:
+    - `inside` (analogous to *REST API*'s `report/inside`) -- the stream of
+      events related to the client's organization networks/services;
+    - `threats` (analogous to *REST API*'s `report/threats`) -- the stream of
+      general threat indicators, typically shared with other organizations,
+      i.e., not particularly related to the client's organization
+      networks/services; can be useful, e.g., for blocking rules.
+
+- **_category_** is one of the possible values of the events' `category` attribute
+  (see the description of that attribute in [the relevant section of the *REST
+  API* documentation](restapi.md#event-attributes)).
+
+- **_source-provider_** and **_source-channel_** are the two dot-separated
+  components of an event's `source` attribute which identifies the *data source*
+  the event originates from (where *source provider* is the label of a group
+  of data sources that are, typically, provided by a certain organization
+  or person; and *source channel* is the label of a specific data feed).
+
+Except *org-id*, each of the variables can be substituted by an asterisk (`*`),
+which matches any value.
+
 
 ## Data format
 
-Each STOMP message corresponds to a single *n6* event in JSON format. All
-attributes described in the REST API documentation are available in the stream
-API with identical semantics.
+Each STOMP message corresponds to a single *n6* event in the
+[JSON](https://www.json.org/json-en.html) format.
 
-Additionally, there is a **type** attribute that can take following values:
+All event attributes described in the [*REST API*
+documentation](restapi.md#event-attributes), except `modified` and `status`,
+can appear in events emitted by the *Stream API*.
 
-- event: a single event
-- bl-new: new blacklist entry
-- bl-update: update of the expiration time for a blacklist entry
-- bl-change: change of any attribute except expiration time for a blacklist entry
-- bl-delist: removal of a blacklist entry
+Additionally, each event has a **`type`** attribute. Its value is one of:
+
+- `"event"` -- meaning that the event is an ordinary one (or, for certain
+  data sources, represents the initial event of an aggregated series of
+  high-frequency events; for simplicity, however, no updates regarding
+  such aggregated series are emitted by the *Stream API*);
+
+- `"bl-new"` -- meaning that the event represents a new blacklist entry;
+
+- `"bl-update"` -- meaning that the event represents an update of the
+  expiration time (`expires`) of a blacklist entry that was emitted
+  earlier; the event's `id` is the `id` of that earlier one;
+
+- `"bl-delist"` or `"bl-expire"` -- meaning that the event represents
+  the removal/expiration of a blacklist entry that was emitted earlier;
+  the event's `id` is the `id` of that earlier one;
+
+- `"bl-change"` -- meaning that the event represents, for a blacklist
+  entry that was emitted earlier, a change to any attribute except the
+  expiration time (`expires`); this new event has a new `id`, and its
+  `replaces` is the `id` of that earlier event (which should be considered
+  as superseded by the new one).
+
 
 ## Examples
 
 ### Example 1
 
-Subscription to all available events for organization `nask.pl` (no filtering):
+Subscription to all available events for organization `example.org`
+(no filtering):
 
 ```
 SUBSCRIBE
-destination:/exchange/nask.pl/*.*.*.*
+destination:/exchange/example.org/*.*.*.*
 
 ^@
 ```
@@ -82,30 +118,32 @@ destination:/exchange/nask.pl/*.*.*.*
     `^@` is a terminal escape sequence for NULL (ASCII 0x00), which signals the
     end of a STOMP frame. Common keyboard shortcut `Ctrl` + `Shift` + `2`.
 
-Message from the server (lines wrapped for readability):
+Example message from the server (lines wrapped for readability):
 
 ```
 MESSAGE
-destination:/exchange/clients/inside.bots.hidden.48
-message-id:Q_/exchange/nask.pl/inside.#@@session-FOUv4xFVkvfMtmK_4A@@1
+destination:/exchange/clients/inside.bots.hidden.42
+message-id:Q_/exchange/example.org/inside.#@@session-FO2N7aFVkvfmTQK_4A@@1
 redelivered:false
-n6-client-id:nask.pl
+n6-client-id:example.org
 persistent:1
-content-length:263
-{"category": "bots", "origin": "sinkhole", "confidence": "medium",
-"name": "slenfbot", "address": [{"cc": "PL", "ip": "10.20.30.40",
-"asn": 8308}], "source": "hidden.48", "time": "2015-08-28T09:32:05Z",
-"type": "event", "id": "0f56ebba9129003dc6192e72eef50e70"}
+content-length:431
+{"id": "392ab73bbe7bcd6a56c84af2234987a4", "source": "hidden.42",
+ "restriction": "need-to-know", "confidence": "medium", "category": "bots",
+ "time": "2024-05-04T10:59:03Z", "address": [{"ip": "203.0.113.42", "cc": "PL",
+ "asn": 1234}, {"ip": "203.0.113.123", "cc": "PL", "asn": 1234}],
+ "adip": "x.x.51.198", "dport": 22, "name": "avalanche-andromeda",
+ "origin": "sinkhole", "proto": "tcp", "sport": 58362, "type": "event"}
 ```
 
 ### Example 2
 
-STOMP _destination_ used to receive only information about malware infections
-(category "bots") within the protected network, regardless of the original data
-source:
+STOMP *destination* to receive only events representing indicators of
+malware infections (category "bots") within the client's organization
+network(s), regardless of what data sources the events originate from:
 
 ```
-destination:/exchange/nask.pl/inside.bots.*.*
+destination:/exchange/example.org/inside.bots.*.*
 ```
 
 ### Example 3
@@ -113,7 +151,7 @@ destination:/exchange/nask.pl/inside.bots.*.*
 Connecting to the server using OpenSSL command line tools, authenticate and subscribe:
 
 ```
-openssl s_client -connect n6stream-new.cert.pl:61614
+openssl s_client -connect n6stream.cert.pl:61614
 
 CONNECT
 login:<login@domain.com>
@@ -128,5 +166,5 @@ destination:/exchange/domain.com/*.*.*.*
 ```
 !!! tip
 
-    You have few seconds to send CONNECT frame before connection close automatically.
-
+    Typically, you have only a few seconds to send a `CONNECT` frame before
+    the connection is automatically closed.

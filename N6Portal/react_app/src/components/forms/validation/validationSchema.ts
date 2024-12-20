@@ -69,6 +69,7 @@ export const validateDatePicker = composeValidators({ isRequired, mustBeValidDat
 export const validateTimeRequired = composeValidators({ isRequired, mustBeTime, maxLength: maxLength(5) });
 export const validateTime = composeValidators({ mustBeTime, maxLength: maxLength(5) });
 export const validateAsnNumberRequired = composeValidatorsForMultivalues({ isRequired, mustBeNumber, mustBeAsnNumber });
+export const validateIdRequired = composeValidatorsForMultivalues({ isRequired, mustBeMd5 });
 export const validateIpRequired = composeValidatorsForMultivalues({ isRequired, mustBeIp });
 export const validateIpNetworkRequired = composeValidatorsForMultivalues({ isRequired, mustBeIpNetwork });
 export const validatePortNumberRequired = composeValidatorsForMultivalues({

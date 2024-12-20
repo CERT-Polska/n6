@@ -3,6 +3,7 @@
 import contextlib
 import datetime
 import json
+import random
 import sys
 import weakref
 
@@ -364,7 +365,7 @@ class AuditLog:
         try:
             if self._does_represent_actual_db_transaction(transaction):
                 self._discard_request_to_record_write_op_commit(session)
-                self._try_delete_not_so_recent_write_op_commit_records(session)
+                self._maybe_delete_not_so_recent_write_op_commit_records(session)
         finally:
             # This cleanup part is not strictly necessary --
             # but let's be tidy. :-)
@@ -585,7 +586,12 @@ class AuditLog:
     def _record_write_op_commit(self, conn: Connection) -> None:
         conn.execute('INSERT INTO recent_write_op_commit SET made_at = DEFAULT')
 
-    def _try_delete_not_so_recent_write_op_commit_records(self, session: Session) -> None:
+    def _maybe_delete_not_so_recent_write_op_commit_records(self, session: Session) -> None:
+        if random.randrange(100) > 0:
+            # In 99% of cases: refrain from acting (as it is *not*
+            # necessary to attempt this kind of cleanup each time).
+            # Let's save our resources! :)
+            return
         bind = self._verify_and_get_session_bind(session)
         try:
             with bind.connect() as conn, conn.begin():
@@ -606,13 +612,14 @@ class AuditLog:
                     '  @time_24h_ago)')
                 conn.execute(delete_stmt, time_of_newest_rec=time_of_newest_rec)
         except DatabaseError as exc:
-            LOGGER.warning(
+            # Note: here we do *not* re-raise the exception or log a
+            # warning/error, because it is *not a problem* if this
+            # cleanup sometimes cannot be done (e.g., because of a
+            # database-level deadlock or what...).
+            LOGGER.debug(
                 'Stale `recent_write_op_commit` records could not '
                 'be deleted (because of %s)... Maybe next time?',
                 make_exc_ascii_str(exc))
-            # Note: here we do *not* re-raise the exception, because it
-            # is *not a problem* if this cleanup sometimes could not be
-            # done (e.g., because of a database-level deadlock etc.?...).
 
     # * Dealing with session and transaction objects:
 

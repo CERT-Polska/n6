@@ -1,10 +1,12 @@
-# Copyright (c) 2019-2021 NASK. All rights reserved.
+# Copyright (c) 2019-2024 NASK. All rights reserved.
 
 import datetime
 
 import requests
+import requests.packages
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
+from urllib3.util.retry import Retry
+assert Retry is requests.packages.urllib3.util.retry.Retry
 
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 

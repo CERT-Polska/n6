@@ -21,11 +21,15 @@ nav:
 #          - Step-by-Step Installation: install_and_conf/step_by_step/index.md
 #          - System Preparation: install_and_conf/step_by_step/system.md
 #          - Installation of n6 Components: install_and_conf/step_by_step/installation.md
-#          - Configuration of n6 Pipeline: install_and_conf/step_by_step/pipeline_config.md
-#          - Examining Data Flow: install_and_conf/step_by_step/examining_data_flow.md
-#          - Certificates: install_and_conf/step_by_step/certificates.md
-#          - Configuration of n6 Web Components: install_and_conf/step_by_step/web_components_config.md
-#          - Supervisor: install_and_conf/step_by_step/supervisor.md
+#          - Pre-Setup Configuration: install_and_conf/step_by_step/config.md
+#          - Setting up instance of n6: install_and_conf/step_by_step/setup.md
+#          - Check n6 Data Flow & Web Services: install_and_conf/step_by_step/check.md
+#          - Delve deeper:
+#            - Configuration of n6 Pipeline: install_and_conf/step_by_step/pipeline_config.md
+#            - Examining Data Flow: install_and_conf/step_by_step/examining_data_flow.md
+#            - Certificates: install_and_conf/step_by_step/certificates.md
+#            - Configuration of n6 Web Components: install_and_conf/step_by_step/web_components_config.md
+#            - Supervisor: install_and_conf/step_by_step/supervisor.md
       - Optional Features (selected topics):
           - Optional Features (selected topics): install_and_conf/opt/index.md
           - Running IntelMQ Bots in n6 Pipeline:

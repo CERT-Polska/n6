@@ -16,7 +16,8 @@ import {
   validateSha1Required,
   validateSourceRequired,
   validateCountryCodeRequired,
-  validateTimeRequired
+  validateTimeRequired,
+  validateIdRequired
 } from 'components/forms/validation/validationSchema';
 import { isRequired } from 'components/forms/validation/validators';
 
@@ -32,6 +33,7 @@ export interface IIncidentsForm
   fqdnSub?: string;
   ipNet?: string;
   urlSub?: string;
+  id?: string;
   category?: SelectOption<TCategory>[];
   proto?: SelectOption<TProto>[];
   restriction?: SelectOption<TRestriction>[];
@@ -132,6 +134,7 @@ export const allFilters: TFilter[] = [
     labelTime: 'incidents_form_end_time',
     validateTimeRequired: validateTimeRequired
   },
+  { name: 'id', label: 'incidents_form_id', type: 'input', validate: validateIdRequired },
   { name: 'ip', label: 'incidents_form_ip', type: 'input', validate: validateIpRequired },
   { name: 'ipNet', label: 'incidents_form_ip_net', type: 'input', validate: validateIpNetworkRequired },
   { name: 'md5', label: 'incidents_form_md5', type: 'input', validate: validateMd5Required },

@@ -4130,7 +4130,9 @@ class TestBaseSimpleEmailCollector(BaseCollectorTestCase):
 
 
 ## TODO: incorporate the following test into `TestBaseDownloadingCollector`
-##       when it is made... (see the comment above).
+##       when it is made... (see the comment above)
+##       + add proper tests of new config option (`request_timeout`)
+##       see tickets: #9101 + #9070.
 @expand
 class TestBaseDownloadingCollector__get_request_headers(BaseCollectorTestCase):
 

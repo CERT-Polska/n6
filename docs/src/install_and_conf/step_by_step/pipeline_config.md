@@ -14,6 +14,7 @@ components to work, run the command:
 $ mkdir /home/dataman/.n6
 $ cp /home/dataman/n6/N6DataPipeline/n6datapipeline/data/conf/* /home/dataman/.n6/
 $ cp /home/dataman/n6/N6DataSources/n6datasources/data/conf/* /home/dataman/.n6/
+$ cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6
 ```
 
 The configuration files should have been created in `/home/dataman/.n6`.
@@ -80,7 +81,7 @@ _dnsport_ (port number of the resolver) in the `/home/dataman/.n6/05_enrich.conf
 
 If you have access to GeoIP databases (_GeoLite2-ASN_ or/and _GeoLite2-City_) and want Enricher
 to add ASN or/and CC to acquired addresses, you should provide value for config option _geoippath_
-and one or both of _asndatabasefilename_ and _asndatabasefilename_.
+and one or both of _asndatabasefilename_ and _citydatabasefilename_.
 
 If you do not want Enricher to enrich some IP addresses, you can blacklist them by appending
 to a list in the not required option _excluded_ips_. Example Enricher's configuration:
@@ -96,7 +97,7 @@ excluded_ips=0.0.0.0, 127.0.0.1 ; optional blacklist of IP addresses
 ```
 
 Note that you can download GeoIP database files from:
-[https://dev.maxmind.com/geoip/geoip2/geolite2/](https://dev.maxmind.com/geoip/geoip2/geolite2/)
+[https://dev.maxmind.com/geoip/importing-databases/mysql/](https://dev.maxmind.com/geoip/importing-databases/mysql/)
 
 ## Aggregator and Comparator
 
@@ -157,10 +158,9 @@ You can use them to configure the connection or generate new ones.
 Adjust the file paths to the certificate storage location.
 
 ```ini
-path_to_cert=/home/dataman/n6/etc/ssl/generated_certs
-ssl_ca_certs=%(path_to_cert)s/n6-CA/cacert.pem
-ssl_certfile=%(path_to_cert)s/cert.pem
-ssl_keyfile=%(path_to_cert)s/key.pem
+ssl_ca_certs=/home/dataman/n6/etc/ssl/generated_certs/n6-CA/cacert.pem
+ssl_certfile=/home/dataman/n6/etc/ssl/generated_certs/cert.pem
+ssl_keyfile=/home/dataman/n6/etc/ssl/generated_certs/key.pem
 ```
 
 _n6_ configuration for RabbitMQ in section `pipeline`, in the file:  
@@ -308,13 +308,6 @@ User "login@example.com"
 * The 'n6populate_auth_db' script exits gracefully.
 ```
 
-**IMPORTANT - Positional arguments of the _n6populate_auth_db_ script:**
-
-- ORG*ID (here: `example.com`) must match the subject's `O` field in the X.509 client
-  certificate used for certificate-based authentication against \_n6 REST API* and _n6 Portal_.
-- USER*LOGIN (here: `login@example.com`) must match the subject's `CN` field in the
-  X.509 client certificate used for certificate-based authentication against \_n6 REST API*
-  and _n6 Portal_.
 
 ## Archive DB (MongoDB)
 

@@ -73,6 +73,7 @@ export interface IRequestParams {
   dport?: string;
   fqdn?: string;
   'fqdn.sub'?: string;
+  id?: string;
   ip?: string;
   'ip.net'?: string;
   md5?: string;

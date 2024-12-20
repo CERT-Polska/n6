@@ -3,6 +3,8 @@ export interface IUpdateInfo {
   requesting_user: string | null;
   additional_comment?: string;
   actual_name?: string | null;
+  added_user_logins?: string[];
+  removed_user_logins?: string[];
   org_user_logins?: string[];
   asns?: number[];
   fqdns?: string[];
@@ -24,6 +26,6 @@ export interface IOrgConfig {
   notification_language: string | null;
   notification_emails: string[];
   notification_times: string[];
-  post_accepted: null;
+  post_accepted: true | null;
   update_info: IUpdateInfo | null;
 }

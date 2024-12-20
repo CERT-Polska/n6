@@ -87,4 +87,4 @@ Script should generate some files. Most important are:
 - _key.pem_
 - _N6-CA/cacert.pem_
 
-Generated files will be used to authenticate some requests to _n6 Rest API_ and _RabbitMQ_.
+Generated files will be used to authenticate some requests to _RabbitMQ_.

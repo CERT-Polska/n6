@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 """
 Collector base classes + auxiliary tools.
@@ -60,6 +60,13 @@ from n6lib.typing_helpers import KwargsDict
 
 
 LOGGER = get_logger(__name__)
+
+
+DownloadTimeout = Union[
+    int,
+    float,
+    tuple[Union[int, float], Union[int, float]],
+]
 
 
 #
@@ -1200,15 +1207,50 @@ class BaseSimpleEmailCollector(BaseSimpleCollector):
 class BaseDownloadingCollector(BaseCollector):
 
     """
-    TODO: docs.
+    TODO: docs & tests.
     """
 
     config_spec_pattern = combined_config_spec('''
         [{collector_class_name}]
 
         download_retries = 3 :: int
+        
+        # Connect and read timeout. Accepted values: int, float, 
+        # or 2-tuple of ints/floats.
+        # See more: https://docs.python-requests.org/en/latest/user/advanced/#timeouts
+        download_timeout = (12.1, 25) :: download_timeout
+        
         base_request_headers = {{}} :: py_namespaces_dict
     ''')   # (`{{}}` is just escaped `{}` -- to avoid treating it as a pattern's replacement field)
+
+    @property
+    def custom_converters(self) -> dict:
+        return {
+            'download_timeout': self._conv_download_timeout_from_config,
+        }
+
+    @classmethod
+    def _conv_download_timeout_from_config(cls, raw_value: str) -> DownloadTimeout:
+        value = Config.BASIC_CONVERTERS['py'](raw_value)
+        if isinstance(value, (float, int)):
+            if value <= 0:
+                raise ValueError('value should be > 0')
+        elif isinstance(value, (tuple, list)):
+            if isinstance(value, list):
+                value = tuple(value)
+            if len(value) != 2:
+                raise ValueError('value should have exactly 2 items')
+            invalid_values = [v for v in value if not isinstance(v, (float, int))]
+            if invalid_values:
+                raise TypeError(f'wrong type(s): {", ".join(invalid_values)}')
+            if any(v <= 0 for v in value):
+                raise ValueError('each value should be > 0')
+        else:
+            raise TypeError(
+                'value should be one of the following types: '
+                'int, float, 2-tuple of ints/floats'
+            )
+        return value
 
     def __init__(self, /, **kwargs):
         super().__init__(**kwargs)
@@ -1256,13 +1298,17 @@ class BaseDownloadingCollector(BaseCollector):
                           *,
                           method: str = 'GET',
                           retries: Optional[int] = None,
+                          timeout: Optional[DownloadTimeout] = None,
                           custom_request_headers: Optional[dict] = None,
                           **rest_performer_constructor_kwargs):
         retries = self.__get_request_retries(retries)
+        timeout = self.__get_request_timeout(timeout)
         headers = self.__get_request_headers(custom_request_headers)
+
         with RequestPerformer(method=method,
                               url=url,
                               retries=retries,
+                              timeout=timeout,
                               headers=headers,
                               **rest_performer_constructor_kwargs) as perf:
             self._http_response = perf.response
@@ -1279,6 +1325,12 @@ class BaseDownloadingCollector(BaseCollector):
                 raise ConfigError(f'config option `download_retries` is '
                                   f'a negative number: {retries!a}')
         return retries
+
+    def __get_request_timeout(self, timeout: Optional[DownloadTimeout]
+                              ) -> DownloadTimeout:
+        if timeout is None:
+            timeout = self.config['download_timeout']
+        return timeout
 
     def __get_request_headers(self, custom_request_headers: Optional[dict]) -> dict:
         if custom_request_headers:

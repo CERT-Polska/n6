@@ -14,15 +14,13 @@ of mandatory and optional attributes -- such as: `time`, `category`,
 `address`, `fqdn`, `origin`... (see the [*Event Attributes*](#event-attributes)
 section below)
 
-The API makes it possible to retrieve any event data to which the
+*n6 REST API* makes it possible to retrieve any event data to which the
 client's organization is authorized to access.
 
 
 ### Request
 
-*n6 REST API* accepts only
-[*GET*](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/GET)
-requests.
+Only [*GET*](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/GET) requests are supported.
 
 #### Authentication
 
@@ -47,11 +45,12 @@ uri = "https://" server "/" resource "." format "?" query
   it is `n6api.cert.pl` in the case of the CERT Polska's instance of *n6*).
 - **_resource_** identifies the desired scope of data to be retrieved.
   Available *resources* are:
-    - `report/inside` -- events related to the client organization's
-      networks/services (only visible for this organization);
-    - `report/threats` -- events shared with every organization
-      (not related to a particular organization's network/service),
-      especially: threat indicators for blocking rules;
+    - `report/inside` -- events related to the client's organization
+      networks/services (only visible to this organization);
+    - `report/threats` -- general threat indicators, typically shared
+      with other organizations, i.e., not particularly related to the
+      client's organization networks/services; can be useful, e.g., for
+      blocking rules;
     - `search/events` -- global search (*note:* this one is not available
       in the case of the CERT Polska's instance of *n6*).
 - **_format_** is the requested format, such as `json`, `sjson` or `csv`.
@@ -98,8 +97,8 @@ repeating the parameter with different *values*.
 !!! warning "Caution"
 
     The `time.min` parameter is mandatory for every query. A query without
-    it will result in redirection (a HTTP response with status code 307) to
-    a URI containing the query with that parameter added.
+    it will result in a redirection (a HTTP response with status code 307)
+    to a URI containing the query with that parameter added.
 
 #### Example URIs (with Queries)
 
@@ -115,9 +114,9 @@ https://n6api.cert.pl/report/threats.json?time.min=2024-02-01T07:58:59Z
 ### Response
 
 *n6 REST API* uses standard HTTP status codes: **200** (success),
-**307** (temporary redirect), **400** (incorrect query), **401**
-(unauthorized), **403** (no permission), **404** (incorrect resource),
-**500** (server error).
+**307** (redirection), **400** (incorrect *query*), **401** (auth
+required), **403** (no permission), **404** (incorrect *resource*
+or *format*), **500** (server error).
 
 In case of an immediate error, a response containing a text description
 of the error is returned, with a suitable HTTP status code. However, if
@@ -133,18 +132,18 @@ elements are *objects*, each of which represents a single *event*. Those
 objects' possible attributes (keys) are described in the [*Event
 Attributes*](#event-attributes) section below.
 
-If you expect large responses, we recommend using a "streamed"
-variant of `json`: the `sjson` format -- where the response
-consists of concatenated top-level objects delimited by newlines (line feed, 0x10
-ASCII). Each top-level object is represented in a single line (no pretty-print), which
-allows to parse results incrementally. Otherwise this format is identical with plain
-`json`.
+If you expect large responses, we recommend using a "streamed" variant
+of `json`: the `sjson` format -- where the response consists of
+concatenated top-level objects delimited by newlines (line feed, i.e.,
+ASCII 0x0A). Each top-level object is represented in a single line (no
+pretty-print), which allows to parse results incrementally. Otherwise
+this format is identical with plain `json`.
 
 Retrieved events are always sorted by their `time`, descendingly.
 
 #### Example Response Body
 
-(assuming the requested *format* is `json`)
+(assuming `json` as requested *format*)
 
 ```json
 [
@@ -205,7 +204,7 @@ Retrieved events are always sorted by their `time`, descendingly.
 All *event attributes* and *query parameters* supported by the current
 version of *n6* are listed in the following sections – except that in
 this document we do *not* cover any attributes/parameters that are
-visible/available *only* for *privileged* users [*technically: for those
+visible/available *only* for *privileged* users [*technically: those
 users whose organizations have the `full_access` flag set to `True` in
 the n6's Auth DB*].
 
@@ -272,16 +271,17 @@ are noted in round brackets.
   is considered valid (usually 48h from the time of the latest
   update that included the entry), formatted in an [RFC
   3339](https://datatracker.ietf.org/doc/html/rfc3339)-compliant way.
-- `fqdn` (*string*) Fully-qualified domain name related to the threat.
+- `fqdn` (*string*) Fully qualified domain name related to the threat.
   For malicious websites -- the URL's domain; for bots and scanners --
   the destination domain.
 - `iban` (*string*) International Bank Account Number associated with
   fraudulent activity.
-- `id` (*string*) **[mandatory]** System-wide unique event identifier.
-- `injects` (*array of objects*) Objects describing a set of injects
-  performed by banking trojans when a user loads a targeted website
-  (see `url_pattern`). Structure of objects depends on malware family
-  (not specified here).
+- `id` (*string*) **[mandatory]** System-wide unique identifier of the
+  event.
+- `injects` (*array of objects*) Collection of objects describing a set
+  of injects performed by banking trojans when a user loads a targeted
+  website (see `url_pattern`). Structure of objects depends on malware
+  family (not specified here).
 - `md5` (*string*) MD5 hash (hexadecimal) of the binary file related to
   the event.
 - `modified` (*string*) **[mandatory]** Time when the event was made
@@ -315,7 +315,7 @@ are noted in round brackets.
   values: `"tcp"`, `"udp"`, `"icmp"`.
 - `registrar` (*string*) Name of the domain registrar (see also: `fqdn`).
 - `replaces` (*string*) Identifier (`id`) of the event that was
-  superseded by the current one. Specific to blacklists.
+  superseded by the current one. Specific to blacklists (see also: `status`).
 - `restriction` (*string*) **[mandatory]** Classification level.
   Possible values: `"internal"`, `"need-to-know"`, `"public"`.
 - `sha1` (*string*) SHA-1 hash (hexadecimal) of the binary file related
@@ -323,24 +323,30 @@ are noted in round brackets.
 - `sha256` (*string*) SHA-256 hash (hexadecimal) of the binary file
   related to the event.
 - `source` (*string*) **[mandatory]** Unique identifier of the source
-  (producer) of the event (*note:* in the *n6*'s documentation and code
-  we often refer to this piece of information using the term *data
-  source*, or just *source*).
+  (producer) of the event (*note:* in the *n6*'s documentation and code we
+  often refer to this piece of information using the term *data source*,
+  or just *source*). The value always consists of two dot-separated parts:
+  the *source provider* label (identifying a group of data sources that
+  are, typically, provided by a certain organization or person) and the
+  *source channel* label (identifying a specific data feed); both parts
+  may be anonymized for non-privileged users (depending on the configuration
+  in the *n6*'s Auth DB).
 - `sport` (*integer*) Source port used in TCP or UDP communication.
 - `status` (*string*) Blacklist entry status. Possible values:
     - `"active"`: item is currently in the list
-    - `"delisted"`: item has been marked as inactive by an external source
-    - `"expired"`: item is considered no longer active but might still be
-      present in an external blacklist
+    - `"delisted"`: item has been removed from the list (marked as inactive)
+      by the data source
+    - `"expired"`: item is considered no longer active, even though it might
+      still be present in the list last published by the data source
     - `"replaced"`: some characteristics of the entry (e.g., IP address)
       have changed, so now the entry is represented by another event (see
       above: `replaces`)
 - `target` (*string*) Organization or brand that is the target of the
   attack (applicable to phishing).
-- `time` (*string*) **[mandatory]** Time of event occurrence
-  (not time of reporting), formatted in an [RFC
+- `time` (*string*) **[mandatory]** Time of event occurrence (i.e., in the
+  general case, *not* the time of reporting), formatted in an [RFC
   3339](https://datatracker.ietf.org/doc/html/rfc3339)-compliant way.
-- `url` (*string*) URL related to the event (formally, it is a
+- `url` (*string*) URL related to the event (*note:* formally, it is a
   *URI* or *IRI*, according to the respective definition in [RFC
   3986](https://datatracker.ietf.org/doc/html/rfc3986) or [RFC
   3987](https://datatracker.ietf.org/doc/html/rfc3987)).
@@ -410,7 +416,7 @@ The name of each of those parameters consists of two parts:
       value).
     - `.until` -- like `.max`, but *excluding* the parameter value from the
       time range being specified (which means that matching attribute values
-      must be *less than* the parameter value).
+      are *less than* the parameter value).
 
 Those special parameters are:
 
@@ -450,10 +456,10 @@ A few examples:
 Apart from all that, global *query options* can be specified using the
 following parameters:
 
-- `opt.limit` (an integer) -- maximum number of events to be retrieved
+- `opt.limit` (integer) -- maximum number of events to be retrieved
   (as noted earlier, events are always sorted by their `time`,
   descendingly). *Note:* by default, no limit is imposed.
-- `opt.primary` (a Boolean flag: `true` or `false`; default value:
+- `opt.primary` (Boolean flag: `true` or `false`; default value:
   `false`) -- set it to `true` to restrict the content of retrieved
   events to *primary data* (the original data from data sources), i.e.,
   to hide event attributes (or their child objects' items) whose values
@@ -527,6 +533,6 @@ multiple values* of a parameter are allowed).
 
 ### **4.12.0** – 2024-XX-XX
 
-Starting with this release of *n6*, any changes to the *n6 REST API* are
-to be recorded in this section (in addition to being included in the main
+After this release of *n6*, any changes to *n6 REST API* will be
+recorded in this section (in addition to being included in the main
 [Changelog](../changelog.md)).

@@ -1,4 +1,4 @@
-import { Dispatch, FC, SetStateAction, useEffect, useState } from 'react';
+import { Dispatch, FC, SetStateAction, useCallback, useEffect, useState } from 'react';
 import { AxiosError } from 'axios';
 import { useMutation } from 'react-query';
 import { useForm, FormProvider, SubmitHandler } from 'react-hook-form';
@@ -8,7 +8,7 @@ import { useTypedIntl } from 'utils/useTypedIntl';
 import FormInput from 'components/forms/FormInput';
 import FormRadio from 'components/forms/FormRadio';
 import { TTosVersions } from 'components/pages/signUp/SignUp';
-import SignUpFieldArray from 'components/pages/signUp/SignUpFieldArray';
+import CustomFieldArray, { TFieldArray } from 'components/shared/CustomFieldArray';
 import SignUpButtons from 'components/pages/signUp/SignUpButtons';
 import { isRequired } from 'components/forms/validation/validators';
 import {
@@ -59,20 +59,31 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
   const methods = useForm<IStepTwoForm>({
     mode: 'onBlur',
     defaultValues: {
-      notification_emails: [{ value: '' }],
-      asns: [{ value: '' }],
-      fqdns: [{ value: '' }],
-      ip_networks: [{ value: '' }]
+      notification_emails: [],
+      asns: [],
+      fqdns: [],
+      ip_networks: []
     }
   });
   const { handleSubmit, formState } = methods;
 
   const { mutateAsync: sendRegistrationData } = useMutation<void, AxiosError, FormData>((data) => postRegister(data));
 
+  const removeDefaultFields = (data: TFieldArray): IStepTwoForm => {
+    const cleanData = { ...data };
+    delete cleanData.asns_default;
+    delete cleanData.ip_networks_default;
+    delete cleanData.fqdns_default;
+    delete cleanData.notification_emails_default;
+    return cleanData as IStepTwoForm;
+  };
+
   const onSubmit: SubmitHandler<IStepTwoForm> = async (data) => {
     setHasSubmitError(false);
     const formData = new FormData();
-    const parsedRegisterData = getParsedRegisterData(data);
+
+    const cleanedData = removeDefaultFields(data);
+    const parsedRegisterData = getParsedRegisterData(cleanedData);
 
     const registerDataKeys = Object.keys(parsedRegisterData) as Array<keyof typeof parsedRegisterData>;
     registerDataKeys.forEach((key) => formData.append(key, parsedRegisterData[key]));
@@ -93,6 +104,18 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
 
     return data;
   };
+
+  // Prevent form submission on pressing Enter key
+  const preventEnterSubmit = useCallback((event: KeyboardEvent) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+    }
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener('keydown', preventEnterSubmit);
+    return () => document.removeEventListener('keydown', preventEnterSubmit);
+  }, [preventEnterSubmit]);
 
   return (
     <>
@@ -133,44 +156,46 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
             tooltip={<Tooltip content={`${messages.signup_lang_tooltip}`} id="signup-lang" />}
             validate={{ isRequired }}
           />
-          <SignUpFieldArray
-            name="notification_emails"
-            label={`${messages.signup_notificationEmails_label}`}
-            validate={validateEmailNotRequired}
-            tooltip={
-              <Tooltip
-                content={`${messages.signup_notificationEmails_tooltip}`}
-                id="signup-notificationEmails"
-                className="signup-tooltip"
-              />
-            }
-          />
-          <SignUpFieldArray
-            name="asns"
-            label={`${messages.signup_asn_label}`}
-            validate={validateAsnNumber}
-            tooltip={<Tooltip content={`${messages.signup_asn_tooltip}`} id="signup-asn" className="signup-tooltip" />}
-          />
-          <SignUpFieldArray
-            name="fqdns"
-            label={`${messages.signup_fqdn_label}`}
-            validate={validateDomainNotRequired}
-            tooltip={
-              <Tooltip content={`${messages.signup_fqdn_tooltip}`} id="signup-fqdn" className="signup-tooltip" />
-            }
-          />
-          <SignUpFieldArray
-            name="ip_networks"
-            label={`${messages.signup_ipNetwork_label}`}
-            validate={validateIpNetwork}
-            tooltip={
-              <Tooltip
-                content={`${messages.signup_ipNetwork_tooltip}`}
-                id="signup-ipNetwork"
-                className="signup-tooltip"
-              />
-            }
-          />
+          <div className="signup-custom-field-array-wrapper mt-4">
+            <CustomFieldArray
+              name="notification_emails"
+              header={messages.signup_notificationEmails_header}
+              label={messages.signup_notificationEmail_label}
+              validate={validateEmailNotRequired}
+              tooltip={<Tooltip content={messages.signup_notificationEmails_tooltip} id="signup-notificationEmails" />}
+              disabled={false}
+            />
+          </div>
+          <div className="signup-custom-field-array-wrapper">
+            <CustomFieldArray
+              name="asns"
+              header={messages.signup_asn_header}
+              label={messages.signup_asn_label}
+              validate={validateAsnNumber}
+              tooltip={<Tooltip content={messages.signup_asn_tooltip} id="signup-asn" />}
+              disabled={false}
+            />
+          </div>
+          <div className="signup-custom-field-array-wrapper">
+            <CustomFieldArray
+              name="fqdns"
+              header={messages.signup_fqdn_header}
+              label={messages.signup_fqdn_label}
+              validate={validateDomainNotRequired}
+              tooltip={<Tooltip content={messages.signup_fqdn_tooltip} id="signup-fqdn" />}
+              disabled={false}
+            />
+          </div>
+          <div className="signup-custom-field-array-wrapper">
+            <CustomFieldArray
+              name="ip_networks"
+              header={messages.signup_ipNetwork_header}
+              label={messages.signup_ipNetwork_label}
+              validate={validateIpNetwork}
+              tooltip={<Tooltip content={messages.signup_ipNetwork_tooltip} id="signup-ipNetwork" />}
+              disabled={false}
+            />
+          </div>
           {agreements?.map((agreement) => (
             <div className="form-checkbox-wrapper custom-checkbox-input">
               <FormCheck.Input

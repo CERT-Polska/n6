@@ -57,7 +57,7 @@ $ systemctl restart apache2
 
 ```bash
 (env_py3k)$ cd ~/certs
-(env_py3k)$ curl --cert cert.pem --key key.pem -k 'https://localhost:4443/search/events.json?time.min=2015-01-01T00:00:00'
+(env_py3k)$ curl -k 'https://localhost:4443/search/events.json?time.min=2015-01-01T00:00:00' -H 'Authorization: Bearer YOUR_API_KEY'
 [
 
 ]
@@ -75,27 +75,40 @@ the _n6 REST API_, especially concerning application, server and logging  config
 
 First, install `npm` and `yarn`:
 
-```bash
-$ sudo apt-get install -y nodejs npm
-$ sudo npm i npm@latest -g
-$ sudo npm install --global yarn
-```
-
-Update `node`. Recommended version is current LTS. One of the easiest ways to update
-`node` is through the _n_ Node.js Version Manager:
+Create a directory for the new repository's keyring:
 
 ```bash
-$ sudo npm install -g n
-$ sudo n lts
+$ mkdir -p /etc/apt/keyrings
 ```
 
-If the command:
+Then download the new repository's GPG key and save it in the keyring directory:
 
 ```bash
-$ node --version
+$ curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
 ```
 
-still returns the old version, open a new shell.
+Add the keyring to nodesource list:
+
+```bash
+$ echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
+```
+
+Now pin the deb.nodesource.com(as root):
+
+```bash
+$ echo "Package: nodejs" >> /etc/apt/preferences.d/preferences
+$ echo "Pin: origin deb.nodesource.com" >> /etc/apt/preferences.d/preferences
+$ sudo echo "Pin-Priority: 1001" >> /etc/apt/preferences.d/preferences
+```
+
+Install `node` & `yarn`:
+
+```bash
+$ sudo apt update && \
+    sudo apt install -y nodejs && \
+    sudo npm install -g npm@9 && \
+    sudo npm install --global yarn
+```
 
 ### Deployment
 
@@ -337,12 +350,11 @@ There are a few possible causes:
 > Check if _n6 Portal API_ is available using CURL. In case of wrong configuration,
 > the API should throw an error with 500 status code.
 
-    $ cd ~/certs
-    $ curl --cert cert.pem --key key.pem -k 'https://localhost/api/info'
+    $ curl -k 'https://localhost:4443/search/events.json?time.min=2015-01-01T00:00:00' -H "Authorization: Bearer YOUR_API_KEY"
 
 > Proper result:
 
-    $ {"authenticated": false}
+    $ 401 Unauthorized
 
 > If you get the `500 Internal Server Error` message, then there is something
 > wrong with:

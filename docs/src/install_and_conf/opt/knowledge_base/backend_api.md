@@ -1,26 +1,26 @@
 # _n6 Portal_ Backend API
 
 When it comes to the *knowledge base*, the *n6 Portal*'s backend API provides the following endpoints:
-* *Table of Contents* (`GET /knowledge_base/contents`),
-* *Article* (`GET /knowledge_base/articles/<article_id>`),
-* *Search* (`GET /knowledge_base/search`).
 
-HTTP responses of the endpoints are strictly dependent on switching on/off the *knowledge base* (see [Initialization and   Configuration](config.md)).
+* *Table of Contents* -- `GET /knowledge_base/contents`
+* *Article* -- `GET /knowledge_base/articles/<article_id>`
+* *Search* -- `GET /knowledge_base/search`
 
-## The *Table of Contents* endpoint
+HTTP responses of the endpoints are strictly dependent on switching on/off the *knowledge base* (see [Initialization and Configuration](config.md)).
 
-URL: `/knowledge_base/contents`  
-Description: getting the table of contents of the knowledge base (for logged in user)  
-Methods: `GET`  
-Authentication required: yes  
-Parameters: none  
-Posible HTTP responses:
-- **200 OK** - table of contents in JSON format
-- **403 Forbidden** - client is *not* authenticated
-- **404 Not Found** - client is authenticated but *knowledge base* is switched off
-- **500 Internal Server Error** - error in backend API, also in case of incorrect *knowledge base* structure when it is switched on (see section "Correctnes of the structure - minimal boundary conditions" in [Content Management](management.md))
+## `/knowledge_base/contents`
 
-### Example output
+- Description: getting the table of contents of the knowledge base (for logged-in user)
+- Methods: `GET`
+- Authentication required: yes
+- Parameters: none
+- Posible HTTP responses:
+    - **200 OK** -- table of contents in JSON format
+    - **403 Forbidden** -- client is *not* authenticated
+    - **404 Not Found** -- client is authenticated but *knowledge base* is switched off
+    - **500 Internal Server Error** -- error in backend API, also in case of incorrect *knowledge base* structure when it is switched on (see section "Correctness of the structure - minimal boundary conditions" in [Content Management](management.md))
+
+Example output:
 
 ```json
 {
@@ -75,20 +75,19 @@ Posible HTTP responses:
 }
 ```
 
-## The *Article* endpoint
+## `/knowledge_base/articles/<article_id>`
 
-URL: `/knowledge_base/articles/<article_id>`  
-Description: getting fixed article in all language versions (for logged in user)  
-Methods: `GET`  
-Authentication required: yes  
-Parameters: none  
-Posible HTTP responses:
-- **200 OK** - article with identifier `article_id` in JSON format
-- **403 Forbidden** - client is *not* authenticated
-- **404 Not Found** - client is authenticated but article with identifier `article_id` cannot be found or *knowledge base* is switched off
-- **500 Internal Server Error** - error in backend API
+- Description: getting fixed article in all language versions (for logged-in user)
+- Methods: `GET`
+- Authentication required: yes
+- Parameters: none
+- Possible HTTP responses:
+    - **200 OK** -- article with identifier `article_id` in JSON format
+    - **403 Forbidden** -- client is *not* authenticated
+    - **404 Not Found** -- client is authenticated but article with identifier `article_id` cannot be found or *knowledge base* is switched off
+    - **500 Internal Server Error** -- error in backend API
 
-### Example output
+Example output:
 
 ```json
 {
@@ -101,24 +100,22 @@ Posible HTTP responses:
 }
 ```
 
-## The *Search* endpoint
+## `/knowledge_base/search`
 
-URL: `/knowledge_base/search`  
-Description: getting the subset of the table of contents with articles which contain at least one of the word from the search phrase (for logged in user)  
-Methods: `GET`  
-Authentication required: yes  
-Parameters:
-- **lang** - language of the searching (posible values: `pl`, `en`)
-- **q** - search phrase (any characters except new line indicator, with total length between 3 and 100 chars)
+- Description: getting the subset of the table of contents with articles which contain at least one word from the search phrase (for logged-in user)
+- Methods: `GET`
+- Authentication required: yes
+- Parameters:
+    - **lang** -- language of the searching (possible values: `pl`, `en`)
+    - **q** -- search phrase (any characters except new line indicator, with total length between 3 and 100 chars)
+- Possible HTTP responses:
+    - **200 OK** -- subset of the table of contents in JSON format
+    - **400 Bad Request** -- wrong or missing parameters in HTTP request
+    - **403 Forbidden** -- client is *not* authenticated
+    - **404 Not Found** -- client is authenticated but *knowledge base* is switched off
+    - **500 Internal Server Error** -- error in backend API, also in case of incorrect *knowledge base* structure when it is switched on (see section "Correctness of the structure - minimal boundary conditions" in [Content Management](management.md))
 
-Posible HTTP responses:
-- **200 OK** - subset of the table of contents in JSON format
-- **400 Bad Request** - wrong or missing parameters in HTTP request
-- **403 Forbidden** - client is *not* authenticated
-- **404 Not Found** - client is authenticated but *knowledge base* is switched off
-- **500 Internal Server Error** - error in backend API, also in case of incorrect *knowledge base* structure when it is switched on (see section "Correctnes of the structure - minimal boundary conditions" in [Content Management](management.md))
-
-### Example output
+Example output:
 
 ```json
 {

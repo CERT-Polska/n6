@@ -3,8 +3,7 @@ import { AxiosError } from 'axios';
 import { Col, Dropdown, Row } from 'react-bootstrap';
 import classNames from 'classnames';
 import { useMutation } from 'react-query';
-import { CellProps, IdType } from 'react-table';
-import { useTable, useSortBy, useFlexLayout, Column } from 'react-table';
+import { CellProps, Column, IdType, useFlexLayout, useSortBy, useTable } from 'react-table';
 import { useTypedIntl } from 'utils/useTypedIntl';
 import { IRequestParams } from 'api/services/globalTypes';
 import { getSearch, IFilterResponse } from 'api/services/search';
@@ -23,9 +22,14 @@ import { ReactComponent as Chevron } from 'images/chevron.svg';
 import { TAvailableResources } from 'api/services/info/types';
 
 export const STORED_COLUMNS_KEY = 'userHiddenColumns';
-export const defaultColumnsSet = ['origin', 'proto', 'dport', 'dip', 'target', 'sport', 'md5', 'sha1'];
+export const defaultColumnsSet = ['id', 'origin', 'proto', 'dport', 'dip', 'target', 'sport', 'md5', 'sha1'];
 
 export const getColumnsWithProps = (messages: Record<string, string>) => [
+  {
+    Header: messages.incidents_column_header_id,
+    accessor: 'id',
+    width: 260
+  },
   {
     Header: messages.incidents_column_header_time,
     accessor: 'time',

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2024 NASK. All rights reserved.
 
 import datetime
 import socket
@@ -361,13 +361,13 @@ class Test_n6NormalizedData(_SqlaModelTestMixin, unittest.TestCase):
         ]
         if exc_type is None:
             assert result is not None
-            getattr(self.mock, mapped_to).like.side_effect = [sen.term1, sen.term2]
+            getattr(self.mock, mapped_to).contains.side_effect = [sen.term1, sen.term2]
             act_result = self.meth.like_query(key, value)
             self.assertIs(act_result, result)
             or_mock.assert_called_once_with(sen.term1, sen.term2)
             self.assertEqual(self.mock.mock_calls, [
-                getattr(call, mapped_to).like(u'%val%'),
-                getattr(call, mapped_to).like(u'%ążź%'),
+                getattr(call, mapped_to).contains('val', autoescape=True),
+                getattr(call, mapped_to).contains('ążź', autoescape=True),
             ])
         else:
             with self.assertRaises(exc_type):

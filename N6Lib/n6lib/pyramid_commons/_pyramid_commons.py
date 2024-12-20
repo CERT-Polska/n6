@@ -87,7 +87,7 @@ from n6lib.pyramid_commons.knowledge_base_helpers import (
     build_knowledge_base_data,
     search_in_knowledge_base,
 )
-from n6lib.pyramid_commons.mfa_helpers import MFA_CODE_MAX_ACCEPTABLE_AGE_IN_SECONDS
+from n6lib.pyramid_commons.mfa_helpers import DELAY_TO_BE_SURE_THAT_MFA_CODE_EXPIRES
 from n6lib.pyramid_commons.renderers import (
     # by importing that submodule we ensure that
     # these stream renderers are registered
@@ -747,7 +747,7 @@ class _AbstractPortalMFARelatedView(_AbstractPortalAuthRelatedView):
                                                  mfa_code: int,
                                                  mfa_key_base: str) -> Optional[AuthData]:
         self.auth_manage_api.delete_outdated_spent_mfa_codes(
-            mfa_code_max_age=MFA_CODE_MAX_ACCEPTABLE_AGE_IN_SECONDS)
+            mfa_code_max_age=DELAY_TO_BE_SURE_THAT_MFA_CODE_EXPIRES)
         secret_key = self.generate_secret_key(mfa_key_base, self.get_mfa_server_secret())
         if not self.does_mfa_code_matches_now(mfa_code, secret_key):
             LOGGER.warning('Auth of %a by MFA code failed - MFA code does not match', login)
@@ -1799,12 +1799,16 @@ class AuthTktUserAuthenticationPolicy(BaseUserAuthenticationPolicy):
     """
 
     def __init__(self, settings):
+        sess_cookie_sign_secret = (
+            settings['session_cookie_sign_secret']
+            if settings.get('session_cookie_sign_secret', '').strip()
+            else make_hex_id())
         sess_cookie_secure = str_to_bool(settings.get('session_cookie_secure', 'true'))
         sess_timeout = settings.get('session_timeout', None)
         reissue_time = settings.get('session_reissue_time', None)
         sess_timeout = int(sess_timeout) if sess_timeout is not None else sess_timeout
         reissue_time = int(reissue_time) if reissue_time is not None else reissue_time
-        self._auth_tkt_policy = AuthTktAuthenticationPolicy(secret=make_hex_id(),
+        self._auth_tkt_policy = AuthTktAuthenticationPolicy(secret=sess_cookie_sign_secret,
                                                             hashalg='sha384',
                                                             secure=sess_cookie_secure,
                                                             timeout=sess_timeout,

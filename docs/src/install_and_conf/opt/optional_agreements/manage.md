@@ -1,7 +1,5 @@
 # Management in _n6 Admin Panel_
 
-## Overview
-
 Managing _Agreements_ does not differ from managing other models in _n6 Admin Panel_. This documentation provides visual guidance and information on managing _Agreements_ and their relations.
 
 ## Adding _Agreements_
@@ -23,7 +21,7 @@ After creating some _Agreement_ instances, they can be seen in the _List_ view. 
 ![Agreement tab with single record](img/agreement_tab_item.png)
 _Agreement tab with a single record in List view._
 
-After clicking on the eye icon, the _Detail_ view is shown, displaying all [schema](model.md/#agreement-schema) fields with their current values.
+After clicking on the eye icon, the _Detail_ view is shown, displaying all [model](model.md) fields with their current values.
 
 ![Detail view](img/example_detail.png)
 _Detail view_

@@ -14,7 +14,7 @@ The details of the applied update are listed below.
   * + [added] {{ data_dict.update_info.added_user_logins|default(['(none)'], boolean=true)|join(', ') }}
   * - [removed] {{ data_dict.update_info.removed_user_logins|default(['(none)'], boolean=true)|join(', ') }}
 
-  {%- if data_dict.update_info.added_user_logins
+  {%- if data_dict.update_info.added_user_logins %}
   -----------------------------------------------------------------------
   We welcome the new users! To set your new n6 Portal password, please
   visit the login page, use the "Forgot password?" link, and follow the

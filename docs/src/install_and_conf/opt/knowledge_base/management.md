@@ -1,7 +1,5 @@
 # Content Management
 
-## Overwiew
-
 The administrators of a particular instance of _n6_ are responsible for managing the knowledge base contents (adding, updating, deleting articles and chapters etc...). The aim of this guide section is to describe how the knowledge base structure is built and how to manage articles within that structure.
 
 ## _Knowledge Base_ filesystem structure
@@ -48,7 +46,7 @@ Below you will find detailed description of the structure and minimal conditions
             │   └── _title.txt
             └── _title.txt
 
-### Correctnes of the structure - minimal boundary conditions
+### Correctness of the structure - minimal boundary conditions
 
 Below you fill find the minimal boundary conditions for correct knowledge base structure (otherwise user ater click in _Knowledge base_ link will not get table of contents).
 
