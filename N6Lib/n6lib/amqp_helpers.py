@@ -281,18 +281,25 @@ def get_amqp_connection_params_dict_from_args(
         A dict that can be used as **kwargs for pika.ConnectionParameters.
 
     Raises:
-        * TypeError if `username` or `password` is not a str.
         * TypeError if `ssl_options` is neither None nor a dict.
+        * TypeError if `username`/`password` is neither None nor a str.
         * TypeError if `ca_certs`/`certfile`/`keyfile` is neither None
           nor empty, *and* the respective "alias" argument, `ssl_ca_certs`
           /`ssl_certfile`/`ssl_keyfile`, is also neither None nor empty.
         * TypeError if `ca_certs`/`certfile`/`keyfile` (or the respective
           "alias" argument, `ssl_ca_certs`/`ssl_certfile`/`ssl_keyfile`)
           is neither None nor empty, *and* the value for the corresponding
-          item ('ca_certs'/'certfile'/'keyfile') in the given `ssl_options`
+          item ('ca_certs'/'certfile'/'keyfile') of the given `ssl_options`
           dict is also neither None nor empty.
+        * TypeError if `ca_certs`/`certfile`/`keyfile` (or `ssl_ca_certs`/
+          `ssl_certfile`/`ssl_keyfile`, or a 'ca_certs'/'certfile'/
+          'keyfile' item of `ssl_options`) is neither None nor any of:
+          a str, a bytes, a *path-like* object.
         * AMQPConnectionParamsError if some connection parameters are
-          wrongly unspecified or over-specified.
+          wrongly unspecified or over-specified, or `password` is too
+          short (or missing) when it is expected to be specified (i.e.,
+          when `password_auth` is true, and `username` is neither None
+          nor the 'guest' str, nor an empty str).
     """
     (
         ssl,
@@ -309,12 +316,12 @@ def get_amqp_connection_params_dict_from_args(
         certfile=certfile,
         keyfile=keyfile,
         ssl_options=ssl_options,
-        password_auth=password_auth,
-        username=username,
-        password=password,
         ssl_ca_certs=ssl_ca_certs,
         ssl_certfile=ssl_certfile,
         ssl_keyfile=ssl_keyfile,
+        password_auth=password_auth,
+        username=username,
+        password=password,
     )
 
     params_dict = dict(
@@ -419,12 +426,12 @@ def _preprocess_args(*,
                      certfile,
                      keyfile,
                      ssl_options,
-                     password_auth,
-                     username,
-                     password,
                      ssl_ca_certs,
                      ssl_certfile,
-                     ssl_keyfile):
+                     ssl_keyfile,
+                     password_auth,
+                     username,
+                     password):
 
     # * Coerce flag arguments to `bool`:
 

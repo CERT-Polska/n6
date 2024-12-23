@@ -329,9 +329,10 @@ class n6NormalizedData(Base):
         col = getattr(cls, mapping[key])
         return or_(*[
             # Note: Each `col.contains(val, autoescape=True)` call is
-            # translated into a suitable `LIKE` SQL condition, with
-            # `%` and `_` escaped as appropriate (given that they are
-            # wildcard characters in `LIKE` patterns).
+            # translated into a suitable `LIKE` SQL condition, with `%`
+            # and `_` escaped as appropriate (considering that those
+            # characters, when used in a `LIKE`'s pattern, play a role
+            # of *wildcard* markers).
             col.contains(val, autoescape=True)
             for val in value])
 

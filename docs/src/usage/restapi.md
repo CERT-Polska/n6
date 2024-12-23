@@ -531,7 +531,7 @@ multiple values* of a parameter are allowed).
 
 ## API Changelog
 
-### **4.12.0** – 2024-XX-XX
+### **4.12.0** – 2024-12-23
 
 After this release of *n6*, any changes to *n6 REST API* will be
 recorded in this section (in addition to being included in the main

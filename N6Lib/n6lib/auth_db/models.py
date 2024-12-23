@@ -2214,7 +2214,7 @@ class SystemGroup(_ExternalInterfaceMixin, Base):
 
 
 class Agreement(_ExternalInterfaceMixin, Base):
-    
+
     __tablename__ = 'agreement'
     __table_args__ = mysql_opts()
 
@@ -2222,15 +2222,15 @@ class Agreement(_ExternalInterfaceMixin, Base):
         String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING),
         primary_key=True,
     )
-    
+
     default_consent = col(Boolean, default=True, nullable=False)
-    
+
     en = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), nullable=False)
     pl = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), nullable=False)
 
     url_en = col(String(MAX_LEN_OF_URL), nullable=True)
     url_pl = col(String(MAX_LEN_OF_URL), nullable=True)
-    
+
     orgs = rel(
         'Org',
         secondary=org_agreement_link,
@@ -2239,7 +2239,7 @@ class Agreement(_ExternalInterfaceMixin, Base):
         'RegistrationRequest',
         secondary=registration_request_agreement_link,
         back_populates='agreements')
-    
+
     def __str__(self):
         return f'Agreement "{self.label}"'
 

@@ -15,5 +15,5 @@ _Agreements_ are managed as objects stored in _Auth DB_. Those objects may be vi
 
 _Agreement_ as an _Auth DB_ model exists independently of other models, so its instances are not deleted by cascade when a related object is being removed. There are two _Auth DB_ models in relation with _Agreement_:
 
-- _Org_ – agreements related with an _Org_ are binding for the organization and can be managed client-side using the [*Organization Agreements*](portal.md#organization-agreements-page) page in *n6 Portal*. **If an `Agreement` is in the _Org_'s `agreements` list, it means the organization accepted to it**.
+- _Org_ – agreements related with an _Org_ are binding for the organization and can be managed client-side using the [*Organization Agreements*](portal.md#organization-agreements-page) page in *n6 Portal*. **If an `Agreement` is in the _Org_'s `agreements` list, it means that the organization has accepted it**.
 - _RegistrationRequest_ – during registration, it is possible to check or un-check each of available agreements, so when a _RegistrationRequest_ is accepted by an administrator, a new _Org_ is immediately created with the checked agreements.

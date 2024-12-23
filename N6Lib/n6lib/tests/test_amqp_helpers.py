@@ -48,8 +48,8 @@ CONF_SECTION_DEFAULTS = dict(
     ssl_certfile='',
     ssl_keyfile='',
     password_auth=False,
-    username=GUEST_USERNAME,
-    password=GUEST_PASSWORD,
+    username='',
+    password='',
 )
 
 CONN_PARAM_CLIENT_PROP_INFORMATION = AnyMatchingRegex(re.compile(
@@ -457,9 +457,9 @@ class Test_get_amqp_connection_params_dict_from_args(unittest.TestCase, TestCase
     GIVEN_CERTFILE_PATH = '/given/certfile'
     GIVEN_KEYFILE_PATH = '/given/keyfile'
 
-    EXPANDED_CA_CERTS_PATH = '/example/expanded/ca/certs'
-    EXPANDED_CERTFILE_PATH = '/example/expanded/certfile'
-    EXPANDED_KEYFILE_PATH = '/example/expanded/keyfile'
+    EXPANDED_CA_CERTS_PATH = '/expanded/ca/certs'
+    EXPANDED_CERTFILE_PATH = '/expanded/certfile'
+    EXPANDED_KEYFILE_PATH = '/expanded/keyfile'
 
     @paramseq
     def success_cases(cls):  # noqa

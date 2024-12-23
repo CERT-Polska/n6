@@ -25,7 +25,7 @@ server is **`n6stream.cert.pl:61614`**.
 The supported STOMP versions are: *1.0*, *1.1* and *1.2*. The use of
 [TLS](https://en.wikipedia.org/wiki/Transport_Layer_Security) is
 mandatory. We recommend using the most recent version of the protocol
-(*1.2*) and of the [OpenSSL](https://openssl-library.org/) cryptographic
+(STOMP *1.2*) and of the [OpenSSL](https://openssl-library.org/) cryptographic
 library.
 
 To receive data, the client must subscribe to an appropriate STOMP destination.

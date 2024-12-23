@@ -3394,7 +3394,7 @@ def parse_config_spec(config_spec, /):
     _verify_no_config_spec_reserved_chars(config_spec_string)
     # (For more doctests related to the class of objects returned by
     # this function -- including some peculiar/corner cases -- see the
-    # docstring of the `_ConfSpecData` non-pubic class...)
+    # docstring of the `_ConfSpecData` non-public class...)
     return _ConfSpecData(config_spec_string)
 
 
