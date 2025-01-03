@@ -29,6 +29,9 @@ Some features of this document's layout were inspired by
 
 #### General Audience Stuff
 
+- [setup, lib] Added the `redis==2.10.6` pinned requirement to
+  `N6Lib/requirements`.
+
 - [etc/docker, docs] Fixed/updated certain technical details in the base
   image's *Dockerfile*. Applied minor updates, fixes and improvements to
   the documentation.
