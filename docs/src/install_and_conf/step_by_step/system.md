@@ -483,10 +483,10 @@ solution.
 Install `libssl1.1` and `libssl1.1-dev`
 
 ```bash
-$ wget http://ftp.pl.debian.org/debian/pool/main/o/openssl/libssl1.1_1.1.1w-0+deb11u1_amd64.deb
-$ wget http://ftp.pl.debian.org/debian/pool/main/o/openssl/libssl-dev_1.1.1w-0+deb11u1_amd64.deb
-$ sudo dpkg -i libssl1.1_1.1.1w-0+deb11u1_amd64.deb
-$ sudo dpkg -i libssl-dev_1.1.1w-0+deb11u1_amd64.deb
+$ wget http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.1_1.1.1w-0+deb11u2_amd64.deb
+$ wget http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl-dev_1.1.1w-0+deb11u2_amd64.deb
+$ sudo dpkg -i libssl1.1_1.1.1w-0+deb11u2_amd64.deb
+$ sudo dpkg -i libssl-dev_1.1.1w-0+deb11u2_amd64.deb
 $ rm -i libssl1.1_1.1.1w-0+deb11u1_amd64.deb
 $ rm -i libssl-dev_1.1.1w-0+deb11u1_amd64.deb
 ```

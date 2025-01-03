@@ -13,9 +13,9 @@ latest version of *n6* -- using the _Docker_ and _docker compose_ tools.
 The goal of this guide is to give you an example of how you can run *n6*
 in the easiest possible way, so that you can learn -- by monitoring and
 experimenting -- how the *n6* system works and how you can interact with
-it. Keep in mind that this guide was designed for linux-based systems.
-Even with usage of _Docker_ and _docker compose_ -- we cannot guarantee --
-that it will work on other systems such as Windows or Mac OS.
+it. Keep in mind that this guide was designed for Linux-based systems.
+Even with usage of _Docker_ and _docker compose_, we cannot guarantee
+that it will work on other systems (such as Windows or Mac OS).
 
 
 !!! warning "Disclaimer: what these materials _are_ and what they are _not_"
@@ -66,6 +66,7 @@ docker compose build
 The result of the process are ready-to-use docker images.
 
 !!! tip
+
     Sometimes docker images might not be built correctly due to external factors.
     In case of any errors, try building them once more.
 
@@ -220,7 +221,7 @@ To see the results, restart (or reload) the `apache2` service:
 docker compose exec web apache2ctl restart
 ```
 
-!!! warning "As mentioned in disclaimer"
+!!! warning "As mentioned in the disclaimer"
     This is not a production setup, so it may produce error:
 
     ```
@@ -264,9 +265,9 @@ Then follow the directions in _Multi-Factor Authentication Setup_.
 - URL: [https://localhost/](https://localhost/)
 
 - Credentials to log in:
-  - username: `login@example.com`,
-  - organization: `example.com`,
-  - password: `entered when calling the n6populate_auth_db script`.
+    - username: `login@example.com`,
+    - organization: `example.com`,
+    - password: `entered when calling the n6populate_auth_db script`.
 
 **Mailhog Web GUI:**
 
@@ -278,17 +279,15 @@ Then follow the directions in _Multi-Factor Authentication Setup_.
 **MongoDB Compass / Studio 3T Free - client GUI for MongoDB:**
 
 - Connection:
-
-  - name: any, e.g.: `n6-open`
-  - hostname: `localhost`
-  - port: `27017`
+    - name: any, e.g.: `n6-open`
+    - hostname: `localhost`
+    - port: `27017`
 
 - Authentication:
-
-  - database name: `n6` or `admin`
-  - username: `admin`
-  - password: `password`
-  - auth mechanism: `MONGODB-CR` or `Default` in MongoDB Compass
+    - database name: `n6` or `admin`
+    - username: `admin`
+    - password: `password`
+    - auth mechanism: `MONGODB-CR` or `Default` in MongoDB Compass
 
 ## Working with Docker environment
 
@@ -334,8 +333,9 @@ Some files and directories are worth mentioning -- namely:
   Every collector, parser or other *n6* component will write its logs
   here.
 
-  **The `logs` directory will be lost on every container stop. You can
-  use the Docker's _volumes_ feature to make the directory persistent.**
+!!! note
+    The `logs` directory will be lost on every container stop. You can
+    use the Docker's _volumes_ feature to make the directory persistent.
 
 - the **`supervisord`** directory contains Supervisor-related configuration
   files; the subdirectory **`programs`** contains a list of *n6* components
@@ -407,11 +407,11 @@ and Events will load. If you used different collectors you can also add filters 
 
 ## Using REST API
 
-*n6* provide you with REST API, but to use it you need to set your API KEY.
+*n6* provide you with REST API, but to use it you need to set your *API key*.
 
-### Setting API KEY
+### Setting API Key
 
-To set your API KEY follow these steps:
+To set your *API key* follow these steps:
 
 - Log into *n6* Portal.
 - Click the user icon located in the top right corner.
@@ -434,8 +434,9 @@ And you should see some json data.
 
 !!! note
 
-    By default, there is no data available in the REST API. To fetch and view data, you need to run the collector—for example, by executing 
-    `n6collector_certplshield`.
+    Initially, as in the case of Portal, there is no data available via
+    REST API. To fetch and view some data, you need to run a collector
+    -- for example, by executing `n6collector_certplshield`.
 
 ## Shutdown and cleanup
 

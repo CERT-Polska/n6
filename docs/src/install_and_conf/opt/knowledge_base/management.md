@@ -104,6 +104,6 @@ To delete article, delete particular markdown files representing article, in eve
 
 For set the right order of the article in given chapter, you need to set the rignt identifier accordingly to your needs. Articles are visible in the table of contents of the _n6_ GUI in accordance with their identifiers (ascending).
 
-### Move the article to the other chapter
+### Move the article to another chapter
 
 To move an article to another chapter, move the article file to the subfolder representing that chapter (in all language branches).

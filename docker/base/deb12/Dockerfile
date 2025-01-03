@@ -88,12 +88,12 @@ RUN \
 
 # install libssl1.1.1 and libssl1.1.1-dev
 RUN \
-    wget --no-check-certificate http://ftp.pl.debian.org/debian/pool/main/o/openssl/libssl1.1_1.1.1w-0+deb11u1_amd64.deb; \
-    wget --no-check-certificate http://ftp.pl.debian.org/debian/pool/main/o/openssl/libssl-dev_1.1.1w-0+deb11u1_amd64.deb
+    wget --no-check-certificate http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.1_1.1.1w-0+deb11u2_amd64.deb; \
+    wget --no-check-certificate http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl-dev_1.1.1w-0+deb11u2_amd64.deb
 
 RUN \
-    dpkg -i libssl1.1_1.1.1w-0+deb11u1_amd64.deb; \
-    dpkg -i libssl-dev_1.1.1w-0+deb11u1_amd64.deb
+    dpkg -i libssl1.1_1.1.1w-0+deb11u2_amd64.deb; \
+    dpkg -i libssl-dev_1.1.1w-0+deb11u2_amd64.deb
 
 RUN \
     # sudo apt-get install libssl-dev && \

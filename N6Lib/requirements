@@ -30,6 +30,7 @@ pyotp==2.3.0
 PyStemmer==2.0.1
 pystempel==1.2.0
 pytest==7.1.2
+redis==2.10.6
 ruamel.yaml<0.17.22
 unittest_expander==0.4.4
 typing_extensions
