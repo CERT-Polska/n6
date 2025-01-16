@@ -29,12 +29,14 @@ Some features of this document's layout were inspired by
 
 #### General Audience Stuff
 
-- [setup, lib] Added the `redis==2.10.6` pinned requirement to
-  `N6Lib/requirements`.
-
 - [etc/docker, docs] Fixed/updated certain technical details in the base
   image's *Dockerfile*. Applied minor updates, fixes and improvements to
-  the documentation.
+  various parts of the documentation (including this changelog).
+
+#### System/Configuration/Programming-Only
+
+- [setup, lib] Added the `redis==2.10.6` pinned requirement to
+  `N6Lib/requirements`.
 
 
 ## [4.12.0] (2024-12-23)
@@ -420,7 +422,17 @@ Some features of this document's layout were inspired by
 
 ## [4.5.0] (2023-11-29)
 
-### Features and Notable Changes
+#### General Audience Stuff
+
+- [data pipeline, lib] `n6filter`: fixed a bug (in the machinery of
+  `n6lib.auth_api.InsideCriteriaResolver`...) related to *event ownership
+  criteria* (aka *"inside" resource events criteria*) regarding the very
+  unlikely (yet not impossible) corner case of the `0.0.0.0/32` IP network
+  defined as such a criterion in the Auth DB... The bug might make
+  `n6filter` reject all incoming data (because of raised exceptions).
+
+- [tests, docs] Non-major enhancements and fixes regarding some unit tests
+  and documentation.
 
 #### System/Configuration/Programming-Only
 
@@ -434,20 +446,6 @@ Some features of this document's layout were inspired by
   removing its attribute `PARSER_RAW_FORMAT_VERSION_TAG`. The rationale
   for these changes is that no *raw format version tag* has ever been
   assigned to the `spamhaus.edrop` parser.
-
-### Less Notable Changes and Fixes
-
-#### General Audience Stuff
-
-- [data pipeline, lib] `n6filter`: fixed a bug (in the machinery of
-  `n6lib.auth_api.InsideCriteriaResolver`...) related to *event ownership
-  criteria* (aka *"inside" resource events criteria*) regarding the very
-  unlikely (yet not impossible) corner case of the `0.0.0.0/32` IP network
-  defined as such a criterion in the Auth DB... The bug might make
-  `n6filter` reject all incoming data (because of raised exceptions).
-
-- [tests, docs] Non-major enhancements and fixes regarding some unit tests
-  and documentation.
 
 #### Programming-Only
 
