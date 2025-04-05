@@ -10,9 +10,10 @@ interface IProps {
   placement?: Placement;
   id: string;
   className?: string;
+  dataTestId?: string;
 }
 
-const Tooltip: FC<IProps> = ({ content, placement = 'auto', id, className }) => {
+const Tooltip: FC<IProps> = ({ content, placement = 'auto', id, className, dataTestId }) => {
   const { messages } = useTypedIntl();
 
   if (!content) return null;
@@ -28,6 +29,7 @@ const Tooltip: FC<IProps> = ({ content, placement = 'auto', id, className }) => 
       }
     >
       <button
+        data-testid={dataTestId}
         type="button"
         className={classNames('n6-tooltip-button', className)}
         aria-label={`${messages.tooltipAriaLabel}`}

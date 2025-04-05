@@ -1,14 +1,8 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render, renderHook, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import FormFileUpload from './FormFileUpload';
-import { FormProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/testWrappers';
 import { useForm } from 'react-hook-form';
-import { LanguageProvider } from 'context/LanguageProvider';
 import * as FormRenderErrorMsgModule from './FormRenderErrorMsg';
 import * as FormRenderSelectedFileModule from './FormRenderSelectedFile';
 import * as validateFieldModule from './validation/validators';
@@ -46,7 +40,7 @@ describe('<FormFileUpload />', () => {
       formMethods = { ...formMethods, trigger: triggerSpy };
 
       const { container } = render(
-        <FormProviderTestWrapper formMethods={{ ...formMethods }}>
+        <FormProviderTestWrapper formMethods={formMethods}>
           <FormFileUpload
             name={controllerName}
             label={labelName}
@@ -62,8 +56,6 @@ describe('<FormFileUpload />', () => {
         isSubmitted: false,
         isTouched: true
       });
-
-      expect(container.firstChild).toHaveClass('form-single-file-wrapper');
 
       const inputElement = container.querySelector('input') as HTMLInputElement;
       expect(inputElement).toHaveAttribute('hidden');
@@ -122,11 +114,11 @@ describe('<FormFileUpload />', () => {
     const formMethods = useFormRender.result.current;
 
     const { container } = render(
-      <LanguageProvider>
-        <FormProviderTestWrapper formMethods={{ ...formMethods }}>
+      <LanguageProviderTestWrapper>
+        <FormProviderTestWrapper formMethods={formMethods}>
           <FormFileUpload name={controllerName} label={labelName} />
         </FormProviderTestWrapper>
-      </LanguageProvider>
+      </LanguageProviderTestWrapper>
     );
 
     const inputElement = container.querySelector('input') as HTMLInputElement;

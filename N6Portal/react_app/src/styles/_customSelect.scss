@@ -1,90 +1,13 @@
-.custom-select-button {
-  position: relative;
-  width: 100%;
-  margin-bottom: 0;
-  border-radius: $border-radius;
-  border: none;
-  background: none;
-  padding: 0;
-  @include outline($primary, 0.25);
-  @include media-breakpoint-up(sm) {
-    width: $select-button-width;
-  }
-  &:hover {
-    .select-button__control {
-      transition: 0.2s;
-      border-color: $primary !important;
-      color: $primary !important;
-    }
-  }
-  &.focused {
-    .select-button__control {
-      transition: 0.2s;
-      border-color: $primary !important;
-      color: $primary !important;
-    }
-    .custom-select-button__dropdown-indicator {
-      transform: rotate(180deg);
-    }
-  }
-}
-
-.custom-select-button:not(.form-select) {
-  height: sizeToRem(44);
-
-  &.focused,
-  &:hover {
-    label {
-      color: $primary;
-    }
-  }
-
-  label {
-    transition: color 0.2s;
-    position: absolute;
-    z-index: 1;
-    padding: 0 sizeToRem(4);
-    margin: 0;
-    top: sizeToRem(-10);
-    left: sizeToRem(13);
-    color: $select-button-color;
-    font-size: sizeToRem(12);
-    font-family: $font-fam-headers;
-    font-weight: 500;
-
-    &:before {
-      content: '';
-      position: absolute;
-      top: 49%;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      z-index: -1;
-      background-color: white;
-    }
-  }
-}
-
-.custom-select-container {
-  border: none;
-  border-radius: $border-radius;
-  height: 100%;
-  padding: 0;
-  margin: 0;
-  &:focus {
-    border-color: $primary !important;
-    color: $primary !important;
-  }
-}
-
 .custom-select-button__control {
   border-radius: $border-radius !important;
   border: 1px solid $select-button-color !important;
   height: 100%;
   padding-left: sizeToRem(16);
+
   &:hover {
     cursor: pointer;
   }
+
   &--is-focused {
     box-shadow: none !important;
   }
@@ -104,7 +27,9 @@
 
 .custom-select-button__dropdown-indicator {
   color: $primary !important;
-  transition: transform 0.2s, color 0.15s !important;
+  transition:
+    transform 0.2s,
+    color 0.15s !important;
 }
 
 .custom-select-button__indicator-separator {
@@ -115,7 +40,7 @@
   z-index: 999 !important;
   border-radius: $border-radius !important;
   box-shadow: 0 sizeToRem(3) sizeToRem(6) rgba($primary, 0.15) !important;
-  margin: 0 0 0 0 !important;
+  margin: 0 !important;
 }
 
 .custom-select-button__menu-list {
@@ -129,12 +54,96 @@
   color: #000 !important;
   padding: sizeToRem(8) sizeToRem(16) !important;
   text-align: left;
+
   &:hover {
     cursor: pointer;
     background-color: $light !important;
   }
+
   &--is-focused {
     border-radius: sizeToRem(5) !important;
     background-color: $light !important;
+  }
+}
+
+.custom-select-button {
+  position: relative;
+  width: 100%;
+  margin-bottom: 0;
+  border-radius: $border-radius;
+  border: none;
+  background: none;
+  padding: 0;
+
+  @include outline($primary, 0.25);
+
+  @include media-breakpoint-up(sm) {
+    width: $select-button-width;
+  }
+
+  &:hover {
+    .select-button__control {
+      transition: 0.2s;
+      border-color: $primary !important;
+      color: $primary !important;
+    }
+  }
+
+  &.focused {
+    .select-button__control {
+      transition: 0.2s;
+      border-color: $primary !important;
+      color: $primary !important;
+    }
+
+    .custom-select-button__dropdown-indicator {
+      transform: rotate(180deg);
+    }
+  }
+}
+
+.custom-select-button:not(.form-select) {
+  height: sizeToRem(44);
+
+  label {
+    transition: color 0.2s;
+    position: absolute;
+    z-index: 1;
+    padding: 0 sizeToRem(4);
+    margin: 0;
+    top: sizeToRem(-10);
+    left: sizeToRem(13);
+    color: $select-button-color;
+    font-size: sizeToRem(12);
+    font-family: $font-fam-headers;
+    font-weight: 500;
+
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 49% 0 0;
+      z-index: -1;
+      background-color: $light-background;
+    }
+  }
+
+  &.focused,
+  &:hover {
+    label {
+      color: $primary;
+    }
+  }
+}
+
+.custom-select-container {
+  border: none;
+  border-radius: $border-radius;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+
+  &:focus {
+    border-color: $primary !important;
+    color: $primary !important;
   }
 }

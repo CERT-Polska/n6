@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-// jest environment to allow mocking of document.createElement
-
 import { storageAvailable } from './storageAvailable';
 
 describe('storageAvailable', () => {

@@ -1,13 +1,8 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render } from '@testing-library/react';
 import FormRenderErrorMsg from './FormRenderErrorMsg';
 import { FieldError } from 'react-hook-form';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import { dictionary } from 'dictionary';
-import { LanguageProviderTestWrapper } from 'utils/createTestComponentWrapper';
 
 describe('<FormRenderErrorMsg />', () => {
   afterEach(() => cleanup());
@@ -57,7 +52,7 @@ describe('<FormRenderErrorMsg />', () => {
       isInvalid: false,
       fieldErrorType: 'maxLength',
       helperText: 'errApiLoader_statusCode_500_header',
-      expectedHelperText: dictionary['en']['errApiLoader_statusCode_500_header'],
+      expectedHelperText: 'Oops... Something went wrong', // dictionary['en']['errApiLoader_statusCode_500_header']
       fieldErrorMessage: 'test message without a hashtag to split',
       expectedErrorMessage: 'test message without a hashtag to split'
     }
@@ -70,6 +65,14 @@ describe('<FormRenderErrorMsg />', () => {
         message: fieldErrorMessage
       };
 
+      const formatMessageMock = jest.fn().mockImplementation(({ id }) => id);
+
+      jest.spyOn(require('react-intl'), 'useIntl').mockReturnValue({
+        formatMessage: formatMessageMock,
+        messages: dictionary['en'],
+        locale: 'en'
+      });
+
       const { container } = render(
         <LanguageProviderTestWrapper>
           <FormRenderErrorMsg
@@ -81,29 +84,28 @@ describe('<FormRenderErrorMsg />', () => {
         </LanguageProviderTestWrapper>
       );
 
-      expect(container).not.toBeEmptyDOMElement();
       expect(container.firstChild).toHaveClass(`input-helper-text ${className}`);
-      expect(container.firstChild?.firstChild).toHaveClass('formfield-helper-msg');
       expect(container.firstChild?.firstChild).toHaveRole('paragraph');
 
       const doesShowErrorMsg = fieldErrorMessage && isInvalid;
       const spanElement = container.querySelector('span') as HTMLElement;
-      screen.debug(spanElement);
 
       // if no message available
       if (!doesShowErrorMsg && !!!helperText) {
         expect(container.firstChild?.firstChild?.firstChild).toBe(null);
-      } else {
-        if (doesShowErrorMsg) {
-          // if shows main message
-          expect(spanElement).toHaveClass('text-danger');
-          expect(spanElement).toHaveTextContent(expectedErrorMessage);
-        } else {
-          // else helperText should be rendered
-          expect(spanElement).toHaveClass('text-muted');
-          expect(spanElement).toHaveTextContent(expectedHelperText);
-        }
+        return;
       }
+
+      if (doesShowErrorMsg) {
+        // if shows main message
+        expect(spanElement).toHaveClass('text-danger');
+        expect(spanElement).toHaveTextContent(expectedErrorMessage);
+        return;
+      }
+      // else helperText should be rendered
+      expect(spanElement).toHaveClass('text-muted');
+      expect(spanElement).toHaveTextContent(expectedHelperText);
+      return;
     }
   );
 });

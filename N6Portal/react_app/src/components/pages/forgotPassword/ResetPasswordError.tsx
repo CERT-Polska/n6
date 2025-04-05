@@ -22,8 +22,13 @@ const ResetPasswordError: FC = () => {
           <ErrorIcon />
         </div>
         <div className="mb-30 reset-password-summary error">
-          <h1>{messages.reset_password_error_title}</h1>
-          <CustomButton text={`${messages.reset_password_error_btn}`} variant="primary" onClick={handleClick} />
+          <h1 data-testid="reset-password-error-title">{messages.reset_password_error_title}</h1>
+          <CustomButton
+            dataTestId="reset-password-error-tryAgain-btn"
+            text={`${messages.reset_password_error_btn}`}
+            variant="primary"
+            onClick={handleClick}
+          />
         </div>
       </div>
     </section>

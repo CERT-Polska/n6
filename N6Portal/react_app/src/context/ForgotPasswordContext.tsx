@@ -1,6 +1,11 @@
 import { createContext, useState, useContext, useCallback } from 'react';
 
-type TForgotPasswordStatus = 'request_form' | 'request_error' | 'request_success' | 'reset_error' | 'reset_success';
+export type TForgotPasswordStatus =
+  | 'request_form'
+  | 'request_error'
+  | 'request_success'
+  | 'reset_error'
+  | 'reset_success';
 
 interface IForgotPasswordState {
   state: TForgotPasswordStatus;
@@ -21,7 +26,7 @@ const initialForgotPasswordState: IForgotPasswordState = {
   state: 'request_form'
 };
 
-const ForgotPasswordContext = createContext<IForgotPasswordContext>(initialContext);
+export const ForgotPasswordContext = createContext<IForgotPasswordContext>(initialContext);
 
 export const ForgotPasswordContextProvider = ({ children }: { children: React.ReactNode }) => {
   const [forgotPasswordState, changeForgotPasswordState] = useState<IForgotPasswordState>(initialForgotPasswordState);

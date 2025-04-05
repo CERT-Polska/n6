@@ -1,8 +1,4 @@
-/**
- * @jest-environment jsdom
- */
-
-import { queryClientTestHookWrapper } from 'utils/createTestHookWrapper';
+import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { getOrgConfig, postOrgConfig, useOrgConfig } from './index';
 import { IOrgConfig } from './types';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -65,7 +61,7 @@ describe('useOrgConfig', () => {
 
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: useOrgConfigMockedData }));
 
-    const useOrgConfigRenderingResult = renderHook(() => useOrgConfig(), { wrapper: queryClientTestHookWrapper() });
+    const useOrgConfigRenderingResult = renderHook(() => useOrgConfig(), { wrapper: QueryClientProviderTestWrapper });
     await waitFor(() => {
       expect(useOrgConfigRenderingResult.result.current.isSuccess).toBe(true);
     });

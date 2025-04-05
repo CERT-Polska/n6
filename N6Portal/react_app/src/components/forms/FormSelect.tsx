@@ -21,6 +21,7 @@ interface IProps {
   disabled?: boolean;
   defaultValue?: SelectOption<string | boolean | number> | null;
   validate?: Record<string, Validate<SelectOption<string | boolean | number> | null>>;
+  dateTestId?: string;
 }
 
 const FormSelect: FC<IProps & FormContextProps> = memo(
@@ -36,7 +37,8 @@ const FormSelect: FC<IProps & FormContextProps> = memo(
     disabled,
     defaultValue = null,
     formState: { errors },
-    validate
+    validate,
+    dateTestId
   }) => (
     <Form.Group className={className}>
       <div className="input-wrapper">
@@ -48,6 +50,7 @@ const FormSelect: FC<IProps & FormContextProps> = memo(
             const isValueObject = isObject(value);
             return (
               <CustomSelect
+                dateTestId={dateTestId}
                 label={label}
                 placeholder={placeholder || defaultPlaceholder}
                 disabled={disabled}

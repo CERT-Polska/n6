@@ -10,7 +10,7 @@ import useAuthContext from 'context/AuthContext';
 import routeList from 'routes/routeList';
 import FormInput from 'components/forms/FormInput';
 import CustomButton from 'components/shared/CustomButton';
-import { vaildateMfaCode } from 'components/forms/validation/validationSchema';
+import { validateMfaCode } from 'components/forms/validation/validationSchema';
 import { ReactComponent as Logo } from 'images/logo_n6.svg';
 
 type TLoginMfaForm = {
@@ -50,7 +50,7 @@ const LoginMfaForm: FC = () => {
     return () => {
       if (formState.isSubmitSuccessful) resetLoginState();
     };
-  }, [setFocus, formState, resetLoginState]);
+  }, [setFocus, formState.isSubmitSuccessful, resetLoginState]);
 
   const hasOnlyInsideAccess =
     availableResources.includes('/report/inside') && !availableResources.includes('/search/events');
@@ -69,19 +69,22 @@ const LoginMfaForm: FC = () => {
             <p>{messages.login_mfa_description}</p>
             <form className="login-form" onSubmit={handleSubmit(onSubmit)}>
               <FormInput
+                dataTestId="mfaCodeInput"
                 name="mfa_code"
                 label={`${messages.login_mfa_input_label}`}
                 maxLength="8"
-                validate={vaildateMfaCode}
+                validate={validateMfaCode}
               />
               <div className="d-flex mt-4">
                 <CustomButton
+                  dataTestId="cancelBtnMfa"
                   className="w-100"
                   text={`${messages.login_mfa_btn_cancel}`}
                   variant="link"
                   onClick={resetLoginState}
                 />
                 <CustomButton
+                  dataTestId="loginBtnMfa"
                   type="submit"
                   className="w-100"
                   text={`${messages.login_mfa_btn_confirm}`}

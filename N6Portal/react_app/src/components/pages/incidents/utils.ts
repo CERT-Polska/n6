@@ -17,7 +17,8 @@ import {
   validateSourceRequired,
   validateCountryCodeRequired,
   validateTimeRequired,
-  validateIdRequired
+  validateIdRequired,
+  validateClientRequired
 } from 'components/forms/validation/validationSchema';
 import { isRequired } from 'components/forms/validation/validators';
 
@@ -37,6 +38,7 @@ export interface IIncidentsForm
   category?: SelectOption<TCategory>[];
   proto?: SelectOption<TProto>[];
   restriction?: SelectOption<TRestriction>[];
+  client?: string;
 }
 
 const categoryList = [
@@ -102,7 +104,6 @@ export type TFilter =
       label: string;
       nameTime: TFilterName;
       labelTime: string;
-      validateDate?: Record<string, Validate<string>>;
       validateTimeRequired?: Record<string, Validate<string>>;
     };
 
@@ -123,6 +124,7 @@ export const allFilters: TFilter[] = [
     validate: { isRequired }
   },
   { name: 'cc', label: 'incidents_form_cc', type: 'input', validate: validateCountryCodeRequired },
+  { name: 'client', label: 'incidents_form_client', type: 'input', validate: validateClientRequired },
   { name: 'dport', label: 'incidents_form_dport', type: 'input', validate: validatePortNumberRequired },
   { name: 'fqdn', label: 'incidents_form_fqdn', type: 'input', validate: validateFqdnRequired },
   { name: 'fqdnSub', label: 'incidents_form_fqdn_sub', type: 'input', validate: validateFqdnSubRequired },

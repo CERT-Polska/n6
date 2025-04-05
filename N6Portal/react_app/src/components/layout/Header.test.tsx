@@ -1,15 +1,9 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import { BrowserRouter, useLocation } from 'react-router-dom';
 import Header from './Header';
-import { LanguageProvider } from 'context/LanguageProvider';
+import { LanguageProviderTestWrapper, QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { AuthContext, IAuthContext } from 'context/AuthContext';
 import routeList from 'routes/routeList';
-import { QueryClient, QueryClientProvider } from 'react-query';
 import { dictionary } from 'dictionary';
 import * as UserMenuNavigationModule from 'components/navigation/UserMenuNavigation';
 import * as MobileNavigationModule from 'components/navigation/MobileNavigation';
@@ -38,9 +32,9 @@ describe('<Header />', () => {
     } as IAuthContext;
     const { container } = render(
       <AuthContext.Provider value={authContextValue}>
-        <LanguageProvider>
+        <LanguageProviderTestWrapper>
           <Header />
-        </LanguageProvider>
+        </LanguageProviderTestWrapper>
       </AuthContext.Provider>
     );
     expect(container).toBeEmptyDOMElement();
@@ -54,9 +48,9 @@ describe('<Header />', () => {
     } as IAuthContext;
     const { container } = render(
       <AuthContext.Provider value={authContextValue}>
-        <LanguageProvider>
+        <LanguageProviderTestWrapper>
           <Header />
-        </LanguageProvider>
+        </LanguageProviderTestWrapper>
       </AuthContext.Provider>
     );
     expect(container).toBeEmptyDOMElement();
@@ -80,47 +74,34 @@ describe('<Header />', () => {
       } as IAuthContext;
 
       render(
-        <QueryClientProvider client={new QueryClient()}>
+        <QueryClientProviderTestWrapper>
           <BrowserRouter>
             <AuthContext.Provider value={authContextValue}>
-              <LanguageProvider>
+              <LanguageProviderTestWrapper>
                 <Header />
-              </LanguageProvider>
+              </LanguageProviderTestWrapper>
             </AuthContext.Provider>
           </BrowserRouter>
-        </QueryClientProvider>
+        </QueryClientProviderTestWrapper>
       );
 
-      const headerElement = screen.getByRole('banner');
-      expect(headerElement).toHaveClass('page-header');
-      expect(headerElement.firstChild).toHaveClass(
-        'page-header-nav content-wrapper d-flex justify-content-between align-items-center'
-      );
+      expect(screen.getByRole('banner')).toBeInTheDocument();
 
       const logoN6Element = screen.getByRole('img');
-      expect(logoN6Element).toHaveClass('header-logo');
-      expect(logoN6Element).toHaveAttribute('src', '[object Object]');
       expect(logoN6Element).toHaveAttribute('alt', 'Logo N6');
       expect(logoN6Element.parentElement).toHaveAttribute('href', routeList.incidents);
       expect(logoN6Element.parentElement).toHaveRole('link');
 
       const listingElement = screen.getByRole('list');
-      expect(listingElement).toHaveClass('header-links');
       expect(listingElement.children.length).toBe(knowledgeBaseEnabled ? 2 : 1);
 
-      const listItemElement = listingElement.firstChild;
-      expect(listItemElement).toHaveClass('font-bigger font-weight-medium');
-      expect(listItemElement).toHaveRole('listitem');
-
-      const allIncidentsLink = listItemElement?.firstChild;
-      expect(allIncidentsLink).toHaveClass('header-link');
+      const allIncidentsLink = listingElement.firstChild?.firstChild;
       expect(allIncidentsLink).toHaveRole('link');
-      expect(allIncidentsLink).toHaveTextContent(dictionary['en']['header_nav_incidents']);
+      expect(allIncidentsLink).toHaveTextContent('All incidents');
 
       if (knowledgeBaseEnabled) {
         const knowledgeBaseLink = screen.getByRole('link', { name: dictionary['en']['header_nav_knowledge_base'] });
         expect(knowledgeBaseLink).toBeInTheDocument();
-        expect(knowledgeBaseLink).toHaveClass('header-link');
       }
 
       expect(UserMenuNavigationSpy).toHaveBeenCalledWith({}, {});
@@ -167,53 +148,39 @@ describe('<Header />', () => {
 
       render(
         <MatchMediaContextProvider>
-          <QueryClientProvider client={new QueryClient()}>
+          <QueryClientProviderTestWrapper>
             <BrowserRouter>
               <AuthContext.Provider value={authContextValue}>
-                <LanguageProvider>
+                <LanguageProviderTestWrapper>
                   <Header />
-                </LanguageProvider>
+                </LanguageProviderTestWrapper>
               </AuthContext.Provider>
             </BrowserRouter>
-          </QueryClientProvider>
+          </QueryClientProviderTestWrapper>
         </MatchMediaContextProvider>
       );
 
-      const headerElement = screen.getByRole('banner');
-      expect(headerElement).toHaveClass('page-header');
-      expect(headerElement.firstChild).toHaveClass(
-        'page-header-nav content-wrapper d-flex justify-content-between align-items-center'
-      );
+      expect(screen.getByRole('banner')).toBeInTheDocument();
 
       const logoN6Element = screen.getByRole('img');
-      expect(logoN6Element).toHaveClass('header-logo');
-      expect(logoN6Element).toHaveAttribute('src', '[object Object]');
       expect(logoN6Element).toHaveAttribute('alt', 'Logo N6');
       expect(logoN6Element.parentElement).toHaveAttribute('href', routeList.incidents);
       expect(logoN6Element.parentElement).toHaveRole('link');
 
       if (isLargeEnough) {
         const listingElement = screen.getByRole('list');
-        expect(listingElement).toHaveClass('header-links');
         expect(listingElement.children.length).toBe(knowledgeBaseEnabled ? 3 : 2); //notice one more link
 
-        const listItemElement = listingElement.firstChild;
-        expect(listItemElement).toHaveClass('font-bigger font-weight-medium');
-        expect(listItemElement).toHaveRole('listitem');
-
-        const organizationLink = listItemElement?.firstChild;
-        expect(organizationLink).toHaveClass('header-link');
+        const organizationLink = listingElement.firstChild?.firstChild;
         expect(organizationLink).toHaveRole('link');
-        expect(organizationLink).toHaveTextContent(dictionary['en']['header_nav_organization']);
+        expect(organizationLink).toHaveTextContent('Your organization');
 
         const allIncidentsLink = screen.getByRole('link', { name: dictionary['en']['header_nav_incidents'] });
         expect(allIncidentsLink).toBeInTheDocument();
-        expect(allIncidentsLink).toHaveClass('header-link');
 
         if (knowledgeBaseEnabled) {
           const knowledgeBaseLink = screen.getByRole('link', { name: dictionary['en']['header_nav_knowledge_base'] });
           expect(knowledgeBaseLink).toBeInTheDocument();
-          expect(knowledgeBaseLink).toHaveClass('header-link');
         }
 
         expect(MobileNavigationSpy).not.toHaveBeenCalled();

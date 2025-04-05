@@ -1,4 +1,4 @@
-import { FC, memo, useCallback, useMemo, useRef } from 'react';
+import { FC, JSX, memo, useCallback, useMemo, useRef } from 'react';
 import { useFormContext, useFieldArray, Validate, useWatch } from 'react-hook-form';
 import classnames from 'classnames';
 import FormInput from 'components/forms/FormInput';
@@ -161,6 +161,7 @@ const CustomFieldArray: FC<IProps> = ({
           data-testid={`${name}-field-${index}`}
         >
           <Field
+            dataTestId={`${name}-input-${index}`}
             controlId={field.id}
             label={label}
             name={`${name}.${index}.value`}
@@ -171,6 +172,7 @@ const CustomFieldArray: FC<IProps> = ({
             alwaysShowMask={false}
           />
           <CustomButton
+            dataTestId={`${name}-trash-btn-${index}`}
             text=""
             icon={<TrashDeleteButton />}
             iconPlacement="center"
@@ -183,8 +185,9 @@ const CustomFieldArray: FC<IProps> = ({
         </div>
       ))}
 
-      <div className="custom-field-array-wrapper custom-field-array-entry_field" data-testid={`${name}-entry-field`}>
+      <div className="custom-field-array-wrapper custom-field-array-entry__field" data-testid={`${name}-entry-field`}>
         <Field
+          dataTestId={`${name}-entry-input`}
           name={`${name}_default`}
           label={label}
           validate={validate}
@@ -195,6 +198,7 @@ const CustomFieldArray: FC<IProps> = ({
           disabled={disabled}
         />
         <CustomButton
+          dataTestId={`${name}-add-btn`}
           text=""
           icon={<PlusAddButton />}
           iconPlacement="center"
@@ -216,12 +220,14 @@ const CustomFieldArray: FC<IProps> = ({
           data-testid={`${name}-restore-field-${index}`}
         >
           <Field
+            dataTestId={`${name}-restore-input-${index}`}
             label={messages.edit_settings_label_restore + label.toLowerCase()}
             name={`missing_${name}_${field.id}`}
             defaultValue={field.value}
             disabled
           />
           <CustomButton
+            dataTestId={`${name}-restore-btn-${index}`}
             text={`${messages.edit_settings_btn_restore}`}
             icon={<RestoreIcon />}
             iconPlacement="left"

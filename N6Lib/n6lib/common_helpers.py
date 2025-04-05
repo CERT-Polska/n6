@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2024 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 #
 # For some code in this module:
 # Copyright (c) 2001-2013 Python Software Foundation. All rights reserved.
@@ -127,8 +127,8 @@ EMAIL_OVERRESTRICTED_SIMPLE_REGEX = re.compile(
 USELESS_SRC_PATH_PREFIX_REGEXES = (
     re.compile(r'/N6'
                r'(?:'
-               r'AdminPanel|BrokerAuthApi|Core|CoreLib|GitLabTools'
-               r'|GridFSMount|KscApi|Lib|Portal|Push|RestApi|SDK'
+               r'AdminPanel|BrokerAuthApi|DataPipeline|DataSources(?:-\w+)?'
+               r'|GitLabTools|Lib|Portal|Push|RestApi|SDK|TestUtils'
                r')'
                r'/(?=n6)',
                re.ASCII),
@@ -1389,19 +1389,20 @@ _ElemT_co = TypeVar('_ElemT_co', bound=Hashable, covariant=True)
 class OPSet(Set[_ElemT_co], Reversible[_ElemT_co], Hashable):
 
     """
-    An immutable set-like container that *preserves the order* of
-    the elements, whereras average performance of containment tests
-    (`in`/`not in`) is still `O(1)` (as for built-in dicts and sets).
+    An immutable set-like container that *preserves the order* of its
+    elements, whereas the average performance of *containment tests*
+    (`in`/`not in`) is still `O(1)` (as for built-in `dict` and `set`).
 
     `OPSet` implements the interface of the following abstract classes
     defined in `collections.abc`: `Set`, `Reversible` and `Hashable`.
 
-    Since `OPSet` objects are hashable, they can be used as dict keys
+    Since `OPSet` objects are hashable, they can be used as mapping keys
     and set elements (also elements of `OPSet`s).
 
     Note: the order of elements is preserved by the constructor as well
-    as by any operators that produce new `OPSet` instances, but does not
-    influence any set-specific tests (in particular, equality tests).
+    as by any operations that produce new `OPSet` instances, *but* is
+    ignored when it comes to any set-specific tests (in particular,
+    equality tests).
 
     >>> s = OPSet([1, 2, 6, 3, 2, 7, 1])
     >>> s

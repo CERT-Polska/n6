@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2013-2022 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import ast
 import argparse
@@ -63,6 +63,7 @@ N6_LIB = 'N6Lib'
 N6_LIB_py2 = 'N6Lib-py2'
 N6_SDK = 'N6SDK'
 N6_SDK_py2 = 'N6SDK-py2'
+N6_TEST_UTILS = 'N6TestUtils'
 
 this_script_dir = osp.dirname(osp.abspath(__file__))
 venv_dir = environ_venv_dir = os.environ.get('VIRTUAL_ENV')
@@ -84,11 +85,13 @@ def get_excluded_from_all():
             'N6DataPipeline',
             'N6DataPush',
             'N6DataSources',
+            'N6DataSources-nonpub',
             'N6GitLabTools',
             'N6KscApi',
             'N6Portal',
             'N6Push',
             'N6RestApi',
+            N6_TEST_UTILS,
         })
     else:
         # For Python 3: let's exclude any Python-2-only stuff.
@@ -174,6 +177,26 @@ def parse_arguments():
                                         and osp.isdir(name)))
 
     arguments.components = list(iter_nonfalse_unique(arguments.components))
+
+    # * N6DataSources-nonpub, if needed, must be set up **after** N6DataSources
+    #   (the former depends on the latter)   XXX: not covered by `test_do_setup.py`
+    if 'N6DataSources-nonpub' in arguments.components and not arguments.no_n6lib:
+        ds_idx = arguments.components.index('N6DataSources-nonpub')
+        if 'N6DataSources' not in arguments.components:
+            arguments.components.insert(ds_idx, 'N6DataSources')
+        assert 'N6DataSources' in arguments.components
+        assert (arguments.components.index('N6DataSources')
+                < arguments.components.index('N6DataSources-nonpub'))
+
+    # * N6DataSources, if needed, must be set up **after** N6DataPipeline.
+    #   (the former depends on the latter)   XXX: not covered by `test_do_setup.py`
+    if 'N6DataSources' in arguments.components and not arguments.no_n6lib:
+        ds_idx = arguments.components.index('N6DataSources')
+        if 'N6DataPipeline' not in arguments.components:
+            arguments.components.insert(ds_idx, 'N6DataPipeline')
+        assert 'N6DataPipeline' in arguments.components
+        assert (arguments.components.index('N6DataPipeline')
+                < arguments.components.index('N6DataSources'))
 
     # N6SDK & N6Lib are automatically provided *if* the `L`/`--no-n6lib`
     # flag is *not* set. Also: N6CoreLib is automatically provided *if*
@@ -284,7 +307,20 @@ def main():
 
         for dirname in arguments.components:
             os.chdir(osp.join(this_script_dir, dirname))
-            command("python setup.py {}".format(arguments.action))
+            if dirname == N6_TEST_UTILS:
+                # XXX: temporary workaround (considering that the whole
+                #      `do_setup.py`-related stuff will be revamped soon):
+                if arguments.action == 'install':
+                    pip_action = 'install'
+                elif arguments.action == 'develop':
+                    pip_action = 'install -e'
+                else:
+                    raise RuntimeError(
+                        'action {!r} is unsupported when dealing '
+                        'with {!r}'.format(arguments.action, dirname))
+                command('pip {} .'.format(pip_action))
+            else:
+                command("python setup.py {}".format(arguments.action))
             LOGGER.info("%r setup done", dirname)
 
         os.chdir(this_script_dir)

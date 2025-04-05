@@ -1,4 +1,4 @@
-# Copyright (c) 2015-2023 NASK. All rights reserved.
+# Copyright (c) 2015-2025 NASK. All rights reserved.
 
 import importlib
 import pathlib
@@ -31,13 +31,15 @@ def _get_parser_classes():
     from n6datasources.parsers.base import BaseParser
     return [cls for cls in all_subclasses(BaseParser)
             if (cls.__module__ != 'n6datasources.parsers.base'
-                and cls.__module__.split('.')[:2] != ['n6datasources', 'tests']
+                and cls.__module__.split('.')[1:2] != ['tests']
                 and not cls.__name__.startswith('_'))]
 
 def _import_parser_modules():
     pkg_path_list = [p for p in sys.path if 'n6datasources' in p.lower()]
     for _, modname, _ in pkgutil.walk_packages(pkg_path_list):
-        if modname.startswith('n6datasources.parsers.'):
+        if (modname.count('.') >= 2
+              and modname.split('.')[0].startswith('n6datasources')
+              and modname.split('.')[1] == 'parsers'):
             importlib.import_module(modname)
 
 

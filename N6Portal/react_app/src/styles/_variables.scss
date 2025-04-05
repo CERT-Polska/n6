@@ -3,19 +3,17 @@
 $primary: #9c00f5;
 $secondary: #87ab6c;
 $danger: #d30000;
-
 $dark: #202e3a;
 $dark-lighter: #68747d;
-$light-background: #ffffff;
+$light-background: #fff;
 $grey-background: #fafbfc;
 $grey-base: #a8adc0;
 $grey-light: rgba($grey-base, 0.4);
-
 $form-basic: $dark;
 $form-active: $primary;
 $form-error: $danger;
 $form-filled: $dark-lighter;
-$form-success: green; //do potwierdzenia
+$form-success: green;
 $form-autocomplete: #f2e7fb;
 $account-dark-stripe: #f6f7f9;
 
@@ -28,13 +26,11 @@ $table-even-tooltip-color: #fafbfb;
 /* fonts */
 $font-fam-headers: 'Roboto', sans-serif;
 $font-fam-txt: 'Roboto', sans-serif;
-
 $line-height: 1.5;
-$line-height-headers: 1.25; // do potwierdzenia
+$line-height-headers: 1.25;
 
 /* spacing */
 $content-max-width: sizeToRem(1920);
-
 $page-padding-sm: 15px;
 $page-padding-md: 30px;
 $page-padding-lg: 30px;

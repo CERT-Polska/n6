@@ -66,22 +66,26 @@ const DatePickerCalendar: FC<IProps> = ({
   };
 
   return (
-    <div className="date-picker-calendar">
+    <div className="date-picker-calendar" data-testid="data-picker-calendar">
       <div className="calendar-header">
         <Dropdown className="calendar-dropdown">
           <Dropdown.Toggle
+            data-testid="calendar-month-dropdown-btn"
             id="dropdown-select-month"
             aria-label={`${messages.calendar_months_aria_label}`}
             bsPrefix="calendar-select-btn"
             className="light-focus"
             ref={selectMonthRef}
           >
-            <span className="calendar-select-text">{formatMonth(viewing)}</span>
+            <span className="calendar-select-text" data-testid="calendar-month-selected">
+              {formatMonth(viewing)}
+            </span>
             <Chevron className="calendar-select-chevron" />
           </Dropdown.Toggle>
           <Dropdown.Menu className="calendar-select-menu">
             {months.map((month) => (
               <Dropdown.Item
+                data-testid={`calendar-month-menu-${month.name}-btn`}
                 as="button"
                 onClick={() => viewMonth(month.value)}
                 key={month.name}
@@ -96,17 +100,21 @@ const DatePickerCalendar: FC<IProps> = ({
         </Dropdown>
         <Dropdown className="calendar-dropdown">
           <Dropdown.Toggle
+            data-testid="calendar-year-dropdown-btn"
             id="dropdown-select-year"
             aria-label={`${messages.calendar_years_aria_label}`}
             bsPrefix="calendar-select-btn"
             className="light-focus"
           >
-            <span className="calendar-select-text">{format(viewing, 'yyyy')}</span>
+            <span className="calendar-select-text" data-testid="calendar-year-selected">
+              {format(viewing, 'yyyy')}
+            </span>
             <Chevron className="calendar-select-chevron" />
           </Dropdown.Toggle>
           <Dropdown.Menu className="calendar-select-menu">
             {years.map((year) => (
               <Dropdown.Item
+                data-testid={`calendar-year-menu-${year}-btn`}
                 as="button"
                 onClick={() => viewYear(year)}
                 key={year}
@@ -133,6 +141,13 @@ const DatePickerCalendar: FC<IProps> = ({
           <div key={`week-${week[0]}`} className="calendar-row">
             {week.map((day) => (
               <button
+                data-testid={
+                  inRange(day, startOfMonth(viewing), endOfMonth(viewing))
+                    ? isSelected(day)
+                      ? `calendar-day-selected`
+                      : `calendar-day-${format(day, 'd')}-btn`
+                    : undefined
+                }
                 key={`${day}`}
                 className={classNames('calendar-day', {
                   'not-in-range': !inRange(day, startOfMonth(viewing), endOfMonth(viewing)),

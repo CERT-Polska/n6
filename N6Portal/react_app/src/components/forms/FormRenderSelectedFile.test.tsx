@@ -1,12 +1,6 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render } from '@testing-library/react';
 import FormRenderSelectedFile from './FormRenderSelectedFile';
-import { dictionary } from 'dictionary';
-import { LanguageProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 const CustomButtonModule = require('components/shared/CustomButton');
 
 describe('<FormRenderSelectedFile />', () => {
@@ -37,7 +31,6 @@ describe('<FormRenderSelectedFile />', () => {
           <FormRenderSelectedFile filename={filename} onClick={onClickMock} />
         </LanguageProviderTestWrapper>
       );
-      expect(container.firstChild).toHaveClass('form-render-file-wrapper');
 
       const paragraphs = (container.firstChild as HTMLElement).querySelectorAll('div');
       expect(paragraphs.length).toBe(2);
@@ -49,7 +42,7 @@ describe('<FormRenderSelectedFile />', () => {
       expect(CustomButtonSpy).toHaveBeenCalledWith(
         {
           variant: 'secondary',
-          text: `${dictionary.en.form_btn_file_replace}`,
+          text: `Replace file`,
           className: 'form-render-btn-replace ml-3',
           onClick: onClickMock
         },

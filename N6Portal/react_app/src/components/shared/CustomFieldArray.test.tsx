@@ -1,16 +1,11 @@
-/**
- * @jest-environment jsdom
- */
-
 import React, { PropsWithChildren } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
-import { FormProvider, useForm } from 'react-hook-form';
-import { IntlProvider } from 'react-intl';
+import { useForm } from 'react-hook-form';
 import userEvent from '@testing-library/user-event';
 import CustomFieldArray, { IProps } from 'components/shared/CustomFieldArray';
 import { TEditSettingsForm } from 'components/pages/editSettings/EditSettingsForm';
 import { validateDomainNotRequired } from 'components/forms/validation/validationSchema';
-import { dictionary } from 'dictionary';
+import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/testWrappers';
 
 // Mock the SVG imports
 jest.mock('images/delete.svg', () => ({
@@ -43,9 +38,9 @@ const Wrapper: React.FC<WrapperProps> = ({ children, defaultFormValues = {}, com
   });
 
   return (
-    <IntlProvider messages={dictionary['en']} locale="en">
-      <FormProvider {...methods}>{children}</FormProvider>
-    </IntlProvider>
+    <LanguageProviderTestWrapper locale="en">
+      <FormProviderTestWrapper formMethods={methods}>{children}</FormProviderTestWrapper>
+    </LanguageProviderTestWrapper>
   );
 };
 

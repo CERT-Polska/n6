@@ -45,7 +45,7 @@ export const validateAdressElem = composeValidators({ isRequired, mustBeText, ma
 export const validateSchoolName = composeValidators({ isRequired, mustBeText, maxLength: maxLength(255) });
 export const validateNameSurname = composeValidators({ isRequired, mustBeNameSurname, maxLength: maxLength(255) });
 export const validateNameSurnameNotRequired = composeValidators({ mustBeNameSurname, maxLength: maxLength(50) });
-export const vaildateNumber = composeValidators({ isRequired, mustBeNumber });
+export const validateNumber = composeValidators({ isRequired, mustBeNumber });
 export const validateMobilePhone = composeValidators({ isRequired, mustBeMobilePhone, maxLength: maxLength(9) });
 export const validateAuthCode = composeValidators({ isRequired, mustBeText, maxLength: maxLength(10) });
 export const validateOrgDomain = composeValidators({ isRequired, mustBeOrgDomain, maxLength: maxLength(32) });
@@ -61,7 +61,7 @@ export const validateResetPassword = composeValidators({
   minLength: minLength(12),
   maxLength: maxLength(255)
 });
-export const vaildateMfaCode = composeValidators({ isRequired, mustBeNumber, equalMfaLength: equalMfaLength(6) });
+export const validateMfaCode = composeValidators({ isRequired, mustBeNumber, equalMfaLength: equalMfaLength(6) });
 export const validateSearchQuery = composeValidators({ isRequired, mustBeSearchQuery });
 
 // INCIDENTS FORM
@@ -93,6 +93,11 @@ export const validateUrlPartRequired = composeValidatorsForMultivalues({
   maxLength: maxLength(2048)
 });
 export const validateFqdnRequired = composeValidatorsForMultivalues({
+  isRequired,
+  mustBeOrgDomain,
+  maxLength: maxLength(255)
+});
+export const validateClientRequired = composeValidatorsForMultivalues({
   isRequired,
   mustBeOrgDomain,
   maxLength: maxLength(255)

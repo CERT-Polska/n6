@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import AsyncLoader from './AsyncLoader';
 import { act, render } from '@testing-library/react';
 const react = require('react');

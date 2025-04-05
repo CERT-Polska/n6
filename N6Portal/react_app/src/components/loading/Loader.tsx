@@ -6,7 +6,7 @@ interface IProps {
 }
 
 const Loader: FC<IProps> = ({ wrapperClassName }) => (
-  <div className={classnames('loader-wrapper', wrapperClassName)}>
+  <div data-testid="loader" className={classnames('loader-wrapper', wrapperClassName)}>
     <div className="loader">
       <div className="loader-circle"></div>
     </div>

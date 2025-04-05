@@ -26,7 +26,7 @@ const FormRenderErrorMsg: FC<FormRenderErrorMsgProps> = ({ isInvalid, className,
       : `${messages[fieldError?.message ?? '']}`;
 
   return (
-    <div className={classnames('input-helper-text', className)}>
+    <div data-testid="form-render-error-msg" className={classnames('input-helper-text', className)}>
       <p className="formfield-helper-msg">
         {fieldError?.message && isInvalid ? (
           <span className="text-danger">{renderedErrorMessage}</span>

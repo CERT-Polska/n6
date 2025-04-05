@@ -1,11 +1,7 @@
-/**
- * @jest-environment jsdom
- */
-
 import { renderHook } from '@testing-library/react';
 import { useTypedIntl, isUserAgentLocale } from './useTypedIntl';
 import { useIntl } from 'react-intl';
-import { reactIntlTestHookWrapper } from './createTestHookWrapper';
+import { IntlProviderTestHookWrapper } from './testWrappers';
 
 describe('isUserAgentLocale', () => {
   it('returns true if given language string is available for translation', () => {
@@ -41,10 +37,10 @@ describe('useTypedIntl', () => {
     'returns the same messages and locale as useIntl when given available language',
     (locale: string) => {
       const useTypedIntlRenderingResult = renderHook(() => useTypedIntl(), {
-        wrapper: reactIntlTestHookWrapper(locale, exampleDictionary[locale])
+        wrapper: IntlProviderTestHookWrapper(locale, exampleDictionary[locale])
       }).result.current;
       const useIntlRenderingResult = renderHook(() => useIntl(), {
-        wrapper: reactIntlTestHookWrapper(locale, exampleDictionary[locale])
+        wrapper: IntlProviderTestHookWrapper(locale, exampleDictionary[locale])
       }).result.current;
       expect(useTypedIntlRenderingResult.locale).toBe(useIntlRenderingResult.locale);
       expect(useTypedIntlRenderingResult.messages).toBe(useIntlRenderingResult.messages);
@@ -54,7 +50,7 @@ describe('useTypedIntl', () => {
   it('returns english locale yet still returns given messages when given unavailable language', () => {
     const locale = 'de';
     const useTypedIntlRenderingResult = renderHook(() => useTypedIntl(), {
-      wrapper: reactIntlTestHookWrapper(locale, exampleDictionary[locale])
+      wrapper: IntlProviderTestHookWrapper(locale, exampleDictionary[locale])
     }).result.current;
     expect(useTypedIntlRenderingResult.locale).toBe('en');
     expect(useTypedIntlRenderingResult.messages).toBe(exampleDictionary[locale]);
@@ -95,10 +91,10 @@ describe('useTypedIntl', () => {
     'returns the same messages and locale as useIntl when given available language',
     (locale: string) => {
       const useTypedIntlRenderingResult = renderHook(() => useTypedIntl(), {
-        wrapper: reactIntlTestHookWrapper(locale, exampleDictionary[locale])
+        wrapper: IntlProviderTestHookWrapper(locale, exampleDictionary[locale])
       }).result.current;
       const useIntlRenderingResult = renderHook(() => useIntl(), {
-        wrapper: reactIntlTestHookWrapper(locale, exampleDictionary[locale])
+        wrapper: IntlProviderTestHookWrapper(locale, exampleDictionary[locale])
       }).result.current;
       expect(useTypedIntlRenderingResult.locale).toBe(useIntlRenderingResult.locale);
       expect(useTypedIntlRenderingResult.messages).toBe(useIntlRenderingResult.messages);
@@ -108,7 +104,7 @@ describe('useTypedIntl', () => {
   it('returns english locale yet still returns given messages when given unavailable language', () => {
     const locale = 'de';
     const useTypedIntlRenderingResult = renderHook(() => useTypedIntl(), {
-      wrapper: reactIntlTestHookWrapper(locale, exampleDictionary[locale])
+      wrapper: IntlProviderTestHookWrapper(locale, exampleDictionary[locale])
     }).result.current;
     expect(useTypedIntlRenderingResult.locale).toBe('en');
     expect(useTypedIntlRenderingResult.messages).toBe(exampleDictionary[locale]);

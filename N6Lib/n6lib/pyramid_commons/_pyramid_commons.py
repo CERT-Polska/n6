@@ -1,10 +1,11 @@
-# Copyright (c) 2013-2024 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import contextlib
 import copy
 import datetime
 import os.path as osp
 import uuid
+from functools import partial
 from typing import Optional
 
 from pyramid.httpexceptions import (
@@ -932,43 +933,69 @@ class N6LoginOIDCView(EssentialAPIsViewMixin, AbstractViewBase):
 
     def make_response(self):
         if not self.oidc_provider_api.is_active:
+            LOGGER.warning('User tried to log in with external identity provider, '
+                           'but the logging option is disabled')
             raise HTTPForbidden('Authentication through external identity provider is disabled')
         if self.request.auth_data is not None:
             return self.json_response(dict(status='logged_in'))
-        user_id = self.oidc_provider_api.unauthenticated_credentials.user_id
-        org_id = self.oidc_provider_api.unauthenticated_credentials.org_id
-        if user_id is not None and org_id is not None:
-            try:
-                self._try_to_create_new_user(user_id, org_id)
-                return self.json_response(dict(status='user_created'))
-            except self.UserCreateFailure:
-                return self.json_response(dict(status='user_not_created'), status_code=403)
-        raise HTTPForbidden
+        org_uuid, user_id = self._get_temporary_org_uuid_user_id()
+        if user_id is None or org_uuid is None:
+            LOGGER.warning('Failed to create the new account for OpenID Connect user, '
+                           'because none or not all temporary credentials have been saved')
+            raise HTTPForbidden
 
-    def _try_to_create_new_user(self, user_id, org_id):
+        LOGGER.info('User ID %a and organization UUID %a have been saved, so their new '
+                    'account will be created if it does not exist', user_id, org_uuid)
+        try:
+            self._try_to_create_new_user(user_id, org_uuid)
+        except self.UserCreateFailure as exc:
+            LOGGER.warning(exc)
+            return self.json_response(dict(status='user_not_created'), status_code=403)
+        else:
+            LOGGER.info('Created a new account for the user authenticated through '
+                        'external OpenID Connect Identity Provider. '
+                        'User login: %a - organization UUID: %a', user_id, org_uuid)
+            return self.json_response(dict(status="user_created"))
+
+    def _get_temporary_org_uuid_user_id(self):
+        try:
+            temp_auth_data = self.request.temporary_auth_data
+            if not isinstance(temp_auth_data, dict):
+                raise TypeError
+        except (AttributeError, TypeError):
+            return None, None
+        return temp_auth_data.get('org_uuid'), temp_auth_data.get('user_id')
+
+    def _try_to_create_new_user(self, user_id, org_uuid):
         with self.auth_manage_api as api:
             try:
-                api.get_user_by_login(login=user_id)
-                LOGGER.warning('User tried to authenticate through an external OpenID '
-                               'Connect Identity Provider but failed, because although his '
-                               'user record exists in the AuthDB, it is assigned to '
-                               'a different organization. '
-                               'User login: %s - organization: %s', user_id, org_id)
-                raise self.UserCreateFailure
+                user_db = api.get_user_by_login(login=user_id)
+                msg = self._get_detailed_message(user_db, org_uuid)
+                raise self.UserCreateFailure(
+                    f'User {user_id!a} tried to authenticate through an external OpenID '
+                    f'Connect Identity Provider but failed: {msg}'
+                )
             except AuthDatabaseAPILookupError:
+                # expected behavior - no user has been found
                 try:
-                    org = api.get_org_by_org_id(org_id=org_id)
+                    org = api.get_org_by_org_uuid(org_uuid=org_uuid, for_update=True)
                     api.create_new_user(org, user_id=user_id)
-                    LOGGER.info('Created a new account for the user authenticated through '
-                                'external OpenID Connect Identity Provider. '
-                                'User login: %s - organization: %s', user_id, org_id)
-                    return True
                 except AuthDatabaseAPILookupError:
-                    LOGGER.warning('User tried to authenticate through an external OpenID '
-                                   'Connect Identity Provider but failed, because his '
-                                   'organization does not exist in the AuthDB. '
-                                   'User login: %s - organization: %s', user_id, org_id)
-                    raise self.UserCreateFailure
+                    raise self.UserCreateFailure(
+                       f'User {user_id!a} tried to authenticate through an external OpenID '
+                       f'Connect Identity Provider but failed, because their '
+                       f'organization (UUID: {org_uuid!a}) does not exist in the AuthDB'
+                    )
+
+    @staticmethod
+    def _get_detailed_message(user_db, org_uuid):
+        if user_db.org.org_uuid != org_uuid:
+            return (f'although their user record exists in the AuthDB, it is assigned to '
+                    f'a different organization (UUID: {user_db.org.org_uuid!a}), than the one '
+                    f'set in the IdP account (UUID: {org_uuid!a})')
+        if user_db.is_blocked:
+            return 'their account has been blocked'
+        return 'their user record exists in the AuthDB, but could not be authenticated'
 
 
 class N6MFAConfigView(_AbstractPortalMFARelatedView):
@@ -1253,7 +1280,7 @@ class N6AgreementsView(EssentialAPIsViewMixin, PreparingNoParamsViewMixin, Abstr
         with self.auth_manage_api:
             return self.json_response(self.auth_manage_api.get_all_agreements_basic_data())
 
-        
+
 class N6OrgAgreementsView(EssentialAPIsViewMixin,
                           CommaSeparatedParamValuesViewMixin,
                           AbstractViewBase):
@@ -1858,6 +1885,9 @@ class _AuthorizationHeaderAuthenticationPolicyMixin:
             try:
                 return request.authorization.params
             except AttributeError:
+                LOGGER.warning('The "Authorization" header has been found, but could not '
+                               'be fetched through `request.authorization.params`: %a',
+                               request.headers.get(self.HTTP_AUTH_HEADER))
                 raise self._http_unauthorized()
         return None
 
@@ -1915,9 +1945,14 @@ class OIDCUserAuthenticationPolicy(_AuthorizationHeaderAuthenticationPolicyMixin
 
     ACCESS_TOKEN_REQUIRED_CLAIMS = {
         'email': str,
-        'org_name': str,
+        'org_uuid': str,
     }
     HTTP_AUTH_REALM = "Access to N6Portal API"
+    OIDC_LOGIN_ENDPOINT = "/login/oidc"
+
+    @staticmethod
+    def get_temporary_auth_data(request, user_id=None, org_uuid=None):
+        return {'user_id': user_id, 'org_uuid': org_uuid}
 
     def unauthenticated_userid(self, request):
         if request.registry.oidc_provider_api.is_active:
@@ -1935,59 +1970,99 @@ class OIDCUserAuthenticationPolicy(_AuthorizationHeaderAuthenticationPolicyMixin
     @classmethod
     def get_auth_data(cls, request):
         unauthenticated_userid = request.unauthenticated_userid
+        # the helper method is being called here, instead
+        # of `unauthenticated_userid()`, because the latter
+        # method may be called twice if `get_auth_data()`
+        # from superclass is called
+        cls._log_access_token_details_for_oidc_login(request)
         if (request.registry.oidc_provider_api.is_active
                 and unauthenticated_userid
                 and unauthenticated_userid.startswith('access_token:')):
             access_token = unauthenticated_userid.split(':', 1)[1]
             if access_token:
                 return cls._get_auth_data_from_token(access_token, request)
+            LOGGER.warning('The "Authentication" header has been found, starting with '
+                           '"access_token:", but it is empty: %a', access_token)
         return super().get_auth_data(request)
 
     @classmethod
+    def _log_access_token_details_for_oidc_login(cls, request):
+        if request.route_url(cls.OIDC_LOGIN_ENDPOINT) != request.url:
+            return
+        if not request.registry.oidc_provider_api.is_active:
+            LOGGER.warning("Request to OpenID Connect login endpoint has been sent, "
+                           "but the OpenID Connect Provider API is inactive")
+        elif cls.HTTP_AUTH_HEADER not in request.headers:
+            LOGGER.warning("No access token has been found in request's headers")
+        else:
+            LOGGER.debug("Value of \"Authorization\" header: %a",
+                         request.headers.get(cls.HTTP_AUTH_HEADER))
+
+    @classmethod
     def _get_auth_data_from_token(cls, access_token, request):
-        json_web_key = cls._get_json_web_key(access_token, request)
+        try:
+            json_web_key = cls._get_json_web_key(access_token, request)
+        except TokenValidationError:
+            return None
         try:
             claims = request.registry.auth_api.authenticate_with_oidc_access_token(
                     access_token,
                     json_web_key,
                     required_claims=cls.ACCESS_TOKEN_REQUIRED_CLAIMS,
-                    audience=request.registry.oidc_provider_api.client_id,
+                    decoding_options=request.registry.oidc_provider_api.decoding_options,
+                    audience=cls._get_required_audience(request),
             )
         except AuthAPIUnauthenticatedError:
-            raise cls._http_unauthorized()
+            return None
         else:
             # presence of required claims should have been
             # checked by `jwt_decode()` function called by
             # `authenticate_with_oidc_access_token()` method
-            assert 'org_name' in claims
+            assert 'org_uuid' in claims
             assert 'email' in claims
-            org_id = claims['org_name']
+            org_uuid = claims['org_uuid']
             user_id = claims['email']
             with request.registry.auth_manage_api as api:
-                if api.do_nonblocked_user_and_org_exist_and_match(user_id, org_id):
+                if api.do_nonblocked_user_and_org_uuid_exist_and_match(user_id, org_uuid):
+                    org = api.get_org_by_org_uuid(org_uuid=org_uuid)
                     auth_data = dict(
-                            org_id=org_id,
-                            user_id=user_id,
+                        org_id=org.org_id,
+                        user_id=user_id,
                     )
                     return auth_data
-                elif request.route_url('/login/oidc') == request.url:
+                elif request.route_url(cls.OIDC_LOGIN_ENDPOINT) == request.url:
                     # save unauthenticated credentials from the token,
                     # so they can be used to create user account
                     # in the `N6LoginOIDCView`
-                    cls._save_temp_credentials_to_registry(request, user_id, org_id)
+                    cls._save_temporary_auth_data(request, user_id, org_uuid)
+                    LOGGER.debug("Temporary credentials have been saved, so the new OpenID "
+                                 "Connect account can be created; user_id: %a, org_uuid: %a",
+                                 user_id, org_uuid)
                 return None
+
+    @staticmethod
+    def _get_required_audience(request):
+        config_audience = request.registry.oidc_provider_api.required_audience
+        if request.registry.oidc_provider_api.verify_audience:
+            return config_audience or request.application_url
+        return config_audience
 
     @classmethod
     def _get_json_web_key(cls, access_token, request):
         try:
             return request.registry.oidc_provider_api.get_signing_key_from_token(access_token)
-        except TokenValidationError:
-            raise cls._http_unauthorized()
+        except TokenValidationError as exc:
+            LOGGER.error("Failed to get a signing key from external identity provider's API, "
+                         "based on access token's headers. %s", exc)
+            raise
 
-    @staticmethod
-    def _save_temp_credentials_to_registry(request, user_id, org_id):
-        request.registry.oidc_provider_api.unauthenticated_credentials.user_id = user_id
-        request.registry.oidc_provider_api.unauthenticated_credentials.org_id = org_id
+    @classmethod
+    def _save_temporary_auth_data(cls, request, user_id, org_uuid):
+        request.set_property(partial(cls.get_temporary_auth_data,
+                                     user_id=user_id,
+                                     org_uuid=org_uuid),
+                             name="temporary_auth_data",
+                             reify=True)
 
 
 class DevFakeUserAuthenticationPolicy(BaseUserAuthenticationPolicy):

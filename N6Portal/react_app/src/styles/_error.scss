@@ -17,6 +17,7 @@
 
   .error-page-logo {
     width: $page-mobile-logo-width;
+
     @include media-breakpoint-up(lg) {
       width: $page-logo-width;
     }

@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen, act } from '@testing-library/react';
 import * as ErrorPageModule from 'components/errors/ErrorPage';
 import ErrorBoundaryFallback from './ErrorBoundaryFallback';

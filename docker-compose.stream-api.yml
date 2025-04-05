@@ -1,0 +1,33 @@
+services:
+  stream_api_rabbit:
+    image: n6_stream_api_rabbit
+    build:
+      context: .
+      dockerfile: docker/stream_api_rabbit/Dockerfile
+    hostname: stream_api_rabbit
+    restart: always
+    container_name: n6_stream_api_rabbit
+    environment:
+      - RABBITMQ_USER=login@example.com
+      - RABBITMQ_PASSWORD=ourExamplePasswd
+      - RABBITMQ_FED_USER=login%40example.com
+    ports:
+      # - 5671:5671 #  TLS connections
+      - 5673:5672 #  TCP connections
+      - 15673:15671 # WEB management
+      - 61614:61614
+    networks:
+      - n6_n6-pub-net
+  stream_api:
+    image: n6_stream_api
+    build:
+      context: .
+      dockerfile: docker/stream_api/Dockerfile
+    hostname: stream_api
+    restart: always
+    container_name: n6_stream_api
+    networks:
+      - n6_n6-pub-net
+networks:
+  n6_n6-pub-net:
+    external: true

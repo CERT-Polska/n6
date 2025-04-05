@@ -21,6 +21,7 @@ const IncidentsFilter: FC<IProps> = ({ filter, removeFilter }) => {
       return (
         <div className="incidents-form-input-wrapper">
           <FormFilterInput
+            dataTestId={`incidents-filter-${filter.name}-input`}
             name={filter.name}
             label={`${messages[filter.label]}`}
             validate={filter.validate}
@@ -39,6 +40,7 @@ const IncidentsFilter: FC<IProps> = ({ filter, removeFilter }) => {
       return (
         <div className="incidents-form-select-wrapper">
           <FormSelect
+            dateTestId={`incidents-filter-${filter.name}-input`}
             name={filter.name}
             label={`${messages[filter.label]}`}
             options={filter.options}
@@ -66,6 +68,7 @@ const IncidentsFilter: FC<IProps> = ({ filter, removeFilter }) => {
           />
           <div className="incidents-form-input-time-with-btn">
             <FormTimeInput
+              dataTestId="incidents-time-input"
               name={filter.nameTime}
               label={`${messages[filter.labelTime]}`}
               validate={filter.validateTimeRequired}

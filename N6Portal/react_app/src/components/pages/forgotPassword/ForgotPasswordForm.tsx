@@ -61,11 +61,12 @@ const ForgotPasswordForm: FC = () => {
           <Logo aria-label={`${messages.logo_aria_label}`} />
         </div>
         <div className="mb-30 w-100">
-          <h1>{messages.forgot_password_title}</h1>
+          <h1 data-testid="resetPasswordHeading">{messages.forgot_password_title}</h1>
           <p>{messages.forgot_password_description}</p>
           <FormProvider {...methods}>
             <form className="forgot-password-form" onSubmit={handleSubmit(onSubmit)}>
               <FormInput
+                dataTestId="loginInputResetPassword"
                 name="login"
                 autoComplete="username"
                 label={`${messages.forgot_password_label}`}
@@ -74,6 +75,7 @@ const ForgotPasswordForm: FC = () => {
               />
               <div className="d-flex mt-4">
                 <CustomButton
+                  dataTestId="cancelBtnResetPassword"
                   className="w-100"
                   to={routeList.login}
                   text={`${messages.forgot_password_cancel_btn}`}
@@ -82,6 +84,7 @@ const ForgotPasswordForm: FC = () => {
                   onClick={resetForgotPasswordState}
                 />
                 <CustomButton
+                  dataTestId="resetPasswordBtn"
                   type="submit"
                   className="w-100"
                   text={`${messages.forgot_password_submit_btn}`}

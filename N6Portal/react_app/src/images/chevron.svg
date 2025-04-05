@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="12.71" height="7.356" viewBox="0 0 12.71 7.356">
+<svg data-testid="chevron-svg" xmlns="http://www.w3.org/2000/svg" width="12.71" height="7.356" viewBox="0 0 12.71 7.356">
   <path
     d="M1028.041,420.44a1,1,0,0,1-.708-.293l-5.355-5.356a1,1,0,1,1,1.415-1.414l4.648,4.648,4.647-4.648a1,1,0,1,1,1.415,1.414l-5.355,5.356A1,1,0,0,1,1028.041,420.44Z"
     transform="translate(-1021.686 -413.084)" fill="#202e3a" />

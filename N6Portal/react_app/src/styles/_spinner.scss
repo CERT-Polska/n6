@@ -25,6 +25,7 @@ $loading-spinner-duration: 1.4s;
   0% {
     transform: rotate(0deg);
   }
+
   100% {
     transform: rotate(360deg);
   }
@@ -35,10 +36,12 @@ $loading-spinner-duration: 1.4s;
     stroke-dashoffset: $loading-spinner-offset;
     transform: rotate(90deg);
   }
+
   50% {
     stroke-dashoffset: $loading-spinner-offset / 4;
     transform: rotate(135deg);
   }
+
   100% {
     stroke-dashoffset: $loading-spinner-offset;
     transform: rotate(450deg);

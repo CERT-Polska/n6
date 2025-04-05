@@ -73,6 +73,7 @@ class JWTEncodeError(AbstractJWTError):
 def jwt_decode(token: StrOrBinary,
                crypto_key: Union[StrOrBinary, RSAPublicKey],
                accepted_algorithms: Iterable[str] = (JWT_ALGO_DEFAULT,),
+               options: Optional[dict] = None,
                required_claims: Union[Iterable[str], dict[str, type]] = (),
                required_audience: Optional[str] = None,
                ) -> dict[str, Any]:
@@ -84,6 +85,7 @@ def jwt_decode(token: StrOrBinary,
             token,
             crypto_key,
             algorithms=sorted(accepted_algorithms),
+            options=options,
             audience=required_audience)
     except Exception as exc:
         raise JWTDecodeError(exc) from None   # (Because we don't want to reveal too much...)

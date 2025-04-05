@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 #
 # TODO: more comments + docs
@@ -508,12 +508,16 @@ class RecordDict(collections_abc.MutableMapping):
                           for key, value in self.get_ready_dict().items()
                           if not key.startswith('_')}  # no internal keys
 
-        # pop actual custom items and place them in the "custom" field
+        # pop actual custom items, add to them a sorted copy of "client",
+        # and place them in the "custom" field
         all_custom_keys = self.data_spec.custom_field_keys
         custom_items = {key: item_prototype.pop(key)
                         for key in all_custom_keys
                         if key in item_prototype}
         self._prepare_url_data_items(item_prototype, custom_items)
+        client = item_prototype.get('client')  # (note: here we get, *not* pop!)
+        if client:
+            custom_items['client'] = sorted(client)
         if custom_items:
             item_prototype['custom'] = custom_items
 

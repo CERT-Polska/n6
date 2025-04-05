@@ -1,0 +1,74 @@
+{% if notifications_language == "en" %}
+  {%- set email_subject = "Notification about new events in the network" -%}
+  {# list specifying the order in which the main categories should appear -#}
+  {%- set order_list = ["Botnet controller", "Infected computer", "Other", "Empty",] -%}
+  {# configuration for aggregation of main categories -#}
+  {%- set cat_config = {
+    "Other": ["tor"],
+    "Infected computer" : ["bots", "cnc"],
+    "Botnet controller": ["malurl", "phish"],
+    } -%}
+{% elif notifications_language == "pl" %}
+  {%- set email_subject = "Powiadomienie o nowych zdarzeniach w sieci" -%}
+  {# list specifying the order in which the main categories should appear -#}
+  {%- set order_list = ["Kontroler botnetu", "Zainfekowany komputer", "Inne", "Puste",] -%}
+  {# configuration for aggregation of main categories -#}
+  {%- set cat_config = {
+    "Inne": ["tor"],
+    "Zainfekowany komputer" : ["bots", "cnc"],
+    "Kontroler botnetu": ["malurl", "phish"],
+    } -%}
+{% else %}
+{%- set error_msg = 'There is no template for version "%s", check the template or settings %s' % (notifications_language, client_name) -%}
+{{ template_raise(error_msg) }}
+{% endif %}
+  {%- set x = 0 -%}
+  {%- set tmp_dict = {} -%}
+  {%- for prim_cat, cat_list in cat_config.items() -%}
+    {%- set prim_cat_counter = 0 -%}
+    {%- for cat_name, cat_val in counter.items() -%}
+      {%- if cat_name in cat_list -%}
+        {%- set x = x + cat_val|int -%}
+        {%- do tmp_dict.update({prim_cat: x}) -%}
+      {%- endif -%}
+    {%- endfor -%}
+  {%- endfor -%}
+  {% if notifications_language == "en" %}
+  <subject>{{ email_subject }}</subject>
+  <body>
+  For your network's organization, which were submitted to the n6 system, from {{ last_send_time_dt }} to {{ now_dt }}: there has been following new events:
+  {%- for prim_cat in order_list -%}
+  {%- if tmp_dict[prim_cat] %}
+  {{ tmp_dict[prim_cat] }} new events of category "{{ prim_cat }}"
+  {%- endif -%}
+  {%- endfor %}
+  Detailed information about the events can be downloaded through the n6 API under the following addresses. Warning: access to the data is available only with the valid n6 platform certificate.
+  JSON formatted data:
+  https://your-n6-instance.com/report/inside.json?time.min={{ time_min }}&modified.min={{ modified_min }}&modified.max={{ modified_max }}
+  CSV formatted data:
+  https://your-n6-instance.com/report/inside.csv?time.min={{ time_min }}&modified.min={{ modified_min }}&modified.max={{ modified_max }}
+  Many of the following events influence not only your infrastructure, but can only interefere to other networks, even breaking the law without anyone knowing it within your institution. Take care of your infrastructure i try to carefully remove such threats for yours and others safety.
+  You are receiving this message, because this email address was submitted as alert address for the n6 project. Information presented above concern security of the networks, which has been submitted to the system by someone from your institution.
+  More information regarding the project is available on https://your-n6-instance.com. If you do not wish to obtain such notifications or you wish to change the configuration, please send a request to administrators@your-n6-instance.com.
+
+  </body>
+{% elif notifications_language == "pl" %}
+  <subject>{{ email_subject }}</subject>
+  <body>
+  Dla sieci Twojej organizacji, które zostały zgłoszone do systemu n6, od {{ last_send_time_dt }} do {{ now_dt }}: pojawiły się następujące nowe zdarzenia:
+  {%- for prim_cat in order_list -%}
+  {%- if tmp_dict[prim_cat] %}
+  {{ tmp_dict[prim_cat] }} nowych zdarzeń kategorii "{{ prim_cat }}"
+  {%- endif -%}
+  {%- endfor %}
+  Szczegółowe informacje o wszystkich powyższych zdarzeniach można pobrać przez API n6 pod poniższymi adresami. Uwaga: dostęp do danych tylko przy użyciu ważnego certyfikatu do platformy n6.
+  Dane w formacie JSON:
+  https://your-n6-instance.com/report/inside.json?time.min={{ time_min }}&modified.min={{ modified_min }}&modified.max={{ modified_max }}
+  Dane w formacie CSV:
+  https://your-n6-instance.com/report/inside.csv?time.min={{ time_min }}&modified.min={{ modified_min }}&modified.max={{ modified_max }}
+  Wiele z powyższych zdarzeń wpływa nie tylko na Twoją infrastrukturę ale może także oddziaływać na inne sieci, nawet łamiąc prawo bez wiedzy kogokolwiek z Twojej instytucji. Dbaj o swoją infrastrukturę i staraj się starannie usuwać takie zagrożenia dla bezpieczeństwa własnego i innych.
+  Dostajesz tę wiadomość, ponieważ ten adres email został zgłoszony jako adres alertowy dla projektu n6. Powyższe informacje dotyczą zagrożeń wyłącznie dla sieci, które zostały zgłoszone do systemu przez kogoś z Twojej instytucji.
+  Więcej informacji na temat projektu znajduje się pod adresem https://your-n6-instance.com. Jeśli nie chcesz otrzymywać powiadomień lub chcesz zmienić ich konfigurację wyślij takie zgłoszenie na administrators@your-n6-instance.com.
+
+  </body>
+{% endif %}

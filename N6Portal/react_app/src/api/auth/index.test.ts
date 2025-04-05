@@ -1,7 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
 import { renderHook, waitFor } from '@testing-library/react';
 import {
   KeycloakStub,
@@ -21,7 +17,7 @@ import {
   useApiKey,
   useMfaConfig
 } from './index';
-import { queryClientTestHookWrapper } from 'utils/createTestHookWrapper';
+import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { IApiKey, IForgottenPasswordData, ILogin, ILoginKeycloak, IMfaConfig } from './types';
 import { controllers, customAxios, dataController } from 'api';
 import { AxiosError } from 'axios';
@@ -94,7 +90,7 @@ describe('useApiKey', () => {
 
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: mockedApiKeyData }));
 
-    const useApiKeyRenderingResult = renderHook(() => useApiKey(), { wrapper: queryClientTestHookWrapper() });
+    const useApiKeyRenderingResult = renderHook(() => useApiKey(), { wrapper: QueryClientProviderTestWrapper });
     await waitFor(() => {
       expect(useApiKeyRenderingResult.result.current.isSuccess).toBe(true);
     });
@@ -163,7 +159,7 @@ describe('useMfaConfig', () => {
 
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: mockedMfaConfigData }));
 
-    const useMfaConfigRenderingResult = renderHook(() => useMfaConfig(), { wrapper: queryClientTestHookWrapper() });
+    const useMfaConfigRenderingResult = renderHook(() => useMfaConfig(), { wrapper: QueryClientProviderTestWrapper });
     await waitFor(() => {
       expect(useMfaConfigRenderingResult.result.current.isSuccess).toBe(true);
     });

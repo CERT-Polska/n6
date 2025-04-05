@@ -15,9 +15,10 @@ const ForgotPasswordError: FC = () => {
           <ErrorIcon />
         </div>
         <div className="mb-30 forgot-password-summary">
-          <h1>{messages.forgot_password_error_title}</h1>
-          <p>{messages.forgot_password_error_description}</p>
+          <h1 data-testid="forgot-password-error-title">{messages.forgot_password_error_title}</h1>
+          <p data-testid="forgot-password-error-description">{messages.forgot_password_error_description}</p>
           <CustomButton
+            dataTestId="forgot-password-tryAgain-btn"
             text={`${messages.forgot_password_error_btn}`}
             variant="primary"
             onClick={resetForgotPasswordState}

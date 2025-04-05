@@ -1,2 +1,2 @@
-include *.txt *.rst *.conf *.wsgi
+include *.txt *.md *.rst *.conf *.wsgi
 recursive-include n6adminpanel *.conf *.html *.png *.css *.js *.svg

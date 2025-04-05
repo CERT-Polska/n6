@@ -130,6 +130,6 @@ export const getUpdatedFields = (
   defaultValues: Array<Record<'value', string>>,
   updatedValues?: Array<Record<'value', string>>
 ): Array<Record<'value', string>> => {
-  if (!updatedValues || !defaultValues) return []; // NOTE: Boolean([]) is always true
+  if (!updatedValues || !defaultValues) return []; // NOTE: Boolean([]) is always true so this only checks for defined updatedValues
   return updatedValues.filter((fieldA) => !defaultValues.some((fieldB) => fieldA.value === fieldB.value));
 };

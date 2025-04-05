@@ -122,30 +122,77 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
       <FormProvider {...methods}>
         <form onSubmit={handleSubmit(onSubmit)}>
           <div className="signup-input-wrapper mb-4">
-            <FormInput name="org_id" label={`${messages.signup_domain_label}`} validate={validateOrgDomain} />
-            <Tooltip content={`${messages.signup_domain_tooltip}`} id="signup-domain" className="signup-tooltip" />
-          </div>
-          <div className="signup-input-wrapper mb-4">
-            <FormInput name="actual_name" label={`${messages.signup_entity_label}`} validate={validateText} />
-            <Tooltip content={`${messages.signup_entity_tooltip}`} id="signup-entity" className="signup-tooltip" />
-          </div>
-          <div className="signup-input-wrapper mb-4">
-            <FormInput name="email" label={`${messages.signup_email_label}`} validate={validateEmail} />
-            <Tooltip content={`${messages.signup_email_tooltip}`} id="signup-email" className="signup-tooltip" />
-          </div>
-          <div className="signup-input-wrapper mb-4">
-            <FormInput name="submitter_title" label={`${messages.signup_position_label}`} validate={validateText} />
-            <Tooltip content={`${messages.signup_position_tooltip}`} id="signup-position" className="signup-tooltip" />
+            <FormInput
+              dataTestId="signupTwo-org-input"
+              name="org_id"
+              label={`${messages.signup_domain_label}`}
+              validate={validateOrgDomain}
+            />
+            <Tooltip
+              dataTestId="singupTwo-tooltip-org"
+              content={`${messages.signup_domain_tooltip}`}
+              id="signup-domain"
+              className="signup-tooltip"
+            />
           </div>
           <div className="signup-input-wrapper mb-4">
             <FormInput
+              dataTestId="signupTwo-actual-name-input"
+              name="actual_name"
+              label={`${messages.signup_entity_label}`}
+              validate={validateText}
+            />
+            <Tooltip
+              dataTestId="singupTwo-tooltip-actual-name"
+              content={`${messages.signup_entity_tooltip}`}
+              id="signup-entity"
+              className="signup-tooltip"
+            />
+          </div>
+          <div className="signup-input-wrapper mb-4">
+            <FormInput
+              dataTestId="signupTwo-email-input"
+              name="email"
+              label={`${messages.signup_email_label}`}
+              validate={validateEmail}
+            />
+            <Tooltip
+              dataTestId="singupTwo-tooltip-email"
+              content={`${messages.signup_email_tooltip}`}
+              id="signup-email"
+              className="signup-tooltip"
+            />
+          </div>
+          <div className="signup-input-wrapper mb-4">
+            <FormInput
+              dataTestId="singupTwo-submitter-title-input"
+              name="submitter_title"
+              label={`${messages.signup_position_label}`}
+              validate={validateText}
+            />
+            <Tooltip
+              dataTestId="singupTwo-tooltip-submitter-title"
+              content={`${messages.signup_position_tooltip}`}
+              id="signup-position"
+              className="signup-tooltip"
+            />
+          </div>
+          <div className="signup-input-wrapper mb-4">
+            <FormInput
+              dataTestId="singupTwo-submitter-name-input"
               name="submitter_firstname_and_surname"
               label={`${messages.signup_fullName_label}`}
               validate={validateNameSurname}
             />
-            <Tooltip content={`${messages.signup_fullName_tooltip}`} id="signup-fullName" className="signup-tooltip" />
+            <Tooltip
+              dataTestId="singupTwo-tooltip-submitter-name"
+              content={`${messages.signup_fullName_tooltip}`}
+              id="signup-fullName"
+              className="signup-tooltip"
+            />
           </div>
           <FormRadio
+            dataTestId="singupTwo-notification-lang-input-radio"
             name="notification_language"
             label={`${messages.signup_lang_label}`}
             options={[
@@ -153,7 +200,13 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
               { value: 'PL', label: 'PL' }
             ]}
             className="signup-form-radio"
-            tooltip={<Tooltip content={`${messages.signup_lang_tooltip}`} id="signup-lang" />}
+            tooltip={
+              <Tooltip
+                dataTestId="singupTwo-tooltip-notification-lang"
+                content={`${messages.signup_lang_tooltip}`}
+                id="signup-lang"
+              />
+            }
             validate={{ isRequired }}
           />
           <div className="signup-custom-field-array-wrapper mt-4">
@@ -162,7 +215,13 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
               header={messages.signup_notificationEmails_header}
               label={messages.signup_notificationEmail_label}
               validate={validateEmailNotRequired}
-              tooltip={<Tooltip content={messages.signup_notificationEmails_tooltip} id="signup-notificationEmails" />}
+              tooltip={
+                <Tooltip
+                  dataTestId="signupTwo-tooltip-notification-email"
+                  content={messages.signup_notificationEmails_tooltip}
+                  id="signup-notificationEmails"
+                />
+              }
               disabled={false}
             />
           </div>
@@ -172,7 +231,13 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
               header={messages.signup_asn_header}
               label={messages.signup_asn_label}
               validate={validateAsnNumber}
-              tooltip={<Tooltip content={messages.signup_asn_tooltip} id="signup-asn" />}
+              tooltip={
+                <Tooltip
+                  dataTestId="signupTwo-tooltip-notification-asns"
+                  content={messages.signup_asn_tooltip}
+                  id="signup-asn"
+                />
+              }
               disabled={false}
             />
           </div>
@@ -182,7 +247,13 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
               header={messages.signup_fqdn_header}
               label={messages.signup_fqdn_label}
               validate={validateDomainNotRequired}
-              tooltip={<Tooltip content={messages.signup_fqdn_tooltip} id="signup-fqdn" />}
+              tooltip={
+                <Tooltip
+                  dataTestId="signupTwo-tooltip-notification-fqdns"
+                  content={messages.signup_fqdn_tooltip}
+                  id="signup-fqdn"
+                />
+              }
               disabled={false}
             />
           </div>
@@ -192,7 +263,13 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
               header={messages.signup_ipNetwork_header}
               label={messages.signup_ipNetwork_label}
               validate={validateIpNetwork}
-              tooltip={<Tooltip content={messages.signup_ipNetwork_tooltip} id="signup-ipNetwork" />}
+              tooltip={
+                <Tooltip
+                  dataTestId="signupTwo-tooltip-notification-ipNetworks"
+                  content={messages.signup_ipNetwork_tooltip}
+                  id="signup-ipNetwork"
+                />
+              }
               disabled={false}
             />
           </div>

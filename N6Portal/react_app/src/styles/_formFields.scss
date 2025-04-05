@@ -2,18 +2,53 @@
   margin: 0;
 }
 
+.input-field,
+.form-select .custom-select-button__control {
+  min-height: sizeToRem(54) !important;
+}
+
 .form-select {
   width: 100% !important;
+
   &.is-invalid {
     label {
       color: $danger !important;
     }
+
     .custom-select-button__control {
       border-color: $form-error !important;
     }
+
     .custom-select-button__value-container {
+      /* stylelint-disable-next-line scss/at-extend-no-missing-placeholder */
       @extend .is-invalid;
     }
+  }
+}
+
+.input-field,
+.input-label {
+  font-size: sizeToRem(18);
+  color: $form-basic;
+}
+
+.input-field {
+  border-color: $form-basic;
+  box-shadow: none !important;
+  padding-left: sizeToRem(20);
+
+  &.is-invalid {
+    border-color: $form-error !important;
+  }
+
+  &:read-only {
+    cursor: default;
+    background-color: $light-background;
+    border-color: $form-basic;
+  }
+
+  &.has-value:read-only {
+    cursor: pointer;
   }
 }
 
@@ -21,26 +56,24 @@
   .input-field {
     border-right: 0;
   }
+
   .input-group-prepend {
     border-radius: 0 sizeToRem(5) sizeToRem(5) 0;
     background-color: $dark-lighter;
   }
+
   .action-button-wrapper {
     width: sizeToRem(54);
     justify-content: center;
     background: transparent;
     border: 0;
+
     & > button {
       margin: 0;
       padding: 0;
       background: transparent;
     }
   }
-}
-
-.input-field,
-.form-select .custom-select-button__control {
-  min-height: sizeToRem(54) !important;
 }
 
 .input-wrapper {
@@ -56,29 +89,6 @@
   transform: translate(0, -50%);
 }
 
-.input-field,
-.input-label {
-  font-size: sizeToRem(18);
-  color: $form-basic;
-}
-
-.input-field {
-  border-color: $form-basic;
-  box-shadow: none !important;
-  padding-left: sizeToRem(20);
-  &.is-invalid {
-    border-color: $form-error !important;
-  }
-  &:read-only {
-    cursor: default;
-    background-color: white;
-    border-color: $form-basic;
-  }
-  &.has-value:read-only {
-    cursor: pointer;
-  }
-}
-
 .input-label {
   position: absolute;
   top: 50%;
@@ -89,9 +99,11 @@
   line-height: 1;
   transition: 0.2s ease all;
   pointer-events: none;
+
   &.has-value {
     color: $form-filled;
   }
+
   &.is-invalid {
     color: $form-error !important;
   }
@@ -103,26 +115,42 @@
   right: 0;
 }
 
+.input-helper-text {
+  position: relative;
+  min-height: sizeToRem(18);
+
+  .input-counter {
+    font-size: sizeToRem(11);
+    position: absolute;
+    right: 0;
+  }
+}
+
 .form-input-time {
   width: sizeToRem(87);
   height: sizeToRem(40);
   margin-left: sizeToRem(10);
   margin-right: sizeToRem(20);
+
   @include media-breakpoint-down(xs) {
     margin-right: sizeToRem(0);
   }
+
   .input-field {
     width: sizeToRem(67);
     min-height: auto !important;
     padding-right: sizeToRem(10);
     padding-left: sizeToRem(10);
+
     &.is-invalid {
       background-image: none;
     }
   }
+
   .input-label {
     display: none;
   }
+
   .input-helper-text {
     width: sizeToRem(100);
   }
@@ -143,15 +171,12 @@ textarea.input-field ~ .input-label.has-value {
   font-weight: 500;
   padding: 0 sizeToRem(6);
 
-  &:before {
+  &::before {
     content: '';
     position: absolute;
-    top: calc(50% - 3px);
-    left: 0;
-    right: 0;
-    bottom: 0;
+    inset: calc(50% - 3px) 0 0;
     z-index: -1;
-    background-color: #fff;
+    background-color: $light-background;
   }
 }
 
@@ -160,50 +185,9 @@ textarea.input-field ~ .input-label.has-value {
 .input-field:not(:read-only):focus,
 .js-focus-visible .input-field:not(:read-only).focus-visible {
   border-color: $form-active;
+
   & ~ .input-label {
     color: $form-active;
-  }
-}
-// CHECKBOX
-
-.form-checkbox-wrapper {
-  display: flex;
-  position: relative;
-
-  input:not(:disabled),
-  input:not(:disabled) ~ .form-checkbox-label-wrapper label {
-    cursor: pointer;
-  }
-}
-
-.form-checkbox-label-wrapper,
-.form-checkbox-helper-text {
-  margin-left: sizeToRem(24);
-}
-
-.form-checkbox-label {
-  border-width: sizeToRem(2);
-  border-style: solid;
-  border-color: transparent;
-  margin-bottom: 0;
-  display: inline;
-  &.disabled {
-    opacity: 0.5;
-  }
-  p {
-    display: inline;
-  }
-}
-
-.form-checkbox-input {
-  position: absolute;
-  top: sizeToRem(12);
-  transform: translateY(-50%);
-  width: sizeToRem(16);
-  height: sizeToRem(16);
-  margin: 0;
-  &.is-invalid {
-    box-shadow: 0 0 0 1px rgba($form-error, 1);
   }
 }
 
@@ -232,6 +216,7 @@ textarea.input-field ~ .input-label.has-value {
   width: sizeToRem(26);
   height: sizeToRem(26);
   margin: 0;
+
   &.is-invalid {
     box-shadow: 0 0 0 1px rgba($form-error, 1);
   }
@@ -239,6 +224,52 @@ textarea.input-field ~ .input-label.has-value {
 
 .form-radio-label {
   margin: 0 sizeToRem(40);
+}
+
+// CHECKBOX
+
+.form-checkbox-wrapper {
+  display: flex;
+  position: relative;
+
+  input:not(:disabled),
+  input:not(:disabled) ~ .form-checkbox-label-wrapper label {
+    cursor: pointer;
+  }
+}
+
+.form-checkbox-label-wrapper,
+.form-checkbox-helper-text {
+  margin-left: sizeToRem(24);
+}
+
+.form-checkbox-label {
+  border-width: sizeToRem(2);
+  border-style: solid;
+  border-color: transparent;
+  margin-bottom: 0;
+  display: inline;
+
+  &.disabled {
+    opacity: 0.5;
+  }
+
+  p {
+    display: inline;
+  }
+}
+
+.form-checkbox-input {
+  position: absolute;
+  top: sizeToRem(12);
+  transform: translateY(-50%);
+  width: sizeToRem(16);
+  height: sizeToRem(16);
+  margin: 0;
+
+  &.is-invalid {
+    box-shadow: 0 0 0 1px rgba($form-error, 1);
+  }
 }
 
 // SINGLE FILE UPLOAD
@@ -284,60 +315,53 @@ textarea.input-field ~ .input-label.has-value {
   margin-bottom: 0;
 }
 
-.input-helper-text {
-  position: relative;
-  min-height: sizeToRem(18);
-  .input-counter {
-    font-size: sizeToRem(11);
-    position: absolute;
-    right: 0;
-  }
-
-  .formfield-helper-msg {
-    &.withCounter {
-      padding-right: 2.7rem;
-    }
-  }
-}
-
 // FORM FEEDBACK
 
 .form-feedback {
   padding: sizeToRem(20) sizeToRem(20) sizeToRem(20) sizeToRem(30);
   display: flex;
   align-items: center;
+
   @include media-breakpoint-down(sm) {
     margin: 0 sizeToRem(15);
   }
+
   @include media-breakpoint-down(xs) {
     flex-direction: column;
     text-align: center;
+
     svg {
       margin-bottom: sizeToRem(16);
     }
   }
+
   p {
     margin-bottom: 0;
     font-size: sizeToRem(16);
     margin-left: sizeToRem(20);
     font-family: $font-fam-headers;
     line-height: $line-height-headers;
+
     @include media-breakpoint-down(xs) {
       margin-left: 0;
     }
   }
+
   &.success {
     color: $success;
     background-color: rgba($form-success, 0.05);
+
     svg {
       width: sizeToRem(43);
       min-width: sizeToRem(43);
       height: sizeToRem(43);
     }
   }
+
   &.error {
     color: $form-error;
     background-color: rgba($form-error, 0.05);
+
     svg {
       width: sizeToRem(43);
       min-width: sizeToRem(43);
@@ -350,6 +374,6 @@ textarea.input-field ~ .input-label.has-value {
 
 .form-devtools {
   pre {
-    color: white;
+    color: $light-background;
   }
 }

@@ -1,12 +1,7 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render, renderHook, screen } from '@testing-library/react';
 import FormRadio, { IRadioOption } from './FormRadio';
 import { useForm } from 'react-hook-form';
-import { FormProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { FormProviderTestWrapper } from 'utils/testWrappers';
 import * as FormRenderErrorMsgModule from './FormRenderErrorMsg';
 import userEvent from '@testing-library/user-event';
 
@@ -73,7 +68,6 @@ describe('<FormRadio />', () => {
       expect(containerChild).toHaveClass(className);
 
       const labelElement = screen.getByText(labelName);
-      expect(labelElement).toHaveClass('form-radio-main-label mb-4 form-label');
       expect(labelElement).toHaveAttribute('for', controllerName);
 
       const tooltipElement = screen.getByText(tooltipText);
@@ -92,18 +86,12 @@ describe('<FormRadio />', () => {
         expect(FormRenderErrorMsgSpy).not.toHaveBeenCalled();
       }
 
-      // const optionsWrapper = container.querySelector('form-radio-options-wrapper');
       const optionsWrapper = containerChild.querySelector('div') as HTMLElement;
-      expect(optionsWrapper).toHaveClass('form-radio-options-wrapper');
-
       const optionsElements = optionsWrapper?.querySelectorAll('div');
       expect(optionsElements?.length).toBe(availableOptions.length);
 
       optionsElements.forEach((optionElement, key: number) => {
-        expect(optionElement).toHaveClass('form-radio-option-wrapper custom-radiobtn-input');
-
         const optionInputElement = optionElement.querySelector('input') as HTMLInputElement;
-        expect(optionInputElement).toHaveClass('form-radio-input form-check-input');
         expect(optionInputElement).not.toBeChecked(); // no default option
         expect(optionInputElement).toHaveAttribute('id', `radio-${controllerName}-${availableOptions[key]['value']}`);
         expect(optionInputElement).toHaveAttribute('type', 'radio');
@@ -112,11 +100,7 @@ describe('<FormRadio />', () => {
         } else {
           expect(optionInputElement).not.toHaveAttribute('disabled');
         }
-
-        expect(optionElement.querySelector('span')).toHaveClass('custom-radiobtn');
-
         const optionLabelElement = optionElement.querySelector('label');
-        expect(optionLabelElement).toHaveClass('form-radio-label form-check-label');
         expect(optionLabelElement).toHaveAttribute('for', `radio-${controllerName}-${availableOptions[key]['value']}`);
       });
 

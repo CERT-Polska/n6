@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render } from '@testing-library/react';
 import AgreementsSettings from './AgreementsSettings';
 import * as AgreementsSettingsFormModule from './AgreementsSettingsForm';

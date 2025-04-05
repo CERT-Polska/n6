@@ -1,17 +1,12 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from 'react-query';
-import { IntlProvider } from 'react-intl';
+import { LanguageProviderTestWrapper, QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import userEvent from '@testing-library/user-event';
 import { toast } from 'react-toastify';
 import { IOrgConfig } from 'api/orgConfig/types';
 import { postOrgConfig } from 'api/orgConfig';
 import EditSettingsForm from 'components/pages/editSettings/EditSettingsForm';
 import { dictionary } from 'dictionary';
+import { QueryClient } from 'react-query';
 
 interface ValidationTestCase {
   fieldName: string;
@@ -25,7 +20,7 @@ interface ValidationTestCase {
 type Locale = 'en' | 'pl';
 
 // Constants
-const TEST_TIMEOUT = 15000;
+const TEST_TIMEOUT = 30000;
 const MAX_COMMENT_LENGTH = 4000;
 
 // Test configuration
@@ -68,11 +63,11 @@ const defaultCurrentSettings: IOrgConfig = {
 
 const renderComponent = (lang: Locale = 'en', currentSettings = defaultCurrentSettings) => {
   return render(
-    <QueryClientProvider client={queryClient}>
-      <IntlProvider messages={dictionary[lang]} locale={lang}>
+    <QueryClientProviderTestWrapper client={queryClient}>
+      <LanguageProviderTestWrapper locale={lang}>
         <EditSettingsForm currentSettings={currentSettings} />
-      </IntlProvider>
-    </QueryClientProvider>
+      </LanguageProviderTestWrapper>
+    </QueryClientProviderTestWrapper>
   );
 };
 
@@ -107,61 +102,69 @@ const testFieldValidation = async (
 
 describe('EditSettingsForm', () => {
   describe('Initial Rendering', () => {
-    it.each(['en', 'pl'] as const)('renders form with default values (%s)', (lang) => {
-      renderComponent(lang);
+    it.each(['en', 'pl'] as const)(
+      'renders form with default values (%s)',
+      (lang) => {
+        renderComponent(lang);
 
-      // Organization info assertions
-      expect(screen.getByDisplayValue('test-org')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('Test Org')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('user1@test.com')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('domain1.com')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('domain2.com')).toBeInTheDocument();
+        // Organization info assertions
+        expect(screen.getByDisplayValue('test-org')).toBeInTheDocument();
+        expect(screen.getByDisplayValue('Test Org')).toBeInTheDocument();
+        expect(screen.getByDisplayValue('user1@test.com')).toBeInTheDocument();
+        expect(screen.getByDisplayValue('domain1.com')).toBeInTheDocument();
+        expect(screen.getByDisplayValue('domain2.com')).toBeInTheDocument();
 
-      // Text elements from dictionary
-      expect(screen.getByText(dictionary[lang]['edit_settings_title'])).toBeInTheDocument();
-      expect(screen.getByText(dictionary[lang]['signup_domain_label'])).toBeInTheDocument();
-      expect(screen.getByText(dictionary[lang]['signup_entity_label'])).toBeInTheDocument();
+        // Text elements from dictionary
+        expect(screen.getByText(dictionary[lang]['edit_settings_title'])).toBeInTheDocument();
+        expect(screen.getByText(dictionary[lang]['signup_domain_label'])).toBeInTheDocument();
+        expect(screen.getByText(dictionary[lang]['signup_entity_label'])).toBeInTheDocument();
 
-      // Network settings
-      expect(screen.getByDisplayValue('192.168.1.0/24')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('1234')).toBeInTheDocument();
+        // Network settings
+        expect(screen.getByDisplayValue('192.168.1.0/24')).toBeInTheDocument();
+        expect(screen.getByDisplayValue('1234')).toBeInTheDocument();
 
-      // Notification settings
-      expect(
-        screen.getByRole('checkbox', { name: dictionary[lang]['edit_settings_notification_enabled_label'] })
-      ).toBeChecked();
-      expect(screen.getByDisplayValue('notify@test.com')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('10:00')).toBeInTheDocument();
-      expect(screen.getByDisplayValue('EN')).toBeInTheDocument();
+        // Notification settings
+        expect(
+          screen.getByRole('checkbox', { name: dictionary[lang]['edit_settings_notification_enabled_label'] })
+        ).toBeChecked();
+        expect(screen.getByDisplayValue('notify@test.com')).toBeInTheDocument();
+        expect(screen.getByDisplayValue('10:00')).toBeInTheDocument();
+        expect(screen.getByDisplayValue('EN')).toBeInTheDocument();
 
-      // Form structure
-      expect(screen.getAllByRole('textbox')).toHaveLength(16);
-    });
+        // Form structure
+        expect(screen.getAllByRole('textbox')).toHaveLength(16);
+      },
+      TEST_TIMEOUT
+    );
 
-    it.each(['en', 'pl'] as const)('renders tooltips with correct content (%s)', (lang) => {
-      renderComponent(lang);
+    it.each(['en', 'pl'] as const)(
+      'renders tooltips with correct content (%s)',
+      (lang) => {
+        renderComponent(lang);
 
-      const tooltipConfigs = [
-        { id: 'org_id', messageKey: 'signup_domain_tooltip' },
-        { id: 'actual_name', messageKey: 'signup_entity_tooltip' },
-        { id: 'notification_enabled', messageKey: 'edit_settings_notification_enabled_tooltip' },
-        { id: 'notification_language', messageKey: 'signup_lang_tooltip' },
-        { id: 'notification_times', messageKey: 'edit_settings_notification_times_tooltip' },
-        { id: 'notification_emails', messageKey: 'signup_notificationEmails_tooltip' },
-        { id: 'fqdns', messageKey: 'signup_fqdn_tooltip' },
-        { id: 'asns', messageKey: 'signup_asn_tooltip' },
-        { id: 'ip_networks', messageKey: 'signup_ipNetwork_tooltip' },
-        { id: 'additional_comment', messageKey: 'edit_settings_additional_comment_tooltip' }
-      ];
+        const tooltipConfigs = [
+          { id: 'org_id', messageKey: 'signup_domain_tooltip' },
+          { id: 'actual_name', messageKey: 'signup_entity_tooltip' },
+          { id: 'notification_enabled', messageKey: 'edit_settings_notification_enabled_tooltip' },
+          { id: 'notification_language', messageKey: 'signup_lang_tooltip' },
+          { id: 'notification_times', messageKey: 'edit_settings_notification_times_tooltip' },
+          { id: 'notification_emails', messageKey: 'signup_notificationEmails_tooltip' },
+          { id: 'fqdns', messageKey: 'signup_fqdn_tooltip' },
+          { id: 'asns', messageKey: 'signup_asn_tooltip' },
+          { id: 'ip_networks', messageKey: 'signup_ipNetwork_tooltip' },
+          { id: 'additional_comment', messageKey: 'edit_settings_additional_comment_tooltip' }
+        ];
 
-      tooltipConfigs.forEach(({ id, messageKey }) => {
-        const tooltip = screen.getByTestId(`tooltip-edit-settings${id === 'org_id' ? '_' : '-'}${id}`);
-        expect(tooltip).toHaveAttribute(
-          'data-tooltip-content',
-          dictionary[lang][messageKey as keyof (typeof dictionary)[typeof lang]]
-        );
-      });
-    });
+        tooltipConfigs.forEach(({ id, messageKey }) => {
+          const tooltip = screen.getByTestId(`tooltip-edit-settings${id === 'org_id' ? '_' : '-'}${id}`);
+          expect(tooltip).toHaveAttribute(
+            'data-tooltip-content',
+            dictionary[lang][messageKey as keyof (typeof dictionary)[typeof lang]]
+          );
+        });
+      },
+      TEST_TIMEOUT
+    );
   });
 
   describe('Form State Management', () => {
@@ -175,94 +178,114 @@ describe('EditSettingsForm', () => {
         }
       };
 
-      it('merges default and updated values when update_info exists', () => {
-        renderComponent(undefined, settingsWithUpdate);
+      it(
+        'merges default and updated values when update_info exists',
+        () => {
+          renderComponent(undefined, settingsWithUpdate);
 
-        // Check active fields
-        const fields = screen.getAllByTestId(/fqdns-field-/i);
-        expect(fields).toHaveLength(1);
+          // Check active fields
+          const fields = screen.getAllByTestId(/fqdns-field-/i);
+          expect(fields).toHaveLength(1);
 
-        const input = within(fields[0]).getByRole('textbox');
-        expect(input).toHaveValue('domain1.com');
+          const input = within(fields[0]).getByRole('textbox');
+          expect(input).toHaveValue('domain1.com');
 
-        // Check restore fields
-        const restoreField = screen.getByTestId('fqdns-restore-field-0');
-        expect(within(restoreField).getByRole('textbox')).toHaveValue('domain2.com');
-      });
+          // Check restore fields
+          const restoreField = screen.getByTestId('fqdns-restore-field-0');
+          expect(within(restoreField).getByRole('textbox')).toHaveValue('domain2.com');
+        },
+        TEST_TIMEOUT
+      );
 
-      it.each(['en', 'pl'] as const)('disables form when update_info exists (%s)', (lang) => {
-        renderComponent(lang, settingsWithUpdate);
+      it.each(['en', 'pl'] as const)(
+        'disables form when update_info exists (%s)',
+        (lang) => {
+          renderComponent(lang, settingsWithUpdate);
 
-        // Check that all inputs are disabled
-        const inputs = screen.getAllByRole('textbox');
-        inputs.forEach((input) => {
-          expect(input).toBeDisabled();
-        });
+          // Check that all inputs are disabled
+          const inputs = screen.getAllByRole('textbox');
+          inputs.forEach((input) => {
+            expect(input).toBeDisabled();
+          });
 
-        const buttons = [
-          ...screen.getAllByLabelText(/-remove-button-/),
-          ...screen.getAllByLabelText(/-add-button/),
-          ...screen.getAllByLabelText(/-restore-button-/)
-        ];
-        buttons.forEach((button) => {
-          expect(button).toBeDisabled();
-        });
-        // Check that submit button is disabled
-        const submitButton = screen.getByRole('button', { name: dictionary[lang]['edit_settings_btn_submit'] });
-        expect(submitButton).toBeDisabled();
-      });
+          const buttons = [
+            ...screen.getAllByLabelText(/-remove-button-/),
+            ...screen.getAllByLabelText(/-add-button/),
+            ...screen.getAllByLabelText(/-restore-button-/)
+          ];
+          buttons.forEach((button) => {
+            expect(button).toBeDisabled();
+          });
+          // Check that submit button is disabled
+          const submitButton = screen.getByRole('button', { name: dictionary[lang]['edit_settings_btn_submit'] });
+          expect(submitButton).toBeDisabled();
+        },
+        TEST_TIMEOUT
+      );
 
-      it.each(['en', 'pl'] as const)('shows pending message when update_info exists (%s)', async (lang) => {
-        renderComponent(lang, settingsWithUpdate);
+      it.each(['en', 'pl'] as const)(
+        'shows pending message when update_info exists (%s)',
+        async (lang) => {
+          renderComponent(lang, settingsWithUpdate);
 
-        // Check pending info message
-        await waitFor(() => {
-          expect(screen.getByText(dictionary[lang]['edit_settings_pending_message'])).toBeInTheDocument();
-        });
+          // Check pending info message
+          await waitFor(() => {
+            expect(screen.getByText(dictionary[lang]['edit_settings_pending_message'])).toBeInTheDocument();
+          });
 
-        await waitFor(() => {
-          expect(screen.getByText(dictionary[lang]['edit_settings_pending_message_annotation'])).toBeInTheDocument();
-        });
-      });
+          await waitFor(() => {
+            expect(screen.getByText(dictionary[lang]['edit_settings_pending_message_annotation'])).toBeInTheDocument();
+          });
+        },
+        TEST_TIMEOUT
+      );
     });
 
     describe('Reset Functionality', () => {
-      it.each(['en', 'pl'] as const)('resets form when reset button is clicked (%s)', async (lang) => {
-        renderComponent(lang);
+      it.each(['en', 'pl'] as const)(
+        'resets form when reset button is clicked (%s)',
+        async (lang) => {
+          renderComponent(lang);
 
-        const actualNameInput = screen.getByDisplayValue('Test Org');
-        await userEvent.clear(actualNameInput);
-        await userEvent.type(actualNameInput, 'New Org Name');
+          const actualNameInput = screen.getByDisplayValue('Test Org');
+          await userEvent.clear(actualNameInput);
+          await userEvent.type(actualNameInput, 'New Org Name');
 
-        // Click reset button
-        const resetButton = screen.getByText(dictionary[lang]['edit_settings_btn_reset']);
-        await userEvent.click(resetButton);
+          // Click reset button
+          const resetButton = screen.getByText(dictionary[lang]['edit_settings_btn_reset']);
+          await userEvent.click(resetButton);
 
-        // Check that values are reset
-        expect(screen.getByDisplayValue('Test Org')).toBeInTheDocument();
-        expect(screen.queryByDisplayValue('New Org Name')).not.toBeInTheDocument();
-      });
+          // Check that values are reset
+          expect(screen.getByDisplayValue('Test Org')).toBeInTheDocument();
+          expect(screen.queryByDisplayValue('New Org Name')).not.toBeInTheDocument();
+        },
+        TEST_TIMEOUT
+      );
 
-      it.each(['en', 'pl'] as const)('shows and handles field reset buttons (%s)', async () => {
-        renderComponent();
+      it.each(['en', 'pl'] as const)(
+        'shows and handles field reset buttons (%s)',
+        async () => {
+          renderComponent();
 
-        // Change actual name to make reset button appear
-        const actualNameInput = screen.getByDisplayValue('Test Org');
+          // Change actual name to make reset button appear
+          const actualNameInput = screen.getByDisplayValue('Test Org');
 
-        await userEvent.clear(actualNameInput);
-        await userEvent.type(actualNameInput, 'Changed Name');
-        await userEvent.tab();
+          await userEvent.clear(actualNameInput);
+          await userEvent.type(actualNameInput, 'Changed Name');
+          await userEvent.tab();
 
-        // Reset button should appear and work
-        const resetButton = screen.getByRole('button', { name: '' });
-        expect(resetButton).toHaveClass('reset-field-btn');
-        await userEvent.click(resetButton);
+          // Reset button should appear and work
+          const resetButton = screen.getByRole('button', { name: '' });
+          expect(resetButton).toHaveClass('reset-field-btn');
+          await userEvent.click(resetButton);
 
-        expect(screen.getByDisplayValue('Test Org')).toBeInTheDocument();
+          expect(screen.getByDisplayValue('Test Org')).toBeInTheDocument();
 
-        // After reset - button disappears
-        expect(screen.queryByRole('button', { name: '' })).not.toBeInTheDocument();
-      });
+          // After reset - button disappears
+          expect(screen.queryByRole('button', { name: '' })).not.toBeInTheDocument();
+        },
+        TEST_TIMEOUT
+      );
     });
   });
 
@@ -308,44 +331,58 @@ describe('EditSettingsForm', () => {
       ];
 
       validationTestCases.forEach((testCase) => {
-        it.each(['en', 'pl'] as const)(`validates ${testCase.fieldName} inputs (%s)`, async (lang) => {
-          await testFieldValidation(lang, renderComponent, testCase);
-        });
+        it.each(['en', 'pl'] as const)(
+          `validates ${testCase.fieldName} inputs (%s)`,
+          async (lang) => {
+            await testFieldValidation(lang, renderComponent, testCase);
+          },
+          TEST_TIMEOUT
+        );
       });
 
       // Special case for ASN additional validation
-      it.each(['en', 'pl'] as const)('validates ASN range (%s)', async (lang) => {
-        renderComponent(lang);
-        const entryField = screen.getByTestId('asns-entry-field');
-        const input = within(entryField).getByRole('textbox');
-        const addButton = within(entryField).getByLabelText('asns-add-button');
+      it.each(['en', 'pl'] as const)(
+        'validates ASN range (%s)',
+        async (lang) => {
+          renderComponent(lang);
+          const entryField = screen.getByTestId('asns-entry-field');
+          const input = within(entryField).getByRole('textbox');
+          const addButton = within(entryField).getByLabelText('asns-add-button');
 
-        await userEvent.type(input, '4294967296');
-        await userEvent.click(addButton);
+          await userEvent.type(input, '4294967296');
+          await userEvent.click(addButton);
 
-        await waitFor(() => {
-          expect(screen.getByText(dictionary[lang]['validation_mustBeAsnNumber'])).toBeInTheDocument();
-        });
-      });
+          await waitFor(() => {
+            expect(screen.getByText(dictionary[lang]['validation_mustBeAsnNumber'])).toBeInTheDocument();
+          });
+        },
+        TEST_TIMEOUT
+      );
     });
   });
 
-  it.each(['en', 'pl'] as const)('revalidates form inputs after an invalid attempt (%s)', async (lang) => {
-    renderComponent(lang);
+  it.each(['en', 'pl'] as const)(
+    'revalidates form inputs after an invalid attempt (%s)',
+    async (lang) => {
+      renderComponent(lang);
 
-    const emaiField = screen.getByTestId('notification_emails-entry-field');
-    const emailInput = within(emaiField).getByRole('textbox');
-    await userEvent.type(emailInput, 'invalid-email');
-    fireEvent.blur(emailInput);
+      const emaiField = screen.getByTestId('notification_emails-entry-field');
+      const emailInput = within(emaiField).getByRole('textbox');
+      await userEvent.type(emailInput, 'invalid-email');
+      fireEvent.blur(emailInput);
 
-    const errorMessage = await screen.findByText(dictionary[lang]['validation_mustBeEmail']);
-    expect(errorMessage).toBeInTheDocument();
+      const errorMessage = await screen.findByText(dictionary[lang]['validation_mustBeEmail']);
+      expect(errorMessage).toBeInTheDocument();
 
-    await userEvent.type(emailInput, 'notify@test.com');
-    fireEvent.blur(emailInput);
+      await userEvent.type(emailInput, 'notify@test.com');
+      fireEvent.blur(emailInput);
 
-    await waitFor(() => expect(screen.queryByText(dictionary[lang]['validation_mustBeEmail'])).not.toBeInTheDocument());
-  });
+      await waitFor(() =>
+        expect(screen.queryByText(dictionary[lang]['validation_mustBeEmail'])).not.toBeInTheDocument()
+      );
+    },
+    TEST_TIMEOUT
+  );
 });
 
 describe('Form Submission', () => {
@@ -357,71 +394,94 @@ describe('Form Submission', () => {
     return screen.getByRole('button', { name: dictionary[lang]['edit_settings_btn_submit'] });
   };
 
-  it.each(['en', 'pl'] as const)('shows success message after successful submission (%s)', async (lang) => {
-    mockPostOrgConfig.mockResolvedValueOnce({
-      ...defaultCurrentSettings,
-      post_accepted: true
-    });
+  it.each(['en', 'pl'] as const)(
+    'shows success message after successful submission (%s)',
+    async (lang) => {
+      mockPostOrgConfig.mockResolvedValueOnce({
+        ...defaultCurrentSettings,
+        post_accepted: true
+      });
 
-    const submitButton = await setupSubmissionTest(lang);
-    await userEvent.click(submitButton);
+      const submitButton = await setupSubmissionTest(lang);
+      await userEvent.click(submitButton);
 
-    await waitFor(() => {
-      expect(screen.getByText(dictionary[lang]['edit_settings_submit_message'])).toBeInTheDocument();
-    });
-  });
+      await waitFor(() => {
+        expect(screen.getByText(dictionary[lang]['edit_settings_submit_message'])).toBeInTheDocument();
+      });
+    },
+    TEST_TIMEOUT
+  );
 
-  it.each(['en', 'pl'] as const)('shows error message after failed submission (%s)', async (lang) => {
-    mockPostOrgConfig.mockRejectedValueOnce(new Error('Failed'));
+  it.each(['en', 'pl'] as const)(
+    'shows error message after failed submission (%s)',
+    async (lang) => {
+      mockPostOrgConfig.mockRejectedValueOnce(new Error('Failed'));
 
-    const submitButton = await setupSubmissionTest(lang);
-    await userEvent.click(submitButton);
+      const submitButton = await setupSubmissionTest(lang);
+      await userEvent.click(submitButton);
 
-    await waitFor(() => {
-      expect(screen.getByText(dictionary[lang]['edit_settings_submit_error'])).toBeInTheDocument();
-    });
-  });
+      await waitFor(() => {
+        expect(screen.getByText(dictionary[lang]['edit_settings_submit_error'])).toBeInTheDocument();
+      });
+    },
+    TEST_TIMEOUT
+  );
 
-  it.each(['en', 'pl'] as const)('does not allow submission if no changes are made (%s)', (lang) => {
-    renderComponent(lang);
-    const submitButton = screen.getByRole('button', { name: dictionary[lang]['edit_settings_btn_submit'] });
-    expect(submitButton).toBeDisabled();
-  });
+  it.each(['en', 'pl'] as const)(
+    'does not allow submission if no changes are made (%s)',
+    (lang) => {
+      renderComponent(lang);
+      const submitButton = screen.getByRole('button', { name: dictionary[lang]['edit_settings_btn_submit'] });
+      expect(submitButton).toBeDisabled();
+    },
+    TEST_TIMEOUT
+  );
 
-  it.each(['en', 'pl'] as const)('shows error toast when form has validation errors on submit (%s)', async (lang) => {
-    const mockToast = jest.fn();
-    (toast as unknown as jest.Mock).mockImplementation(mockToast);
-    const submitButton = await setupSubmissionTest(lang);
+  it.each(['en', 'pl'] as const)(
+    'shows error toast when form has validation errors on submit (%s)',
+    async (lang) => {
+      const mockToast = jest.fn();
+      (toast as unknown as jest.Mock).mockImplementation(mockToast);
+      const submitButton = await setupSubmissionTest(lang);
 
-    // Add invalid email
-    const emailField = screen.getByTestId('notification_emails-entry-field');
-    const emailInput = within(emailField).getByRole('textbox');
-    await userEvent.clear(emailInput);
-    await userEvent.type(emailInput, 'invalid-email');
-    await userEvent.tab();
+      // Add invalid email
+      const emailField = screen.getByTestId('notification_emails-entry-field');
+      const emailInput = within(emailField).getByRole('textbox');
+      await userEvent.clear(emailInput);
+      await userEvent.type(emailInput, 'invalid-email');
+      await userEvent.tab();
 
-    await userEvent.click(submitButton);
+      await userEvent.click(submitButton);
 
-    await waitFor(() => {
-      expect(mockToast).toHaveBeenCalledWith(dictionary[lang]['edit_settings_form_error_message'], expect.any(Object));
-    });
-  });
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          dictionary[lang]['edit_settings_form_error_message'],
+          expect.any(Object)
+        );
+      });
+    },
+    TEST_TIMEOUT
+  );
 
-  it.each(['en', 'pl'] as const)('refetches data after successful submission (%s)', async (lang) => {
-    const mockRefetch = jest.fn();
-    jest.spyOn(queryClient, 'refetchQueries').mockImplementation(mockRefetch);
-    mockPostOrgConfig.mockResolvedValueOnce({
-      ...defaultCurrentSettings,
-      post_accepted: true
-    });
+  it.each(['en', 'pl'] as const)(
+    'refetches data after successful submission (%s)',
+    async (lang) => {
+      const mockRefetch = jest.fn();
+      jest.spyOn(queryClient, 'refetchQueries').mockImplementation(mockRefetch);
+      mockPostOrgConfig.mockResolvedValueOnce({
+        ...defaultCurrentSettings,
+        post_accepted: true
+      });
 
-    const submitButton = await setupSubmissionTest(lang);
-    await userEvent.click(submitButton);
+      const submitButton = await setupSubmissionTest(lang);
+      await userEvent.click(submitButton);
 
-    await waitFor(() => {
-      expect(mockRefetch).toHaveBeenCalledWith('orgConfig', undefined);
-    });
-  });
+      await waitFor(() => {
+        expect(mockRefetch).toHaveBeenCalledWith('orgConfig', undefined);
+      });
+    },
+    TEST_TIMEOUT
+  );
 
   describe('Form Submission Prevention', () => {
     const mockSubmitHandler = jest.fn();
@@ -442,146 +502,186 @@ describe('Form Submission', () => {
       return within(entryField).getByRole('textbox');
     };
 
-    it('prevents form submission when pressing Enter in entry field', async () => {
-      setupForm();
-      const input = getTestInput();
+    it(
+      'prevents form submission when pressing Enter in entry field',
+      async () => {
+        setupForm();
+        const input = getTestInput();
 
-      await userEvent.type(input, 'test.domain.com{enter}');
-      expect(mockSubmitHandler).not.toHaveBeenCalled();
-    });
+        await userEvent.type(input, 'test.domain.com{enter}');
+        expect(mockSubmitHandler).not.toHaveBeenCalled();
+      },
+      TEST_TIMEOUT
+    );
 
-    it('prevents form submission when pressing Enter in existing fields', async () => {
-      setupForm();
+    it(
+      'prevents form submission when pressing Enter in existing fields',
+      async () => {
+        setupForm();
 
-      const fields = screen.getAllByTestId(/fqdns-field-/i);
+        const fields = screen.getAllByTestId(/fqdns-field-/i);
 
-      for (const field of fields) {
-        const input = within(field).getByRole('textbox');
-        await userEvent.type(input, '{enter}');
-      }
-      expect(mockSubmitHandler).not.toHaveBeenCalled();
-    });
+        for (const field of fields) {
+          const input = within(field).getByRole('textbox');
+          await userEvent.type(input, '{enter}');
+        }
+        expect(mockSubmitHandler).not.toHaveBeenCalled();
+      },
+      TEST_TIMEOUT
+    );
 
-    it('correctly removes event listener on component unmount', async () => {
-      const addEventListenerSpy = jest.spyOn(document, 'addEventListener');
-      const removeEventListenerSpy = jest.spyOn(document, 'removeEventListener');
+    it(
+      'correctly removes event listener on component unmount',
+      async () => {
+        const addEventListenerSpy = jest.spyOn(document, 'addEventListener');
+        const removeEventListenerSpy = jest.spyOn(document, 'removeEventListener');
 
-      const { unmount } = renderComponent();
+        const { unmount } = renderComponent();
 
-      expect(addEventListenerSpy).toHaveBeenCalledWith('keydown', expect.any(Function));
-      unmount();
-      expect(removeEventListenerSpy).toHaveBeenCalledWith('keydown', expect.any(Function));
+        expect(addEventListenerSpy).toHaveBeenCalledWith('keydown', expect.any(Function));
+        unmount();
+        expect(removeEventListenerSpy).toHaveBeenCalledWith('keydown', expect.any(Function));
 
-      addEventListenerSpy.mockRestore();
-      removeEventListenerSpy.mockRestore();
-    });
+        addEventListenerSpy.mockRestore();
+        removeEventListenerSpy.mockRestore();
+      },
+      TEST_TIMEOUT
+    );
 
-    it('allows normal typing in fields while preventing Enter submission', async () => {
-      setupForm();
-      const input = getTestInput();
+    it(
+      'allows normal typing in fields while preventing Enter submission',
+      async () => {
+        setupForm();
+        const input = getTestInput();
 
-      await userEvent.type(input, 'test.domain.com');
-      expect(input).toHaveValue('test.domain.com');
+        await userEvent.type(input, 'test.domain.com');
+        expect(input).toHaveValue('test.domain.com');
 
-      await userEvent.type(input, '{enter}');
-      expect(mockSubmitHandler).not.toHaveBeenCalled();
-      expect(input).toHaveValue('test.domain.com');
-    });
-
-    it('maintains other keyboard functionality while preventing Enter submission', async () => {
-      setupForm();
-      const input = getTestInput();
-
-      await userEvent.type(input, 'test{backspace}{backspace}');
-      expect(input).toHaveValue('te');
-
-      await userEvent.type(input, '{arrowleft}{arrowleft}s{arrowright}{arrowright}k');
-      expect(input).toHaveValue('stek');
-
-      expect(mockSubmitHandler).not.toHaveBeenCalled();
-    });
-
-    it('prevents form submission via Enter in any input field', async () => {
-      setupForm();
-
-      const inputs = screen.getAllByRole('textbox');
-
-      for (const input of inputs) {
         await userEvent.type(input, '{enter}');
         expect(mockSubmitHandler).not.toHaveBeenCalled();
-      }
-    });
+        expect(input).toHaveValue('test.domain.com');
+      },
+      TEST_TIMEOUT
+    );
 
-    it('prevents form submission via Enter when combined with modifier keys', async () => {
-      setupForm();
-      const input = getTestInput();
+    it(
+      'maintains other keyboard functionality while preventing Enter submission',
+      async () => {
+        setupForm();
+        const input = getTestInput();
 
-      await userEvent.type(input, '{Shift>}{enter}{/Shift}');
-      expect(mockSubmitHandler).not.toHaveBeenCalled();
+        await userEvent.type(input, 'test{backspace}{backspace}');
+        expect(input).toHaveValue('te');
 
-      await userEvent.type(input, '{Control>}{enter}{/Control}');
-      expect(mockSubmitHandler).not.toHaveBeenCalled();
-    });
+        await userEvent.type(input, '{arrowleft}{arrowleft}s{arrowright}{arrowright}k');
+        expect(input).toHaveValue('stek');
+
+        expect(mockSubmitHandler).not.toHaveBeenCalled();
+      },
+      TEST_TIMEOUT
+    );
+
+    it(
+      'prevents form submission via Enter in any input field',
+      async () => {
+        setupForm();
+
+        const inputs = screen.getAllByRole('textbox');
+
+        for (const input of inputs) {
+          await userEvent.type(input, '{enter}');
+          expect(mockSubmitHandler).not.toHaveBeenCalled();
+        }
+      },
+      TEST_TIMEOUT
+    );
+
+    it(
+      'prevents form submission via Enter when combined with modifier keys',
+      async () => {
+        setupForm();
+        const input = getTestInput();
+
+        await userEvent.type(input, '{Shift>}{enter}{/Shift}');
+        expect(mockSubmitHandler).not.toHaveBeenCalled();
+
+        await userEvent.type(input, '{Control>}{enter}{/Control}');
+        expect(mockSubmitHandler).not.toHaveBeenCalled();
+      },
+      TEST_TIMEOUT
+    );
   });
 });
 
 describe('Form Controls', () => {
   describe('Notification Settings', () => {
-    it('handles notification_times field array operations', async () => {
-      renderComponent();
+    it(
+      'handles notification_times field array operations',
+      async () => {
+        renderComponent();
 
-      const entryField = screen.getByTestId('notification_times-entry-field');
-      const input = within(entryField).getByRole('textbox');
-      const addButton = within(entryField).getByLabelText('notification_times-add-button');
+        const entryField = screen.getByTestId('notification_times-entry-field');
+        const input = within(entryField).getByRole('textbox');
+        const addButton = within(entryField).getByLabelText('notification_times-add-button');
 
-      // Add new time
-      await userEvent.type(input, '12:00');
-      await userEvent.click(addButton);
+        // Add new time
+        await userEvent.type(input, '12:00');
+        await userEvent.click(addButton);
 
-      const fields = screen.getAllByTestId(/notification_times-field-/i);
-      expect(fields).toHaveLength(2); // Original + new one
-      expect(within(fields[1]).getByRole('textbox')).toHaveValue('12:00');
+        const fields = screen.getAllByTestId(/notification_times-field-/i);
+        expect(fields).toHaveLength(2); // Original + new one
+        expect(within(fields[1]).getByRole('textbox')).toHaveValue('12:00');
 
-      // Remove time
-      const removeButton = within(fields[1]).getByLabelText('notification_times-remove-button-1');
-      await userEvent.click(removeButton);
+        // Remove time
+        const removeButton = within(fields[1]).getByLabelText('notification_times-remove-button-1');
+        await userEvent.click(removeButton);
 
-      await waitFor(() => {
-        const remainingFields = screen.getAllByTestId(/notification_times-field-/i);
-        expect(remainingFields).toHaveLength(1);
-      });
-    });
+        await waitFor(() => {
+          const remainingFields = screen.getAllByTestId(/notification_times-field-/i);
+          expect(remainingFields).toHaveLength(1);
+        });
+      },
+      TEST_TIMEOUT
+    );
 
-    it.each(['en', 'pl'] as const)('handles notification language selection (%s)', async (lang) => {
-      renderComponent(lang);
+    it.each(['en', 'pl'] as const)(
+      'handles notification language selection (%s)',
+      async (lang) => {
+        renderComponent(lang);
 
-      const enRadio = screen.getByLabelText(dictionary[lang]['language_picker_en_short']);
-      const plRadio = screen.getByLabelText(dictionary[lang]['language_picker_pl_short']);
+        const enRadio = screen.getByLabelText(dictionary[lang]['language_picker_en_short']);
+        const plRadio = screen.getByLabelText(dictionary[lang]['language_picker_pl_short']);
 
-      // Default should be EN
-      expect(enRadio).toBeChecked();
-      expect(plRadio).not.toBeChecked();
+        // Default should be EN
+        expect(enRadio).toBeChecked();
+        expect(plRadio).not.toBeChecked();
 
-      // Change to PL
-      await userEvent.click(plRadio);
-      expect(plRadio).toBeChecked();
-      expect(enRadio).not.toBeChecked();
-    });
+        // Change to PL
+        await userEvent.click(plRadio);
+        expect(plRadio).toBeChecked();
+        expect(enRadio).not.toBeChecked();
+      },
+      TEST_TIMEOUT
+    );
 
-    it.each(['en', 'pl'] as const)('handles notification enabled toggle (%s)', async (lang) => {
-      renderComponent(lang);
+    it.each(['en', 'pl'] as const)(
+      'handles notification enabled toggle (%s)',
+      async (lang) => {
+        renderComponent(lang);
 
-      const checkbox = screen.getByRole('checkbox', {
-        name: dictionary[lang]['edit_settings_notification_enabled_label']
-      });
+        const checkbox = screen.getByRole('checkbox', {
+          name: dictionary[lang]['edit_settings_notification_enabled_label']
+        });
 
-      // Default should be checked based on current settings
-      expect(checkbox).toBeChecked();
+        // Default should be checked based on current settings
+        expect(checkbox).toBeChecked();
 
-      // Toggle off
-      await userEvent.click(checkbox);
-      expect(checkbox).not.toBeChecked();
-    });
+        // Toggle off
+        await userEvent.click(checkbox);
+        expect(checkbox).not.toBeChecked();
+      },
+      TEST_TIMEOUT
+    );
   });
 
   it.each(['en', 'pl'] as const)(

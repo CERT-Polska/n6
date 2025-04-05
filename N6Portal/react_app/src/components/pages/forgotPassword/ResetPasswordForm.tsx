@@ -20,7 +20,7 @@ type TResetPasswordForm = {
   repeat_password: string;
 };
 
-const ForgotPasswordForm: FC<IProps> = ({ token }) => {
+const ResetPasswordForm: FC<IProps> = ({ token }) => {
   const [resetError, toggleResetError] = useState(false);
   const { messages } = useTypedIntl();
   const { updateForgotPasswordState } = useForgotPasswordContext();
@@ -77,10 +77,13 @@ const ForgotPasswordForm: FC<IProps> = ({ token }) => {
           <Logo aria-label={`${messages.logo_aria_label}`} />
         </div>
         <div className="mb-30 reset-password-form-wrapper">
-          <h1 className="mb-4">{messages.reset_password_title}</h1>
+          <h1 className="mb-4" data-testid="reset-password-title">
+            {messages.reset_password_title}
+          </h1>
           <FormProvider {...methods}>
             <form className="reset-password-form" onSubmit={handleSubmit(onSubmit)}>
               <FormInput
+                dataTestId="new-password-input"
                 name="password"
                 type="password"
                 autoComplete="new-password"
@@ -88,6 +91,7 @@ const ForgotPasswordForm: FC<IProps> = ({ token }) => {
                 validate={validateResetPassword}
               />
               <FormInput
+                dataTestId="repeat-new-password-input"
                 name="repeat_password"
                 type="password"
                 autoComplete="new-password"
@@ -95,9 +99,12 @@ const ForgotPasswordForm: FC<IProps> = ({ token }) => {
                 validate={validateResetPassword}
               />
               <div className="reset-password-form-diff-wrapper">
-                {arePasswordsDifferent && <p>{messages.reset_password_difference_message}</p>}
+                {arePasswordsDifferent && (
+                  <p data-testid="reset-password-difference-message">{messages.reset_password_difference_message}</p>
+                )}
               </div>
               <CustomButton
+                dataTestId="reset-password-submit-btn"
                 type="submit"
                 className="w-100"
                 text={`${messages.reset_password_submit_btn}`}
@@ -107,11 +114,17 @@ const ForgotPasswordForm: FC<IProps> = ({ token }) => {
               />
             </form>
           </FormProvider>
-          {resetError && <FormFeedback response="error" message={`${messages.reset_password_error_api_message}`} />}
+          {resetError && (
+            <FormFeedback
+              dataTestId="reset-password-error-api-message"
+              response="error"
+              message={`${messages.reset_password_error_api_message}`}
+            />
+          )}
         </div>
       </div>
     </section>
   );
 };
 
-export default ForgotPasswordForm;
+export default ResetPasswordForm;

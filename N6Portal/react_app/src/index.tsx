@@ -1,7 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from 'App';
-import { keycloak } from 'App';
+import App, { keycloak } from 'App';
 // import reportWebVitals from './reportWebVitals';
 
 import 'focus-visible';

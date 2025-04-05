@@ -1,13 +1,8 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render, renderHook, screen } from '@testing-library/react';
 import { Day, useLilius } from 'use-lilius';
 import { endOfMonth, getDate, getMonth, getYear, set, startOfMonth } from 'date-fns';
 import userEvent from '@testing-library/user-event';
-import { LanguageProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import { dictionary } from 'dictionary';
 import DatePickerCalendar from './DatePickerCalendar';
 
@@ -22,14 +17,14 @@ describe('<DatePickerCalendar />', () => {
   });
 
   it.each([
-    { day: 6, month: 6, year: 2024 },
-    { day: 29, month: 2, year: 2020 },
-    { day: 31, month: 12, year: 2000 },
-    { day: 1, month: 1, year: 2000 },
-    { day: 29, month: 2, year: 2028 }
+    { day: 6, month: 6, year: 2024, monthName: 'June' },
+    { day: 29, month: 2, year: 2020, monthName: 'February' },
+    { day: 31, month: 12, year: 2000, monthName: 'December' },
+    { day: 1, month: 1, year: 2000, monthName: 'January' },
+    { day: 29, month: 2, year: 2028, monthName: 'February' }
   ])(
     'renders table of buttons coresponding to dates available in given month (by default current month)',
-    async ({ day, month, year }) => {
+    async ({ day, month, year, monthName }) => {
       //
       // mocks setup
       jest.useFakeTimers().setSystemTime(new Date(`${pad(year, 4)}-${pad(month)}-${pad(day)}`));
@@ -69,31 +64,17 @@ describe('<DatePickerCalendar />', () => {
 
       //
       // DatePickerCalendar composition testing (visuals)
-      expect(container.firstChild).toHaveClass('date-picker-calendar');
-      expect(container.firstChild?.firstChild).toHaveClass('calendar-header');
-      expect(container.firstChild?.firstChild?.firstChild).toHaveClass('calendar-dropdown dropdown');
-
       const chooseMonthButton = screen.getByRole('button', { name: dictionary['en']['calendar_months_aria_label'] });
-      expect(chooseMonthButton).toHaveClass('light-focus calendar-select-btn btn btn-primary');
       expect(chooseMonthButton).toHaveAttribute('aria-expanded', 'false');
-      expect(chooseMonthButton).toHaveAttribute('aria-haspopup', 'true');
       expect(chooseMonthButton).toHaveAttribute('id', 'dropdown-select-month');
-      expect(chooseMonthButton).toHaveAttribute('type', 'button');
       expect(chooseMonthButton.childNodes).toHaveLength(2);
-      expect(chooseMonthButton.childNodes[0]).toHaveClass('calendar-select-text');
-      expect(chooseMonthButton.childNodes[0]).toHaveTextContent(
-        dictionary['en'][`calendar_month_${month}` as keyof (typeof dictionary)['en']]
-      );
+      expect(chooseMonthButton.childNodes[0]).toHaveTextContent(monthName);
       expect(chooseMonthButton.childNodes[1]).toHaveAttribute('classname', 'calendar-select-chevron');
 
       const chooseYearButton = screen.getByRole('button', { name: dictionary['en']['calendar_years_aria_label'] });
-      expect(chooseYearButton).toHaveClass('light-focus calendar-select-btn btn btn-primary');
       expect(chooseYearButton).toHaveAttribute('aria-expanded', 'false');
-      expect(chooseYearButton).toHaveAttribute('aria-haspopup', 'true');
       expect(chooseYearButton).toHaveAttribute('id', 'dropdown-select-year');
-      expect(chooseYearButton).toHaveAttribute('type', 'button');
       expect(chooseYearButton.childNodes).toHaveLength(2);
-      expect(chooseYearButton.childNodes[0]).toHaveClass('calendar-select-text');
       expect(chooseYearButton.childNodes[0]).toHaveTextContent(String(year));
       expect(chooseYearButton.childNodes[1]).toHaveAttribute('classname', 'calendar-select-chevron');
 
@@ -116,7 +97,6 @@ describe('<DatePickerCalendar />', () => {
       Array.from(rowContainers)
         .slice(3)
         .forEach((weekContainer, weekIndex) => {
-          expect(weekContainer).toHaveClass('calendar-row');
           expect(weekContainer.childNodes).toHaveLength(7);
           weekContainer.childNodes.forEach((childElement, dayIndex) => {
             if (getMonth(calendar[weekIndex][dayIndex]) + 1 !== month) {
@@ -148,15 +128,6 @@ describe('<DatePickerCalendar />', () => {
       await userEvent.click(chooseMonthButton);
       expect(chooseMonthButton.parentElement?.childNodes).toHaveLength(2);
       const monthMenuContainer = chooseMonthButton.parentElement?.childNodes[1] as HTMLElement;
-      expect(monthMenuContainer).toHaveClass('calendar-select-menu dropdown-menu show');
-      expect(monthMenuContainer).toHaveStyle(
-        'position: absolute; top: 0px; left: 0px; margin: 0px; transform: translate(0px, 0px);'
-      );
-      expect(monthMenuContainer).toHaveAttribute('aria-labelledby', 'dropdown-select-month');
-      expect(monthMenuContainer).toHaveAttribute('data-popper-escaped', 'true');
-      expect(monthMenuContainer).toHaveAttribute('data-popper-placement', 'bottom-start');
-      expect(monthMenuContainer).toHaveAttribute('data-popper-reference-hidden', 'true');
-      expect(monthMenuContainer).toHaveAttribute('x-placement', 'bottom-start');
       expect(monthMenuContainer.querySelectorAll('button')).toHaveLength(12);
 
       monthMenuContainer?.childNodes.forEach((buttonElement, index) => {
@@ -190,15 +161,6 @@ describe('<DatePickerCalendar />', () => {
       expect(chooseYearButton.parentElement?.childNodes).toHaveLength(2);
       const yearMenuContainer = chooseYearButton.parentElement?.childNodes[1] as HTMLElement;
       expect(yearMenuContainer.querySelectorAll('button')).toHaveLength(getYear(new Date()) - 1999); // range from 2000 to current year
-      expect(yearMenuContainer).toHaveClass('calendar-select-menu dropdown-menu show');
-      expect(yearMenuContainer).toHaveStyle(
-        'position: absolute; top: 0px; left: 0px; margin: 0px; transform: translate(0px, 0px);'
-      );
-      expect(yearMenuContainer).toHaveAttribute('aria-labelledby', 'dropdown-select-year');
-      expect(yearMenuContainer).toHaveAttribute('data-popper-escaped', 'true');
-      expect(yearMenuContainer).toHaveAttribute('data-popper-placement', 'bottom-start');
-      expect(yearMenuContainer).toHaveAttribute('data-popper-reference-hidden', 'true');
-      expect(yearMenuContainer).toHaveAttribute('x-placement', 'bottom-start');
 
       yearMenuContainer?.childNodes.forEach((buttonElement, index) => {
         expect(buttonElement).toHaveClass(

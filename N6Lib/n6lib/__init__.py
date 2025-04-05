@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2023 NASK. All rights reserved.
+# Copyright (c) 2020-2025 NASK. All rights reserved.
 
 import locale
 import os
@@ -61,3 +61,29 @@ if sys.version_info[:2] >= (3, 11):
                   'AsyncIterator', 'AsyncGenerator']:
         if not hasattr(collections, _name):
             setattr(collections, _name, getattr(collections.abc, _name))
+
+# XXX: This is a temporary workaround for `SQLAlchemy 1.3` -- to avoid
+#      cluttering stderr with annoying warnings from `libmysqlclient`...
+#      See:
+#      * https://github.com/sqlalchemy/sqlalchemy/discussions/10489
+#      * https://github.com/PyMySQL/mysqlclient/discussions/651#discussioncomment-7308971
+#      * https://github.com/PyMySQL/mysqlclient/blob/v1.4.6/MySQLdb/_mysql.c#L1745-L1751
+#      Note that the problem has been fixed in sufficiently new releases
+#      within all newer SQLAlchemy branches (`1.4` and `2.*`), therefore
+#      we'll be able to get rid of this ugly monkey-patching as soon as
+#      we upgrade SQLAlchemy (hopefully, soon...).
+import functools
+from sqlalchemy.dialects.mysql import mysqldb
+@functools.wraps(mysqldb.MySQLDialect_mysqldb.do_ping)
+def do_ping(self, dbapi_connection):
+    try:
+        # dbapi_connection.ping(False)
+        dbapi_connection.ping()  # <- removed the argument
+    except self.dbapi.Error as err:
+        if self.is_disconnect(err, dbapi_connection, None):
+            return False
+        else:
+            raise
+    else:
+        return True
+mysqldb.MySQLDialect_mysqldb.do_ping = do_ping

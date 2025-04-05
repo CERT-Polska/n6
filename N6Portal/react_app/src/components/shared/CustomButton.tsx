@@ -15,6 +15,7 @@ interface IProps extends ButtonHTMLAttributes<Element> {
   loading?: boolean;
   to?: string;
   href?: string;
+  dataTestId?: string;
 }
 
 const CustomButton: FC<IProps> = forwardRef(
@@ -31,7 +32,8 @@ const CustomButton: FC<IProps> = forwardRef(
       onClick,
       type = 'button',
       to = '',
-      href
+      href,
+      dataTestId
     },
     ref: Ref<HTMLAnchorElement>
   ) => {
@@ -53,6 +55,7 @@ const CustomButton: FC<IProps> = forwardRef(
         aria-label={ariaLabel}
         variant=""
         ref={ref}
+        data-testid={dataTestId}
       >
         {!loading && icon && iconPlacement && <span className={`n6-button-icon ${iconPlacement}`}>{icon}</span>}
         {!loading && <span>{text}</span>}

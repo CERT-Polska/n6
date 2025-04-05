@@ -2,8 +2,8 @@
 
 The API described in this document complements [*n6 REST API*](restapi.md).
 The *Stream API* makes it possible to receive events asynchronously, in
-near real-time. The JSON data format is similar to the one used in the
-*REST API* (but there are a few differences, see [*Data
+near real-time. The JSON-based data format is similar to the one used in
+the *REST API* (but there are a few differences, see [*Data
 format*](#data-format) below...).
 
 
@@ -68,17 +68,17 @@ which matches any value.
 
 ## Data format
 
-Each STOMP message corresponds to a single *n6* event in the
+Each STOMP message returned by the server contains a single *n6* event in the
 [JSON](https://www.json.org/json-en.html) format.
 
 All event attributes described in the [*REST API*
-documentation](restapi.md#event-attributes), except `modified` and `status`,
+documentation](restapi.md#event-attributes), **except `modified` and `status`**,
 can appear in events emitted by the *Stream API*.
 
-Additionally, each event has a **`type`** attribute. Its value is one of:
+**Additionally**, each event has a **`type`** attribute. Its value is one of:
 
 - `"event"` -- meaning that the event is an ordinary one (or, for certain
-  data sources, represents the initial event of an aggregated series of
+  data sources, one being the initial event of an aggregated series of
   high-frequency events; for simplicity, however, no updates regarding
   such aggregated series are emitted by the *Stream API*);
 
@@ -148,22 +148,24 @@ destination:/exchange/example.org/inside.bots.*.*
 
 ### Example 3
 
-Connecting to the server using OpenSSL command line tools, authenticate and subscribe:
+Using an OpenSSL command line tool to connect to the server, authenticate
+and subscribe:
 
 ```
 openssl s_client -connect n6stream.cert.pl:61614
 
 CONNECT
-login:<login@domain.com>
-passcode:<APIKEY_generated_from_n6Portal>
+login:mylogin@example.org
+passcode:<here API key generated via n6 Portal>
 
 ^@
 
 SUBSCRIBE
-destination:/exchange/domain.com/*.*.*.*
+destination:/exchange/example.org/*.*.*.*
 
 ^@
 ```
+
 !!! tip
 
     Typically, you have only a few seconds to send a `CONNECT` frame before

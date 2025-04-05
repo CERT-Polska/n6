@@ -4,7 +4,10 @@ import os
 
 from alembic import context
 
-from n6lib.auth_db import ALEMBIC_DB_CONFIGURATOR_SETTINGS_DICT_ENVIRON_VAR_NAME
+from n6lib.auth_db import (
+    ALEMBIC_DB_CONFIGURATOR_CONFIG_SECT_ENVIRON_VAR_NAME,
+    ALEMBIC_DB_CONFIGURATOR_SETTINGS_DICT_ENVIRON_VAR_NAME,
+)
 from n6lib.auth_db import models
 from n6lib.auth_db.config import SQLAuthDBConfigMixin
 
@@ -25,7 +28,16 @@ logging.config.fileConfig(config.config_file_name)
 class _AuthDBConfiguratorForAlembicEnv(SQLAuthDBConfigMixin):
 
     def __init__(self):
-        super(_AuthDBConfiguratorForAlembicEnv, self).__init__(settings=self._get_settings())
+        super().__init__(
+            config_section=self._get_config_section(),
+            settings=self._get_settings(),
+        )
+
+    def _get_config_section(self):
+        config_section = os.environ.get(ALEMBIC_DB_CONFIGURATOR_CONFIG_SECT_ENVIRON_VAR_NAME)
+        if config_section:
+            return config_section
+        return None
 
     def _get_settings(self):
         settings_raw = os.environ.get(ALEMBIC_DB_CONFIGURATOR_SETTINGS_DICT_ENVIRON_VAR_NAME)

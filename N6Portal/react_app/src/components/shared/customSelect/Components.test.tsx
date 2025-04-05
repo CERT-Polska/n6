@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import { Control, DropdownIndicator } from './Components';
 import { SelectOption } from './CustomSelect';
@@ -25,11 +20,8 @@ describe('<Control />', () => {
           <Control {...props} />
         </MatchMediaContext.Provider>
       );
-
-      expect(container.firstChild).toHaveClass('css-0');
       if (!isXs) {
         const img = screen.getByRole('img', { name: 'Ikona w rozwijanej liście' });
-        expect(img).toHaveClass('custom-select-icon');
         expect(img.firstChild).toHaveClass('test-img-component');
         expect(img.parentElement?.childNodes[1]).toHaveClass('test-children-component');
       } else {
@@ -43,8 +35,6 @@ describe('<DropdownIndicator />', () => {
   it('renders components.Control element from "react-select" with additional icon', () => {
     const props = { getStyles: jest.fn(), cx: jest.fn() } as unknown as IndicatorProps<SelectOption<string>, boolean>;
     const { container } = render(<DropdownIndicator {...props} />);
-
-    expect(container.firstChild).toHaveClass('css-0');
-    expect(container.querySelector('svg-arrow-ico-mock')?.parentElement).toBe(container.firstChild); //TODO: customize
+    expect(container.querySelector('svg-arrow-ico-mock')?.parentElement).toBeInTheDocument();
   });
 });

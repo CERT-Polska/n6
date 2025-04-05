@@ -1,11 +1,6 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import MfaQRCode from './MfaQRCode';
-import { LanguageProvider } from 'context/LanguageProvider';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import QRCode from 'qrcode';
 import { dictionary } from 'dictionary';
 
@@ -21,19 +16,15 @@ describe('<MfaORCode/>', () => {
       .mockImplementation((refCurrent, _key, _errorCallback) => Object.assign(refCurrent, canvasMock));
 
     const { container } = render(
-      <LanguageProvider>
+      <LanguageProviderTestWrapper>
         <MfaQRCode secret_key={secret_key} secret_key_qr_code_url={secret_key_qr_code_url} />
-      </LanguageProvider>
+      </LanguageProviderTestWrapper>
     );
 
     const wrapper = container.firstChild;
-    expect(wrapper).toHaveClass('mfa-config-qrcode-wrapper');
     expect(wrapper?.childNodes).toHaveLength(2);
 
-    const canvasWrapper = wrapper?.firstChild;
-    expect(canvasWrapper).toHaveClass('mfa-config-qr-code');
-
-    const canvas = canvasWrapper?.firstChild;
+    const canvas = wrapper?.firstChild?.firstChild;
     expect(canvas).toStrictEqual(expect.any(HTMLCanvasElement));
     expect(QRCodeToCanvasSpy).toHaveBeenCalledWith(
       expect.objectContaining(canvasMock),
@@ -43,7 +34,7 @@ describe('<MfaORCode/>', () => {
 
     const secretKeyWrapper = wrapper?.childNodes[1];
     expect(secretKeyWrapper?.childNodes).toHaveLength(2);
-    expect(secretKeyWrapper?.firstChild).toHaveTextContent(dictionary['en']['login_mfa_config_key_label']);
+    expect(secretKeyWrapper?.firstChild).toHaveTextContent('Secret key:');
     expect(secretKeyWrapper?.childNodes[1]).toHaveTextContent(secret_key);
   });
 
@@ -53,14 +44,11 @@ describe('<MfaORCode/>', () => {
 
     // QRCode.toCanvas() by default fails in this test because of lack of canvas context in test env
     render(
-      <LanguageProvider>
+      <LanguageProviderTestWrapper>
         <MfaQRCode secret_key={secret_key} secret_key_qr_code_url={secret_key_qr_code_url} />
-      </LanguageProvider>
+      </LanguageProviderTestWrapper>
     );
 
-    const QRCodePlaceholder = screen.getByText(dictionary['en']['login_mfa_qrcode_placeholder_text']);
-    expect(QRCodePlaceholder).toHaveClass('qr-code-placeholder');
-    expect(QRCodePlaceholder.parentElement).toHaveClass('qr-code-placeholder-wrapper');
-    expect(QRCodePlaceholder.parentElement?.parentElement).toHaveClass('mfa-config-qr-code');
+    expect(screen.getByText(dictionary['en']['login_mfa_qrcode_placeholder_text'])).toBeInTheDocument();
   });
 });

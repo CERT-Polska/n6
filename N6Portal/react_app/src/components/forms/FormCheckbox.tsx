@@ -1,4 +1,4 @@
-import { FC, memo, useMemo } from 'react';
+import { FC, JSX, memo, useMemo } from 'react';
 import { useFormContext, Validate, Controller } from 'react-hook-form';
 import { FormCheck } from 'react-bootstrap';
 import classnames from 'classnames';
@@ -18,6 +18,7 @@ interface IProps {
   tooltip?: JSX.Element;
   validate?: Record<string, Validate<string>>;
   defaultValue?: boolean;
+  dataTestId?: string;
 }
 
 const FormCheckbox: FC<IProps & FormContextProps> = memo(
@@ -33,7 +34,8 @@ const FormCheckbox: FC<IProps & FormContextProps> = memo(
     tooltip,
     labelId,
     formState: { errors },
-    validate
+    validate,
+    dataTestId
   }) => {
     const customOnClick = (e: React.MouseEvent) => e.stopPropagation(); // prevent from toggling accordion when clicking on checkbox
 
@@ -55,6 +57,7 @@ const FormCheckbox: FC<IProps & FormContextProps> = memo(
                   onChange={onChange}
                   onBlur={onBlur}
                   onClick={customOnClick}
+                  data-testid={dataTestId}
                 />
               );
             }}

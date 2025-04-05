@@ -15,11 +15,12 @@ interface ICollapseToggleButton {
   active: boolean;
   handleChange: () => void;
   children: React.ReactNode;
+  dataTestId?: string;
 }
 
-const CollapseToggleButton: FC<ICollapseToggleButton> = ({ children, handleChange, active }) => {
+const CollapseToggleButton: FC<ICollapseToggleButton> = ({ children, handleChange, active, dataTestId }) => {
   return (
-    <button className="kb-collapse-button" onClick={handleChange} aria-expanded={active}>
+    <button className="kb-collapse-button" onClick={handleChange} aria-expanded={active} data-testid={dataTestId}>
       <Chevron className={classNames('articles-list-chapter-chevron mr-2', { open: active })} />
       {children}
     </button>
@@ -41,16 +42,25 @@ const ChapterCollapse: FC<IProps> = ({ chapter }) => {
   }, [chapterContainsActiveArticle]);
 
   return (
-    <div className="text-break kb-collapse">
-      <CollapseToggleButton active={!isCollapsed} handleChange={() => setCollapsed((prevState) => !prevState)}>
+    <div className="text-break kb-collapse" data-testid={`kb-chapter-collapse-${chapter.id}`}>
+      <CollapseToggleButton
+        active={!isCollapsed}
+        handleChange={() => setCollapsed((prevState) => !prevState)}
+        dataTestId={`kb-chapter-collapse-button-${chapter.id}`}
+      >
         {chapter.title[locale]}
       </CollapseToggleButton>
       {!!chapter.articles.length && (
         <Collapse in={!isCollapsed}>
-          <ul className="kb-chapter">
+          <ul className="kb-chapter" data-testid={`kb-chapter-${chapter.id}`}>
             {chapter.articles.map((article) => (
               <li className="kb-chapter-item" key={article.id}>
-                <NavLink to={article.url} className="kb-chapter-link" activeClassName="active">
+                <NavLink
+                  to={article.url}
+                  className="kb-chapter-link"
+                  activeClassName="active"
+                  data-testid={`kb-chapter-${chapter.id}-link-${article.id}`}
+                >
                   {article.title[locale]}
                 </NavLink>
               </li>

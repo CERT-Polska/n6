@@ -14,6 +14,7 @@ const NoAccess: FC = () => {
       buttonText={`${messages['noAccess_btn_text']}`}
       onClick={() => history.push(routelist.login)}
       variant="noAccess"
+      dataTestId="noAccess"
     />
   );
 };

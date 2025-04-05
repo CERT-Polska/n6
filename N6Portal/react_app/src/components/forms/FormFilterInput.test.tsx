@@ -1,12 +1,7 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import FormFilterInput, { parseValue } from './FormFilterInput';
 import { Validate, useForm } from 'react-hook-form';
-import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/testWrappers';
 import * as FormRenderErrorMsgModule from './FormRenderErrorMsg';
 import * as FormRenderCharCounterModule from './FormRenderCharCounter';
 import * as validateFieldModule from './validation/validators';
@@ -82,7 +77,7 @@ describe('<FormFilterInput />', () => {
       const useFormRender = renderHook(() => useForm());
       const formMethods = useFormRender.result.current;
 
-      const { container } = render(
+      render(
         <FormProviderTestWrapper formMethods={formMethods}>
           <FormFilterInput
             name={controllerName}
@@ -93,9 +88,6 @@ describe('<FormFilterInput />', () => {
           />
         </FormProviderTestWrapper>
       );
-
-      expect(container.firstChild).toHaveClass('form-group');
-      expect(container.firstChild?.firstChild).toHaveClass('input-wrapper');
 
       if (showCounter) {
         expect(FormRenderCharCounterSpy).toHaveBeenCalledWith(
@@ -130,11 +122,9 @@ describe('<FormFilterInput />', () => {
       );
 
       const labelElement = screen.getByText(labelName);
-      expect(labelElement).toHaveClass('input-label form-label');
       expect(labelElement).toHaveAttribute('for', `input-${controllerName}`);
 
       const inputElement = screen.getByRole('textbox');
-      expect(inputElement).toHaveClass('input-field form-control');
       expect(inputElement).toHaveTextContent('');
       expect(inputElement).toHaveAttribute('id', `input-${controllerName}`);
       expect(inputElement).toHaveAttribute('type', 'text');

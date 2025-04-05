@@ -1,8 +1,4 @@
-/**
- * @jest-environment jsdom
- */
-
-import { queryClientTestHookWrapper } from 'utils/createTestHookWrapper';
+import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { getEventsNamesTables, useEventsNamesTables, TEventsNamesTables } from './index';
 import { renderHook, waitFor } from '@testing-library/react';
 import { controllers, customAxios, dataController } from 'api';
@@ -37,7 +33,7 @@ describe('useEventsNamesTables', () => {
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: useEventsNamesTablesMockedData }));
 
     const useEventsNamesTablesRenderingResult = renderHook(() => useEventsNamesTables(), {
-      wrapper: queryClientTestHookWrapper()
+      wrapper: QueryClientProviderTestWrapper
     });
     await waitFor(() => {
       expect(useEventsNamesTablesRenderingResult.result.current.isSuccess).toBe(true);

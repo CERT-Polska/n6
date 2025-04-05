@@ -651,6 +651,7 @@ class Org(_ExternalInterfaceMixin, Base):
 
     # Basic data
     org_id = col(String(MAX_LEN_OF_ORG_ID), primary_key=True)
+    org_uuid = col(String(MAX_LEN_OF_UUID4), unique=True)
     actual_name = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING))
     full_access = col(Boolean, default=False, nullable=False)
     stream_api_enabled = col(Boolean, default=True, nullable=False)
@@ -788,9 +789,13 @@ class Org(_ExternalInterfaceMixin, Base):
     def __str__(self):
         return 'Org "{}"'.format(self.org_id)
 
-    __repr__ = attr_repr('org_id')
+    __repr__ = attr_repr('org_id', 'org_uuid')
 
-    _columns_to_validate = ['org_id', 'email_notification_language']
+    _columns_to_validate = [
+        'org_id',
+        'org_uuid',
+        'email_notification_language',
+    ]
 
 
 class RegistrationRequest(_ExternalInterfaceMixin, Base):

@@ -119,7 +119,7 @@ describe('parseSubmitData', () => {
 describe('getMissingFields', () => {
   it('returns empty array if defaultValues input is empty array', () => {
     expect(getMissingFields([], [{ value: '' }])).toStrictEqual([]);
-    expect(getMissingFields([{ value: '' }], [])).toStrictEqual([{ id: '0', value: '' }]); // NOTE: this test imho should pass with [] as expected
+    expect(getMissingFields([{ value: '' }], [])).toStrictEqual([{ id: '0', value: '' }]);
     expect(getMissingFields([], [])).toStrictEqual([]);
   });
 
@@ -168,7 +168,7 @@ describe('getMissingFields', () => {
 
 describe('getUpdatedFields', () => {
   it('returns empty array if defaultValues input is empty array', () => {
-    expect(getUpdatedFields([], [{ value: '' }])).toStrictEqual([{ value: '' }]); // NOTE: this test imho should pass with [] as expected
+    expect(getUpdatedFields([], [{ value: '' }])).toStrictEqual([{ value: '' }]);
     expect(getUpdatedFields([{ value: '' }], [])).toStrictEqual([]);
     expect(getUpdatedFields([], [])).toStrictEqual([]);
   });

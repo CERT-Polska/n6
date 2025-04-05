@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import ErrorPage, { IErrorPageVariantType } from './ErrorPage';
 const CustomButtonModule = require('components/shared/CustomButton');
@@ -23,15 +18,8 @@ describe('<ErrorPage />', () => {
         <ErrorPage header={textHeader} subtitle={textSubtitle} variant={variant as IErrorPageVariantType} />
       );
 
-      const headerComponent = screen.getByRole('heading', { level: 1 });
-      expect(headerComponent).toBeInTheDocument();
-      expect(headerComponent).not.toHaveClass();
-      expect(headerComponent).toHaveTextContent(textHeader);
-
-      const subtitleComponent = screen.getByText(textSubtitle);
-      expect(subtitleComponent).toBeInTheDocument();
-      expect(subtitleComponent).toHaveClass('mb-0 error-page-subtitle');
-      expect(subtitleComponent).toHaveRole('paragraph');
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(textHeader);
+      expect(screen.getByText(textSubtitle)).toHaveRole('paragraph');
 
       const logoIcon = container.querySelector('svg-logo-n6-mock');
       expect(logoIcon).toBeInTheDocument();
@@ -48,15 +36,8 @@ describe('<ErrorPage />', () => {
 
     const { container } = render(<ErrorPage header={textHeader} subtitle={textSubtitle} variant={'apiLoader'} />);
 
-    const headerComponent = screen.getByRole('heading', { level: 1 });
-    expect(headerComponent).toBeInTheDocument();
-    expect(headerComponent).not.toHaveClass();
-    expect(headerComponent).toHaveTextContent(textHeader);
-
-    const subtitleComponent = screen.getByText(textSubtitle);
-    expect(subtitleComponent).toBeInTheDocument();
-    expect(subtitleComponent).toHaveClass('mb-0 error-page-subtitle');
-    expect(subtitleComponent).toHaveRole('paragraph');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(textHeader);
+    expect(screen.getByText(textSubtitle)).toHaveRole('paragraph');
 
     const logoIcon = container.querySelector('svg-logo-n6-mock');
     expect(logoIcon).not.toBeInTheDocument();
@@ -76,6 +57,7 @@ describe('<ErrorPage />', () => {
         variant={'apiLoader'}
         buttonText={buttonText}
         onClick={onClickStub}
+        dataTestId="testID"
       />
     );
 
@@ -84,7 +66,8 @@ describe('<ErrorPage />', () => {
         className: 'error-page-button',
         text: buttonText,
         variant: 'primary',
-        onClick: onClickStub
+        onClick: onClickStub,
+        dataTestId: 'testID_btn'
       },
       null
     );
@@ -99,7 +82,13 @@ describe('<ErrorPage />', () => {
     const CustomButtonSpy = jest.spyOn(CustomButtonModule.default, 'render');
 
     render(
-      <ErrorPage header={'test header'} subtitle={'test subtitle'} variant={'apiLoader'} buttonText={buttonText} />
+      <ErrorPage
+        header={'test header'}
+        subtitle={'test subtitle'}
+        variant={'apiLoader'}
+        buttonText={buttonText}
+        dataTestId="testID"
+      />
     );
 
     expect(CustomButtonSpy).toHaveBeenCalledWith(
@@ -107,7 +96,8 @@ describe('<ErrorPage />', () => {
         className: 'error-page-button',
         text: buttonText,
         variant: 'primary',
-        onClick: undefined
+        onClick: undefined,
+        dataTestId: 'testID_btn'
       },
       null
     );

@@ -83,6 +83,7 @@ const DatePicker: FC<IProps & FormContextProps> = memo(
               rules={{ validate }}
               render={({ field: { value, onChange, onBlur } }) => (
                 <Form.Control
+                  data-testid={`date-picker-input-${name}`}
                   className="input-field date-picker-input-field"
                   value={value || ''}
                   onChange={onChange}
@@ -97,6 +98,7 @@ const DatePicker: FC<IProps & FormContextProps> = memo(
               )}
             />
             <button
+              data-testid="date-picker-calendar-icon-btn"
               type="button"
               className="date-picker-icon-btn"
               onClick={() => setIsOpen(!isOpen)}

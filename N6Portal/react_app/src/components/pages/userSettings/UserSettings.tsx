@@ -8,7 +8,7 @@ const UserSettings: FC = () => {
 
   return (
     <div className="user-settings-wrapper">
-      <h1>{messages.user_settings_title}</h1>
+      <h1 data-testid="user-settings-title">{messages.user_settings_title}</h1>
       <UserSettingsMfa />
       <UserSettingsApiKey />
     </div>

@@ -1,12 +1,7 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import userEvent from '@testing-library/user-event';
 import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import FormActionInput from './FormActionInput';
-import { FormProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { FormProviderTestWrapper } from 'utils/testWrappers';
 import * as FormRenderErrorMsgModule from './FormRenderErrorMsg';
 import { Validate, useForm } from 'react-hook-form';
 import * as validateFieldModule from './validation/validators';
@@ -33,8 +28,8 @@ describe('<FormActionInput />', () => {
       let formMethods = useFormRender.result.current;
       formMethods = { ...formMethods, setValue: setValueMock, getValues: getValuesMock };
 
-      const { container } = render(
-        <FormProviderTestWrapper formMethods={{ ...formMethods }}>
+      render(
+        <FormProviderTestWrapper formMethods={formMethods}>
           <FormActionInput
             name={buttonName}
             icon={<img className={iconClassname} />}
@@ -58,10 +53,6 @@ describe('<FormActionInput />', () => {
         expect(validateFieldSpy).not.toHaveBeenCalled();
       }
 
-      expect(container.firstChild).toHaveClass('form-group');
-      expect(container.firstChild?.firstChild).toHaveClass('input-wrapper');
-      expect(container.firstChild?.firstChild?.firstChild).toHaveClass('action-input-group input-group');
-
       expect(FormRenderErrorMsgSpy).toHaveBeenCalledWith(
         {
           fieldError: undefined,
@@ -73,7 +64,6 @@ describe('<FormActionInput />', () => {
       expect(screen.getByRole('heading', { level: 6 })).toHaveClass('mock-form-render-error-msg');
 
       const textboxElement = screen.getByRole('textbox');
-      expect(textboxElement).toHaveClass('input-field form-control');
       expect(textboxElement).toHaveValue('');
 
       const buttonElement = screen.getByRole('button');

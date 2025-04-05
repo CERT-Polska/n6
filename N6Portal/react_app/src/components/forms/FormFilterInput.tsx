@@ -28,6 +28,7 @@ type IProps = {
   showCounter?: boolean;
   isFieldArray?: boolean;
   validate?: Record<string, Validate<string>>;
+  dataTestId?: string;
 };
 
 export const parseValue = (value: string, keepWhitespaces = false) => {
@@ -59,7 +60,8 @@ const FormFilterInput: FC<IProps & FormContextProps> = memo(
     validate,
     control,
     setValue,
-    getValues
+    getValues,
+    dataTestId
   }) => {
     // allow whitespaces (e.g. `irc bot`) only for fieldsWithWhitespaces
     const fieldsWithWhitespaces = ['name'];
@@ -81,6 +83,7 @@ const FormFilterInput: FC<IProps & FormContextProps> = memo(
             render={({ field: { value, onChange, onBlur } }) => {
               return (
                 <Form.Control
+                  data-testid={dataTestId}
                   as={as}
                   type={type}
                   className="input-field"
@@ -99,7 +102,7 @@ const FormFilterInput: FC<IProps & FormContextProps> = memo(
                     onChange(parsedValue);
                   }}
                   onBlur={(e: FocusEvent<HTMLInputElement>) => {
-                    setValue(name, parseValue(e.target.value, keepWhitespaces));
+                    setValue(name, parseValue(e.target.value, keepWhitespaces), { shouldValidate: true });
                     onBlur();
                   }}
                 />

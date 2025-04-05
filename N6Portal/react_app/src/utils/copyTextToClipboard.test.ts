@@ -1,7 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-// jest environment to allow inspection of navigator.clipboard
 import { copyTextToClipboard } from './copyTextToClipboard';
 const noop = require('./noop');
 

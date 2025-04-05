@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2024 NASK. All rights reserved.
+# Copyright (c) 2018-2025 NASK. All rights reserved.
 
 import ast
 import collections
@@ -8,7 +8,7 @@ import re
 import secrets
 import uuid
 from collections.abc import Sequence
-from typing import Optional
+from typing import Union
 
 import flask.signals as signals
 from flask import (
@@ -403,8 +403,8 @@ class _ExtendStaticFilesMixinBase:
     __extra_css_attr_name: str = 'extra_css'
     __extra_js_attr_name: str = 'extra_js'
 
-    extra_css_filename: Optional[str] = None
-    extra_js_filename: Optional[str] = None
+    extra_css_filename: Union[str, list[str], None] = None
+    extra_js_filename: Union[str, list[str], None] = None
 
     def render(self, *args, **kwargs):
         """
@@ -421,10 +421,16 @@ class _ExtendStaticFilesMixinBase:
         constructor, but in this case, the `get_url()` method is being
         used, which relies on application's context.
         """
-        if self.extra_css_filename is not None:
-            self.__add_extra_css_file(self.extra_css_filename)
-        if self.extra_js_filename is not None:
-            self.__add_extra_js_file(self.extra_js_filename)
+        if (css_filenames := self.extra_css_filename) is not None:
+            if not isinstance(css_filenames, list):
+                css_filenames = [css_filenames]
+            for css_filename in css_filenames:
+                self.__add_extra_css_file(css_filename)
+        if (js_filenames := self.extra_js_filename) is not None:
+            if not isinstance(js_filenames, list):
+                js_filenames = [js_filenames]
+            for js_filename in js_filenames:
+                self.__add_extra_js_file(js_filename)
         # noinspection PyUnresolvedReferences
         return super().render(*args, **kwargs)
 
@@ -440,16 +446,16 @@ class _ExtendStaticFilesMixinBase:
 
     def __append_url_to_list(self, attr_name, url):
         extra_files_list = getattr(self, attr_name, None)
-        if (extra_files_list is not None
-                and isinstance(extra_files_list, Sequence)
-                and url not in extra_files_list):
-            if isinstance(extra_files_list, list):
-                extra_files_list.append(url)
-            elif isinstance(extra_files_list, tuple):
-                setattr(self, attr_name, extra_files_list + (url,))
-            else:
-                raise TypeError(f"The `{attr_name}` attribute of the `flask_admin.base.BaseView` "
-                                f"subclasses should be a list or a tuple")
+        if extra_files_list is not None and isinstance(extra_files_list, Sequence):
+            if url not in extra_files_list:
+                if isinstance(extra_files_list, list):
+                    extra_files_list.append(url)
+                elif isinstance(extra_files_list, tuple):
+                    setattr(self, attr_name, extra_files_list + (url,))
+                else:
+                    raise TypeError(f"The `{attr_name}` attribute of "
+                                    f"the `flask_admin.base.BaseView` subclasses should be "
+                                    f"a list or a tuple")
         else:
             setattr(self, attr_name, [url])
 
@@ -471,6 +477,33 @@ class ApiLookupExtraFilesMixin(_ExtendStaticFilesMixinBase):
 
     extra_js_filename = 'lookup_api_handler.js'
     extra_css_filename = 'lookup_api.css'
+
+
+class ListViewFormattingExtraFilesMixin(_ExtendStaticFilesMixinBase):
+
+    """
+    The class should be mixed with a subclass of
+    `flask_admin.base.BaseView` class. It adds extra JS file to
+    the view it is mixed with, which provides additional formatting
+    of list view columns.
+    """
+
+    extra_css_filename = 'column_formatting.css'
+    __extra_css_filename = 'column_formatting.css'
+
+    def render(self, *args, **kwargs):
+        if self.extra_css_filename != self.__extra_css_filename:
+            # Value of the class attribute differs from the one
+            # declared in this class, meaning the view class
+            # mixes in more than one subclass
+            # of `_ExtendStaticFilesMixinBase`. Update the class
+            # attribute's value, so current value will not
+            # be overridden by other mixin's class attribute.
+            if isinstance(self.extra_css_filename, list):
+                self.extra_css_filename.append(self.__extra_css_filename)
+            else:
+                self.extra_css_filename = [self.extra_css_filename, self.__extra_css_filename]
+        return super().render(*args, **kwargs)
 
 
 class UserInlineFormAdmin(_PasswordFieldHandlerMixin,
@@ -591,20 +624,25 @@ class ModelWithShortTimeFieldConverter(fa_sqla_form.AdminModelConverter):
         return ShortTimeField(**field_args)
 
 
-class OrgView(ApiLookupExtraFilesMixin, CustomWithInlineFormsModelView):
+class OrgView(ApiLookupExtraFilesMixin,
+              ListViewFormattingExtraFilesMixin,
+              CustomWithInlineFormsModelView):
 
     # create_modal = True
     # edit_modal = True
     model_form_converter = ModelWithShortTimeFieldConverter
     column_descriptions = {
         'org_id': "Organization's identifier (domain name).",
+        'org_uuid': 'Organization\'s unique identifier used as a primary identifier '
+                    'within the identity provider.',
     }
     can_view_details = True
     # essential to display PK column in the "list" view
     column_display_pk = True
-    column_searchable_list = ['org_id']
+    column_searchable_list = ['org_id', 'org_uuid']
     column_list = [
         'org_id',
+        'org_uuid',
         'actual_name',
         'full_access',
         # 'stream_api_enabled',
@@ -617,6 +655,7 @@ class OrgView(ApiLookupExtraFilesMixin, CustomWithInlineFormsModelView):
     ]
     form_columns = [
         'org_id',
+        'org_uuid',
         'actual_name',
         'org_groups',
         'users',
@@ -657,6 +696,7 @@ class OrgView(ApiLookupExtraFilesMixin, CustomWithInlineFormsModelView):
     form_rules = [
         rules.Header('Organization basic data'),
         rules.Field('org_id'),
+        rules.Field('org_uuid'),
         rules.Field('actual_name'),
         rules.Field('full_access'),
         rules.Field('stream_api_enabled'),
@@ -1315,8 +1355,8 @@ class CustomIndexView(AdminIndexView):
         if msg is not None:
             resp['msg'] = msg
         return json.dumps(resp)
-    
-    
+
+
 class AgreementView(CustomColumnListView):
 
     can_view_details = True

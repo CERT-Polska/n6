@@ -36,6 +36,9 @@ n6collector_greensnowcolisttxt = n6datasources.collectors.greensnow_co:GreenSnow
 ## openphish.*
 n6collector_openphishwebbl = n6datasources.collectors.openphish:OpenphishWebBlCollector_main
 
+## phishtank.*
+n6collector_phishtankverified = n6datasources.collectors.phishtank:PhishtankVerifiedCollector_main
+
 ## sblam.*
 n6collector_sblamspam = n6datasources.collectors.sblam:SblamSpamCollector_main
 
@@ -122,6 +125,9 @@ n6parser_manual = n6datasources.parsers.manual:ManualParser_main
 ## openphish.*
 n6parser_openphishwebbl = n6datasources.parsers.openphish:OpenphishWebBlParser_main
 n6parser_openphishweb = n6datasources.parsers.openphish:OpenphishWebParser_main
+
+## phishtank.*
+n6parser_phishtankverified = n6datasources.parsers.phishtank:PhishtankVerifiedParser_main
 
 ## sblam.*
 n6parser_sblamspam = n6datasources.parsers.sblam:SblamSpamParser_main

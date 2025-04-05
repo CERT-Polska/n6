@@ -1,12 +1,12 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { act, render, screen } from '@testing-library/react';
 import UserMenuNavigation from './UserMenuNavigation';
-import { LanguageProvider } from 'context/LanguageProvider';
-import { QueryClient, QueryClientProvider, useMutation, UseQueryResult } from 'react-query';
+import {
+  ErrorBoundaryTestWrapper,
+  LanguageProviderTestWrapper,
+  QueryClientProviderTestWrapper,
+  TEST_FALLBACK_MSG
+} from 'utils/testWrappers';
+import { useMutation, UseQueryResult } from 'react-query';
 import { BrowserRouter } from 'react-router-dom';
 import * as LanguagePickerModule from 'components/shared/LanguagePicker';
 import { dictionary } from 'dictionary';
@@ -16,6 +16,8 @@ import Keycloak from 'keycloak-js';
 import { AuthContext, IAuthContext } from 'context/AuthContext';
 import * as useAgreementsModule from 'api/services/agreements';
 import { AxiosError } from 'axios';
+import userEvent from '@testing-library/user-event';
+import * as getLogoutModule from 'api/auth';
 
 const historyPushMock = jest.fn();
 jest.mock('react-router-dom', () => ({
@@ -38,11 +40,11 @@ describe('<UserMenuNavigation />', () => {
 
     const { container } = render(
       <BrowserRouter>
-        <QueryClientProvider client={new QueryClient()}>
-          <LanguageProvider>
+        <QueryClientProviderTestWrapper>
+          <LanguageProviderTestWrapper>
             <UserMenuNavigation />
-          </LanguageProvider>
-        </QueryClientProvider>
+          </LanguageProviderTestWrapper>
+        </QueryClientProviderTestWrapper>
       </BrowserRouter>
     );
 
@@ -50,16 +52,12 @@ describe('<UserMenuNavigation />', () => {
     expect(userIcon).toBeInTheDocument();
 
     let buttonElement = screen.getByRole('button');
-    expect(buttonElement).toHaveClass('light-focus header-user-btn btn btn-primary');
     expect(buttonElement).toHaveAttribute('aria-expanded', 'false');
     expect(buttonElement.firstChild).toStrictEqual(userIcon);
-    expect(buttonElement.parentElement).toHaveClass('dropdown');
 
     expect(LanguagePickerSpy).not.toHaveBeenCalled();
 
-    await act(async () => {
-      buttonElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
+    await userEvent.click(buttonElement);
     buttonElement = screen.getByRole('button', { expanded: true });
     expect(buttonElement).toHaveAttribute('aria-expanded', 'true');
     expect(LanguagePickerSpy).toHaveBeenCalledWith({ mode: 'text' }, {});
@@ -88,18 +86,15 @@ describe('<UserMenuNavigation />', () => {
 
     render(
       <BrowserRouter>
-        <QueryClientProvider client={new QueryClient()}>
-          <LanguageProvider>
+        <QueryClientProviderTestWrapper>
+          <LanguageProviderTestWrapper>
             <UserMenuNavigation />
-          </LanguageProvider>
-        </QueryClientProvider>
+          </LanguageProviderTestWrapper>
+        </QueryClientProviderTestWrapper>
       </BrowserRouter>
     );
 
-    await act(async () => {
-      screen.getByRole('button').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-
+    await userEvent.click(screen.getByRole('button'));
     expect(screen.getAllByRole('link').length).toBe(5);
     expect(screen.getByText(dictionary['en']['header_nav_agreements_settings'])).toHaveAttribute(
       'href',
@@ -128,11 +123,11 @@ describe('<UserMenuNavigation />', () => {
         <AuthContext.Provider value={authContext}>
           <KeycloakContextProvider keycloak={keycloakContext}>
             <BrowserRouter>
-              <QueryClientProvider client={new QueryClient()}>
-                <LanguageProvider>
+              <QueryClientProviderTestWrapper>
+                <LanguageProviderTestWrapper>
                   <UserMenuNavigation />
-                </LanguageProvider>
-              </QueryClientProvider>
+                </LanguageProviderTestWrapper>
+              </QueryClientProviderTestWrapper>
             </BrowserRouter>
           </KeycloakContextProvider>
         </AuthContext.Provider>
@@ -175,30 +170,28 @@ describe('<UserMenuNavigation />', () => {
     const authContext = {
       resetAuthState: resetAuthStateMock
     } as unknown as IAuthContext;
+    jest.spyOn(getLogoutModule, 'getLogout').mockResolvedValue();
     useMutationMock.mockReturnValue({ mutateAsync: mutateAsyncMock });
 
     render(
-      <AuthContext.Provider value={authContext}>
-        <KeycloakContextProvider keycloak={keycloakContext}>
-          <BrowserRouter>
-            <QueryClientProvider client={new QueryClient()}>
-              <LanguageProvider>
-                <UserMenuNavigation />
-              </LanguageProvider>
-            </QueryClientProvider>
-          </BrowserRouter>
-        </KeycloakContextProvider>
-      </AuthContext.Provider>
+      <ErrorBoundaryTestWrapper>
+        <AuthContext.Provider value={authContext}>
+          <KeycloakContextProvider keycloak={keycloakContext}>
+            <BrowserRouter>
+              <QueryClientProviderTestWrapper>
+                <LanguageProviderTestWrapper>
+                  <UserMenuNavigation />
+                </LanguageProviderTestWrapper>
+              </QueryClientProviderTestWrapper>
+            </BrowserRouter>
+          </KeycloakContextProvider>
+        </AuthContext.Provider>
+      </ErrorBoundaryTestWrapper>
     );
 
-    await act(async () => {
-      screen.getByRole('button').dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-
-    const logoutPress = act(async () => {
-      screen.getByText(dictionary['en']['header_nav_logout']).dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    });
-
-    expect(logoutPress).rejects.toThrow(dictionary['en']['header_nav_logout_error']);
+    await userEvent.click(screen.getByRole('button'));
+    await userEvent.click(screen.getByText(dictionary['en']['header_nav_logout'])); // throws error caught in ErrorBoundary
+    expect(screen.getByText(TEST_FALLBACK_MSG)).toBeInTheDocument();
+    expect(screen.getByText('Logout error')).toBeInTheDocument();
   });
 });

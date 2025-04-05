@@ -24,14 +24,17 @@ from n6sdk.data_spec import (
 
 
 TOPLEVEL_N6_PACKAGES = (
-    'n6',
     'n6adminpanel',
     'n6brokerauthapi',
-    'n6corelib',
+    'n6datapipeline',
+    'n6datasources',
+    'n6gitlabtools',
     'n6sdk',
     'n6lib',
     'n6web',
     'n6portal',
+    'n6push',
+    'n6testutils',
 )
 
 

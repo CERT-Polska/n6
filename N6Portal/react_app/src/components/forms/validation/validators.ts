@@ -62,7 +62,7 @@ export const composeValidators = (
   Object.entries(validators).reduce((prev, curr) => ({ ...prev, [curr[0]]: curr[1] }), {});
 
 export const isRequired: Validate<FormFieldValue> = (value) => {
-  if (value instanceof File) return true; // TODO: fix File reference problem for test env in Node 16 or less
+  if (value instanceof File) return true;
   else if (isObject(value) && value) return !Object.keys(value).length ? 'validation_isRequired' : true;
   else return !value ? 'validation_isRequired' : true;
 };

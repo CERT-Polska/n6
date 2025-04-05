@@ -36,9 +36,14 @@ const LoginConfigMfaSuccess: FC = () => {
               <SuccessIcon />
             </div>
             <div className="mb-30 config-mfa-summary">
-              <h1>{messages.login_mfa_config_success_title}</h1>
-              <p>{messages.login_mfa_config_success_description}</p>
-              <CustomButton to={redirectUrl} text={`${messages.login_mfa_config_success_btn}`} variant="primary" />
+              <h1 data-testid="login-mfa-config-success-title">{messages.login_mfa_config_success_title}</h1>
+              <p data-testid="login-mfa-config-success-description">{messages.login_mfa_config_success_description}</p>
+              <CustomButton
+                dataTestId="login-mfa-config-success-ok-btn"
+                to={redirectUrl}
+                text={`${messages.login_mfa_config_success_btn}`}
+                variant="primary"
+              />
             </div>
           </>
         ) : (

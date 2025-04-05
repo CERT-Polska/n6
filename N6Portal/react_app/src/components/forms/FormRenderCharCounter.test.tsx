@@ -1,12 +1,7 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render, renderHook } from '@testing-library/react';
 import FormRenderCharCounter from './FormRenderCharCounter';
 import { useForm, useWatch } from 'react-hook-form';
-import { FormProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { FormProviderTestWrapper } from 'utils/testWrappers';
 
 jest.mock('react-hook-form', () => ({
   ...jest.requireActual('react-hook-form'),

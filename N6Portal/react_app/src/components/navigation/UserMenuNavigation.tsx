@@ -50,6 +50,7 @@ const UserMenuNavigation: FC = () => {
   return (
     <Dropdown>
       <Dropdown.Toggle
+        data-testid="userMenuNavBtn"
         id="dropdown-user-menu"
         aria-label={`${messages.header_user_menu_aria_label}`}
         bsPrefix="header-user-btn"
@@ -58,18 +59,23 @@ const UserMenuNavigation: FC = () => {
         <User />
       </Dropdown.Toggle>
       <Dropdown.Menu align="right" className="header-dropdown-menu p-0">
-        <Dropdown.Item as={Link} to={routeList.account} className="p-3">
+        <Dropdown.Item data-testid="userMenuNavAccount" as={Link} to={routeList.account} className="p-3">
           {messages.header_nav_account}
         </Dropdown.Item>
         <Dropdown.Divider className="m-0" />
-        <Dropdown.Item as={Link} to={routeList.userSettings} className="p-3">
+        <Dropdown.Item data-testid="userMenuNavUserSettings" as={Link} to={routeList.userSettings} className="p-3">
           {messages.header_nav_user_settings}
         </Dropdown.Item>
-        <Dropdown.Item as={Link} to={routeList.settings} className="p-3">
+        <Dropdown.Item data-testid="userMenuNavOrgSettings" as={Link} to={routeList.settings} className="p-3">
           {messages.header_nav_settings}
         </Dropdown.Item>
         {agreements?.length ? (
-          <Dropdown.Item as={Link} to={routeList.agreementsSettings} className="p-3">
+          <Dropdown.Item
+            data-testid="userMenuNavAgreementSettings"
+            as={Link}
+            to={routeList.agreementsSettings}
+            className="p-3"
+          >
             {messages.header_nav_agreements_settings}
           </Dropdown.Item>
         ) : (
@@ -80,7 +86,13 @@ const UserMenuNavigation: FC = () => {
           <LanguagePicker mode="text" />
         </Dropdown.Item>
         <Dropdown.Divider className="m-0" />
-        <Dropdown.Item as={Link} to={routeList.login} className="p-3" onClick={onLogoutClick}>
+        <Dropdown.Item
+          data-testid="userMenuNavLogout"
+          as={Link}
+          to={routeList.login}
+          className="p-3"
+          onClick={onLogoutClick}
+        >
           {messages.header_nav_logout}
         </Dropdown.Item>
       </Dropdown.Menu>

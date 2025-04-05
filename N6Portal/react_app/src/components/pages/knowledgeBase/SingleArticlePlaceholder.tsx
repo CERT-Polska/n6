@@ -10,13 +10,13 @@ const SingleArticlePlaceholder: FC<IProps> = ({ subtitle }) => {
   const { messages } = useTypedIntl();
 
   return (
-    <article className="kb-article">
+    <article className="kb-article" data-testid="kb-article-placeholder">
       <div className="kb-article-book">
-        <Book />
+        <Book data-testid="kb-article-placeholder-book-icon" />
       </div>
       <div className="kb-article-default">
-        <h1>{messages['knowledge_base_default_header']}</h1>
-        <p>{subtitle ?? messages['knowledge_base_default_subtitle']}</p>
+        <h1 data-testid="kb-article-placeholder-title">{messages['knowledge_base_default_header']}</h1>
+        <p data-testid="kb-article-placeholder-subtitle">{subtitle ?? messages['knowledge_base_default_subtitle']}</p>
       </div>
     </article>
   );

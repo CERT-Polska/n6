@@ -50,7 +50,7 @@ __all__ = [
     'SignedStampedFileAccessor',
     'as_path',
 
-    # TODO: move the definitions of following classes and functions
+    # TODO: move the definitions of the following classes and functions
     #       from `n6lib.common_helpers` into this module.
     'AtomicallySavedFile',
     'RsyncFileContextManager',

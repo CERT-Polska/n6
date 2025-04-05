@@ -40,14 +40,15 @@ const UserSettingsMfaEdit: FC<Required<IMfaConfig>> = ({ mfa_config }) => {
   };
 
   return (
-    <section>
+    <section data-testid="user-settings-mfa-edit-section">
       <div className="user-settings-section-header">
         <MfaIcon />
-        <h2>{messages.user_settings_mfa_title}</h2>
+        <h2 data-testid="user-settings-mfa-title">{messages.user_settings_mfa_title}</h2>
       </div>
       <div className="user-settings-section-body">
         <MfaQRCode {...mfa_config} />
         <CustomButton
+          dataTestId="user-settings-mfa-edit-cta-btn"
           variant="secondary"
           text={`${messages.user_settings_mfa_edit_cta}`}
           loading={initMfaConfigStatus === 'loading'}

@@ -4,7 +4,7 @@
   font-weight: 500;
   line-height: sizeToRem(22);
   border-radius: $border-radius;
-  color: white;
+  color: $light-background;
   display: inline-flex;
   justify-content: center;
   align-items: center;
@@ -24,13 +24,13 @@
   }
 
   &.primary {
-    color: white;
+    color: $light-background;
     background: $primary;
     box-shadow: 0 sizeToRem(10) sizeToRem(20) rgba($primary, 0.15);
 
     &:hover,
     &:focus {
-      color: white;
+      color: $light-background;
       background: $primary;
       box-shadow: 0 sizeToRem(25) sizeToRem(30) rgba($primary, 0.2);
     }
@@ -42,13 +42,13 @@
 
   &.outline {
     color: $primary;
-    background: white;
+    background: $light-background;
     border: sizeToRem(2) solid $primary !important;
 
     &:hover,
     &:focus {
       color: $primary;
-      background: white;
+      background: $light-background;
       box-shadow: 0 sizeToRem(10) sizeToRem(20) rgba($primary, 0.3);
     }
 
@@ -61,9 +61,10 @@
     background-color: $dark-lighter;
     font-size: 1rem;
     padding: sizeToRem(11) sizeToRem(20);
+
     &:hover,
     &:focus {
-      color: white;
+      color: $light-background;
       background: #7d8991;
     }
   }
@@ -93,6 +94,7 @@
     color: $dark;
     background-color: rgba($grey-base, 0.2);
     padding: sizeToRem(8) sizeToRem(16);
+
     &:hover,
     &:focus {
       background-color: rgba($grey-base, 0.3);
@@ -102,13 +104,16 @@
   .n6-button-icon {
     height: sizeToRem(16);
     line-height: 1;
+
     &.left {
       margin-right: sizeToRem(12);
     }
+
     &.right {
       margin-left: sizeToRem(12);
       order: 1;
     }
+
     &.center {
       margin: 0;
     }

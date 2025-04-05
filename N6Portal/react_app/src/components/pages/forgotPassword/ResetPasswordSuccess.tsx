@@ -23,9 +23,14 @@ const ResetPasswordSuccess: FC = () => {
           <SuccessIcon />
         </div>
         <div className="mb-30 reset-password-summary">
-          <h1>{messages.reset_password_success_title}</h1>
-          <p>{messages.reset_password_success_description}</p>
-          <CustomButton to={routeList.login} text={`${messages.reset_password_success_btn}`} variant="primary" />
+          <h1 data-testid="reset-password-success-title">{messages.reset_password_success_title}</h1>
+          <p data-testid="reset-password-success-descritpion">{messages.reset_password_success_description}</p>
+          <CustomButton
+            dataTestId="reset-password-success-login-btn"
+            to={routeList.login}
+            text={`${messages.reset_password_success_btn}`}
+            variant="primary"
+          />
         </div>
       </div>
     </section>

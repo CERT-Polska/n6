@@ -1,4 +1,3 @@
-// import getUserLocale from "get-user-locale";
 import { getUserAgentLocale } from './language';
 import getUserLocale from 'get-user-locale';
 

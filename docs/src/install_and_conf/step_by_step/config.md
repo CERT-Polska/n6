@@ -26,19 +26,19 @@ $ sudo chmod -R 755 \
 ## *n6* pipelines configuration files
 
 
-Copy the configuration files for the *n6* pipelines into appropariate directories:
+Copy the configuration files for the *n6* pipeline into appropriate directories:
 
 ```bash
-$ cp -f /home/dataman/n6/N6DataPipeline/n6datapipeline/data/conf/*.conf /home/dataman/.n6
-$ cp -f /home/dataman/n6/N6DataSources/n6datasources/data/conf/*.conf /home/dataman/.n6
-$ cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6
+$ cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6/
 ```
 
 The configuration files in `/home/dataman/.n6`:
 
 ```bash
 $ ls /home/dataman/.n6/
-00_global.conf  00_pipeline.conf  02_archiveraw.conf  05_enrich.conf  07_aggregator.conf
+00_global.conf  00_pipeline.conf
+[...]
+05_enrich.conf  07_aggregator.conf  07_comparator.conf
 [...]
 60_abuse_ch.conf  60_amqp.conf  60_cert_pl.conf  60_cesnet_cz.conf  60_dan_tv.conf
 [...]

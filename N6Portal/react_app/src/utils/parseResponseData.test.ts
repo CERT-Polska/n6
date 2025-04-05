@@ -101,6 +101,38 @@ describe('parseResponseData', () => {
           cc: 'PL',
           asn: 1
         }
+      ],
+      client: ['test_client_1', 'test_client_2']
+    };
+    const parsedEntry: IResponseTableData = {
+      id: '',
+      source: '',
+      confidence: 'low',
+      category: 'amplifier',
+      time: '2024-01-01 12:00:00',
+      ip: '1.1.1.1\n',
+      cc: 'PL\n',
+      asn: '1\n',
+      client: 'test_client_1\ntest_client_2'
+    };
+    const result = parseResponseData([dataEntry, dataEntry]);
+    const expected = [parsedEntry, parsedEntry];
+    expect(result).toStrictEqual(expected);
+  });
+
+  it('ignores client field if not provided in the response', () => {
+    const dataEntry: IResponse = {
+      id: '',
+      source: '',
+      confidence: 'low',
+      category: 'amplifier',
+      time: '2024-01-01T12:00:00Z',
+      address: [
+        {
+          ip: '1.1.1.1',
+          cc: 'PL',
+          asn: 1
+        }
       ]
     };
     const parsedEntry: IResponseTableData = {
@@ -198,8 +230,8 @@ describe('parseAddressForCsv', () => {
     ];
     const expected: IResponseParsedAddress = {
       ip: '1.1.1.1 2.2.2.2 3.3.3.3 4.4.4.4',
-      cc: 'PL EN  ', // NOTE: multiple whitespaces
-      asn: '1   2' // NOTE: multiple whitespaces
+      cc: 'PL EN  ', // multiple whitespaces
+      asn: '1   2' // multiple whitespaces
     };
     expect(parseAddressForCsv(address)).toStrictEqual(expected);
   });

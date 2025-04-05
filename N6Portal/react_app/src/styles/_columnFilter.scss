@@ -1,11 +1,16 @@
-.column-filter-dropdown-toggle {
+%column-filter-dropdown-toggle {
   padding: 0;
   background: transparent;
   border-radius: 0;
+
   &:hover,
   &:focus {
     background: transparent !important;
   }
+}
+
+.column-filter-dropdown-toggle {
+  @extend %column-filter-dropdown-toggle;
 }
 
 .column-filter-dropdown-title {
@@ -36,4 +41,12 @@
 
 .column-filter-dropdown-label {
   cursor: pointer;
+}
+
+.column-filter-dropdown-divider {
+  margin: 0 0 sizeToRem(10);
+}
+
+.column-filter-item-reset-columns-button {
+  padding: 0 0 0 sizeToRem(2);
 }

@@ -1,0 +1,4 @@
+.model-list {
+  /* try to set equal widths for the columns of a list view table */
+  table-layout: fixed;
+}

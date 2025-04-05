@@ -1,10 +1,10 @@
 import { dataController, jsonDataFormat, customAxios } from 'api';
 import { TAvailableResources } from 'api/services/info/types';
-import { IRequestParams, IResponse } from 'api/services/globalTypes';
+import { ICustomResponse, IRequestParams, IResponse } from 'api/services/globalTypes';
 
 export interface IFilterResponse {
   target: TAvailableResources;
-  data: IResponse[];
+  data: (IResponse & ICustomResponse)[];
 }
 
 export const getSearch = async (params: IRequestParams, controller: TAvailableResources): Promise<IFilterResponse> => {

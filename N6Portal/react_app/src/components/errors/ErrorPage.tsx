@@ -12,9 +12,10 @@ interface IProps {
   buttonText?: string;
   variant: IErrorPageVariantType;
   onClick?: () => void;
+  dataTestId?: string;
 }
 
-const ErrorPage: FC<IProps> = ({ header, subtitle, buttonText, onClick, variant }) => {
+const ErrorPage: FC<IProps> = ({ header, subtitle, buttonText, onClick, variant, dataTestId }) => {
   const icons = {
     errBoundary: <ErrorIcon className="error-page-icon" />,
     apiLoader: <ErrorIcon className="error-page-icon" />,
@@ -34,7 +35,13 @@ const ErrorPage: FC<IProps> = ({ header, subtitle, buttonText, onClick, variant 
         <h1>{header}</h1>
         <p className="mb-0 error-page-subtitle">{subtitle}</p>
         {buttonText && (
-          <CustomButton className="error-page-button" text={buttonText} variant="primary" onClick={onClick} />
+          <CustomButton
+            dataTestId={`${dataTestId}_btn`}
+            className="error-page-button"
+            text={buttonText}
+            variant="primary"
+            onClick={onClick}
+          />
         )}
       </div>
     </div>

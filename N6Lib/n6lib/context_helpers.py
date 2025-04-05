@@ -131,7 +131,7 @@ class ThreadLocalContextDeposit(ThreadLocalNamespace):
     * `n6lib.auth_db.SQLAuthDBConnector` (also a reentrant context
       manager),
 
-    * `n6corelib.manage_api._manage_api.ManageAPIAuthDBConnector`
+    * `n6lib.data_backend_api._EventDatabaseTransactionContextManager`
       (a non-reentrant context manager).
 
     ***

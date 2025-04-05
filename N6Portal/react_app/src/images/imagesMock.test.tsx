@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render } from '@testing-library/react';
 import { ReactComponent as ErrorIco } from 'images/error_ico.svg';
 import { ReactComponent as ExpandIco } from 'images/expand-ico.svg';

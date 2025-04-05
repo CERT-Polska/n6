@@ -14,21 +14,33 @@ const UserSettingsConfirmationModal: FC<IProps> = ({ show, loadingCta = false, o
   const { messages } = useTypedIntl();
 
   return (
-    <Modal show={show} className="user-settings-confirmation-modal" onHide={onHide} centered>
+    <Modal
+      data-testid="user-settings-confirmation-modal"
+      show={show}
+      className="user-settings-confirmation-modal"
+      onHide={onHide}
+      centered
+    >
       <Modal.Header>
-        <Modal.Title>{messages.user_settings_api_key_confirmation_title}</Modal.Title>
+        <Modal.Title data-testid="user-settings-confirmation-title">
+          {messages.user_settings_api_key_confirmation_title}
+        </Modal.Title>
       </Modal.Header>
       <Modal.Body>
-        <p>{messages.user_settings_api_key_confirmation_description}</p>
+        <p data-testid="user-settings-confirmation-description">
+          {messages.user_settings_api_key_confirmation_description}
+        </p>
       </Modal.Body>
       <Modal.Footer>
         <CustomButton
+          dataTestId="user-settings-confirmation-cancel-btn"
           variant="link"
           text={`${messages.user_settings_api_key_confirmation_cancel_btn}`}
           onClick={onHide}
           disabled={loadingCta}
         />
         <CustomButton
+          dataTestId="user-settings-confirmation-confirm-btn"
           variant="primary"
           text={`${messages.user_settings_api_key_confirmation_confirm_btn}`}
           onClick={onConfirm}

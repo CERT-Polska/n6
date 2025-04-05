@@ -14,6 +14,7 @@ const NotFound: FC = () => {
       buttonText={`${messages['notFound_btn_text']}`}
       onClick={() => history.push(routelist.organization)}
       variant="notFound"
+      dataTestId="notFound"
     />
   );
 };

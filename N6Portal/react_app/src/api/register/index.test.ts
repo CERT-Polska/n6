@@ -1,7 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
 import { postRegister } from './index';
 import { waitFor } from '@testing-library/react';
 import { controllers, customAxios, dataController } from 'api';

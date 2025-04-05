@@ -13,10 +13,11 @@ export const parseAddress = (address?: IAddress[]): IResponseParsedAddress => {
 
 export const parseResponseData = (data: IResponse[]): IResponseTableData[] => {
   return data.map((item: IResponse) => {
-    const { address, ...rest } = item;
+    const { address, client, ...rest } = item;
     const time = rest['time'].replace('T', ' ').replace('Z', '');
     const addressData: IResponseParsedAddress = parseAddress(address);
-    return { ...rest, time, ...addressData };
+    const clientData = client ? client.join('\n') : '';
+    return { ...rest, time, ...addressData, ...(client && { client: clientData }) };
   });
 };
 

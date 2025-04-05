@@ -21,16 +21,18 @@ const MfaQRCode: FC<IMfaConfig['mfa_config']> = (props) => {
   return (
     <div className="mfa-config-qrcode-wrapper">
       <div className="mfa-config-qr-code">
-        <canvas ref={canvasRef} />
+        <canvas ref={canvasRef} data-testid="mfa_qr_code" />
         {qrcodeError && (
           <div className="qr-code-placeholder-wrapper">
-            <div className="qr-code-placeholder">{messages.login_mfa_qrcode_placeholder_text}</div>
+            <div className="qr-code-placeholder" data-testid="mfa_error_info">
+              {messages.login_mfa_qrcode_placeholder_text}
+            </div>
           </div>
         )}
       </div>
       <div>
-        <p>{messages.login_mfa_config_key_label}</p>
-        <p>{secret_key}</p>
+        <p data-testid="mfa_key_label">{messages.login_mfa_config_key_label}</p>
+        <p data-testid="mfa_secret_key">{secret_key}</p>
       </div>
     </div>
   );

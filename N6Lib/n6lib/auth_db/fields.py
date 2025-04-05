@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2024 NASK. All rights reserved.
+# Copyright (c) 2018-2025 NASK. All rights reserved.
 
 import datetime
 import re
@@ -122,18 +122,24 @@ class NoWhitespaceSecretField(UnicodeLimitedField, UnicodeRegexField):
                        re.UNICODE)
 
 
-class UUID4SecretField(UnicodeLimitedField, UnicodeRegexField):
+class UUID4SimpleField(UnicodeLimitedField, UnicodeRegexField):
 
-    sensitive = True
-    default_error_msg_if_sensitive = 'not a valid UUID4'
+    sensitive = False
+    default_error_msg_if_sensitive = "not a valid UUID4"
 
     disallow_empty = True
-    regex = r'\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z'
+    regex = r'\A[-0-9a-f]+\Z'
     max_length = MAX_LEN_OF_UUID4
 
     def _fix_value(self, value):
         value = super()._fix_value(value)
         return value.lower()
+
+
+class UUID4SecretField(UUID4SimpleField):
+
+    sensitive = True
+    regex = r'\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z'
 
 
 class RegistrationRequestAnyEmailField(EmailCustomizedField):
@@ -183,7 +189,7 @@ class URLSimpleField(UnicodeLimitedField):
     disallow_empty = True
     decode_error_handling = 'strict'
 
-    
+
 class HTTPAbsoluteURLField(URLSimpleField):
     
     def _validate_value(self, value: string):

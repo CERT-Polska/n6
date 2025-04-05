@@ -49,6 +49,7 @@ const ArticleSearchForm: FC = () => {
           maxLength={100}
           validate={validateSearchQuery}
           placeholder={`${messages['knowledge_base_search_placeholder']}`}
+          dataTestId="kb-article-search-form"
         />
       </form>
     </FormProvider>

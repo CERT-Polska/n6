@@ -1,8 +1,4 @@
-/**
- * @jest-environment jsdom
- */
-
-import { queryClientTestHookWrapper } from 'utils/createTestHookWrapper';
+import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { getBarChart, useBarChart } from './index';
 import { TBarChart } from './types';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -67,7 +63,7 @@ describe('useBarChart', () => {
 
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: useBarChartMockedData }));
 
-    const useBarChartRenderingResult = renderHook(() => useBarChart(), { wrapper: queryClientTestHookWrapper() });
+    const useBarChartRenderingResult = renderHook(() => useBarChart(), { wrapper: QueryClientProviderTestWrapper });
     await waitFor(() => {
       expect(useBarChartRenderingResult.result.current.isSuccess).toBe(true);
     });

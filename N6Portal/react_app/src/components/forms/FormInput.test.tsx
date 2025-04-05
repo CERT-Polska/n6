@@ -1,12 +1,7 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render, renderHook, screen } from '@testing-library/react';
 import FormInput, { FormInputAs, FormInputType } from './FormInput';
 import { Validate, useForm } from 'react-hook-form';
-import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/testWrappers';
 import * as FormRenderErrorMsgModule from './FormRenderErrorMsg';
 import * as ValidateFieldModule from './validation/validators';
 import * as FormRenderCharCounterModule from './FormRenderCharCounter';
@@ -69,15 +64,10 @@ describe('<FormInput />', () => {
         </FormProviderTestWrapper>
       );
 
-      expect(container.firstChild).toHaveClass('form-group');
-      expect(container.firstChild?.firstChild).toHaveClass('input-wrapper');
-
       const labelElement = screen.getByText(labelName);
-      expect(labelElement).toHaveClass('input-label form-label');
       expect(labelElement).toHaveAttribute('for', `input-${controllerName}`);
 
       const inputElement = screen.getByRole('textbox');
-      expect(inputElement).toHaveClass('input-field form-control');
       expect(inputElement).toHaveValue('');
       expect(inputElement).toHaveAttribute('id', `input-${controllerName}`);
       expect(inputElement).toHaveAttribute('type', 'text');

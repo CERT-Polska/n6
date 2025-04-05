@@ -102,3 +102,7 @@ volume
 # n6portal stuff
 N6Portal/react_app/build/
 N6Portal/react_app/coverage/
+N6Portal/react_app/test-results/
+N6Portal/react_app/playwright-report/
+N6Portal/react_app/blob-report/
+N6Portal/react_app/playwright/.cache/

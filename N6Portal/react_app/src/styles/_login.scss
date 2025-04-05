@@ -1,8 +1,10 @@
 .login-container,
 .forgot-password-container,
 .reset-password-container {
-  background-color: #fff;
+  background-color: $light-background;
+
   @include box-border;
+
   padding: sizeToRem(80) 0 sizeToRem(40);
   width: 100%;
   min-height: 100vh;
@@ -15,6 +17,7 @@
       margin: sizeToRem(80) auto sizeToRem(55);
     }
   }
+
   @include media-breakpoint-up(lg) {
     width: sizeToRem(600);
     max-width: 100%;
@@ -27,9 +30,7 @@
   padding: sizeToRem(44) 0 sizeToRem(30);
 }
 
-.login-content,
-.forgot-password-content,
-.reset-password-content {
+%login-content {
   position: relative;
   max-width: sizeToRem(430);
   margin: 0 auto;
@@ -37,6 +38,12 @@
   flex-direction: column;
   align-items: center;
   padding: 0 sizeToRem(16);
+}
+
+.login-content,
+.forgot-password-content,
+.reset-password-content {
+  @extend %login-content;
 }
 
 .login-content {
@@ -47,11 +54,11 @@
   }
 
   &.mfa-config-summary .loader-wrapper {
-    background: white;
+    background: $light-background;
 
     .loader-circle::before,
     .loader-circle::after {
-      background: white;
+      background: $light-background;
     }
   }
 
@@ -71,12 +78,14 @@
 .forgot-password-logo,
 .reset-password-logo {
   margin-bottom: sizeToRem(56);
+
   svg {
     width: sizeToRem(212);
   }
 
   &.mfa {
     margin-bottom: sizeToRem(44);
+
     svg {
       width: sizeToRem(160);
     }
@@ -107,17 +116,6 @@
   text-align: center;
   margin-top: sizeToRem(20);
   font-weight: 500;
-}
-
-.mfa-config-step-wrapper {
-  width: 100%;
-  background: rgba($dark-lighter, 0.078);
-  padding: sizeToRem(20);
-  margin-bottom: sizeToRem(16);
-
-  p:last-of-type {
-    margin: 0;
-  }
 }
 
 .mfa-config-qrcode-wrapper {
@@ -153,6 +151,7 @@
     max-width: 100%;
     max-height: 100%;
   }
+
   .qr-code-placeholder-wrapper {
     position: absolute;
     top: 0;
@@ -161,6 +160,7 @@
     height: 100%;
     padding: sizeToRem(15);
   }
+
   .qr-code-placeholder {
     border-radius: sizeToRem(5);
     padding: sizeToRem(8);
@@ -171,7 +171,7 @@
     width: 100%;
     height: 100%;
     background-color: $dark;
-    color: white;
+    color: $light-background;
   }
 }
 
@@ -186,9 +186,7 @@
   margin-bottom: 2em;
 }
 
-.login-icon,
-.reset-password-icon,
-.forgot-password-icon {
+%login-icon {
   color: rgba($dark-lighter, 0.3);
   margin-bottom: sizeToRem(50);
 
@@ -196,6 +194,12 @@
     width: sizeToRem(170);
     height: sizeToRem(170);
   }
+}
+
+.login-icon,
+.reset-password-icon,
+.forgot-password-icon {
+  @extend %login-icon;
 }
 
 .config-mfa-summary,
@@ -207,11 +211,13 @@
   h1 {
     margin-bottom: sizeToRem(14);
   }
+
   p {
     font-size: sizeToRem(18);
     color: $dark-lighter;
     margin-bottom: sizeToRem(40);
   }
+
   .n6-button {
     min-width: sizeToRem(130);
   }
@@ -219,6 +225,7 @@
 
 .reset-password-summary.error h1 {
   margin-bottom: sizeToRem(40);
+
   @include media-breakpoint-up(sm) {
     min-width: sizeToRem(410);
   }
@@ -239,6 +246,17 @@
   text-align: center;
 
   p {
+    margin: 0;
+  }
+}
+
+.mfa-config-step-wrapper {
+  width: 100%;
+  background: rgba($dark-lighter, 0.078);
+  padding: sizeToRem(20);
+  margin-bottom: sizeToRem(16);
+
+  p:last-of-type {
     margin: 0;
   }
 }

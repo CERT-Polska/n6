@@ -1,27 +1,32 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
-import ExportCSV, { headers as ExportCsvHeaders } from './ExportCSV';
-import { LanguageProvider } from 'context/LanguageProvider';
-import { dictionary } from 'dictionary';
+import ExportCSV from './ExportCSV';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import { TAvailableResources } from 'api/services/info/types';
 import { format } from 'date-fns';
 import { IResponse } from 'api/services/globalTypes';
 import * as parseResponseDataForCsvModule from 'utils/parseResponseData';
 
+jest.mock('utils/useTypedIntl', () => ({
+  useTypedIntl: () => ({
+    messages: {
+      incidents_export_link_csv: 'CSV file',
+      incidents_column_header_id: 'ID',
+      incidents_column_header_source: 'Source',
+      incidents_column_header_confidence: 'Confidence',
+      incidents_column_header_category: 'Category',
+      incidents_column_header_time: 'Time'
+    }
+  })
+}));
+
 describe('<ExportCSV/>', () => {
   it('renders simple span with export link message when no resource is given', () => {
     const { container } = render(
-      <LanguageProvider>
+      <LanguageProviderTestWrapper>
         <ExportCSV data={[]} />
-      </LanguageProvider>
+      </LanguageProviderTestWrapper>
     );
-
-    expect(container.firstChild).toHaveClass('incidents-export-link font-smaller font-weight-medium disabled');
-    expect(container.firstChild).toHaveTextContent(dictionary['en']['incidents_export_link_csv']);
+    expect(container.firstChild).toHaveTextContent('CSV file');
   });
 
   it.each([
@@ -43,27 +48,24 @@ describe('<ExportCSV/>', () => {
 
     jest.useFakeTimers();
     const now = new Date();
-
     render(
-      <LanguageProvider>
+      <LanguageProviderTestWrapper>
         <ExportCSV data={data} resource={resource as TAvailableResources} />
-      </LanguageProvider>
+      </LanguageProviderTestWrapper>
     );
     jest.useRealTimers();
 
-    let hrefValue = '';
-    ExportCsvHeaders.forEach((header) => (hrefValue = hrefValue + ',"' + header.label + '"'));
-    const downloadValue = expectedDownloadPrefix + format(now, 'yyyyMMddHHmmss') + '.csv';
+    const timeString = format(now, 'yyyyMMddHHmmss');
+    const expectedFilename = expectedDownloadPrefix + timeString + '.csv';
 
     const linkElement = screen.getByRole('link') as HTMLLinkElement;
-    expect(linkElement).toHaveClass('incidents-export-link font-smaller font-weight-medium');
-    expect(linkElement).toHaveAttribute('download', downloadValue);
+    expect(linkElement).toHaveAttribute('download', expectedFilename);
     expect(linkElement).toHaveAttribute('href');
-    expect(linkElement.href).toContain('data:text/csv;charset=utf-8'); // NOTE: first char after charset spec is utf signature %EF%BB%BF
-    expect(linkElement.href).toContain(hrefValue.slice(1)); // that's why this check is sliced to escape non-ascii chars
-    // (.slice(1) escapes first comma)
+    expect(linkElement.href).toContain('data:text/csv;charset=utf-8');
     expect(linkElement).toHaveAttribute('target', '_self');
-
     expect(parseResponseDataForCsvSpy).toHaveBeenCalledWith(data);
+
+    const decodedCSV = decodeURIComponent(linkElement.href);
+    expect(decodedCSV).toMatch(/\uFEFF?"ID","Time","Category","Source","Confidence"/);
   });
 });

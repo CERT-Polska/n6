@@ -45,9 +45,9 @@ const SingleArticle: FC = () => {
   if (!parsedArticleId || notFoundArticle || !data) {
     const subtitle = !parsedArticleId
       ? messages['knowledge_base_invalid_article_id']
-      : !data || notFoundArticle
-      ? messages['knowledge_base_article_not_found']
-      : messages['knowledge_base_request_error'];
+      : notFoundArticle
+        ? messages['knowledge_base_article_not_found']
+        : messages['knowledge_base_request_error'];
 
     return <SingleArticlePlaceholder subtitle={`${subtitle}`} />;
   }
@@ -66,36 +66,41 @@ const SingleArticle: FC = () => {
   return (
     <>
       <div ref={scrollToRef} />
-      <article className="kb-article">
+      <article className="kb-article" data-testid="kb-article">
         <div className="article-pdf-download">
           <CustomButton
             text={`${messages['knowledge_base_download_pdf']}`}
-            icon={<DownloadIcon />}
+            icon={<DownloadIcon data-testid="kb-article-download-pdf-icon" />}
             onClick={downloadPdfFile}
             iconPlacement="left"
             variant="link"
+            dataTestId="kb-article-download-pdf-button"
           />
           {downloadPdfError && (
-            <p className="font-smaller text-danger pdf-download-error">{messages['knowledge_base_download_failed']}</p>
+            <p data-testid="kb-article-download-pdf-error" className="font-smaller text-danger pdf-download-error">
+              {messages['knowledge_base_download_failed']}
+            </p>
           )}
         </div>
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          className="md-content"
-          children={data.content[locale]}
-          components={{
-            code({ node: _node, inline, className, children, ...props }) {
-              const match = /language-(\w+)/.exec(className || '');
-              return !inline && match ? (
-                <SyntaxtHighlighter children={String(children).replace(/\n$/, '')} language={match[1]} {...props} />
-              ) : (
-                <code className={className} {...props}>
-                  {children}
-                </code>
-              );
-            }
-          }}
-        />
+        <div data-testid="kb-article-markdown">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            className="md-content"
+            children={data.content[locale]}
+            components={{
+              code({ node: _node, inline, className, children, ...props }) {
+                const match = /language-(\w+)/.exec(className || '');
+                return !inline && match ? (
+                  <SyntaxtHighlighter children={String(children).replace(/\n$/, '')} language={match[1]} {...props} />
+                ) : (
+                  <code className={className} {...props}>
+                    {children}
+                  </code>
+                );
+              }
+            }}
+          />
+        </div>
       </article>
     </>
   );

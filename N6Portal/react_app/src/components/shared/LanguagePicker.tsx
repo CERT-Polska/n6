@@ -17,6 +17,7 @@ const LanguagePicker: FC<IProps> = ({ mode, fullDictName, buttonClassName }) => 
   return (
     <>
       <button
+        data-testid="languagePickerEN"
         onClick={() => handleChangeLang('en')}
         className={classNames('language-picker-button p-0', buttonClassName, { selected: locale === 'en' })}
         aria-label={`${messages.language_picker_aria_label}`}
@@ -25,6 +26,7 @@ const LanguagePicker: FC<IProps> = ({ mode, fullDictName, buttonClassName }) => 
       </button>
       {mode === 'text' && !fullDictName && <span> | </span>}
       <button
+        data-testid="languagePickerPL"
         onClick={() => handleChangeLang('pl')}
         className={classNames('language-picker-button p-0', buttonClassName, { selected: locale === 'pl' })}
         aria-label={`${messages.language_picker_aria_label}`}

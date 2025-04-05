@@ -1,11 +1,7 @@
-/**
- * @jest-environment jsdom
- */
-
 import { renderHook, waitFor } from '@testing-library/react';
 import { controllers, customAxios, dataController } from 'api';
 import { IAgreement, getAgreements, getOrgAgreements, postOrgAgreements, useAgreements, useOrgAgreements } from '.';
-import { queryClientTestHookWrapper } from 'utils/createTestHookWrapper';
+import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
 
 describe('getAgreements', () => {
   it('calls /agreements GET endpoint and returns payloads data', () => {
@@ -43,7 +39,7 @@ describe('useAgreements', () => {
 
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: mockedGetAgreementsData }));
 
-    const useAgreementsRenderingResult = renderHook(() => useAgreements(), { wrapper: queryClientTestHookWrapper() });
+    const useAgreementsRenderingResult = renderHook(() => useAgreements(), { wrapper: QueryClientProviderTestWrapper });
     await waitFor(() => {
       expect(useAgreementsRenderingResult.result.current.isSuccess).toBe(true);
     });
@@ -77,7 +73,7 @@ describe('useOrgAgreements', () => {
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: mockedGetOrgAgreementsData }));
 
     const useOrgAgreementsRenderingResult = renderHook(() => useOrgAgreements(), {
-      wrapper: queryClientTestHookWrapper()
+      wrapper: QueryClientProviderTestWrapper
     });
     await waitFor(() => {
       expect(useOrgAgreementsRenderingResult.result.current.isSuccess).toBe(true);

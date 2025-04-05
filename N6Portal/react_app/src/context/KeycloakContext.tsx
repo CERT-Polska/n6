@@ -3,19 +3,19 @@ import Keycloak from 'keycloak-js';
 import { customAxios } from 'api';
 import { KeycloakStub } from 'api/auth';
 
-interface IAuthState {
+interface IKeycloakAuthState {
   enabled: boolean;
   isAuthenticated: boolean | undefined;
   token: string | undefined;
   additionalStatus: string | null;
 }
 
-interface IAuthContext extends IAuthState {
+export interface IKeycloakAuthContext extends IKeycloakAuthState {
   login: () => void;
   logout: () => void;
 }
 
-const initialAuthState: IAuthContext = {
+const initialAuthState: IKeycloakAuthContext = {
   enabled: false,
   isAuthenticated: false,
   token: '',
@@ -24,7 +24,7 @@ const initialAuthState: IAuthContext = {
   logout: () => null
 };
 
-const KeycloakContext = createContext<IAuthContext>(initialAuthState);
+export const KeycloakContext = createContext<IKeycloakAuthContext>(initialAuthState);
 
 export const KeycloakContextProvider: FC<{ keycloak: Keycloak | KeycloakStub; children: React.ReactNode }> = ({
   keycloak,
@@ -61,6 +61,6 @@ export const KeycloakContextProvider: FC<{ keycloak: Keycloak | KeycloakStub; ch
   );
 };
 
-const useKeycloakContext = (): IAuthContext => useContext(KeycloakContext);
+const useKeycloakContext = (): IKeycloakAuthContext => useContext(KeycloakContext);
 
 export default useKeycloakContext;

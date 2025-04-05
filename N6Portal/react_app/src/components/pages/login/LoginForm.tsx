@@ -80,6 +80,7 @@ const LoginForm: FC = () => {
             <p className="login-section-title">{messages.login_title}</p>
             <form className="login-form" onSubmit={handleSubmit(onSubmit)}>
               <FormInput
+                dataTestId="loginInput"
                 name="login"
                 autoComplete="username"
                 label={`${messages.login_username_label}`}
@@ -87,6 +88,7 @@ const LoginForm: FC = () => {
                 validate={validateLoginEmail}
               />
               <FormInput
+                dataTestId="passwordInput"
                 name="password"
                 type="password"
                 autoComplete="current-password"
@@ -95,6 +97,7 @@ const LoginForm: FC = () => {
                 validate={validatePassword}
               />
               <CustomButton
+                dataTestId="loginBtn"
                 type="submit"
                 className="w-100"
                 text={`${messages.login_button}`}
@@ -102,7 +105,7 @@ const LoginForm: FC = () => {
                 loading={loginStatus === 'loading'}
                 disabled={loginStatus === 'loading'}
               />
-              <Link to={routeList.forgotPassword} className="login-forgot-password">
+              <Link data-testid="forgotPasswordLink" to={routeList.forgotPassword} className="login-forgot-password">
                 {messages.login_forgot_password_btn_label}
               </Link>
             </form>
@@ -111,6 +114,7 @@ const LoginForm: FC = () => {
         </div>
         {keycloakContext.enabled && (
           <CustomButton
+            dataTestId="login-keycloak-btn"
             onClick={keycloakContext.login}
             type="button"
             className="w-100 login-oidc-button"
@@ -122,6 +126,7 @@ const LoginForm: FC = () => {
         )}
         <p className="login-section-title">{messages.login_create_account_title}</p>
         <CustomButton
+          dataTestId="createAccountBtn"
           to={routeList.signUp}
           className="w-100"
           text={`${messages.login_create_account}`}

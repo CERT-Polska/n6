@@ -16,6 +16,7 @@
 
 .header-logo {
   width: $page-mobile-logo-width;
+
   @include media-breakpoint-up(lg) {
     width: $page-logo-width;
   }
@@ -52,6 +53,7 @@
   padding: 0;
   background: transparent;
   border-radius: 0;
+
   &:hover,
   &:focus {
     background: transparent !important;

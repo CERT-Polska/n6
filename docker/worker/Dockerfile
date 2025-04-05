@@ -10,13 +10,14 @@ COPY --chown=dataman:dataman . n6
 # provide that stuff manually (for some experimentation, if you are
 # interested in such ancient stuff). Normally, **you don't need it.**
 RUN . /home/dataman/env/bin/activate; \
-    cd /home/dataman/n6 && \
+    cd /home/dataman/n6/misc-nonpub/old-code-py2 && \
     ./do_setup.py -a $action N6Lib-py2 N6CoreLib N6Core || true ;
 
 # Actual installation of *n6* (in Python 3 environment)
 RUN . /home/dataman/env_py3k/bin/activate; \
     cd /home/dataman/n6; \
-    ./do_setup.py -a $action N6Lib N6SDK N6DataPipeline N6DataSources;
+    ./do_setup.py -a $action N6Lib N6SDK N6DataPipeline N6DataSources; \
+    ./do_setup.py -a $action -L N6DataSources-nonpub || true;  # <- Optional extra stuff...
 
 # Customization of configuration files
 RUN . /home/dataman/env/bin/activate; \
@@ -32,9 +33,8 @@ RUN . /home/dataman/env/bin/activate; \
     cp supervisord.conf /home/dataman/supervisord/ && \
     # n6 configs
     yes | n6config; \
-    cp -f /home/dataman/n6/N6DataPipeline/n6datapipeline/data/conf/*.conf /home/dataman/.n6; \
-    cp -f /home/dataman/n6/N6DataSources/n6datasources/data/conf/*.conf /home/dataman/.n6; \
-    cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6;
+    cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6; \
+    cp -f /home/dataman/n6/etc-nonpub/n6/*.conf /home/dataman/.n6 || true;  # <- Configs for optional extra stuff...
 
 # Some helpful links:
 # RabbitMQ management: https://localhost:15671

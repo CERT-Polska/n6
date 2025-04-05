@@ -1,0 +1,2 @@
+include *.txt *.md *.rst
+recursive-include n6brokerauthapi *.txt *.md *.rst

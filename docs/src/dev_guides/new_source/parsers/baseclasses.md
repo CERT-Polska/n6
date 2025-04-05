@@ -30,10 +30,10 @@ Content of the configuration file could look like so:
 prefetch_count = 1
 ```
 
-In _n6_ source code repository, the templates of all configuration files
-for the collectors and parsers are stored in the
-`N6DataSources/n6datasources/data/conf` directory and their names start
-with `60_` followed by the source provider name and suffixed with
+In _n6_ source code repository, the prototypes (templates)
+of all configuration files for the collectors and parsers
+are stored in the `etc/n6` directory; their names start with
+`60_` followed by the source provider name and are suffixed with
 `.conf` (e.g., `60_example.conf`). If a source has the collector and the
 corresponding parser, then the configuration for the collector and the
 parser should be, by convention, in the same file.

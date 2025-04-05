@@ -1,13 +1,13 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import copy
 import contextlib
 import dataclasses
+import functools
 import itertools
 import sys
 import unittest
 from datetime import datetime as dt
-from typing import Union
 from unittest.mock import (
     ANY,
     MagicMock,
@@ -118,35 +118,42 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
 
     _UTCNOW = dt(2015, 1, 3, 17, 18, 19)
 
-    @staticmethod
-    def _format_expected_reprs_for_time_window(upper_op, upper, lower):
-        # A helper that makes the expression query
-        # reprs for the given time window (step).
-        return [
-            ("event.time >= '{0}' AND "
-             "event.time {1} '{2}'".format(
-                 lower,
-                 upper_op,
-                 upper)),
-            ("client_to_event.id = event.id AND "
-             "client_to_event.time >= '{0}' AND "
-             "client_to_event.time {1} '{2}'".format(
-                 lower,
-                 upper_op,
-                 upper)),
-            'event.time DESC',
-        ]
-
-
     @paramseq
     def cases(cls):
+        for regarding_query_with_join in [True, False]:
+            yield from cls._case_bases(regarding_query_with_join)
 
-        _win = cls._format_expected_reprs_for_time_window
+    @staticmethod
+    def _format_expected_reprs_for_time_window(upper_op, upper, lower, *,
+                                               regarding_query_with_join):
+        # A helper that makes the expression query
+        # reprs for the given time window (step).
+        reprs = []
+        reprs.append(
+            f"event.time >= '{lower}' AND "
+            f"event.time {upper_op} '{upper}'")
+        if regarding_query_with_join:
+            reprs.append(
+                f"client_to_event.id = event.id AND "
+                f"client_to_event.time >= '{lower}' AND "
+                f"client_to_event.time {upper_op} '{upper}'")
+        reprs.append(f'event.time DESC')
+        return reprs
+
+
+    @classmethod
+    def _case_bases(cls, regarding_query_with_join):
+
+        _win = functools.partial(
+            cls._format_expected_reprs_for_time_window,
+            regarding_query_with_join=regarding_query_with_join,
+        )
 
         #
         # Typical cases
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 3, 16, 17, 18),
             },
@@ -158,6 +165,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('no time.max/until given, 1 window')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 5, 14, 15, 16),
                 'time.min': dt(2015, 1, 4, 16, 17, 18),
@@ -170,6 +178,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('time.max given, 1 window')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 5, 14, 15, 16, 999999),
                 'time.min': dt(2015, 1, 4, 16, 17, 18),
@@ -182,6 +191,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('time.until given, 1 window')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 2, 16, 17, 18),
             },
@@ -197,6 +207,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('no time.max/until given, several windows')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 5, 14, 15, 16),
                 'time.min': dt(2015, 1, 2, 16, 17, 18, 1),
@@ -217,6 +228,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('time.max given, several windows')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 2, 14, 15, 16),
                 'time.min': dt(2014, 12, 30, 16, 17, 18),
@@ -240,6 +252,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         # Special cases: time.{max,until} - time.min == multiplicity of window size
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 2, 18, 18, 19),
             },
@@ -251,6 +264,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('no time.max/until given, 1 window, delta == window')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 5, 16, 17, 18),
                 'time.min': dt(2015, 1, 4, 16, 17, 18),
@@ -263,6 +277,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('time.max given, 1 window, delta == window')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 5),
                 'time.min': dt(2015, 1, 4),
@@ -275,6 +290,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('time.until given, 1 window, delta == window')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 1, 18, 18, 19),
             },
@@ -290,6 +306,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('no time.max/until given, several windows, delta == n * window')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 2, 14, 15, 16, 999999),
                 'time.min': dt(2014, 12, 30, 14, 15, 16, 999999),
@@ -310,6 +327,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('time.max given, several windows, delta == n * window')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 5),
                 'time.min': dt(2015, 1, 2),
@@ -333,6 +351,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         # Special cases: time.min == time.{max,until}
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 3, 18, 18, 19),
             },
@@ -344,6 +363,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('time_min == utcnow() + 1h, no time.max/until given')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 4, 16, 17, 18),
                 'time.min': dt(2015, 1, 4, 16, 17, 18),
@@ -356,6 +376,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('time.min == time.max')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 4, 16, 17, 18, 999999),
                 'time.min': dt(2015, 1, 4, 16, 17, 18, 999999),
@@ -371,6 +392,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         # Special cases: time.min > time.{max,until}
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.min': dt(2015, 1, 3, 18, 18, 19, 1),
             },
@@ -382,6 +404,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('time_min > utcnow() + 1h, no time.max/until given')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.max': dt(2015, 1, 4, 16, 17, 18),
                 'time.min': dt(2015, 1, 7, 18, 19, 20),
@@ -394,6 +417,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
         ).label('time.min > time.max')
 
         yield param(
+            regarding_query_with_join=regarding_query_with_join,
             given_time_constraints_items={
                 'time.until': dt(2015, 1, 4, 16, 17, 18),
                 'time.min': dt(2015, 1, 5, 16, 17, 18),
@@ -408,6 +432,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
 
     @foreach(cases)
     def test_time_related_components_of_generated_queries(self,
+                                                          regarding_query_with_join,
                                                           given_time_constraints_items,
                                                           expected_query_expr_reprs):
         mock = MagicMock()
@@ -436,6 +461,9 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
             given_time_constraints_items['time.min'],
             given_time_constraints_items.get('time.max'),
             given_time_constraints_items.get('time.until'))
+        mock._client_org_ids = (
+            sen.client_org_ids if regarding_query_with_join
+            else None)
         with patch('n6lib.data_backend_api.and_', and_mock), \
              patch('n6lib.data_backend_api.utcnow', return_value=self._UTCNOW):
             list(meth.generate_query_results())
@@ -458,7 +486,7 @@ class Test_EventsQueryProcessor_generate_query_results__time_query_components(un
             return query_mock
         query_mock = MagicMock()
         query_mock.filter.return_value = query_mock
-        query_mock.outerjoin.return_value = query_mock
+        query_mock.join.return_value = query_mock
         query_mock.order_by.side_effect = side_effect_of_order_by
         return query_mock
 
@@ -475,36 +503,30 @@ class _FakeEventId:
 @dataclasses.dataclass(eq=False, frozen=True)
 class _FakeRowFetchedFromDB:
 
-    # Note: event attributes other than `id`, `time` and `client` are
-    # not included here, as they are irrelevant for the concerned tests.
+    # Note: event attributes other than `id` and `time` are not included
+    # here, as they are irrelevant for the concerned tests.
 
     id: _FakeEventId
     time: dt
-    client: Union[str, None] = None
 
     def __post_init__(self):
         assert isinstance(self.id, _FakeEventId)
         assert isinstance(self.time, dt)
-        assert self.client is None or isinstance(self.client, str)
 
-# Note: in real *result dicts* the 'client' key is present only if there
-# are any client organization identifiers to be stored, however in the
-# concerned tests we can neglect that.  Also, note that instances of the
-# artificial types `{Original,Preprocessed}ResultDictSubstitute` (which
-# are specific to the concerned tests) are not dicts/mappings anyway, and
-# that this is irrelevant for those tests.
+# Note: instances of the following test-specific artificial helper types
+# (`OriginalResultDictSubstitute` + `PreprocessedResultDictSubstitute`)
+# are *not* real dicts/mappings, but that's irrelevant to the tests they
+# are used in.
 
 @dataclasses.dataclass(frozen=True)
 class _OriginalResultDictSubstitute:
     id: _FakeEventId
     time: dt
-    client: list[str] = dataclasses.field(default_factory=list)
 
 @dataclasses.dataclass(frozen=True)
 class _PreprocessedResultDictSubstitute:
     id: _FakeEventId
     time: dt
-    client: list[str] = dataclasses.field(default_factory=list)
 
 @expand
 class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(TestCaseMixin,
@@ -564,20 +586,6 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
             yield param(
                 opt_limit=opt_limit,
                 rows_from_db=[
-                    Row(Id('a'), Time(0), client='org1'),
-                ],
-                expected_orig_result_dicts=[
-                    OrigResult(Id('a'), Time(0), client=['org1']),
-                ],
-                expected_yielded_result_dicts=[
-                    PrepResult(Id('a'), Time(0), client=['org1']),
-                ],
-            ).label(f'one row, with `client`; '
-                    f'{opt_limit=}')
-
-            yield param(
-                opt_limit=opt_limit,
-                rows_from_db=[
                     Row(Id('a'), Time(0)),
                 ],
                 to_be_skipped_by_preproc={Id('a')},
@@ -608,51 +616,16 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
             yield param(
                 opt_limit=opt_limit,
                 rows_from_db=[
-                    Row(Id('a'), Time(0), client='org1'),
                     Row(Id('a'), Time(0)),
-                    Row(Id('a'), Time(0), client='org2'),
-                ],
-                expected_orig_result_dicts=[
-                    OrigResult(Id('a'), Time(0), client=['org1', 'org2']),
-                ],
-                expected_yielded_result_dicts=[
-                    PrepResult(Id('a'), Time(0), client=['org1', 'org2']),
-                ],
-            ).label(f'several rows with same `id` and `time`, '
-                    f'some with `client` (different); '
-                    f'{opt_limit=}')
-
-            yield param(
-                opt_limit=opt_limit,
-                rows_from_db=[
-                    Row(Id('a'), Time(0), client='org1'),
                     Row(Id('a'), Time(0)),
-                    Row(Id('a'), Time(0), client='org1'),
-                ],
-                expected_orig_result_dicts=[
-                    OrigResult(Id('a'), Time(0), client=['org1']),
-                ],
-                expected_yielded_result_dicts=[
-                    PrepResult(Id('a'), Time(0), client=['org1']),
-                ],
-            ).label(f'several rows with same `id` and `time`, '
-                    f'some with `client` (same); '
-                    f'{opt_limit=}')
-
-            yield param(
-                opt_limit=opt_limit,
-                rows_from_db=[
-                    Row(Id('a'), Time(0), client='org1'),
                     Row(Id('a'), Time(0)),
-                    Row(Id('a'), Time(0), client='org2'),
                 ],
                 to_be_skipped_by_preproc={Id('a')},
                 expected_orig_result_dicts=[
-                    OrigResult(Id('a'), Time(0), client=['org1', 'org2']),
+                    OrigResult(Id('a'), Time(0)),
                 ],
                 expected_yielded_result_dicts=[],
-            ).label(f'several rows with same `id` and `time`, '
-                    f'some with `client` (different); '
+            ).label(f'several rows with same `id` and `time`; '
                     f'preproc method passes no result; '
                     f'{opt_limit=}')
 
@@ -662,22 +635,22 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
         for rows_from_db in [
             *itertools.permutations([
                 Row(Id('a'), Time(0)),
-                Row(Id('b'), Time(0), client='org2'),
-                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('b'), Time(0)),
+                Row(Id('c'), Time(0)),
             ]),
             [
-                Row(Id('c'), Time(0), client='org1'),
-                Row(Id('c'), Time(0), client='org1'),
-                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('c'), Time(0)),
+                Row(Id('c'), Time(0)),
+                Row(Id('c'), Time(0)),
                 Row(Id('a'), Time(0)),
-                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('b'), Time(0)),
                 Row(Id('b'), Time(0)),
             ],
             [
-                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('b'), Time(0)),
                 Row(Id('c'), Time(0)),
                 Row(Id('c'), Time(0)),
-                Row(Id('c'), Time(0), client='org1'),
+                Row(Id('c'), Time(0)),
                 Row(Id('a'), Time(0)),
             ],
             [
@@ -685,9 +658,9 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                 Row(Id('a'), Time(0)),
                 Row(Id('a'), Time(0)),
                 Row(Id('c'), Time(0)),
-                Row(Id('c'), Time(0), client='org1'),
                 Row(Id('c'), Time(0)),
-                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('c'), Time(0)),
+                Row(Id('b'), Time(0)),
             ],
         ]:
 
@@ -699,12 +672,11 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     to_be_skipped_by_preproc={Id('a'), Id('b'), Id('c')},
                     expected_orig_result_dicts=[
                         OrigResult(Id('a'), Time(0)),
-                        OrigResult(Id('b'), Time(0), client=['org2']),
-                        OrigResult(Id('c'), Time(0), client=['org1']),
+                        OrigResult(Id('b'), Time(0)),
+                        OrigResult(Id('c'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'preproc method passes no result; '
                         f'{opt_limit=}')
 
@@ -714,14 +686,13 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     to_be_skipped_by_preproc={Id('a'), Id('b')},
                     expected_orig_result_dicts=[
                         OrigResult(Id('a'), Time(0)),
-                        OrigResult(Id('b'), Time(0), client=['org2']),
-                        OrigResult(Id('c'), Time(0), client=['org1']),
+                        OrigResult(Id('b'), Time(0)),
+                        OrigResult(Id('c'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('c'), Time(0), client=['org1']),
+                        PrepResult(Id('c'), Time(0)),
                     ],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'preproc method never passes "a"|"b"; '
                         f'{opt_limit=}')
 
@@ -733,14 +704,13 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     to_be_skipped_by_preproc={Id('a'), Id('c')},
                     expected_orig_result_dicts=[
                         OrigResult(Id('a'), Time(0)),
-                        OrigResult(Id('b'), Time(0), client=['org2']),
-                        OrigResult(Id('c'), Time(0), client=['org1']),
+                        OrigResult(Id('b'), Time(0)),
+                        OrigResult(Id('c'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('b'), Time(0), client=['org2']),
+                        PrepResult(Id('b'), Time(0)),
                     ],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'preproc method never passes "a"|"c"; '
                         f'{opt_limit=}')
 
@@ -750,14 +720,13 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     to_be_skipped_by_preproc={Id('b'), Id('c')},
                     expected_orig_result_dicts=[
                         OrigResult(Id('a'), Time(0)),
-                        OrigResult(Id('b'), Time(0), client=['org2']),
-                        OrigResult(Id('c'), Time(0), client=['org1']),
+                        OrigResult(Id('b'), Time(0)),
+                        OrigResult(Id('c'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[
                         PrepResult(Id('a'), Time(0)),
                     ],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'preproc method never passes "b"|"c"; '
                         f'{opt_limit=}')
 
@@ -767,15 +736,14 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     to_be_skipped_by_preproc={Id('a')},
                     expected_orig_result_dicts=[
                         OrigResult(Id('a'), Time(0)),
-                        OrigResult(Id('b'), Time(0), client=['org2']),
-                        OrigResult(Id('c'), Time(0), client=['org1']),
+                        OrigResult(Id('b'), Time(0)),
+                        OrigResult(Id('c'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('b'), Time(0), client=['org2']),
-                        PrepResult(Id('c'), Time(0), client=['org1']),
+                        PrepResult(Id('b'), Time(0)),
+                        PrepResult(Id('c'), Time(0)),
                     ],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'preproc method never passes "a"; '
                         f'{opt_limit=}')
 
@@ -785,15 +753,14 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     to_be_skipped_by_preproc={Id('b')},
                     expected_orig_result_dicts=[
                         OrigResult(Id('a'), Time(0)),
-                        OrigResult(Id('b'), Time(0), client=['org2']),
-                        OrigResult(Id('c'), Time(0), client=['org1']),
+                        OrigResult(Id('b'), Time(0)),
+                        OrigResult(Id('c'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[
                         PrepResult(Id('a'), Time(0)),
-                        PrepResult(Id('c'), Time(0), client=['org1']),
+                        PrepResult(Id('c'), Time(0)),
                     ],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'preproc method never passes "b"; '
                         f'{opt_limit=}')
 
@@ -805,15 +772,14 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     to_be_skipped_by_preproc={Id('c')},
                     expected_orig_result_dicts=[
                         OrigResult(Id('a'), Time(0)),
-                        OrigResult(Id('b'), Time(0), client=['org2']),
-                        OrigResult(Id('c'), Time(0), client=['org1']),
+                        OrigResult(Id('b'), Time(0)),
+                        OrigResult(Id('c'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[
                         PrepResult(Id('a'), Time(0)),
-                        PrepResult(Id('b'), Time(0), client=['org2']),
+                        PrepResult(Id('b'), Time(0)),
                     ],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'preproc method never passes "c"; '
                         f'{opt_limit=}')
 
@@ -822,16 +788,15 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     expected_orig_result_dicts=[
                         OrigResult(Id('a'), Time(0)),
-                        OrigResult(Id('b'), Time(0), client=['org2']),
-                        OrigResult(Id('c'), Time(0), client=['org1']),
+                        OrigResult(Id('b'), Time(0)),
+                        OrigResult(Id('c'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[
                         PrepResult(Id('a'), Time(0)),
-                        PrepResult(Id('b'), Time(0), client=['org2']),
-                        PrepResult(Id('c'), Time(0), client=['org1']),
+                        PrepResult(Id('b'), Time(0)),
+                        PrepResult(Id('c'), Time(0)),
                     ],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'preproc method passes everything; '
                         f'{opt_limit=}')
 
@@ -848,14 +813,13 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     to_be_skipped_by_preproc=to_be_skipped_by_preproc,
                     expected_orig_result_dicts=[
                         OrigResult(Id('a'), Time(0)),
-                        OrigResult(Id('b'), Time(0), client=['org2']),
+                        OrigResult(Id('b'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[
                         PrepResult(Id('a'), Time(0)),
-                        PrepResult(Id('b'), Time(0), client=['org2']),
+                        PrepResult(Id('b'), Time(0)),
                     ],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'{preproc_skipping_descr}; '
                         f'{opt_limit=}')
 
@@ -872,13 +836,12 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     to_be_skipped_by_preproc=to_be_skipped_by_preproc,
                     expected_orig_result_dicts=[
                         OrigResult(Id('a'), Time(0)),
-                        OrigResult(Id('b'), Time(0), client=['org2']),
+                        OrigResult(Id('b'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('b'), Time(0), client=['org2']),
+                        PrepResult(Id('b'), Time(0)),
                     ],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'{preproc_skipping_descr}; '
                         f'{opt_limit=}')
 
@@ -899,8 +862,7 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     expected_yielded_result_dicts=[
                         PrepResult(Id('a'), Time(0)),
                     ],
-                ).label(f'several rows with multiple `id` '
-                        f'and same `time`, some with `client`; '
+                ).label(f'several rows with multiple `id` and same `time`; '
                         f'{preproc_skipping_descr}; '
                         f'{opt_limit=}')
 
@@ -911,38 +873,38 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
 
         for time_order_descr, rows_from_db in {
             'with proper `time` order (here: decreasing)': [
-                Row(Id('c'), Time(2), client='org1'),
-                Row(Id('a'), Time(1)),                  # (here all `time` values are
-                Row(Id('b'), Time(0), client='org2'),   # different from each other)
+                Row(Id('c'), Time(2)),
+                Row(Id('a'), Time(1)),   # (here all `time` values are
+                Row(Id('b'), Time(0)),   # different from each other)
             ],
             'with proper `time` order (here: non-strictly decreasing)': [
-                Row(Id('c'), Time(2), client='org1'),
-                Row(Id('c'), Time(2), client='org1'),   # (similar to previous one but
-                Row(Id('a'), Time(1)),                  # with some `id`s repeated...)
-                Row(Id('b'), Time(0), client='org2'),
-                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('c'), Time(2)),
+                Row(Id('c'), Time(2)),   # (similar to previous one but
+                Row(Id('a'), Time(1)),   # with some `id`s repeated...)
+                Row(Id('b'), Time(0)),
+                Row(Id('b'), Time(0)),
             ],
             'with proper `time` order (here: non-strictly decreasing) #2': [
                 Row(Id('c'), Time(2)),
-                Row(Id('c'), Time(2), client='org1'),   # (similar to previous one...)
+                Row(Id('c'), Time(2)),   # (similar to previous one...)
                 Row(Id('a'), Time(1)),
                 Row(Id('a'), Time(1)),
                 Row(Id('a'), Time(1)),
-                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('b'), Time(0)),
                 Row(Id('b'), Time(0)),
             ],
             'with proper `time` order (here: non-strictly decreasing) #3': [
-                Row(Id('c'), Time(1), client='org1'),
-                Row(Id('b'), Time(0), client='org2'),   # <---+ adjacent with same `time` value
-                Row(Id('a'), Time(0)),                  # <---'     (and different `id` values)
+                Row(Id('c'), Time(1)),
+                Row(Id('b'), Time(0)),   # <---+ adjacent with same `time` value
+                Row(Id('a'), Time(0)),   # <---'     (and different `id` values)
             ],
             'with proper `time` order (here: non-strictly decreasing) #4': [
-                Row(Id('c'), Time(1), client='org1'),
-                Row(Id('c'), Time(1)),                  # (similar to previous one but
-                Row(Id('a'), Time(0)),                  # with some `id`s repeated...)
+                Row(Id('c'), Time(1)),
+                Row(Id('c'), Time(1)),   # (similar to previous one but
+                Row(Id('a'), Time(0)),   # with some `id`s repeated...)
                 Row(Id('b'), Time(0)),
                 Row(Id('a'), Time(0)),
-                Row(Id('b'), Time(0), client='org2'),
+                Row(Id('b'), Time(0)),
             ],
 
             # (each of the following lists specifies consecutive rows
@@ -950,41 +912,41 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
             # current shape of the data backend API; anyway, just in
             # case, let us confirm they would be handled properly...)
             'with unexpected `time` order (here: increasing)': [
-                Row(Id('c'), Time(0), client='org1'),
-                Row(Id('a'), Time(1)),                  # (here all `time` values are
-                Row(Id('b'), Time(2), client='org2'),   # different from each other)
+                Row(Id('c'), Time(0)),
+                Row(Id('a'), Time(1)),   # (here all `time` values are
+                Row(Id('b'), Time(2)),   # different from each other)
             ],
             'with unexpected `time` order (here: non-strictly increasing)': [
-                Row(Id('c'), Time(0), client='org1'),
-                Row(Id('c'), Time(0), client='org1'),   # (similar to previous one but
-                Row(Id('c'), Time(0)),                  # with some `id`s repeated...)
+                Row(Id('c'), Time(0)),
+                Row(Id('c'), Time(0)),   # (similar to previous one but
+                Row(Id('c'), Time(0)),   # with some `id`s repeated...)
                 Row(Id('a'), Time(1)),
                 Row(Id('b'), Time(2)),
-                Row(Id('b'), Time(2), client='org2'),
+                Row(Id('b'), Time(2)),
                 Row(Id('b'), Time(2)),
             ],
             'with unexpected `time` order (here: non-strictly increasing) #2': [  # noqa
-                Row(Id('c'), Time(0), client='org1'),
-                Row(Id('b'), Time(1), client='org2'),   # <---+ adjacent with same `time` value
-                Row(Id('a'), Time(1)),                  # <---'     (and different `id` values)
+                Row(Id('c'), Time(0)),
+                Row(Id('b'), Time(1)),   # <---+ adjacent with same `time` value
+                Row(Id('a'), Time(1)),   # <---'     (and different `id` values)
             ],
             'with unexpected `time` order (here: non-monotonic)': [
-                Row(Id('c'), Time(1), client='org1'),
-                Row(Id('a'), Time(0)),                  # (here all `time` values are
-                Row(Id('b'), Time(2), client='org2'),   # different from each other)
+                Row(Id('c'), Time(1)),
+                Row(Id('a'), Time(0)),   # (here all `time` values are
+                Row(Id('b'), Time(2)),   # different from each other)
             ],
             'with unexpected `time` order (here: non-monotonic) #2': [
-                Row(Id('c'), Time(1), client='org1'),   # <---.
-                Row(Id('a'), Time(0)),                  #     + non-adjacent with same `time` value
-                Row(Id('b'), Time(1), client='org2'),   # <---'         (and different `id` values)
+                Row(Id('c'), Time(1)),   # <---.
+                Row(Id('a'), Time(0)),   #     + non-adjacent with same `time` value
+                Row(Id('b'), Time(1)),   # <---'         (and different `id` values)
             ],
             'with unexpected `time` order (here: non-monotonic) #3': [
-                Row(Id('c'), Time(1), client='org1'),
-                Row(Id('c'), Time(1)),                  # (similar to previous one but
-                Row(Id('a'), Time(0)),                  # with some `id`s repeated...)
+                Row(Id('c'), Time(1)),
+                Row(Id('c'), Time(1)),   # (similar to previous one but
+                Row(Id('a'), Time(0)),   # with some `id`s repeated...)
                 Row(Id('a'), Time(0)),
                 Row(Id('b'), Time(1)),
-                Row(Id('b'), Time(1), client='org2'),
+                Row(Id('b'), Time(1)),
                 Row(Id('b'), Time(1)),
             ],
         }.items():
@@ -996,13 +958,12 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc={Id('a'), Id('b'), Id('c')},
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                         OrigResult(Id('a'), ANY),
-                        OrigResult(Id('b'), ANY, client=['org2']),
+                        OrigResult(Id('b'), ANY),
                     ],
                     expected_yielded_result_dicts=[],
-                ).label(f'several rows {time_order_descr}, '
-                        f'some with `client` (different); '
+                ).label(f'several rows {time_order_descr}; '
                         f'preproc passes no result; '
                         f'{opt_limit=}')
 
@@ -1011,16 +972,15 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc={Id('a'), Id('c')},
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                         OrigResult(Id('a'), ANY),
-                        OrigResult(Id('b'), ANY, client=['org2']),
+                        OrigResult(Id('b'), ANY),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('b'), ANY, client=['org2']),
+                        PrepResult(Id('b'), ANY),
                     ],
                 ).label(f'several rows with multiple `id` '
-                        f'and `time`, {time_order_descr}, '
-                        f'some with `client`; '
+                        f'and `time`, {time_order_descr}; '
                         f'preproc method never passes "a"|"c"; '
                         f'{opt_limit=}')
 
@@ -1031,16 +991,15 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc={Id('a'), Id('b')},
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                         OrigResult(Id('a'), ANY),
-                        OrigResult(Id('b'), ANY, client=['org2']),
+                        OrigResult(Id('b'), ANY),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('c'), ANY, client=['org1']),
+                        PrepResult(Id('c'), ANY),
                     ],
                 ).label(f'several rows with multiple `id` '
-                        f'and `time`, {time_order_descr}, '
-                        f'some with `client`; '
+                        f'and `time`, {time_order_descr}; '
                         f'preproc method never passes "a"|"b"; '
                         f'{opt_limit=}')
 
@@ -1049,16 +1008,15 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc={Id('b'), Id('c')},
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                         OrigResult(Id('a'), ANY),
-                        OrigResult(Id('b'), ANY, client=['org2']),
+                        OrigResult(Id('b'), ANY),
                     ],
                     expected_yielded_result_dicts=[
                         PrepResult(Id('a'), ANY),
                     ],
                 ).label(f'several rows with multiple `id` '
-                        f'and `time`, {time_order_descr}, '
-                        f'some with `client`; '
+                        f'and `time`, {time_order_descr}; '
                         f'preproc method never passes "b"|"c"; '
                         f'{opt_limit=}')
 
@@ -1067,17 +1025,16 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc={Id('a')},
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                         OrigResult(Id('a'), ANY),
-                        OrigResult(Id('b'), ANY, client=['org2']),
+                        OrigResult(Id('b'), ANY),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('c'), ANY, client=['org1']),
-                        PrepResult(Id('b'), ANY, client=['org2']),
+                        PrepResult(Id('c'), ANY),
+                        PrepResult(Id('b'), ANY),
                     ],
                 ).label(f'several rows with multiple `id` '
-                        f'and `time`, {time_order_descr}, '
-                        f'some with `client`; '
+                        f'and `time`, {time_order_descr}; '
                         f'preproc method never passes "a"; '
                         f'{opt_limit=}')
 
@@ -1086,17 +1043,16 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc={Id('c')},
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                         OrigResult(Id('a'), ANY),
-                        OrigResult(Id('b'), ANY, client=['org2']),
+                        OrigResult(Id('b'), ANY),
                     ],
                     expected_yielded_result_dicts=[
                         PrepResult(Id('a'), ANY),
-                        PrepResult(Id('b'), ANY, client=['org2']),
+                        PrepResult(Id('b'), ANY),
                     ],
                 ).label(f'several rows with multiple `id` '
-                        f'and `time`, {time_order_descr}, '
-                        f'some with `client`; '
+                        f'and `time`, {time_order_descr}; '
                         f'preproc method never passes "c"; '
                         f'{opt_limit=}')
 
@@ -1107,17 +1063,16 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc={Id('b')},
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                         OrigResult(Id('a'), ANY),
-                        OrigResult(Id('b'), ANY, client=['org2']),
+                        OrigResult(Id('b'), ANY),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('c'), ANY, client=['org1']),
+                        PrepResult(Id('c'), ANY),
                         PrepResult(Id('a'), ANY),
                     ],
                 ).label(f'several rows with multiple `id` '
-                        f'and `time`, {time_order_descr}, '
-                        f'some with `client`; '
+                        f'and `time`, {time_order_descr}; '
                         f'preproc method never passes "b"; '
                         f'{opt_limit=}')
 
@@ -1125,18 +1080,17 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     opt_limit=opt_limit,
                     rows_from_db=rows_from_db,
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                         OrigResult(Id('a'), ANY),
-                        OrigResult(Id('b'), ANY, client=['org2']),
+                        OrigResult(Id('b'), ANY),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('c'), ANY, client=['org1']),
+                        PrepResult(Id('c'), ANY),
                         PrepResult(Id('a'), ANY),
-                        PrepResult(Id('b'), ANY, client=['org2']),
+                        PrepResult(Id('b'), ANY),
                     ],
                 ).label(f'several rows with multiple `id` '
-                        f'and `time`, {time_order_descr}, '
-                        f'some with `client`; '
+                        f'and `time`, {time_order_descr}; '
                         f'preproc method passes everything; '
                         f'{opt_limit=}')
 
@@ -1152,16 +1106,15 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc=preproc_skipping_descr,
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                         OrigResult(Id('a'), ANY),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('c'), ANY, client=['org1']),
+                        PrepResult(Id('c'), ANY),
                         PrepResult(Id('a'), ANY),
                     ],
                 ).label(f'several rows with multiple `id` '
-                        f'and `time`, {time_order_descr}, '
-                        f'some with `client`; '
+                        f'and `time`, {time_order_descr}; '
                         f'{preproc_skipping_descr}; '
                         f'{opt_limit=}')
 
@@ -1177,15 +1130,14 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc=to_be_skipped_by_preproc,
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                         OrigResult(Id('a'), ANY),
                     ],
                     expected_yielded_result_dicts=[
                         PrepResult(Id('a'), ANY),
                     ],
                 ).label(f'several rows with multiple `id` '
-                        f'and `time`, {time_order_descr}, '
-                        f'some with `client`; '
+                        f'and `time`, {time_order_descr}; '
                         f'{preproc_skipping_descr}; '
                         f'{opt_limit=}')
 
@@ -1201,14 +1153,13 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc=to_be_skipped_by_preproc,
                     expected_orig_result_dicts=[
-                        OrigResult(Id('c'), ANY, client=['org1']),
+                        OrigResult(Id('c'), ANY),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('c'), ANY, client=['org1']),
+                        PrepResult(Id('c'), ANY),
                     ],
                 ).label(f'several rows with multiple `id` '
-                        f'and `time`, {time_order_descr}, '
-                        f'some with `client`; '
+                        f'and `time`, {time_order_descr}; '
                         f'{preproc_skipping_descr}; '
                         f'{opt_limit=}')
 
@@ -1217,23 +1168,23 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
 
         for rows_from_db in [
             [
-                Row(Id('a'), Time(2), client='org1'),
+                Row(Id('a'), Time(2)),
                 Row(Id('a'), Time(1)),
-                Row(Id('a'), Time(0), client='org2'),
+                Row(Id('a'), Time(0)),
             ],
 
             # (the following cases are similar to the
             # above one but have some `id`s repeated...)
             [
-                Row(Id('a'), Time(2), client='org1'),
-                Row(Id('a'), Time(2), client='org1'),
+                Row(Id('a'), Time(2)),
+                Row(Id('a'), Time(2)),
                 Row(Id('a'), Time(1)),
                 Row(Id('a'), Time(1)),
-                Row(Id('a'), Time(0), client='org2'),
-                Row(Id('a'), Time(0), client='org2'),
+                Row(Id('a'), Time(0)),
+                Row(Id('a'), Time(0)),
             ],
             [
-                Row(Id('a'), Time(2), client='org1'),
+                Row(Id('a'), Time(2)),
                 Row(Id('a'), Time(2)),
                 Row(Id('a'), Time(1)),
                 Row(Id('a'), Time(1)),
@@ -1241,13 +1192,13 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                 Row(Id('a'), Time(1)),
                 Row(Id('a'), Time(1)),
                 Row(Id('a'), Time(0)),
-                Row(Id('a'), Time(0), client='org2'),
+                Row(Id('a'), Time(0)),
             ],
             [
                 Row(Id('a'), Time(2)),
-                Row(Id('a'), Time(2), client='org1'),
+                Row(Id('a'), Time(2)),
                 Row(Id('a'), Time(1)),
-                Row(Id('a'), Time(0), client='org2'),
+                Row(Id('a'), Time(0)),
                 Row(Id('a'), Time(0)),
             ],
         ]:
@@ -1259,14 +1210,13 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     rows_from_db=rows_from_db,
                     to_be_skipped_by_preproc={Id('a')},
                     expected_orig_result_dicts=[
-                        OrigResult(Id('a'), Time(2), client=['org1']),
+                        OrigResult(Id('a'), Time(2)),
                         OrigResult(Id('a'), Time(1)),
-                        OrigResult(Id('a'), Time(0), client=['org2']),
+                        OrigResult(Id('a'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[],
                 ).label(f'several rows with different `time` '
-                        f'but (then incorrectly!) same `id`, '
-                        f'some with `client`; '
+                        f'but (then incorrectly!) same `id`; '
                         f'preproc method passes no result; '
                         f'{opt_limit=}')
 
@@ -1276,18 +1226,17 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                     opt_limit=opt_limit,
                     rows_from_db=rows_from_db,
                     expected_orig_result_dicts=[
-                        OrigResult(Id('a'), Time(2), client=['org1']),
+                        OrigResult(Id('a'), Time(2)),
                         OrigResult(Id('a'), Time(1)),
-                        OrigResult(Id('a'), Time(0), client=['org2']),
+                        OrigResult(Id('a'), Time(0)),
                     ],
                     expected_yielded_result_dicts=[
-                        PrepResult(Id('a'), Time(2), client=['org1']),
+                        PrepResult(Id('a'), Time(2)),
                         PrepResult(Id('a'), Time(1)),
-                        PrepResult(Id('a'), Time(0), client=['org2']),
+                        PrepResult(Id('a'), Time(0)),
                     ],
                 ).label(f'several rows with different `time` '
-                        f'but (then incorrectly!) same `id`, '
-                        f'some with `client`; '
+                        f'but (then incorrectly!) same `id`; '
                         f'{opt_limit=}')
 
             opt_limit = 2
@@ -1296,16 +1245,15 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                 opt_limit=opt_limit,
                 rows_from_db=rows_from_db,
                 expected_orig_result_dicts=[
-                    OrigResult(Id('a'), Time(2), client=['org1']),
+                    OrigResult(Id('a'), Time(2)),
                     OrigResult(Id('a'), Time(1)),
                 ],
                 expected_yielded_result_dicts=[
-                    PrepResult(Id('a'), Time(2), client=['org1']),
+                    PrepResult(Id('a'), Time(2)),
                     PrepResult(Id('a'), Time(1)),
                 ],
             ).label(f'several rows with different `time` '
-                    f'but (then incorrectly!) same `id`, '
-                    f'some with `client`; '
+                    f'but (then incorrectly!) same `id`; '
                     f'{opt_limit=}')
 
             opt_limit = 1
@@ -1314,145 +1262,147 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                 opt_limit=opt_limit,
                 rows_from_db=rows_from_db,
                 expected_orig_result_dicts=[
-                    OrigResult(Id('a'), Time(2), client=['org1']),
+                    OrigResult(Id('a'), Time(2)),
                 ],
                 expected_yielded_result_dicts=[
-                    PrepResult(Id('a'), Time(2), client=['org1']),
+                    PrepResult(Id('a'), Time(2)),
                 ],
             ).label(f'several rows with different `time` '
                     f'but (then incorrectly!) same `id`; '
-                    f'some with `client`; '
                     f'{opt_limit=}')
 
         # * More complex cases
 
+        # (XXX: are all of them still needed after elimination
+        #       of the `client` field from these tests???...)
+
         rows_from_db = [
-            Row(Id('x'), Time(9), client='org1'),
             Row(Id('x'), Time(9)),
-            Row(Id('x'), Time(9), client='org1'),
+            Row(Id('x'), Time(9)),
+            Row(Id('x'), Time(9)),
             Row(Id('a'), Time(9)),
-            Row(Id('a'), Time(9), client='org1'),
             Row(Id('a'), Time(9)),
-            Row(Id('a'), Time(9), client='org2'),
             Row(Id('a'), Time(9)),
-            Row(Id('b'), Time(9), client='org2'),
+            Row(Id('a'), Time(9)),
+            Row(Id('a'), Time(9)),
             Row(Id('b'), Time(9)),
-            Row(Id('b'), Time(9), client='org3'),
             Row(Id('b'), Time(9)),
-            Row(Id('aa'), Time(9), client='org2'),
+            Row(Id('b'), Time(9)),
+            Row(Id('b'), Time(9)),
             Row(Id('aa'), Time(9)),
-            Row(Id('aa'), Time(9), client='org2'),
+            Row(Id('aa'), Time(9)),
+            Row(Id('aa'), Time(9)),
             Row(Id('ab'), Time(9)),
-            Row(Id('ab'), Time(9), client='org3'),
             Row(Id('ab'), Time(9)),
-            Row(Id('b'), Time(9), client='org3'),
-            Row(Id('d'), Time(9), client='org3'),
-            Row(Id('d'), Time(9), client='org1'),
-            Row(Id('d'), Time(9), client='org2'),
-            Row(Id('c'), Time(9), client='org1'),
-            Row(Id('c'), Time(9), client='org3'),
-            Row(Id('c'), Time(9), client='org2'),
+            Row(Id('ab'), Time(9)),
+            Row(Id('b'), Time(9)),
+            Row(Id('d'), Time(9)),
+            Row(Id('d'), Time(9)),
+            Row(Id('d'), Time(9)),
+            Row(Id('c'), Time(9)),
+            Row(Id('c'), Time(9)),
+            Row(Id('c'), Time(9)),
 
             Row(Id('u'), Time(8)),
             Row(Id('t'), Time(8)),
             Row(Id('u'), Time(8)),
 
-            Row(Id('f'), Time(7), client='org6'),
-            Row(Id('e'), Time(7), client='org3'),
-            Row(Id('f'), Time(7), client='org7'),
-            Row(Id('f'), Time(7), client='org5'),
+            Row(Id('f'), Time(7)),
             Row(Id('e'), Time(7)),
-            Row(Id('f'), Time(7), client='org8'),
-            Row(Id('e'), Time(7), client='org4'),
-            Row(Id('e'), Time(7), client='org5'),
+            Row(Id('f'), Time(7)),
+            Row(Id('f'), Time(7)),
+            Row(Id('e'), Time(7)),
+            Row(Id('f'), Time(7)),
+            Row(Id('e'), Time(7)),
+            Row(Id('e'), Time(7)),
             Row(Id('f'), Time(7)),
 
-            Row(Id('g'), Time(6), client='org2'),
+            Row(Id('g'), Time(6)),
             Row(Id('h'), Time(6)),
-            Row(Id('g'), Time(6), client='org2'),
+            Row(Id('g'), Time(6)),
             Row(Id('h'), Time(6)),
-            Row(Id('i'), Time(6), client='org3'),
+            Row(Id('i'), Time(6)),
             Row(Id('h'), Time(6)),
-            Row(Id('g'), Time(6), client='org2'),
-            Row(Id('k'), Time(6), client='org1'),
-            Row(Id('i'), Time(6), client='org2'),
+            Row(Id('g'), Time(6)),
+            Row(Id('k'), Time(6)),
+            Row(Id('i'), Time(6)),
             Row(Id('j'), Time(6)),
-            Row(Id('i'), Time(6), client='org5'),
+            Row(Id('i'), Time(6)),
             Row(Id('h'), Time(6)),
-            Row(Id('i'), Time(6), client='org4'),
+            Row(Id('i'), Time(6)),
 
-            Row(Id('l'), Time(5), client='org4'),
+            Row(Id('l'), Time(5)),
 
-            Row(Id('n'), Time(4), client='org4'),
-            Row(Id('m'), Time(4), client='org4'),
-            Row(Id('n'), Time(4), client='org3'),
-            Row(Id('m'), Time(4), client='org5'),
-            Row(Id('n'), Time(4), client='org2'),
-            Row(Id('m'), Time(4), client='org6'),
+            Row(Id('n'), Time(4)),
+            Row(Id('m'), Time(4)),
+            Row(Id('n'), Time(4)),
+            Row(Id('m'), Time(4)),
+            Row(Id('n'), Time(4)),
+            Row(Id('m'), Time(4)),
 
-            Row(Id('o'), Time(3), client='org8'),
-            Row(Id('o'), Time(3), client='org2'),
-            Row(Id('o'), Time(3), client='org7'),
+            Row(Id('o'), Time(3)),
+            Row(Id('o'), Time(3)),
+            Row(Id('o'), Time(3)),
 
             Row(Id('pc'), Time(2)),
             Row(Id('pa'), Time(2)),
-            Row(Id('pb'), Time(2), client='org5'),
+            Row(Id('pb'), Time(2)),
 
             Row(Id('s1'), Time(1)),
             Row(Id('s3'), Time(1)),
-            Row(Id('s2'), Time(1), client='org8'),
+            Row(Id('s2'), Time(1)),
             Row(Id('s1'), Time(1)),
 
-            Row(Id('q'), Time(0), client='org7'),
+            Row(Id('q'), Time(0)),
             Row(Id('r'), Time(0)),
-            Row(Id('s'), Time(0), client='org3'),
-            Row(Id('p'), Time(0), client='org6'),
-            Row(Id('q'), Time(0), client='org9'),
-            Row(Id('p'), Time(0), client='org9'),
+            Row(Id('s'), Time(0)),
+            Row(Id('p'), Time(0)),
+            Row(Id('q'), Time(0)),
+            Row(Id('p'), Time(0)),
         ]
         all_orig_result_dicts = [
-            OrigResult(Id('a'), Time(9), client=['org1', 'org2']),
-            OrigResult(Id('aa'), Time(9), client=['org2']),
-            OrigResult(Id('ab'), Time(9), client=['org3']),
-            OrigResult(Id('b'), Time(9), client=['org2', 'org3']),
-            OrigResult(Id('c'), Time(9), client=['org1', 'org2', 'org3']),
-            OrigResult(Id('d'), Time(9), client=['org1', 'org2', 'org3']),
-            OrigResult(Id('x'), Time(9), client=['org1']),
+            OrigResult(Id('a'), Time(9)),
+            OrigResult(Id('aa'), Time(9)),
+            OrigResult(Id('ab'), Time(9)),
+            OrigResult(Id('b'), Time(9)),
+            OrigResult(Id('c'), Time(9)),
+            OrigResult(Id('d'), Time(9)),
+            OrigResult(Id('x'), Time(9)),
 
             OrigResult(Id('t'), Time(8)),
             OrigResult(Id('u'), Time(8)),
 
-            OrigResult(Id('e'), Time(7), client=['org3', 'org4', 'org5']),
-            OrigResult(Id('f'), Time(7), client=['org5', 'org6', 'org7', 'org8']),
+            OrigResult(Id('e'), Time(7)),
+            OrigResult(Id('f'), Time(7)),
 
-            OrigResult(Id('g'), Time(6), client=['org2']),
+            OrigResult(Id('g'), Time(6)),
             OrigResult(Id('h'), Time(6)),
-            OrigResult(Id('i'), Time(6), client=['org2', 'org3', 'org4', 'org5']),
+            OrigResult(Id('i'), Time(6)),
             OrigResult(Id('j'), Time(6)),
-            OrigResult(Id('k'), Time(6), client=['org1']),
+            OrigResult(Id('k'), Time(6)),
 
-            OrigResult(Id('l'), Time(5), client=['org4']),
+            OrigResult(Id('l'), Time(5)),
 
-            OrigResult(Id('m'), Time(4), client=['org4', 'org5', 'org6']),
-            OrigResult(Id('n'), Time(4), client=['org2', 'org3', 'org4']),
+            OrigResult(Id('m'), Time(4)),
+            OrigResult(Id('n'), Time(4)),
 
-            OrigResult(Id('o'), Time(3), client=['org2', 'org7', 'org8']),
+            OrigResult(Id('o'), Time(3)),
 
             OrigResult(Id('pa'), Time(2)),
-            OrigResult(Id('pb'), Time(2), client=['org5']),
+            OrigResult(Id('pb'), Time(2)),
             OrigResult(Id('pc'), Time(2)),
 
             OrigResult(Id('s1'), Time(1)),
-            OrigResult(Id('s2'), Time(1), client=['org8']),
+            OrigResult(Id('s2'), Time(1)),
             OrigResult(Id('s3'), Time(1)),
 
-            OrigResult(Id('p'), Time(0), client=['org6', 'org9']),
-            OrigResult(Id('q'), Time(0), client=['org7', 'org9']),
+            OrigResult(Id('p'), Time(0)),
+            OrigResult(Id('q'), Time(0)),
             OrigResult(Id('r'), Time(0)),
-            OrigResult(Id('s'), Time(0), client=['org3']),
+            OrigResult(Id('s'), Time(0)),
         ]
         all_yielded_result_dicts = [
-            PrepResult(result_dict.id, result_dict.time, result_dict.client)
+            PrepResult(result_dict.id, result_dict.time)
             for result_dict in all_orig_result_dicts]
         assert len(all_yielded_result_dicts) == len(all_orig_result_dicts) == 30
 
@@ -1654,7 +1604,6 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
                 # for these names)
                 '_prepare_result_production_tools',
                 '_make_result_dict',
-                '_gather_client_org_ids',
             ])
         self.mock._opt_limit = opt_limit
         # (fake implementations will be retrieved for these method names)
@@ -1686,16 +1635,14 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
         finally:
             self.rows_fetching_generator_finished = True
 
-    def _fake_make_raw_result_dict(self, sample_row, client_org_ids, /):
+    def _fake_make_raw_result_dict(self, sample_row, /):
         # Note that the actual implementation of the helper function
         # `n6lib.db_events.make_raw_result_dict()` is tested separately,
         # *not* here.
         assert isinstance(sample_row, _FakeRowFetchedFromDB)
-        assert isinstance(client_org_ids, set)
         orig_result_dict = _OriginalResultDictSubstitute(
             id=sample_row.id,
-            time=sample_row.time,
-            client=sorted(client_org_ids))
+            time=sample_row.time)
         self.orig_result_dicts.append(orig_result_dict)
         return orig_result_dict
 
@@ -1709,8 +1656,7 @@ class Test_EventsQueryProcessor_generate_query_results__producing_result_dicts(T
             return None
         preprocessed_result_dict = _PreprocessedResultDictSubstitute(
             id=orig_result_dict.id,
-            time=orig_result_dict.time,
-            client=list(orig_result_dict.client))
+            time=orig_result_dict.time)
         self.after_preproc_result_dicts.append(preprocessed_result_dict)
         return preprocessed_result_dict
 

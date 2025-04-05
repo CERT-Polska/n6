@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2024 NASK. All rights reserved.
+# Copyright (c) 2019-2025 NASK. All rights reserved.
 
 from collections.abc import Iterable
 import datetime
@@ -38,6 +38,7 @@ from n6lib.auth_db.fields import (
     TimeHourMinuteField,
     UserLoginField,
     UUID4SecretField,
+    UUID4SimpleField,
 )
 from n6lib.common_helpers import ascii_str
 from n6lib.data_spec.fields import (
@@ -210,7 +211,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
         ),
         _non_param_kwarg_names={'only_nonblocked'},
     )
-    def get_org_user_logins(self,
+    def get_org_user_logins(self, /,
                             org_id: str,
                             *, only_nonblocked: bool = False) -> list[str]:
         org = self._get_by_primary_key(models.Org, org_id)
@@ -225,8 +226,24 @@ class AuthManageAPI(_AuthDatabaseAPI):
             in_params='required',
         ),
     )
-    def get_org_by_org_id(self, org_id: str) -> models.Org:
+    def get_org_by_org_id(self, /, org_id: str) -> models.Org:
         return self._get_by_primary_key(models.Org, org_id)
+
+    @cleaning_kwargs_as_params_with_data_spec(
+        org_uuid=UUID4SimpleField(
+            single_param=True,
+            in_params="required",
+        ),
+        _non_param_kwarg_names={"for_update"},
+    )
+    def get_org_by_org_uuid(self, /, org_uuid: str, for_update: bool = False) -> models.Org:
+        try:
+            query = self._db_session.query(models.Org).filter(models.Org.org_uuid == org_uuid)
+            if for_update:
+                query.with_for_update()
+            return query.one()
+        except NoResultFound:
+            raise AuthDatabaseAPILookupError(f'Organization with UUID {org_uuid!a} not found')
 
     @cleaning_kwargs_as_params_with_data_spec(
         login=UserLoginField(
@@ -235,7 +252,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
         ),
         _non_param_kwarg_names={'for_update'},
     )
-    def get_user_by_login(self, login: str, for_update=False) -> models.User:
+    def get_user_by_login(self, /, login: str, for_update=False) -> models.User:
         return self._get_user_by_login(login, for_update)
 
     def get_user_org_id(self, login: str) -> str:
@@ -275,6 +292,14 @@ class AuthManageAPI(_AuthDatabaseAPI):
             return False
         return bool(not user.is_blocked
                     and user.org_id == org_id)
+
+    def do_nonblocked_user_and_org_uuid_exist_and_match(self, login: str, org_uuid: str) -> bool:
+        try:
+            user = self._get_user_by_login(login)
+        except AuthDatabaseAPILookupError:
+            return False
+        return bool(not user.is_blocked
+                    and user.org.org_uuid == org_uuid)
 
     def create_web_token_for_nonblocked_user(self,
                                              token_id: str,
@@ -383,7 +408,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
         ),
     )
-    def set_user_api_key_id(self, login: str, api_key_id: str) -> None:
+    def set_user_api_key_id(self, /, login: str, api_key_id: str) -> None:
         user = self._get_user_by_login(login, for_update=True)
         user.api_key_id = api_key_id
 
@@ -394,7 +419,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
         ),
     )
-    def get_user_api_key_id_or_none(self, login: str) -> Optional[str]:
+    def get_user_api_key_id_or_none(self, /, login: str) -> Optional[str]:
         user = self._get_user_by_login(login)
         return user.api_key_id
 
@@ -405,7 +430,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
         ),
     )
-    def delete_user_api_key_id(self, login: str) -> None:
+    def delete_user_api_key_id(self, /, login: str) -> None:
         user = self._get_user_by_login(login, for_update=True)
         if user.api_key_id is not None:
             user.api_key_id = None
@@ -480,7 +505,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING
         ),
     )
-    def create_registration_request(self,
+    def create_registration_request(self, /,
 
                                     # *required param* arguments:
                                     org_id,
@@ -565,7 +590,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
         ),
     )
-    def set_registration_request_ticket_id(self, req_id, ticket_id):
+    def set_registration_request_ticket_id(self, /, req_id, ticket_id):
         req = self._get_by_primary_key(models.RegistrationRequest, req_id)
         req.ticket_id = ticket_id
 
@@ -577,7 +602,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
         ),
     )
-    def create_org_and_user_according_to_registration_request(self, req_id):
+    def create_org_and_user_according_to_registration_request(self, /, req_id):
         req = self._get_by_primary_key(models.RegistrationRequest, req_id)
         assert isinstance(req, models.RegistrationRequest)
 
@@ -635,7 +660,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             in_params='required',
         ),
     )
-    def create_new_user(self, org, user_id):
+    def create_new_user(self, org, /, user_id):
         new_user = models.User(login=user_id)
         new_user.org = org
         self._db_session.add(new_user)
@@ -648,7 +673,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             in_params='required',
         ),
     )
-    def get_org_config_info(self, org_id):
+    def get_org_config_info(self, /, org_id):
         org = self._get_by_primary_key(models.Org, org_id)
         req = org.pending_config_update_request
         return dict(
@@ -665,8 +690,8 @@ class AuthManageAPI(_AuthDatabaseAPI):
             ip_networks=_attr_list(org.inside_filter_ip_networks, 'ip_network'),
             update_info=(None if req is None
                          else _pure_data_from_org_config_update_request(req)))
-        
-        
+
+
     def get_all_agreements_basic_data(self):
         agreements = self._db_session.query(models.Agreement).all()
         def as_dict(agreement: models.Agreement):
@@ -688,7 +713,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
         ),
     )
-    def get_org_agreement_labels(self, org_id):
+    def get_org_agreement_labels(self, /, org_id):
         org = self._get_by_primary_key(models.Org, org_id)
         return _attr_list(org.agreements, 'label')
     
@@ -705,7 +730,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
         ),
     )
-    def update_org_agreements(self, org_id, agreements=()):
+    def update_org_agreements(self, /, org_id, agreements=()):
         org = self._get_by_primary_key(models.Org, org_id)
         new_objects = (
             self._get_by_primary_key(models.Agreement, label)
@@ -785,7 +810,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
         ),
     )
-    def create_org_config_update_request(self,
+    def create_org_config_update_request(self, /,
 
                                          # *required param* arguments:
                                          org_id,
@@ -895,7 +920,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             max_length=MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
         ),
     )
-    def set_org_config_update_request_ticket_id(self, req_id, ticket_id):
+    def set_org_config_update_request_ticket_id(self, /, req_id, ticket_id):
         req = self._get_by_primary_key(models.OrgConfigUpdateRequest, req_id)
         req.ticket_id = ticket_id
 
@@ -907,7 +932,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
             auto_strip=True,
         ),
     )
-    def update_org_according_to_org_config_update_request(self, req_id):
+    def update_org_according_to_org_config_update_request(self, /, req_id):
         req = self._get_by_primary_key(models.OrgConfigUpdateRequest, req_id)
         assert isinstance(req, models.OrgConfigUpdateRequest)
 
@@ -956,7 +981,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
         ),
         _non_param_kwarg_names={'msg', 'warn'},
     )
-    def update_org_users_according_to_org_config_update_request(self, req_id, *, msg, warn):
+    def update_org_users_according_to_org_config_update_request(self, /, req_id, *, msg, warn):
         req = self._get_by_primary_key(models.OrgConfigUpdateRequest, req_id)
         assert isinstance(req, models.OrgConfigUpdateRequest)
 

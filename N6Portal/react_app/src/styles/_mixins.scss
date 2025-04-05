@@ -2,12 +2,14 @@
 
 @mixin content-wrapper-base($sm-padding) {
   width: 100%;
-  max-width: $content-max-width; //1170px + padding 15px
+  max-width: $content-max-width; // 1170px + padding 15px
   margin: 0 auto;
   padding: 0 $sm-padding;
+
   @include media-breakpoint-up(md) {
     padding: 0 $page-padding-md;
   }
+
   @include media-breakpoint-up(lg) {
     padding: 0 $page-padding-lg;
   }
@@ -33,6 +35,7 @@
   border-color: $grey-light;
   border-width: 1px;
   border-style: solid;
+
   @if $rounded {
     border-radius: $border-radius;
   }

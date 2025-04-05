@@ -1,14 +1,14 @@
 import { createContext, useState, useContext, useCallback } from 'react';
 import { ILogin } from 'api/auth/types';
 
-type TUserSettingsMfaStatus = 'form' | 'success' | 'error';
+export type TUserSettingsMfaStatus = 'form' | 'success' | 'error';
 
 interface IUserSettingsMfaState {
   state?: TUserSettingsMfaStatus;
   mfaData?: ILogin;
 }
 
-interface IUserSettingsMfaContext extends IUserSettingsMfaState {
+export interface IUserSettingsMfaContext extends IUserSettingsMfaState {
   updateUserSettingsMfaState: (state: TUserSettingsMfaStatus, mfaData?: ILogin) => void;
   resetUserSettingsMfaState: () => void;
 }
@@ -25,7 +25,7 @@ const initialUserSettingsMfaState: IUserSettingsMfaState = {
   mfaData: undefined
 };
 
-const UserSettingsMfaContext = createContext<IUserSettingsMfaContext>(initialContext);
+export const UserSettingsMfaContext = createContext<IUserSettingsMfaContext>(initialContext);
 
 export const UserSettingsMfaContextProvider = ({ children }: { children: React.ReactNode }) => {
   const [userSettingsMfaState, changeUserSettingsMfaState] =

@@ -1,5 +1,5 @@
 .agreements-settings-form-wrapper {
-  @extend .edit-settings-form-wrapper;
+  @extend %edit-settings-form-wrapper;
 
   h1 {
     text-align: center;

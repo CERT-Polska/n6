@@ -1,11 +1,6 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render } from '@testing-library/react';
 import ApiLoaderFallback from './ApiLoaderFallback';
-import { LanguageProvider } from 'context/LanguageProvider';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import { dictionary } from 'dictionary';
 import * as ErrorPageModule from 'components/errors/ErrorPage';
 
@@ -17,9 +12,9 @@ describe('<ApiLoaderFallback />', () => {
     ({ statusCode }) => {
       const ErrorPageSpy = jest.spyOn(ErrorPageModule, 'default');
       render(
-        <LanguageProvider>
+        <LanguageProviderTestWrapper>
           <ApiLoaderFallback statusCode={statusCode} />
-        </LanguageProvider>
+        </LanguageProviderTestWrapper>
       );
 
       const headerKey = 'errApiLoader_statusCode_' + statusCode?.toString() + '_header';
@@ -42,9 +37,9 @@ describe('<ApiLoaderFallback />', () => {
     ({ statusCode }) => {
       const ErrorPageSpy = jest.spyOn(ErrorPageModule, 'default');
       render(
-        <LanguageProvider>
+        <LanguageProviderTestWrapper>
           <ApiLoaderFallback statusCode={statusCode} />
-        </LanguageProvider>
+        </LanguageProviderTestWrapper>
       );
 
       expect(ErrorPageSpy).toHaveBeenCalledWith(

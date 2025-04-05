@@ -20,6 +20,7 @@ type IProps = {
   isInvalid?: boolean;
   placeholder?: string;
   validate?: Record<string, Validate<string>>;
+  dataTestId?: string;
 };
 
 // Use this kind of input, whenever only you would like to use react-bootstrap input group with interactive button
@@ -43,7 +44,8 @@ const FormActionInput: FC<IProps & FormContextProps> = memo(
     validate,
     control,
     setValue,
-    getValues
+    getValues,
+    dataTestId
   }) => {
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
       const currentFilterValue = getValues(name);
@@ -69,6 +71,7 @@ const FormActionInput: FC<IProps & FormContextProps> = memo(
                     disabled={disabled}
                     maxLength={maxLength}
                     minLength={minLength}
+                    data-testid={dataTestId}
                     value={value}
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder}
@@ -83,7 +86,7 @@ const FormActionInput: FC<IProps & FormContextProps> = memo(
             />
             <InputGroup.Prepend>
               <InputGroup.Text className="action-button-wrapper">
-                <button onClick={buttonOnClick} type={buttonType}>
+                <button onClick={buttonOnClick} type={buttonType} data-testid={`${dataTestId}-button`}>
                   {icon}
                 </button>
               </InputGroup.Text>

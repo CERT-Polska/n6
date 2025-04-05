@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2024 NASK. All rights reserved.
+# Copyright (c) 2018-2025 NASK. All rights reserved.
 
 import argparse
 import ast
@@ -25,6 +25,7 @@ from importlib_resources import (
 )
 
 from n6lib.auth_db import (
+    ALEMBIC_DB_CONFIGURATOR_CONFIG_SECT_ENVIRON_VAR_NAME,
     ALEMBIC_DB_CONFIGURATOR_SETTINGS_DICT_ENVIRON_VAR_NAME,
     MYSQL_CHARSET,
     MYSQL_COLLATE,
@@ -395,6 +396,9 @@ class CreateAndInitializeAuthDB(DropDatabaseIfExistsMixin, BaseAuthDBScript):
             'Invoking appropriate Alembic tools to stamp the auth database '
             'as being at the `{}` Alembic revision...'.format(revision))
         with as_file(files('n6lib.auth_db')) as alembic_conf_dir_path, \
+             self.patched_os_environ_var(
+                ALEMBIC_DB_CONFIGURATOR_CONFIG_SECT_ENVIRON_VAR_NAME,
+                self.config_section), \
              self.patched_os_environ_var(
                 ALEMBIC_DB_CONFIGURATOR_SETTINGS_DICT_ENVIRON_VAR_NAME,
                 self._prepare_alembic_db_configurator_settings_dict_raw()), \

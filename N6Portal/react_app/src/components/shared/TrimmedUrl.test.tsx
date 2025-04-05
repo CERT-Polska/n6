@@ -1,14 +1,9 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitForElementToBeRemoved } from '@testing-library/react';
 import TrimmedUrl from './TrimmedUrl';
-import { LanguageProvider } from 'context/LanguageProvider';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import userEvent from '@testing-library/user-event';
 import * as copyTextToClipboardModule from 'utils/copyTextToClipboard';
-import { dictionary } from 'dictionary';
+import * as OverlayTriggerModule from 'react-bootstrap';
 
 Object.assign(navigator, {
   clipboard: {
@@ -23,50 +18,45 @@ describe('<TrimmedUrl />', () => {
     const id = 'test-trimmed-id';
 
     const copyTextSpy = jest.spyOn(copyTextToClipboardModule, 'copyTextToClipboard');
+    const OverlayTriggerSpy = jest.spyOn(OverlayTriggerModule, 'OverlayTrigger');
 
     const { container } = render(
-      <LanguageProvider>
+      <LanguageProviderTestWrapper>
         <TrimmedUrl value={value} trimmedLength={trimmedLength} id={id} />
-      </LanguageProvider>
+      </LanguageProviderTestWrapper>
     );
 
-    expect(container.firstChild).toHaveClass('trimmed-url');
     expect(container.firstChild?.firstChild).toHaveTextContent(`${value.slice(0, trimmedLength)}...`);
 
     const buttonElement = screen.getByRole('button');
-    expect(buttonElement).toHaveClass('td-hover-url z-index-2');
     expect(buttonElement).toHaveTextContent(value); // hidden behind span trimmed value
 
     expect(screen.queryByRole('tooltip')).toBe(null);
+
+    // NOTE: due to OverlayTrigger having troubles with re-rendering (perhaps due to some deprecations)
+    // it renders additionally second time with first render - therefore first assertion is with
+    // 1st call, and second assertion is with 3rd call
+    expect(OverlayTriggerSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({ show: false }), {});
     await userEvent.click(buttonElement);
+    expect(OverlayTriggerSpy).toHaveBeenLastCalledWith(expect.objectContaining({ show: true }), {});
 
     expect(copyTextSpy).toHaveBeenCalledWith(value, expect.any(Function));
 
     const tooltipElement = screen.getByRole('tooltip');
     expect(tooltipElement).toBeVisible();
-    expect(tooltipElement).toHaveClass('fade show tooltip bs-tooltip-top');
-    expect(tooltipElement).toHaveStyle(
-      'position: absolute; top: 0px; left: 0px; bottom: 0px; transform: translate(0px, 0px);'
-    );
     expect(tooltipElement).toHaveAttribute('data-popper-escaped', 'true');
-    expect(tooltipElement).toHaveAttribute('data-popper-placement', 'top');
-    expect(tooltipElement).toHaveAttribute('data-popper-reference-hidden', 'true');
     expect(tooltipElement).toHaveAttribute('id', `trimmed-url-tooltip-${id}`);
-    expect(tooltipElement).toHaveAttribute('x-placement', 'top');
+    expect(tooltipElement.childNodes[1]).toHaveTextContent('Copied to clipboard');
 
-    expect(tooltipElement.firstChild).toHaveClass('arrow');
-    expect(tooltipElement.firstChild).toHaveStyle('position: absolute; left: 0px; transform: translate(0px, 0px);');
-    expect(tooltipElement.childNodes[1]).toHaveClass('tooltip-inner');
-    expect(tooltipElement.childNodes[1]).toHaveTextContent(dictionary['en']['incidents_copied_to_clipboard']);
-
-    // TODO: include tooltip fading out in test after mocked delay of 1 sec (#8996)
+    await waitForElementToBeRemoved(() => screen.getByText('Copied to clipboard'));
+    expect(tooltipElement).not.toBeVisible();
   });
 
   it('returns nothing if no value is given', () => {
     const { container } = render(
-      <LanguageProvider>
+      <LanguageProviderTestWrapper>
         <TrimmedUrl value={''} trimmedLength={0} id={''} />
-      </LanguageProvider>
+      </LanguageProviderTestWrapper>
     );
     expect(container).toBeEmptyDOMElement();
   });

@@ -1,22 +1,16 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2014-2025 NASK. All rights reserved.
 
-import doctest
-import pkgutil
+# the following function used to induce the standard *unittest*'s
+# discovery machinery to load doctests from all *n6sdk* submodules;
+# that's no longer supported -- *pytest* should be used instead!
 
-import n6sdk
-
-
-# induce the standard unittest discovery machinery
-# to load doctests from all n6sdk submodules
-
-def load_tests(loader, tests, *args):
-    for _, name, _ in pkgutil.walk_packages(n6sdk._ABS_PATH):
-        mod_suite = doctest.DocTestSuite(name)
-        tests.addTests(mod_suite)
-    return tests
+def load_tests(loader, tests, *args):  # noqa
+    raise RuntimeError(
+        '*unittest*-specific discovery mechanism is '
+        'no longer supported, use *pytest* instead!')
 
 
-# dissuade pytest from using that function
+# dissuade *pytest* from using that function
 # (note that pytest has its own ways to discover doctests)
 
 load_tests.__test__ = False

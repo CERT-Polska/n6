@@ -1,14 +1,9 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import LanguagePicker from './LanguagePicker';
 import { LanguageContext } from 'context/LanguageProvider';
 import { dictionary } from 'dictionary';
 import userEvent from '@testing-library/user-event';
-import { IntlProvider } from 'react-intl';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 
 describe('<LanguagePicker />', () => {
   it.each([
@@ -21,7 +16,7 @@ describe('<LanguagePicker />', () => {
     const handleChangeLang = jest.fn();
 
     const { container } = render(
-      <IntlProvider locale="en" messages={dictionary['en']}>
+      <LanguageProviderTestWrapper locale="en">
         <LanguageContext.Provider value={{ handleChangeLang }}>
           <LanguagePicker
             mode={mode as 'text' | 'icon'}
@@ -29,7 +24,7 @@ describe('<LanguagePicker />', () => {
             buttonClassName={buttonClassname}
           />
         </LanguageContext.Provider>
-      </IntlProvider>
+      </LanguageProviderTestWrapper>
     );
 
     const buttons = screen.getAllByRole('button', { name: dictionary['en']['language_picker_aria_label'] });
@@ -44,12 +39,8 @@ describe('<LanguagePicker />', () => {
       expect(buttons[0].firstChild).toBe(enIcon);
       expect(buttons[1].firstChild).toBe(plIcon);
     } else {
-      expect(buttons[0]).toHaveTextContent(
-        dictionary['en'][fullDictName ? 'language_picker_en' : 'language_picker_en_short']
-      );
-      expect(buttons[1]).toHaveTextContent(
-        dictionary['en'][fullDictName ? 'language_picker_pl' : 'language_picker_pl_short']
-      );
+      expect(buttons[0]).toHaveTextContent(fullDictName ? 'English' : 'EN');
+      expect(buttons[1]).toHaveTextContent(fullDictName ? 'Polish' : 'PL');
     }
 
     await userEvent.click(buttons[0]);

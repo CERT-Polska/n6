@@ -11,7 +11,7 @@ import CustomButton from 'components/shared/CustomButton';
 import FormInput from 'components/forms/FormInput';
 import UserSettingsMfaConfigSuccess from 'components/pages/userSettingsMfaConfig/UserSettingsMfaConfigSuccess';
 import UserSettingsMfaConfigError from 'components/pages/userSettingsMfaConfig/UserSettingsMfaConfigError';
-import { vaildateMfaCode } from 'components/forms/validation/validationSchema';
+import { validateMfaCode } from 'components/forms/validation/validationSchema';
 import MfaQRCode from 'components/shared/MfaQRCode';
 
 type TMfaConfigForm = {
@@ -65,7 +65,9 @@ const UserSettingsMfaConfigForm: FC = () => {
     case 'form':
       return (
         <div className="user-settings-config-content mfa">
-          <h1 className="mb-30 text-center">{messages.login_mfa_config_title}</h1>
+          <h1 data-testid="user-settings-login-mfa-config-title" className="mb-30 text-center">
+            {messages.login_mfa_config_title}
+          </h1>
           <div className="mfa-config-form-wrapper">
             <div className="mfa-config-step-wrapper mb-0">
               <p>{messages.login_mfa_config_step_1}</p>
@@ -78,13 +80,15 @@ const UserSettingsMfaConfigForm: FC = () => {
             <FormProvider {...methods}>
               <form className="mfa-config-form w-100" onSubmit={handleSubmit(onSubmit)}>
                 <FormInput
+                  dataTestId="user-settings-mfa-config-input"
                   name="mfa_code"
                   label={`${messages.login_mfa_config_input_label}`}
                   maxLength="8"
-                  validate={vaildateMfaCode}
+                  validate={validateMfaCode}
                 />
                 <div className="d-flex mt-4">
                   <CustomButton
+                    dataTestId="user-settings-mfa-config-cancel-btn"
                     to={routeList.userSettings}
                     className="w-100"
                     text={`${messages.login_mfa_config_btn_cancel}`}
@@ -92,6 +96,7 @@ const UserSettingsMfaConfigForm: FC = () => {
                     disabled={confirmMfaStatus === 'loading'}
                   />
                   <CustomButton
+                    dataTestId="user-settings-mfa-config-confirm-btn"
                     type="submit"
                     className="w-100"
                     text={`${messages.login_mfa_config_btn_confirm}`}

@@ -102,7 +102,7 @@ User "login@example.com"
 !!!Note
     It is advised to change the default secrets in `/home/dataman/n6/web/conf/portal.ini`.
 
-Add the `ServerName` option in `/home/dataman/n6/etc/apache2/sites-available/n6-api.conf` with your server's name
+Add the `ServerName` option in `/home/dataman/n6/etc/apache2/sites-available/n6-restapi.conf` with your server's name
 as its value, so a part of configuration looks like the one below:
 
 ```bash
@@ -124,7 +124,7 @@ $ echo 'ServerName localhost' >> /etc/apache2/apache2.conf
 
 ## Setting database urls
 
-Set up database connection addresses in `/home/dataman/n6/etc/web/conf/api.ini` (_Pyramid_
+Set up database connection addresses in `/home/dataman/n6/etc/web/conf/restapi.ini` (_Pyramid_
 framework configuration):
 
 ```ini
@@ -164,7 +164,7 @@ $ sudo a2enmod wsgi && \
     sudo a2enmod ssl && \
     sudo a2enmod rewrite && \
     sudo a2ensite 000-default && \
-    sudo a2ensite n6-api && \
+    sudo a2ensite n6-restapi && \
     sudo a2ensite n6-portal && \
     sudo a2ensite n6-adminpanel
 $ systemctl restart apache2

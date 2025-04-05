@@ -15,9 +15,14 @@ const LoginConfigMfaError: FC = () => {
           <ErrorIcon />
         </div>
         <div className="mb-30 config-mfa-summary">
-          <h1>{messages.login_mfa_config_error_title}</h1>
-          <p>{messages.login_mfa_config_error_description}</p>
-          <CustomButton text={`${messages.login_mfa_config_error_btn}`} variant="primary" onClick={resetLoginState} />
+          <h1 data-testid="login-mfa-config-error-title">{messages.login_mfa_config_error_title}</h1>
+          <p data-testid="login-mfa-config-error-description">{messages.login_mfa_config_error_description}</p>
+          <CustomButton
+            dataTestId="login-mfa-config-error-cancel-btn"
+            text={`${messages.login_mfa_config_error_btn}`}
+            variant="primary"
+            onClick={resetLoginState}
+          />
         </div>
       </div>
     </section>

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2024 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 #
 # For some portions of the code (marked in the comments as copied from
 # SQLAlchemy -- which is a library licensed under the MIT license):
@@ -416,10 +416,6 @@ _NO_IP_PLACEHOLDERS = frozenset({
 
 def make_raw_result_dict(column_values_source_object,  # getattr() will be used on it to get values
 
-                         # a collection of client organization ids (to populate
-                         # the `client` field of the result -- if not empty)
-                         client_org_ids: Iterable[str],
-
                          # not real parameters, just quasi-constants for faster access
                          _getattr=getattr,
                          _all_column_objects=n6NormalizedData.__table__.columns,             # noqa
@@ -441,10 +437,14 @@ def make_raw_result_dict(column_values_source_object,  # getattr() will be used 
         if _is_no_ip_placeholder(value):                                                     # noqa
             del result_dict[ip_col_name]
 
-    # set the 'client' item if any org ids given
-    client_org_ids = sorted(client_org_ids)
-    if client_org_ids:
-        result_dict['client'] = client_org_ids
+    # extract 'client' from `custom` if possible
+    custom = result_dict.get('custom')
+    if custom:
+        client_org_ids = custom.pop('client', None)
+        if client_org_ids:
+            result_dict['client'] = client_org_ids
+        if not custom:
+            del result_dict['custom']
 
     return result_dict
 

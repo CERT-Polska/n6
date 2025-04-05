@@ -7,6 +7,7 @@ import { TApiResponse } from 'components/forms/utils';
 interface IProps {
   response: Exclude<TApiResponse, undefined>;
   message: string;
+  dataTestId?: string;
 }
 
 type IFeedbackIcon = Record<Exclude<TApiResponse, undefined>, React.ReactElement>;
@@ -16,10 +17,10 @@ export const feedbackIcons: IFeedbackIcon = {
   error: <ErrorIcon />
 };
 
-const FormFeedback = forwardRef<HTMLDivElement, IProps>(({ response, message }, ref) => (
+const FormFeedback = forwardRef<HTMLDivElement, IProps>(({ response, message, dataTestId }, ref) => (
   <div ref={ref} className={classnames('form-feedback mt-4', response)}>
     {feedbackIcons[response]}
-    <p>{message}</p>
+    <p data-testid={`form-feedback-${dataTestId}`}>{message}</p>
   </div>
 ));
 

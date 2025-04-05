@@ -1,4 +1,4 @@
-import jwtDecode from 'jwt-decode';
+import { jwtDecode } from 'jwt-decode';
 import { ParsedQs } from 'qs';
 
 type TJwtToken = {

@@ -25,19 +25,24 @@ const Organization: FC = () => {
   return (
     <ApiLoader status={status} error={error}>
       {data && (
-        <section className="d-flex flex-column align-items-center">
-          <h1 className="n6-page-header font-bigger mb-30">{messages.organization_header}</h1>
+        <section className="d-flex flex-column align-items-center" data-testid="organization">
+          <h1 className="n6-page-header font-bigger mb-30" data-testid="organization-header-title">
+            {messages.organization_header}
+          </h1>
           <div className="content-wrapper">
             <OrganizationHeader name={orgActualName || orgId} range={data.time_range_in_days} at={data.at} />
           </div>
           <OrganizationChart />
-          <div className="content-wrapper">
+          <div className="content-wrapper" data-testid="organization-cards-container">
             <Row>
               {Object.keys(data.counts).map((key, idx) => {
                 const { isWideCol, breakpointProps } = getColLayout(idx);
                 return (
                   <Col key={key} {...breakpointProps} className="mb-4">
-                    <div className={classNames('organization-card d-flex', { 'wide-col': isWideCol })}>
+                    <div
+                      data-testid={`organization-card-${key}`}
+                      className={classNames('organization-card d-flex', { 'wide-col': isWideCol })}
+                    >
                       <OrganizationCard messageKey={key} value={data.counts[key]} />
                     </div>
                   </Col>

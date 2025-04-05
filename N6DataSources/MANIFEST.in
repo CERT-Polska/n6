@@ -1,2 +1,1 @@
 include *.txt *.md *.rst requirements
-recursive-include n6datasources/data *

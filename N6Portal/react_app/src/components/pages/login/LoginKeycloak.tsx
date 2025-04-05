@@ -37,7 +37,6 @@ const LoginKeycloak: FC = () => {
       void makeRequest();
     }
   }, []);
-
   if (!keycloak.enabled) return <Redirect to={routeList.login} />;
 
   if (keycloakLogin.isLoading || keycloakLogin.isIdle) return <></>;

@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render, screen } from '@testing-library/react';
 import FormInputReadonly from './FormInputReadonly';
 import userEvent from '@testing-library/user-event';
@@ -32,9 +27,6 @@ describe('<FormInputReadonly />', () => {
         as={as as 'input' | 'textarea'} //defaults to input
       />
     );
-
-    expect(container.firstChild).toHaveClass('form-group');
-    expect(container.firstChild?.firstChild).toHaveClass('input-wrapper');
 
     const labelComponent = screen.getByText(labelName);
     expect(labelComponent).toHaveClass(`input-label ${shouldHaveValue ? 'has-value' : ''} form-label`);

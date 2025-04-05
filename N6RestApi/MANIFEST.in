@@ -1,2 +1,2 @@
-include *.txt *.ini *.cfg *.rst
+include *.txt *.md *.ini *.cfg *.rst
 recursive-include n6web *.ico *.png *.css *.gif *.jpg *.pt *.txt *.mak *.mako *.js *.html *.xml

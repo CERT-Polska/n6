@@ -10,14 +10,25 @@ export interface IFormInputProps {
   as?: 'input' | 'textarea';
   textareaRows?: number;
   onClick?: () => void;
+  dataTestId?: string;
 }
 
-const FormInputReadonly: FC<IFormInputProps> = ({ name, label, value, className, as, textareaRows, onClick }) => {
+const FormInputReadonly: FC<IFormInputProps> = ({
+  name,
+  label,
+  value,
+  className,
+  as,
+  textareaRows,
+  onClick,
+  dataTestId
+}) => {
   const asProps = as === 'textarea' ? { as, rows: textareaRows } : { as };
   return (
     <Form.Group controlId={`input-${name}`} className={className}>
       <div className="input-wrapper">
         <Form.Control
+          data-testid={dataTestId}
           {...asProps}
           value={value || ''}
           onClick={onClick}

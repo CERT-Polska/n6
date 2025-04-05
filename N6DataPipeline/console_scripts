@@ -6,6 +6,10 @@ n6filter = n6datapipeline.filter:main
 n6recorder = n6datapipeline.recorder:main
 n6anonymizer = n6datapipeline.aux.anonymizer:main
 
+n6counter = n6datapipeline.counter:main
+n6notifier = n6datapipeline.notifier:main
+n6notifier_templates_renderer = n6datapipeline.aux.notifier_templates_renderer:main
+
 n6run_intelmqsetup = n6datapipeline.intelmq.utils.intelmq_setup_wrapper:main
 n6run_bot = n6datapipeline.intelmq.wrapper:main
 n6run_adapter_to_n6 = n6datapipeline.intelmq.utils.intelmq_adapter:run_intelmq_to_n6

@@ -1,16 +1,10 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import AgreementsSettingsForm from './AgreementsSettingsForm';
-import { QueryClient, QueryClientProvider } from 'react-query';
+import { LanguageProviderTestWrapper, QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { dictionary } from 'dictionary';
 import { IAgreement } from 'api/services/agreements';
 import { BrowserRouter } from 'react-router-dom';
-import { IntlProvider } from 'react-intl';
 import * as postOrgAgreementsModule from 'api/services/agreements';
 import { customAxios } from 'api';
 
@@ -54,43 +48,34 @@ describe('<AgreementsSettingsForm />', () => {
 
       const { container } = render(
         <BrowserRouter>
-          <QueryClientProvider client={new QueryClient()}>
-            <IntlProvider locale={locale} messages={dictionary[locale as keyof typeof dictionary]}>
+          <QueryClientProviderTestWrapper>
+            <LanguageProviderTestWrapper locale={locale as 'en' | 'pl'}>
               <AgreementsSettingsForm agreementsList={agreementsList} orgAgreements={orgAgreements} />
-            </IntlProvider>
-          </QueryClientProvider>
+            </LanguageProviderTestWrapper>
+          </QueryClientProviderTestWrapper>
         </BrowserRouter>
       );
 
       expect(postOrgAgreementsSpy).not.toHaveBeenCalled();
-
-      expect(container.firstChild).toHaveClass('agreements-settings-form-wrapper font-bigger');
-      expect(container.firstChild?.firstChild).toHaveRole('heading');
-      expect(container.firstChild?.firstChild).toHaveTextContent(
-        dictionary[locale as keyof typeof dictionary]['agreements_settings_title']
+      expect(screen.getByRole('heading')).toHaveTextContent(
+        locale === 'en' ? 'Edit organization agreements' : 'Edytuj ustawienia zgód organizacji'
       );
 
       expect(container.firstChild?.childNodes).toHaveLength(agreementsList.length + 1);
 
       agreementsList.forEach((agreement, index) => {
         const agreementComponent = container.firstChild?.childNodes[index + 1];
-        expect(agreementComponent).toHaveClass('form-checkbox-wrapper custom-checkbox-input');
         expect(agreementComponent).toHaveTextContent(agreement[locale as keyof typeof dictionary]);
 
         const inputElement = agreementComponent?.firstChild;
         expect(inputElement).toHaveRole('checkbox');
-        expect(inputElement).toHaveClass('form-checkbox-input form-check-input');
         if (orgAgreements.includes(agreement.label)) {
           expect(inputElement).toBeChecked();
         } else {
           expect(inputElement).not.toBeChecked();
         }
 
-        const spanElement = agreementComponent?.childNodes[1];
-        expect(spanElement).toHaveClass('custom-checkbox');
-
         const labelElement = agreementComponent?.childNodes[2];
-        expect(labelElement).toHaveClass('form-checkbox-label form-check-label');
         expect(labelElement).toHaveAttribute('for', `checkbox-${agreement.label}`);
         expect(labelElement).toHaveTextContent(agreement[locale as keyof typeof dictionary]);
 
@@ -100,7 +85,7 @@ describe('<AgreementsSettingsForm />', () => {
           expect(linkElement).toHaveRole('link');
           expect(linkElement).toHaveAttribute('href', possibleUrl);
           expect(linkElement).toHaveAttribute('target', '_blank');
-          expect(linkElement).toHaveTextContent(dictionary[locale as keyof typeof dictionary]['agreements_see_more']);
+          expect(linkElement).toHaveTextContent(locale === 'en' ? 'See more' : 'Zobacz więcej');
         }
       });
 

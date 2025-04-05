@@ -1,5 +1,6 @@
 .organization-header {
   @include box-border;
+
   padding: sizeToRem(16);
   margin-bottom: sizeToRem(30);
 
@@ -61,27 +62,52 @@
   }
 }
 
+.organization-title-wrapper {
+  flex-direction: column;
+
+  @include media-breakpoint-up(sm) {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  h3 {
+    color: $dark-lighter;
+    word-break: break-word;
+
+    @include media-breakpoint-up(sm) {
+      font-size: sizeToRem(18);
+      margin-top: sizeToRem(10);
+    }
+  }
+}
+
 .organization-card {
   min-height: sizeToRem(220);
   height: 100%;
   background-color: $light-background;
   padding: sizeToRem(16);
   flex-direction: column;
+
   @include box-border;
 
   @include media-breakpoint-up(sm) {
     padding: sizeToRem(20);
     min-height: sizeToRem(290);
   }
+
   &.empty-chart {
     min-height: 0;
+
     & > h3 {
       color: $dark-lighter;
+
       @include media-breakpoint-up(sm) {
         font-size: sizeToRem(18);
       }
     }
   }
+
   &.wide-col {
     min-height: sizeToRem(110);
     flex-direction: row;
@@ -119,33 +145,5 @@
 
   @include media-breakpoint-up(xl) {
     font-size: sizeToRem(80);
-  }
-}
-
-.organization-title-wrapper {
-  flex-direction: column;
-
-  @include media-breakpoint-up(sm) {
-    flex-direction: row;
-    align-items: flex-start;
-    justify-content: space-between;
-  }
-
-  h3 {
-    color: $dark-lighter;
-    word-break: break-word;
-    @include media-breakpoint-up(sm) {
-      font-size: sizeToRem(18);
-      margin-top: sizeToRem(10);
-    }
-  }
-}
-
-.-tooltip-button {
-  width: sizeToRem(36);
-  margin-left: 0;
-
-  @include media-breakpoint-up(sm) {
-    margin-left: sizeToRem(10);
   }
 }

@@ -1,13 +1,17 @@
 .user-settings-wrapper {
-  @extend .edit-settings-form-wrapper;
+  @extend %edit-settings-form-wrapper;
+
   max-width: sizeToRem(628);
+
   h1 {
     text-align: center;
     margin-bottom: sizeToRem(50);
   }
+
   section:not(:last-of-type) {
     margin-bottom: sizeToRem(72);
   }
+
   .mfa-config-qrcode-wrapper {
     margin-bottom: sizeToRem(30);
     justify-content: flex-start;
@@ -31,26 +35,32 @@
     font-weight: 400;
     margin-bottom: sizeToRem(30);
   }
+
   button {
     min-height: sizeToRem(48);
   }
+
   &:not(.api-key) button {
     display: block;
     margin: 0 auto;
     min-width: sizeToRem(220);
   }
+
   &.api-key button.link {
     min-width: sizeToRem(84);
     color: $danger;
     margin-bottom: sizeToRem(16);
   }
+
   &.api-key button.secondary {
     min-width: sizeToRem(162);
   }
+
   @include media-breakpoint-up(sm) {
     &.api-key button.link {
       margin: 0;
     }
+
     &.api-key button.secondary {
       margin-left: sizeToRem(40);
     }
@@ -58,7 +68,7 @@
 }
 
 .user-settings-input-wrapper {
-  @extend .edit-settings-input-wrapper;
+  @extend %edit-settings-input-wrapper;
 }
 
 .user-settings-form-submit {
@@ -76,45 +86,53 @@
   .modal-dialog {
     max-width: sizeToRem(600);
   }
+
   .modal-content {
     padding: sizeToRem(40) sizeToRem(20);
+
     @include media-breakpoint-up(sm) {
       padding: sizeToRem(90) sizeToRem(60);
     }
   }
+
   .modal-header {
     display: flex;
     justify-content: center;
     border: 0;
     padding: 0;
     margin-bottom: sizeToRem(20);
+
     .modal-title {
       font-size: sizeToRem(30);
     }
   }
+
   .modal-body {
     color: $dark-lighter;
     text-align: center;
     margin-bottom: sizeToRem(50);
     padding: 0;
+
     p {
       font-size: sizeToRem(18);
       margin: 0;
     }
   }
+
   .modal-footer {
     border: 0;
     padding: 0;
     flex-direction: column;
     justify-content: center;
+
     button {
       width: 100%;
       max-width: sizeToRem(224);
     }
 
     @include media-breakpoint-up(sm) {
-      flex-direction: row;
-      flex-wrap: nowrap;
+      flex-flow: row nowrap;
+
       button.primary {
         min-width: sizeToRem(224);
         margin-left: sizeToRem(32);
@@ -124,12 +142,13 @@
 }
 
 .user-settings-config-content {
-  @extend .login-content;
+  @extend %login-content;
+
   margin: sizeToRem(34) auto;
 }
 
 .user-settings-config-icon {
-  @extend .login-icon;
+  @extend %login-icon;
 }
 
 .user-settings-api-err-msg {

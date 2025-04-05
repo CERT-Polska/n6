@@ -1,11 +1,11 @@
 import { FC } from 'react';
-import format from 'date-fns/format';
+import { format } from 'date-fns/format';
 import { useTypedIntl } from 'utils/useTypedIntl';
-import { IResponseTableData } from 'api/services/globalTypes';
+import { ICustomResponse, IResponse } from 'api/services/globalTypes';
 import { TAvailableResources } from 'api/services/info/types';
 
 interface IProps {
-  data: IResponseTableData[];
+  data: (IResponse & ICustomResponse)[];
   resource?: TAvailableResources;
 }
 
@@ -30,6 +30,7 @@ const ExportJSON: FC<IProps> = ({ data, resource = 'empty' }) => {
     <>
       {resource !== 'empty' ? (
         <button
+          data-testid="export-json-link"
           name={`${messages.incidents_export_link_json}`}
           className="incidents-export-link font-smaller font-weight-medium"
           onClick={downloadJson}
@@ -37,7 +38,10 @@ const ExportJSON: FC<IProps> = ({ data, resource = 'empty' }) => {
           {messages.incidents_export_link_json}
         </button>
       ) : (
-        <span className="incidents-export-link font-smaller font-weight-medium disabled">
+        <span
+          data-testid="export-json-link-disabled"
+          className="incidents-export-link font-smaller font-weight-medium disabled"
+        >
           {messages.incidents_export_link_json}
         </span>
       )}

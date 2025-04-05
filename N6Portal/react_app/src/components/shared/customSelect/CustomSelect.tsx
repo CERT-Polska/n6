@@ -1,4 +1,4 @@
-import { PropsWithChildren, useMemo } from 'react';
+import { JSX, PropsWithChildren, useMemo } from 'react';
 import Select, { ValueType, FormatOptionLabelMeta, ControlProps, components } from 'react-select';
 import classNames from 'classnames';
 import { Control, DropdownIndicator } from 'components/shared/customSelect/Components';
@@ -32,6 +32,7 @@ interface IProps<P> {
     option: SelectOption<P>,
     labelMeta?: FormatOptionLabelMeta<SelectOption<P>, boolean>
   ) => JSX.Element;
+  dateTestId?: string;
 }
 
 const CustomSelect = <P,>(props: PropsWithChildren<IProps<P>>): JSX.Element => {
@@ -55,7 +56,8 @@ const CustomSelect = <P,>(props: PropsWithChildren<IProps<P>>): JSX.Element => {
     noOptionsMessage = 'Brak dostępnych opcji',
     handleChange,
     handleMenuClose,
-    formatOptionLabel
+    formatOptionLabel,
+    dateTestId
   } = props;
   const randomSelectId = useMemo(() => Math.random().toString(36).substring(5), []);
 
@@ -74,7 +76,11 @@ const CustomSelect = <P,>(props: PropsWithChildren<IProps<P>>): JSX.Element => {
   );
 
   return (
-    <div className={classNames('custom-select-button', className)} aria-label={ariaLabel || 'Lista rozwijana'}>
+    <div
+      data-testid={dateTestId}
+      className={classNames('custom-select-button', className)}
+      aria-label={ariaLabel || 'Lista rozwijana'}
+    >
       {label && (
         <label htmlFor={inputId} id={labelId}>
           {label}

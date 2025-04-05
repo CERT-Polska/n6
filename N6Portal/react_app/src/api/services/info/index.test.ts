@@ -1,8 +1,4 @@
-/**
- * @jest-environment jsdom
- */
-
-import { queryClientTestHookWrapper } from 'utils/createTestHookWrapper';
+import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { getInfo, getInfoConfig, useInfo, useInfoConfig } from './index';
 import { IInfo, IInfoConfig } from './types';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -39,7 +35,7 @@ describe('useInfo', () => {
 
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: useInfoMockedData }));
 
-    const useInfoRenderingResult = renderHook(() => useInfo(), { wrapper: queryClientTestHookWrapper() });
+    const useInfoRenderingResult = renderHook(() => useInfo(), { wrapper: QueryClientProviderTestWrapper });
     await waitFor(() => {
       expect(useInfoRenderingResult.result.current.isSuccess).toBe(true);
     });
@@ -83,7 +79,7 @@ describe('useInfoConfig', () => {
 
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: useInfoConfigMockedData }));
 
-    const useInfoConfigRenderingResult = renderHook(() => useInfoConfig(), { wrapper: queryClientTestHookWrapper() });
+    const useInfoConfigRenderingResult = renderHook(() => useInfoConfig(), { wrapper: QueryClientProviderTestWrapper });
     await waitFor(() => {
       expect(useInfoConfigRenderingResult.result.current.isSuccess).toBe(true);
     });

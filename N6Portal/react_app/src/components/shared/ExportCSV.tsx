@@ -1,5 +1,5 @@
-import { FC } from 'react';
-import format from 'date-fns/format';
+import { FC, useMemo } from 'react';
+import { format } from 'date-fns/format';
 import { CSVLink } from 'react-csv';
 import { IResponse } from 'api/services/globalTypes';
 import { useTypedIntl } from 'utils/useTypedIntl';
@@ -11,80 +11,78 @@ interface IProps {
   resource?: TAvailableResources;
 }
 
-export const headers = [
-  {
-    label: 'Time',
-    key: 'time'
-  },
-  {
-    label: 'Category',
-    key: 'category'
-  },
-  {
-    label: 'Name',
-    key: 'name'
-  },
-  {
-    label: 'IP',
-    key: 'ip'
-  },
-  {
-    label: 'ASN',
-    key: 'asn'
-  },
-  {
-    label: 'Country',
-    key: 'cc'
-  },
-  {
-    label: 'FQDN',
-    key: 'fqdn'
-  },
-  {
-    label: 'Source',
-    key: 'source'
-  },
-  {
-    label: 'Confidence',
-    key: 'confidence'
-  },
-  {
-    label: 'URL',
-    key: 'url'
-  },
-  {
-    label: 'Origin',
-    key: 'origin'
-  },
-  {
-    label: 'Protocol',
-    key: 'proto'
-  },
-  {
-    label: 'Src.port',
-    key: 'sport'
-  },
-  {
-    label: 'Dest.port',
-    key: 'dport'
-  },
-  {
-    label: 'Dest.IP',
-    key: 'dip'
-  },
-  {
-    label: 'MD5',
-    key: 'md5'
-  },
-  {
-    label: 'SHA1',
-    key: 'sha1'
-  },
-  {
-    label: 'Target',
-    key: 'target'
+const createHeaders = (data: IResponse[], messages: Record<string, string>) => {
+  if (!data || data.length === 0) {
+    return [];
   }
-];
+
+  const keysFromData = new Set<string>();
+  data.forEach((item) => {
+    Object.keys(item).forEach((key) => keysFromData.add(key));
+  });
+
+  const headers: { label: string; key: string }[] = [];
+
+  const mandatoryOrder = ['id', 'time', 'category', 'source'];
+  mandatoryOrder.forEach((key) => {
+    if (keysFromData.has(key)) {
+      const headerLabel = messages[`incidents_column_header_${key}`];
+      if (headerLabel) {
+        headers.push({
+          label: headerLabel,
+          key: key
+        });
+      }
+      keysFromData.delete(key);
+    }
+  });
+
+  const getColumnsWithPropsOrder = [
+    'name',
+    'ip',
+    'asn',
+    'cc',
+    'fqdn',
+    'confidence',
+    'url',
+    'restriction',
+    'origin',
+    'proto',
+    'sport',
+    'dport',
+    'dip',
+    'md5',
+    'sha1',
+    'target'
+  ];
+
+  getColumnsWithPropsOrder.forEach((key) => {
+    if (keysFromData.has(key)) {
+      const headerLabel = messages[`incidents_column_header_${key}`];
+      if (headerLabel) {
+        headers.push({
+          label: headerLabel,
+          key: key
+        });
+      }
+      keysFromData.delete(key);
+    }
+  });
+
+  const remainingKeys = Array.from(keysFromData);
+  remainingKeys.sort();
+  remainingKeys.forEach((key) => {
+    const headerLabel = messages[`incidents_column_header_${key}`];
+    if (headerLabel) {
+      headers.push({
+        label: headerLabel,
+        key: key
+      });
+    }
+  });
+
+  return headers;
+};
 
 const ExportCSV: FC<IProps> = ({ data, resource = 'empty' }) => {
   const { messages } = useTypedIntl();
@@ -93,11 +91,13 @@ const ExportCSV: FC<IProps> = ({ data, resource = 'empty' }) => {
   const filename = `n6${resource.replaceAll('/', '-')}${time}.csv`;
 
   const parsedData = parseResponseDataForCsv(data);
+  const headers = useMemo(() => createHeaders(parsedData, messages), [parsedData]);
 
   return (
     <>
       {resource !== 'empty' ? (
         <CSVLink
+          data-testid="export-csv-link"
           className="incidents-export-link font-smaller font-weight-medium"
           filename={filename}
           headers={headers}
@@ -106,7 +106,10 @@ const ExportCSV: FC<IProps> = ({ data, resource = 'empty' }) => {
           {messages.incidents_export_link_csv}
         </CSVLink>
       ) : (
-        <span className="incidents-export-link font-smaller font-weight-medium disabled">
+        <span
+          data-testid="export-csv-link-disabled"
+          className="incidents-export-link font-smaller font-weight-medium disabled"
+        >
           {messages.incidents_export_link_csv}
         </span>
       )}

@@ -1,9 +1,10 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import datetime
 import json
 import unittest
 from contextlib import contextmanager
+from functools import partial
 from unittest.mock import (
     ANY,
     Mock,
@@ -14,16 +15,14 @@ from unittest.mock import (
 )
 
 from jwt.exceptions import DecodeError
-from pyramid.httpexceptions import (
-    HTTPForbidden,
-    HTTPUnauthorized,
-)
+from pyramid.httpexceptions import HTTPForbidden
 from pyramid.response import Response
 from pyramid.request import Request
 from pyramid.security import (
     Authenticated,
     Everyone,
 )
+from requests.exceptions import HTTPError
 from rt import RtError
 from unittest_expander import (
     expand,
@@ -1061,20 +1060,24 @@ class TestN6RegistrationView(RequestHelperMixin, DBConnectionPatchMixin, unittes
 
 class TestN6LoginOIDCView(RequestHelperMixin, DBConnectionPatchMixin, unittest.TestCase):
 
+    SAMPLE_SERVER_URL = 'http://example.com/keycloak'
+    SAMPLE_REALM_NAME = 'test_realm'
     SAMPLE_OIDC_PROVIDER_CONFIG = {
         'oidc_provider_api': {
             'active': 'true',
-            'server_url': 'http://example.com/keycloak',
-            'realm_name': 'test_realm',
-            'client_id': 'test',
-            'client_secret_key': 'secret',
+            'server_url': SAMPLE_SERVER_URL,
+            'realm_name': SAMPLE_REALM_NAME,
         },
     }
     SAMPLE_USER_ID = 'test@example.com'
     USER_ID_NOT_IN_DB = 'other@example.com'
     SAMPLE_ORG_ID = 'example.com'
+    SAMPLE_ORG_UUID = 'cc4b634e-acf5-4d51-b2b2-f61927336fd9'
     ORG_ID_NOT_IN_DB = 'example.org'
+    ORG_UUID_NOT_IN_DB = '3c5612d3-9f3f-465c-bf29-7f0f6d8c97b9'
     SAMPLE_AUTH_DATA = dict(user_id=SAMPLE_USER_ID, org_id=SAMPLE_ORG_ID)
+    SAMPLE_JWKS_URI = (f'{SAMPLE_SERVER_URL}/realms/{SAMPLE_REALM_NAME}'
+                       f'/protocol/openid-connect/certs')
 
     def setUp(self):
         self.db_connector_patch = self.patch('n6lib.auth_db.api.SQLAuthDBConnector')
@@ -1095,7 +1098,9 @@ class TestN6LoginOIDCView(RequestHelperMixin, DBConnectionPatchMixin, unittest.T
 
     def _get_mock_db_collection(self):
         sample_user = models.User(login=self.SAMPLE_USER_ID, org_id=self.SAMPLE_ORG_ID)
-        sample_org = models.Org(org_id=self.SAMPLE_ORG_ID, users=[sample_user])
+        sample_org = models.Org(org_id=self.SAMPLE_ORG_ID,
+                                org_uuid=self.SAMPLE_ORG_UUID,
+                                users=[sample_user])
         return {
             'user': [
                 sample_user,
@@ -1108,11 +1113,20 @@ class TestN6LoginOIDCView(RequestHelperMixin, DBConnectionPatchMixin, unittest.T
     def _set_up_auth_manage_api(self):
         self.pyramid_config.registry.auth_manage_api = AuthManageAPI(sen.settings)
 
+    def _request_get_side_effect(self, url, **kwargs):
+        if url.endswith('.well-known/openid-configuration'):
+            ret_val = dict(jwks_uri=self.SAMPLE_JWKS_URI)
+        elif url.endswith('openid-connect/certs'):
+            ret_val = dict(keys=[])
+        else:
+            raise HTTPError
+        return Mock(json=Mock(return_value=ret_val))
+
     def _set_up_oidc_provider_api(self):
         with patch('n6lib.config.Config._load_n6_config_files',
                    return_value=self.SAMPLE_OIDC_PROVIDER_CONFIG),\
-                patch('n6lib.oidc_provider_api.KeycloakOpenID') as provider_mock:
-            provider_mock.return_value.certs.return_value = dict(keys={})
+                patch('n6lib.oidc_provider_api.Session') as req_session_mock:
+            req_session_mock.return_value.get.side_effect = self._request_get_side_effect
             self.pyramid_config.registry.oidc_provider_api = OIDCProviderAPI()
             self.oidc_provider_api = self.pyramid_config.registry.oidc_provider_api
 
@@ -1121,15 +1135,24 @@ class TestN6LoginOIDCView(RequestHelperMixin, DBConnectionPatchMixin, unittest.T
         self.assertEqual(response.json_body, json_body)
         self.assertEqual(response.content_type, 'application/json')
 
-    def _test_user_not_created(self, user_id, org_id):
+    def _test_user_not_created(self, user_id, org_uuid):
         request = self.create_request(N6LoginOIDCView)
         request.auth_data = None
-        self.oidc_provider_api.unauthenticated_credentials.user_id = user_id
-        self.oidc_provider_api.unauthenticated_credentials.org_id = org_id
+        self._set_temp_request_property(request, user_id, org_uuid)
         response = request.perform()
+        self.assertIsInstance(temp_auth_data := request.temporary_auth_data, dict)
+        self.assertEqual(temp_auth_data.get('user_id'), user_id)
+        self.assertEqual(temp_auth_data.get('org_uuid'), org_uuid)
         self._assert_json_response_attrs(response, 403, {'status': 'user_not_created'})
         self.assertEqual(1, len(self._collection['user']))
         self.session_mock.flush.assert_not_called()
+
+    @staticmethod
+    def _set_temp_request_property(request, user_id, org_uuid):
+        request.set_property(partial(lambda _, **kwargs: dict(**kwargs),
+                                     user_id=user_id, org_uuid=org_uuid),
+                             name="temporary_auth_data",
+                             reify=False)
 
     def test_valid_auth_data(self):
         request = self.create_request(N6LoginOIDCView)
@@ -1146,21 +1169,24 @@ class TestN6LoginOIDCView(RequestHelperMixin, DBConnectionPatchMixin, unittest.T
     def test_create_user_ok(self):
         request = self.create_request(N6LoginOIDCView)
         request.auth_data = None
-        self.oidc_provider_api.unauthenticated_credentials.user_id = self.USER_ID_NOT_IN_DB
-        self.oidc_provider_api.unauthenticated_credentials.org_id = self.SAMPLE_ORG_ID
+        self._set_temp_request_property(request, self.USER_ID_NOT_IN_DB, self.SAMPLE_ORG_UUID)
         response = request.perform()
+        self.assertIsInstance(temp_auth_data := request.temporary_auth_data, dict)
+        self.assertEqual(temp_auth_data.get('user_id'), self.USER_ID_NOT_IN_DB)
+        self.assertEqual(temp_auth_data.get('org_uuid'), self.SAMPLE_ORG_UUID)
         self._assert_json_response_attrs(response, 200, {'status': 'user_created'})
         self.assertEqual(2, len(self._collection['user']))
         new_user = self._collection['user'][-1]
         self.assertEqual(self.USER_ID_NOT_IN_DB, new_user.login)
         self.assertEqual(self.SAMPLE_ORG_ID, new_user.org.org_id)
+        self.assertEqual(self.SAMPLE_ORG_UUID, new_user.org.org_uuid)
         self.session_mock.flush.assert_called_once()
 
     def test_create_user__user_exists(self):
-        self._test_user_not_created(self.SAMPLE_USER_ID, self.SAMPLE_ORG_ID)
+        self._test_user_not_created(self.SAMPLE_USER_ID, self.SAMPLE_ORG_UUID)
 
     def test_create_user__org_not_exists(self):
-        self._test_user_not_created(self.SAMPLE_USER_ID, self.ORG_ID_NOT_IN_DB)
+        self._test_user_not_created(self.SAMPLE_USER_ID, self.ORG_UUID_NOT_IN_DB)
 
     def test_oidc_provider_api_inactive(self):
         request = self.create_request(N6LoginOIDCView)
@@ -1453,7 +1479,7 @@ class TestDevFakeUserAuthenticationPolicy(unittest.TestCase):
 
 class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
 
-    SAMPLE_CLIENT_ID = 'example'
+    SAMPLE_APPLICATION_URL = 'https://n6portal-test/api'
     SAMPLE_VALID_TOKEN = ('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJPbmxpbmUgSldUIEJ1aWxkZX'
                           'IiLCJpYXQiOjE2NzMzNTc3NTMsImV4cCI6MTcwNDg5Mzc1MywiYXVkIjoid3d3LmV4YW1wb'
                           'GUuY29tIiwic3ViIjoianJvY2tldEBleGFtcGxlLmNvbSIsIkdpdmVuTmFtZSI6IkpvaG5u'
@@ -1472,12 +1498,12 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
                             'N1cm5hbWUiOiJSb2NrZXQiLCJFbWFpbCI6Impyb2NrZXRAZXhhbXBsZS5jb20iLCJSb2x'
                             'lIjpbIk1hbmFnZXIiLCJQcm9qZWN0IEFkbWluaXN0cmF0b3IiXX0.zJ8kKFMU1P0q7wnS'
                             'CPA6wk4RVOi35Mj95cBinUZPcvI')
-    DIFFERENT_ORG_ID_TOKEN = ('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJPbmxpbmUgSldUIEJ1aW'
-                              'xkZXIiLCJpYXQiOjE2NzM1Mjk0MDAsImV4cCI6MTcwNTA2NTQwMCwiYXVkIjoiZGZhZ'
-                              'nNmc2Rmc2Rmc2RmLm9yZyIsInN1YiI6ImRqa2ZrQGZkamlrLmNvbSIsIkdpdmVuTmFt'
-                              'ZSI6IlRvbW15IiwiU3VybmFtZSI6IlJvY2tldCIsIkVtYWlsIjoianJvY2tldEBleGF'
-                              'tcGxlLmNvbSIsIlJvbGUiOlsiTWFuYWdlciIsIlByb2plY3QgQWRtaW5pc3RyYXRvci'
-                              'JdfQ.sdzkt77k6ajF6OYwyTzHJTRoUMJ4CaWy4ZhU98iwBEM')
+    DIFFERENT_ORG_UUID_TOKEN = ('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJPbmxpbmUgSldUIEJ1aW'
+                                'xkZXIiLCJpYXQiOjE2NzM1Mjk0MDAsImV4cCI6MTcwNTA2NTQwMCwiYXVkIjoiZGZhZ'
+                                'nNmc2Rmc2Rmc2RmLm9yZyIsInN1YiI6ImRqa2ZrQGZkamlrLmNvbSIsIkdpdmVuTmFt'
+                                'ZSI6IlRvbW15IiwiU3VybmFtZSI6IlJvY2tldCIsIkVtYWlsIjoianJvY2tldEBleGF'
+                                'tcGxlLmNvbSIsIlJvbGUiOlsiTWFuYWdlciIsIlByb2plY3QgQWRtaW5pc3RyYXRvci'
+                                'JdfQ.sdzkt77k6ajF6OYwyTzHJTRoUMJ4CaWy4ZhU98iwBEM')
     EMPTY_HEADERS_TOKEN = ('eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJPbmxpbmUgSldUIEJ1aWxkZ'
                            'XIiLCJpYXQiOjE2NzM1Mjk0MDAsImV4cCI6MTcwNTA2NTQwMCwiYXVkIjoid3d3LmV4YW1'
                            'wbGUuY29tIiwic3ViIjoianJvY2tldEBleGFtcGxlLmNvbSIsIkdpdmVuTmFtZSI6Ikpva'
@@ -1486,6 +1512,10 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
                            'nMMbFeir9nSGvDM32S8XJnOR1GHvPmkRcM')
     SAMPLE_VALID_MERGED_CREDENTIALS = 'example.com,test@example.com'
     SAMPLE_AUTH_DATA = dict(user_id='test@example.com', org_id='example.com')
+    ORG_UUID_TO_ORG_ID_MAP = {
+        'cc4b634e-acf5-4d51-b2b2-f61927336fd9': 'example.com',
+        'd5196281-6d02-4847-ae6a-7e5ce3041246': 'example.org',
+    }
     TOKENS_MAP = [
         {
             'token': SAMPLE_VALID_TOKEN,
@@ -1498,7 +1528,9 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
                 'name': 'Thomas Kowalski',
                 'preferred_username': 'test@example.com',
                 'org_name': 'example.com',
+                'org_uuid': 'cc4b634e-acf5-4d51-b2b2-f61927336fd9',
                 'email': 'test@example.com',
+                'aud': [SAMPLE_APPLICATION_URL, "n6portal-api", "account"],
             },
         },
         # the token is valid, but user does not exist in database
@@ -1513,13 +1545,14 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
                 'name': 'Bernice Foley',
                 'preferred_username': 'bernice@example.com',
                 'org_name': 'example.com',
+                'org_uuid': 'cc4b634e-acf5-4d51-b2b2-f61927336fd9',
                 'email': 'bernice@example.com',
             },
         },
         # the token is valid, but user is assigned to a different
         # organization than it is claimed in token
         {
-            'token': DIFFERENT_ORG_ID_TOKEN,
+            'token': DIFFERENT_ORG_UUID_TOKEN,
             'headers': {
                 'alg': 'RS256',
                 'typ': 'JWT',
@@ -1529,6 +1562,7 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
                 'name': 'Oliver Case',
                 'preferred_username': 'oliver@example.com',
                 'org_name': 'example.com',
+                'org_uuid': 'd5196281-6d02-4847-ae6a-7e5ce3041246',
                 'email': 'oliver@example.com',
             },
         },
@@ -1566,7 +1600,8 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
         self.request_mock = Mock(spec=Request,
                                  auth_data=None,
                                  headers={},
-                                 registry=self._request_registry_mock)
+                                 registry=self._request_registry_mock,
+                                 application_url=self.SAMPLE_APPLICATION_URL)
         self.request_mock.route_url.side_effect = lambda url: url
 
     def test__unauthenticated_userid__ok(self):
@@ -1621,8 +1656,7 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
 
     def test__get_auth_data__missing_claims(self):
         with self._prepare__get_auth_data_mocks(self.MISSING_CLAIMS_TOKEN):
-            with self.assertRaises(HTTPUnauthorized):
-                self.inst.get_auth_data(self.request_mock)
+            self.assertIsNone(self.inst.get_auth_data(self.request_mock))
 
     def test__get_auth_data__user_not_in_db(self):
         with self._prepare__get_auth_data_mocks(self.USER_NOT_IN_DB_TOKEN):
@@ -1634,23 +1668,30 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
         with self._prepare__get_auth_data_mocks(self.USER_NOT_IN_DB_TOKEN):
             auth_data = self.inst.get_auth_data(self.request_mock)
             self.assertIsNone(auth_data)
-            saved_user_id =\
-                self._request_registry_mock.oidc_provider_api.unauthenticated_credentials.user_id
-            saved_org_id =\
-                self._request_registry_mock.oidc_provider_api.unauthenticated_credentials.org_id
-            self.assertEqual('bernice@example.com', saved_user_id)
-            self.assertEqual('example.com', saved_org_id)
+            self.request_mock.set_property.assert_called_once()
+            args = self.request_mock.set_property.call_args.args
+            self.assertTrue(args)
+            kwargs = args[0].keywords
+            self.assertIsInstance(kwargs, dict)
+            self.assertIn('user_id', kwargs)
+            self.assertIn('org_uuid', kwargs)
+            self.assertEqual(user_id := 'bernice@example.com', kwargs['user_id'])
+            self.assertEqual(org_uuid := 'cc4b634e-acf5-4d51-b2b2-f61927336fd9',
+                             kwargs['org_uuid'])
+            self.assertIn('temporary_auth_data', self.request_mock.__dict__)
+            self.assertIsInstance(temp_auth_data := self.request_mock.temporary_auth_data, dict)
+            self.assertEqual(temp_auth_data.get('user_id'), user_id)
+            self.assertEqual(temp_auth_data.get('org_uuid'), org_uuid)
 
-    def test__get_auth_data__different_org_id(self):
-        with self._prepare__get_auth_data_mocks(self.DIFFERENT_ORG_ID_TOKEN):
+    def test__get_auth_data__different_org_uuid(self):
+        with self._prepare__get_auth_data_mocks(self.DIFFERENT_ORG_UUID_TOKEN):
             auth_data = self.inst.get_auth_data(self.request_mock)
             self.assertIsNone(auth_data)
 
     def test__get_auth_data__empty_headers(self):
         # no 'kid' header in token headers
         with self._prepare__get_auth_data_mocks(self.EMPTY_HEADERS_TOKEN):
-            with self.assertRaises(HTTPUnauthorized):
-                self.inst.get_auth_data(self.request_mock)
+            self.assertIsNone(self.inst.get_auth_data(self.request_mock))
 
     def test__get_auth_data__no_token(self):
         with self._prepare__get_auth_data_mocks(None):
@@ -1661,6 +1702,38 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
         with self._prepare__get_auth_data_mocks(None, is_oidc_active=False):
             auth_data = self.inst.get_auth_data(self.request_mock)
             self.assertEqual(self.SAMPLE_AUTH_DATA, auth_data)
+
+    def test__get_auth_data__verify_audience_from_config(self):
+        with self._prepare__get_auth_data_mocks(self.SAMPLE_VALID_TOKEN,
+                                                verify_aud=True,
+                                                required_aud="n6portal-api") as patchers:
+            auth_data = self.inst.get_auth_data(self.request_mock)
+            self.assertEqual(self.SAMPLE_AUTH_DATA, auth_data)
+            self._test__audience_related_kwargs_in_decode_patch(patchers, True, "n6portal-api")
+
+    def test__get_auth_data__do_not_verify_aud__required_aud_is_set(self):
+        with self._prepare__get_auth_data_mocks(self.SAMPLE_VALID_TOKEN,
+                                                verify_aud=False,
+                                                required_aud="n6portal-api") as patchers:
+            auth_data = self.inst.get_auth_data(self.request_mock)
+            self.assertEqual(self.SAMPLE_AUTH_DATA, auth_data)
+            self._test__audience_related_kwargs_in_decode_patch(patchers, False, "n6portal-api")
+
+    def test__get_auth_data__verify_default_audience(self):
+        with self._prepare__get_auth_data_mocks(self.SAMPLE_VALID_TOKEN,
+                                                verify_aud=True,
+                                                required_aud=None) as patchers:
+            auth_data = self.inst.get_auth_data(self.request_mock)
+            self.assertEqual(self.SAMPLE_AUTH_DATA, auth_data)
+            self._test__audience_related_kwargs_in_decode_patch(patchers, True, None)
+
+    def test__get_auth_data__invalid_aud_from_config(self):
+        with self._prepare__get_auth_data_mocks(self.SAMPLE_VALID_TOKEN,
+                                                verify_aud=True,
+                                                required_aud="invalid-aud") as patchers:
+            auth_data = self.inst.get_auth_data(self.request_mock)
+            self.assertIsNone(auth_data)
+            self._test__audience_related_kwargs_in_decode_patch(patchers, True, "invalid-aud")
 
     def _get_auth_tkt_policy_mock(self):
         m = Mock()
@@ -1675,12 +1748,30 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
         self.assertEqual(self.SAMPLE_VALID_MERGED_CREDENTIALS, userid)
         self.inst._auth_tkt_policy.unauthenticated_userid.assert_called_once()
 
+    def _test__audience_related_kwargs_in_decode_patch(self, patchers, verify_aud, required_aud):
+        required_aud = required_aud or self.SAMPLE_APPLICATION_URL
+        (decode_patch := patchers["decode"]).assert_called_once()
+        self.assertIn("audience", decode_patch.call_args_list[0].kwargs)
+        self.assertIn("options", decode_patch.call_args_list[0].kwargs)
+        self.assertEqual(
+            required_aud, decode_patch.call_args_list[0].kwargs["audience"]
+        )
+        self.assertEqual(
+            {"verify_aud": verify_aud}, decode_patch.call_args_list[0].kwargs["options"]
+        )
+
     @contextmanager
-    def _prepare__get_auth_data_mocks(self, token, is_oidc_active=True):
+    def _prepare__get_auth_data_mocks(self,
+                                      token,
+                                      is_oidc_active=True,
+                                      verify_aud=False,
+                                      required_aud=None):
         self._request_registry_mock.oidc_provider_api = Mock(spec=OIDCProviderAPI)
-        self._request_registry_mock.oidc_provider_api.client_id = self.SAMPLE_CLIENT_ID
-        self._request_registry_mock.oidc_provider_api.unauthenticated_credentials = Mock()
         self._request_registry_mock.oidc_provider_api.is_active = is_oidc_active
+        self._request_registry_mock.oidc_provider_api.verify_audience = verify_aud
+        self._request_registry_mock.oidc_provider_api.decoding_options = dict(
+            verify_aud=verify_aud)
+        self._request_registry_mock.oidc_provider_api.required_audience = required_aud
         oidc_provider_self_mock = Mock()
         oidc_provider_self_mock._get_json_web_keys.return_value = self.SAMPLE_JWKS
         self._request_registry_mock.oidc_provider_api.get_signing_key_from_token.side_effect =\
@@ -1688,10 +1779,13 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
         self._request_registry_mock.auth_api.authenticate_with_oidc_access_token.side_effect =\
             self._get__authenticate_with_oidc_access_token_meth()
         self._request_registry_mock.auth_manage_api.__enter__.return_value.\
-            do_nonblocked_user_and_org_exist_and_match.side_effect = \
-            self._do_nonblocked_user_and_org_exist_and_match_side_effect
+            do_nonblocked_user_and_org_uuid_exist_and_match.side_effect = \
+            self._do_nonblocked_user_and_org_uuid_exist_and_match_side_effect
+        self._request_registry_mock.auth_manage_api.__enter__.return_value.\
+            get_org_by_org_uuid.side_effect = self._get_org_by_org_uuid_side_effect
         self.request_mock.unauthenticated_userid = (f'access_token:{token}' if token
                                                     else self.SAMPLE_VALID_MERGED_CREDENTIALS)
+        self.request_mock.set_property = Mock(side_effect=self._request__set_property__side_effect)
         patchers = []
         jwt__get_unverified_header_patch = patch('jwt.get_unverified_header',
               side_effect=self._jwt__get_unverified_header__side_effect)
@@ -1717,10 +1811,21 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
         return inst.authenticate_with_oidc_access_token
 
     @classmethod
-    def _do_nonblocked_user_and_org_exist_and_match_side_effect(cls, *args, **kwargs):
+    def _do_nonblocked_user_and_org_uuid_exist_and_match_side_effect(cls, *args, **kwargs):
         inst = Mock()
         inst._get_user_by_login.side_effect = cls._get_user_by_login_side_effect
-        return AuthManageAPI.do_nonblocked_user_and_org_exist_and_match(inst, *args, **kwargs)
+        return AuthManageAPI.do_nonblocked_user_and_org_uuid_exist_and_match(inst, *args, **kwargs)
+
+    def _get_org_by_org_uuid_side_effect(self, org_uuid, **kwargs):
+        try:
+            org_id = self.ORG_UUID_TO_ORG_ID_MAP[org_uuid]
+        except KeyError:
+            raise AuthDatabaseAPILookupError
+        return Mock(org_id=org_id, org_uuid=org_uuid)
+
+    def _request__set_property__side_effect(self, func, name=None, **kwargs):
+        property_val = func(self.request_mock)
+        setattr(self.request_mock, name, property_val)
 
     def _jwt__get_unverified_header__side_effect(self, token):
         for token_attrs in self.TOKENS_MAP:
@@ -1730,7 +1835,7 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
             self.fail("The `jwt.get_unverified_header()` method's patch could not find "
                       "the token passed as argument in the test fixtures")
 
-    def _jwt__decode__side_effect(self, token, key, *args, **kwargs):
+    def _jwt__decode__side_effect(self, token, key, options=None, audience=None, *args, **kwargs):
         # The `key` parameter passes a JSON Web Key, which normally
         # is used to decode the token in the patched
         # `decode()` method. It is fetched by
@@ -1749,15 +1854,27 @@ class TestOIDCUserAuthenticationPolicy(unittest.TestCase):
                     # the `TokenValidationError` is raised, like
                     # in the original method.
                     raise TokenValidationError
+                if options is not None and options.get('verify_aud') and audience is not None:
+                    if ('aud' not in token_attrs['claims']
+                            or audience not in token_attrs['claims']['aud']):
+                        raise TokenValidationError
                 return token_attrs['claims']
         raise DecodeError
 
     @staticmethod
     def _get_user_by_login_side_effect(login, **kwargs):
         if login == 'test@example.com':
-            return Mock(login='test@example.com', org_id='example.com', is_blocked=False)
+            return Mock(login='test@example.com',
+                        org_id='example.com',
+                        org=Mock(org_id='example.com',
+                                 org_uuid='cc4b634e-acf5-4d51-b2b2-f61927336fd9'),
+                        is_blocked=False)
         if login == 'oliver@example.com':
-            return Mock(login='oliver@example.com', org_id='example.org', is_blocked=False)
+            return Mock(login='oliver@example.com',
+                        org_id='example.org',
+                        org=Mock(org_id='example.org',
+                                 org_uuid='5988d0bc-a799-4f6d-ba1d-1e16f5369e73'),
+                        is_blocked=False)
         raise AuthDatabaseAPILookupError
 
 

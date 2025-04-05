@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render } from '@testing-library/react';
 import FormDevTools from './FormDevTools';
 import { Control } from 'react-hook-form';

@@ -15,10 +15,14 @@ const ArticlesList: FC = () => {
   return (
     <ApiLoader status={status} error={error}>
       {data && (
-        <aside className="kb-articles-list-wrapper">
+        <aside className="kb-articles-list-wrapper" data-testid="kb-articles-list-container">
           <ArticleSearchForm />
-          {knowledgeBaseTitle && <h2 className="h4 mb-3">{knowledgeBaseTitle}</h2>}
-          <nav className="kb-articles-list">
+          {knowledgeBaseTitle && (
+            <h2 className="h4 mb-3" data-testid="kb-articles-list-title">
+              {knowledgeBaseTitle}
+            </h2>
+          )}
+          <nav className="kb-articles-list" data-testid="kb-articles-list-nav">
             {data.chapters.map((chapter) => (
               <ChapterCollapse key={chapter.id} chapter={chapter} />
             ))}

@@ -21,12 +21,12 @@ const KnowledgeBase: FC = () => {
   return (
     <KBSearchContextProvider>
       <CollapseChapterContextProvider>
-        <div className="content-wrapper kb-wrapper">
+        <div className="content-wrapper kb-wrapper" data-testid="knowledge-base-wrapper">
           <Row className="no-gutters">
-            <Col xs={12} lg={3}>
+            <Col data-testid="kb-articles-column" xs={12} lg={3}>
               <ArticlesList />
             </Col>
-            <Col xs={12} lg={9}>
+            <Col data-testid="kb-main-column" xs={12} lg={9}>
               <Switch>
                 <Route exact path={routeList.knowledgeBaseArticle}>
                   <SingleArticle />

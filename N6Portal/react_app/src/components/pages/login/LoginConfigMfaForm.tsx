@@ -8,7 +8,7 @@ import useAuthContext from 'context/AuthContext';
 import useLoginContext from 'context/LoginContext';
 import CustomButton from 'components/shared/CustomButton';
 import FormInput from 'components/forms/FormInput';
-import { vaildateMfaCode } from 'components/forms/validation/validationSchema';
+import { validateMfaCode } from 'components/forms/validation/validationSchema';
 import MfaQRCode from 'components/shared/MfaQRCode';
 import { ReactComponent as Logo } from 'images/logo_n6.svg';
 
@@ -64,7 +64,9 @@ const LoginConfigMfaForm: FC = () => {
         <div className="login-logo mfa">
           <Logo aria-label={`${messages.logo_aria_label}`} />
         </div>
-        <h1 className="mb-30 text-center">{messages.login_mfa_config_title}</h1>
+        <h1 className="mb-30 text-center" data-testid="mfa-login-config-title">
+          {messages.login_mfa_config_title}
+        </h1>
         <div className="mfa-config-form-wrapper">
           <div className="mfa-config-step-wrapper mb-0">
             <p>{messages.login_mfa_config_step_1}</p>
@@ -77,13 +79,15 @@ const LoginConfigMfaForm: FC = () => {
           <FormProvider {...methods}>
             <form className="mfa-config-form w-100" onSubmit={handleSubmit(onSubmit)}>
               <FormInput
+                dataTestId="mfa-login-config-input"
                 name="mfa_code"
                 label={`${messages.login_mfa_config_input_label}`}
                 maxLength="8"
-                validate={vaildateMfaCode}
+                validate={validateMfaCode}
               />
               <div className="d-flex mt-4">
                 <CustomButton
+                  dataTestId="mfa-login-config-cancel"
                   className="w-100"
                   text={`${messages.login_mfa_config_btn_cancel}`}
                   variant="link"
@@ -91,6 +95,7 @@ const LoginConfigMfaForm: FC = () => {
                   disabled={sendMfaConfigStatus === 'loading'}
                 />
                 <CustomButton
+                  dataTestId="mfa-login-config-confirm"
                   type="submit"
                   className="w-100"
                   text={`${messages.login_mfa_config_btn_confirm}`}

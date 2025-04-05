@@ -37,13 +37,21 @@ const OrganizationTableEvents: FC = () => {
   };
 
   return (
-    <div className="content-wrapper">
+    <div className="content-wrapper" data-testid="organization-table-events">
       <Row>
         <Col {...firstColBreakpoints()} className="mb-4">
           <div className="organization-card">
             <ApiLoader status={status} error={error}>
-              <h3 className="text-center text-capitalize h3">{availableEventsKeys[0]}</h3>
-              <OrganizationTableEvent eventEntry={filteredEntries[availableEventsKeys[0]] ?? []} />
+              <h3
+                className="text-center text-capitalize h3"
+                data-testid={`organization-table-events-header-${availableEventsKeys[0]}`}
+              >
+                {availableEventsKeys[0]}
+              </h3>
+              <OrganizationTableEvent
+                eventEntry={filteredEntries[availableEventsKeys[0]] ?? []}
+                eventKey={availableEventsKeys[0]}
+              />
             </ApiLoader>
           </div>
         </Col>
@@ -54,8 +62,13 @@ const OrganizationTableEvents: FC = () => {
           return (
             <Col {...breakpoints} className="mb-4" key={index}>
               <div className="organization-card">
-                <h3 className="text-center text-capitalize h3">{availableEventsKeys[index]}</h3>
-                <OrganizationTableEvent eventEntry={entry ?? []} />
+                <h3
+                  className="text-center text-capitalize h3"
+                  data-testid={`organization-table-events-header-${availableEventsKeys[index]}`}
+                >
+                  {availableEventsKeys[index]}
+                </h3>
+                <OrganizationTableEvent eventEntry={entry ?? []} eventKey={availableEventsKeys[index]} />
               </div>
             </Col>
           );

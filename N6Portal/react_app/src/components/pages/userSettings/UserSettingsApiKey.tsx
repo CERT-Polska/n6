@@ -15,10 +15,10 @@ const UserSettingsApiKey: FC = () => {
 
   return (
     <ApiLoader status={status} error={error}>
-      <section>
+      <section data-testid="user-settings-api-key-section">
         <div className="user-settings-section-header">
-          <ApiKeyIcon />
-          <h2>{messages.user_settings_api_key_title}</h2>
+          <ApiKeyIcon data-testid="user-settings-api-key-icon" />
+          <h2 data-testid="user-settings-api-key-title">{messages.user_settings_api_key_title}</h2>
         </div>
         <div className="user-settings-section-body api-key">
           <UserSettingsApiKeyForm apiKey={data.api_key} />

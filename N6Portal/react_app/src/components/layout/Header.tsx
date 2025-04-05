@@ -30,19 +30,29 @@ const Header: FC = () => {
   return (
     <header className="page-header">
       <div className="page-header-nav content-wrapper d-flex justify-content-between align-items-center">
-        <Link to={routeList.incidents}>
+        <Link to={routeList.incidents} data-testid="n6Logo">
           <img src={Logo} alt={`${messages.logo_alt}`} className="header-logo" />
         </Link>
         {!hasInsideAccess && (
           <ul className="header-links">
             <li className="font-bigger font-weight-medium">
-              <NavLink to={routeList.incidents} className="header-link" activeClassName="active">
+              <NavLink
+                to={routeList.incidents}
+                className="header-link"
+                activeClassName="active"
+                data-testid="navIncidents"
+              >
                 {messages.header_nav_incidents}
               </NavLink>
             </li>
             {knowledgeBaseEnabled && (
               <li className="font-bigger font-weight-medium">
-                <NavLink to={routeList.knowledgeBase} className="header-link" activeClassName="active">
+                <NavLink
+                  to={routeList.knowledgeBase}
+                  data-testid="navKnowledgeBase"
+                  className="header-link"
+                  activeClassName="active"
+                >
                   {messages.header_nav_knowledge_base}
                 </NavLink>
               </li>
@@ -53,18 +63,33 @@ const Header: FC = () => {
           (isLg || isXl ? (
             <ul className="header-links">
               <li className="font-bigger font-weight-medium">
-                <NavLink to={routeList.organization} className="header-link" activeClassName="active">
+                <NavLink
+                  data-testid="navOrganization"
+                  to={routeList.organization}
+                  className="header-link"
+                  activeClassName="active"
+                >
                   {messages.header_nav_organization}
                 </NavLink>
               </li>
               <li className="font-bigger font-weight-medium">
-                <NavLink to={routeList.incidents} className="header-link" activeClassName="active">
+                <NavLink
+                  data-testid="navIncidents"
+                  to={routeList.incidents}
+                  className="header-link"
+                  activeClassName="active"
+                >
                   {messages.header_nav_incidents}
                 </NavLink>
               </li>
               {knowledgeBaseEnabled && (
                 <li className="font-bigger font-weight-medium">
-                  <NavLink to={routeList.knowledgeBase} className="header-link" activeClassName="active">
+                  <NavLink
+                    data-testid="navKnowledgeBase"
+                    to={routeList.knowledgeBase}
+                    className="header-link"
+                    activeClassName="active"
+                  >
                     {messages.header_nav_knowledge_base}
                   </NavLink>
                 </li>

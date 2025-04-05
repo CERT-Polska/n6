@@ -2,7 +2,7 @@ site_name: "n6 Documentation"
 site_url: "https://n6.readthedocs.io"
 site_description: "The documentation of n6 - a system to collect, manage and distribute security information on a large scale."
 
-copyright: "Copyright (c) 2013-2024 Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network)."
+copyright: "Copyright (c) 2013-2025 Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network)."
 repo_url: "https://github.com/CERT-Polska/n6"
 edit_uri: ""
 
@@ -47,6 +47,8 @@ nav:
               - Management in n6 Admin Panel: install_and_conf/opt/optional_agreements/manage.md
               - Appearance in n6 Portal: install_and_conf/opt/optional_agreements/portal.md
               - n6 Portal Backend API: install_and_conf/opt/optional_agreements/api.md
+          - Docker-Based Configuration of n6 Stream API: install_and_conf/opt/n6streamapi-docker-install.md
+          - Configuration of n6 Stream API: install_and_conf/opt/n6streamapi-install.md
 #  - Developer Guides:
 #      - Implementing a New Data Source:
 #          - Implementing a New Data Source: dev_guides/new_source/index.md

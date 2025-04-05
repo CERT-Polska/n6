@@ -8,7 +8,7 @@ interface ILoginState {
   mfaData?: ILogin;
 }
 
-interface ILoginContext extends ILoginState {
+export interface ILoginContext extends ILoginState {
   updateLoginState: (state: TLoginStatus, mfaData?: ILogin) => void;
   resetLoginState: () => void;
 }
@@ -25,7 +25,7 @@ const initialLoginState: ILoginState = {
   mfaData: undefined
 };
 
-const LoginContext = createContext<ILoginContext>(initialContext);
+export const LoginContext = createContext<ILoginContext>(initialContext);
 
 export const LoginContextProvider = ({ children }: { children: React.ReactNode }) => {
   const [loginState, changeLoginState] = useState<ILoginState>(initialLoginState);

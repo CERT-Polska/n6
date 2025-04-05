@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2021 NASK. All rights reserved.
+# Copyright (c) 2018-2025 NASK. All rights reserved.
 
 import contextlib
 import copy
@@ -129,12 +129,15 @@ class SQLAuthDBConfigMixin(ConfigMixin):
     def configure_db(self):
         self.engine = self.make_db_engine()
         self._dialect_specific_quote = self._make_dialect_specific_quote()
-        self._install_session_variables_setter()
 
     def make_db_engine(self, url_overwrite_attrs=None):
         url = self._get_db_url(url_overwrite_attrs)
         create_engine_kwargs = self._get_create_engine_kwargs()
-        return sqlalchemy.create_engine(url, **create_engine_kwargs)
+        engine = sqlalchemy.create_engine(url, **create_engine_kwargs)
+        self._install_session_variables_setter(
+            engine,
+            **self._prepare_session_variables())
+        return engine
 
     def get_db_url_string(self):
         url_string = self.config[self.config_section]['url']
@@ -201,16 +204,18 @@ class SQLAuthDBConfigMixin(ConfigMixin):
                                    self.config[self.config_section_connection_pool])
         return create_engine_kwargs
 
-    def _install_session_variables_setter(self):
+    def _prepare_session_variables(self):
         session_variables = dict(self.constant_session_variables)
         session_variables.update(
             sorted(self.config[self.config_section_session_variables].items()))
+        return session_variables
 
+    def _install_session_variables_setter(self, engine, **session_variables):
         setter_sql = 'SET ' + ' , '.join(
             'SESSION {} = {}'.format(name, value)
             for name, value in session_variables.items())
 
-        @sqlalchemy.event.listens_for(self.engine, 'connect')
+        @sqlalchemy.event.listens_for(engine, 'connect')
         def set_session_variables(dbapi_connection, connection_record):
             """
             Execute

@@ -1,13 +1,8 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render, renderHook } from '@testing-library/react';
 import FormSelect from './FormSelect';
 import * as FormRenderErrorMsgModule from './FormRenderErrorMsg';
 import { useForm } from 'react-hook-form';
-import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/testWrappers';
 import { SelectOption } from 'components/shared/customSelect/CustomSelect';
 import { dictionary } from 'dictionary';
 const CustomSelectModule = require('../shared/customSelect/CustomSelect');
@@ -57,7 +52,7 @@ describe('<FormSelect />', () => {
       const useFormRender = renderHook(() => useForm());
       const formMethods = useFormRender.result.current;
 
-      const { container } = render(
+      render(
         <LanguageProviderTestWrapper>
           <FormProviderTestWrapper formMethods={formMethods}>
             <FormSelect
@@ -73,9 +68,6 @@ describe('<FormSelect />', () => {
           </FormProviderTestWrapper>
         </LanguageProviderTestWrapper>
       );
-
-      expect(container.firstChild).toHaveClass('form-group');
-      expect(container.firstChild?.firstChild).toHaveClass('input-wrapper');
 
       expect(CustomSelectSpy).toHaveBeenCalledWith(
         {

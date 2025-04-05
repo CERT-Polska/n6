@@ -18,7 +18,7 @@ COPY etc/rabbitmq/conf/rabbitmq.conf /etc/rabbitmq/rabbitmq.conf
 ADD docker/rabbit/entrypoint.sh /entrypoint.sh
 RUN chmod a+x /entrypoint.sh
 
-EXPOSE 5671 15671 15672
+EXPOSE 5671 5672 15671 15672
 CMD ["/entrypoint.sh"]
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=5 \

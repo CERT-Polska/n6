@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import base64
 import collections
@@ -953,8 +953,7 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
 
     queried_column_mapping_attrs = tuple(
         _BaseQueryProcessor.queried_model_class.get_column_mapping_attrs()
-         + [getattr(_BaseQueryProcessor.client_asoc_model_class,
-                    _BaseQueryProcessor.client_asoc_column)])
+    )
 
 
     #
@@ -1117,7 +1116,7 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
         Note that exceptions (if any) can be raised *only during
         iterating over (consuming) the resultant iterator*, which does
         not happen during execution of a N6DataBackendAPI's method that
-        invokes this method (in that moment the iterator object is
+        invokes this method (at that moment the iterator object is
         created, but *not* yet consumed).
         """
         (produce_result_or_none,
@@ -1259,12 +1258,13 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
         query = self._query_base.filter(and_(
             compare_to_time_lower(self.queried_model_class.time),
             compare_to_time_upper(self.queried_model_class.time)))
-        query = query.outerjoin(
-            self.client_asoc_model_class,
-            and_(
-                self.client_asoc_model_class.id == self.queried_model_class.id,
-                compare_to_time_lower(self.client_asoc_model_class.time),
-                compare_to_time_upper(self.client_asoc_model_class.time)))
+        if self._client_org_ids is not None:
+            query = query.join(
+                self.client_asoc_model_class,
+                and_(
+                    self.client_asoc_model_class.id == self.queried_model_class.id,
+                    compare_to_time_lower(self.client_asoc_model_class.time),
+                    compare_to_time_upper(self.client_asoc_model_class.time)))
         query = query.order_by(self.queried_model_class.time.desc())
         return query
 
@@ -1346,23 +1346,15 @@ class _EventsQueryProcessor(_BaseQueryProcessor):
     def _make_result_dict(self,
                           same_id_rows: Sequence[FetchedRow],
                           ) -> Optional[ResultDict]:
-        # Note: here we assume that the only field that may vary in
-        # fetched rows having the same `id` is `client`. In fact, `ip`,
-        # and also `asn`/`cc`, may also vary (because of the database
-        # denormalization we employ), but we neglect that because the
-        # information they hold is also in the `address` column, already
-        # aggregated. (So, actually, the `ip`, `asn` and `cc` columns
-        # are important only when it comes to search criteria, *not* to
-        # search results...).
+        # Note: here we assume that the only fields that may vary in
+        # fetched rows having the same `id` are: `ip`, `asn` and `cc`
+        # (because of the database denormalization we employ), but we
+        # neglect that because the information they hold is also in the
+        # `address` column, already aggregated. (So, actually, the `ip`,
+        # `asn` and `cc` columns are important only when it comes to
+        # search criteria, *not* to search results...).
         sample_row = same_id_rows[0]
-        client_org_ids = self._gather_client_org_ids(same_id_rows)
-        return make_raw_result_dict(sample_row, client_org_ids)
-
-    @staticmethod
-    def _gather_client_org_ids(same_id_rows: Sequence[FetchedRow]) -> Set[str]:
-        client_field_values = (row.client for row in same_id_rows)
-        return {org_id for org_id in client_field_values
-                if org_id is not None}
+        return make_raw_result_dict(sample_row)
 
 
     # *EXPERIMENTAL* (likely to be changed or removed in the future

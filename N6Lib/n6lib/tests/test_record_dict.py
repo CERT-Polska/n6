@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import collections
 import collections.abc as collections_abc
@@ -628,6 +628,29 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                      asn=1),
             ],
         )
+        self.with_client_empty = dict(
+            self.only_required,
+            client=[],
+        )
+        self.with_client = dict(
+            self.only_required,
+            client=['o1', 'o2', 'o3'],
+        )
+        self.with_client_and_custom = dict(
+            self.only_required,
+            client=['o1', 'o2', 'o3'],
+            additional_data=u'additional-\udcdd-data'
+        )
+        self.with_client_and_address = dict(
+            self.only_required,
+            client=['o1', 'o2', 'o3'],
+            address=[
+                dict(ip='127.0.0.1'),
+                dict(ip='127.0.0.2',
+                     cc='PL',
+                     asn=1),
+            ],
+        )
         self.with_url_data_1 = dict(
             self.only_required,
             url='foo:bar',
@@ -869,6 +892,41 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
                      ],
                      ip="127.0.0.1"),
                 dict(self.with_address2,
+                     address=[
+                         dict(ip="127.0.0.1"),
+                         dict(ip="127.0.0.2",
+                              cc='PL',
+                              asn=1),
+                     ],
+                     ip="127.0.0.2",
+                     cc='PL',
+                     asn=1),
+            ],
+            with_client_empty=[
+                dict(self.with_client_empty),
+            ],
+            with_client=[
+                dict(self.with_client,
+                     custom=dict(client=['o1', 'o2', 'o3'])),
+            ],
+            with_client_and_custom=[
+                dict(self.with_client,
+                     custom=dict(
+                         additional_data=u'additional-\udcdd-data',
+                         client=['o1', 'o2', 'o3'])),
+            ],
+            with_client_and_address=[
+                dict(self.with_client_and_address,
+                     custom=dict(client=['o1', 'o2', 'o3']),
+                     address=[
+                         dict(ip="127.0.0.1"),
+                         dict(ip="127.0.0.2",
+                              cc='PL',
+                              asn=1),
+                     ],
+                     ip="127.0.0.1"),
+                dict(self.with_client_and_address,
+                     custom=dict(client=['o1', 'o2', 'o3']),
                      address=[
                          dict(ip="127.0.0.1"),
                          dict(ip="127.0.0.2",

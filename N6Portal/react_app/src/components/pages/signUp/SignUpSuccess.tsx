@@ -13,6 +13,7 @@ const SignupSuccess: FC = () => {
       <SuccessIcon className="signup-success-icon" />
       <h1 className="signup-success-title mt-lg-5 mb-30 text-center">{messages.signup_success_header}</h1>
       <CustomButton
+        dataTestId="signupSuccess-backToLoginPage-btn"
         className="mx-auto mb-60"
         text={`${messages.signup_success_btn}`}
         variant="primary"

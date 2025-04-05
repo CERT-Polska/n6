@@ -95,6 +95,7 @@ const UserSettingsApiKeyForm: FC<IProps> = ({ apiKey }) => {
           }
         >
           <FormInputReadonly
+            dataTestId="user-settings-api-key-input"
             name="api_key"
             as="textarea"
             textareaRows={4}
@@ -106,6 +107,7 @@ const UserSettingsApiKeyForm: FC<IProps> = ({ apiKey }) => {
       </div>
       <div className="user-settings-form-submit">
         <CustomButton
+          dataTestId="user-settings-api-key-remove-btn"
           text={`${messages.user_settings_api_key_btn_remove}`}
           variant="link"
           onClick={handleRemoveButtonClick}
@@ -113,6 +115,7 @@ const UserSettingsApiKeyForm: FC<IProps> = ({ apiKey }) => {
           disabled={isRemoveSubmitting || isGenerateSubmitting || !apiKey}
         />
         <CustomButton
+          dataTestId="user-settings-api-key-generate-btn"
           text={`${messages.user_settings_api_key_btn_generate}`}
           variant="secondary"
           onClick={handleGenerateButtonClick}

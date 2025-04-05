@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render, screen } from '@testing-library/react';
 import CustomButton from './CustomButton';
 import { Button } from 'react-bootstrap';

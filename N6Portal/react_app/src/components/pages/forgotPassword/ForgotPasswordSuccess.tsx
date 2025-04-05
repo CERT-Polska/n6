@@ -20,8 +20,13 @@ const ForgotPasswordSuccess: FC = () => {
           <SuccessIcon />
         </div>
         <div className="mb-30 forgot-password-summary">
-          <p>{messages.forgot_password_success_description}</p>
-          <CustomButton to={routeList.login} text={`${messages.forgot_password_success_btn}`} variant="primary" />
+          <p data-testid="forgot-password-success-description">{messages.forgot_password_success_description}</p>
+          <CustomButton
+            dataTestId="forgot-password-success-ok-btn"
+            to={routeList.login}
+            text={`${messages.forgot_password_success_btn}`}
+            variant="primary"
+          />
         </div>
       </div>
     </section>

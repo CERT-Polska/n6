@@ -1,16 +1,18 @@
 body {
   min-height: 100vh;
-  font-size: 1rem; //16px
+  font-size: 1rem; // 16px
   line-height: $line-height;
   color: $dark;
-  //just to disable retarded bootstrap padding
+
+  // just to disable retarded bootstrap padding
   padding-right: 0 !important;
+
   @supports (backdrop-filter: blur(sizeToRem(30))) {
     font-family: $font-fam-txt;
   }
 }
 
-//DISABLE SCROLL FOR MOBILE MENU
+// DISABLE SCROLL FOR MOBILE MENU
 body.menu-open {
   overflow: hidden;
 }
@@ -29,15 +31,13 @@ div#root {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
-  // @include media-breakpoint-down(lg) {
-  //   padding-top: $page-nav-mobile-height;
-  // }
 }
 
-//PAGE LAYOUT STYLES
+// PAGE LAYOUT STYLES
 
 .page-content-wrapper {
   display: flex;
+
   .page-content {
     flex-grow: 1;
   }
@@ -49,26 +49,32 @@ h1 {
   font-size: sizeToRem(30);
   font-weight: 500;
 }
+
 h2 {
   font-size: sizeToRem(24);
   font-weight: 700;
 }
+
 h3 {
   font-size: sizeToRem(16);
   font-weight: 500;
 }
+
 h4 {
   font-size: sizeToRem(18);
   font-weight: 400;
 }
+
 h5 {
   font-size: sizeToRem(16);
   font-weight: 700;
 }
+
 h6 {
   font-size: sizeToRem(14);
   font-weight: 500;
 }
+
 h1,
 h2,
 h3,
@@ -132,6 +138,7 @@ h5 {
 
 .content-wrapper-sm0 {
   @include content-wrapper-base($page-padding-sm);
+
   @include media-breakpoint-down(sm) {
     padding: 0;
   }
@@ -146,21 +153,24 @@ h5 {
 .z-index-1 {
   z-index: 1;
 }
+
 .z-index-2 {
   z-index: 2;
 }
+
 /* links & focus */
 
 a,
 button,
 .focusable {
   @include outline;
+
   &.light-focus {
     @include outline($light, 0.5);
   }
 }
 
-//PAGE TITLE STYLES
+// PAGE TITLE STYLES
 
 .n6-page-header {
   font-weight: 400;
@@ -168,7 +178,7 @@ button,
   text-align: center;
 }
 
-//LOADER WRAPPER STYLES
+// LOADER WRAPPER STYLES
 
 .loader-wrapper {
   display: flex;
@@ -181,7 +191,7 @@ button,
   min-height: sizeToRem(200);
 }
 
-//LANGUAGE PICKER STYLES
+// LANGUAGE PICKER STYLES
 
 .language-picker-button {
   background-color: transparent;

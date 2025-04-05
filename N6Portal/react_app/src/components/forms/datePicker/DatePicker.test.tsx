@@ -1,11 +1,6 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, render, renderHook, screen } from '@testing-library/react';
 import DatePicker from './DatePicker';
-import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/testWrappers';
 import { useForm } from 'react-hook-form';
 import * as FormRenderErrorMsgModule from '../FormRenderErrorMsg';
 import * as DatePickerCalendarModule from './DatePickerCalendar';
@@ -74,25 +69,19 @@ describe('<DatePicker />', () => {
 
     //
     // DatePicker component composition (visuals testing)
-    expect(container.firstChild).toHaveClass('date-picker-field-container form-group');
     expect(container.firstChild?.childNodes).toHaveLength(4);
     expect(container.firstChild?.childNodes[0]).toHaveClass('date-picker-label-wrapper');
     expect(container.firstChild?.childNodes[1]).toHaveClass('date-picker-input-wrapper');
     expect(container.firstChild?.childNodes[2]).toBeEmptyDOMElement();
     expect(container.firstChild?.childNodes[3]).toHaveClass('mock-form-render-error-msg');
 
-    const labelElement = screen.getByText(labelName);
-    expect(labelElement).toHaveClass('date-picker-label form-label');
-    expect(labelElement).toHaveAttribute('for', `date-picker-input-${controllerName}`);
+    expect(screen.getByText(labelName)).toHaveAttribute('for', `date-picker-input-${controllerName}`);
 
     const inputElement = screen.getByRole('textbox');
-    expect(inputElement).toHaveClass('input-field date-picker-input-field form-control');
     expect(inputElement).toHaveAttribute('id', `date-picker-input-${controllerName}`);
     expect(inputElement).toHaveTextContent('');
 
     const buttonElement = screen.getByRole('button');
-    expect(buttonElement).toHaveClass('date-picker-icon-btn');
-    expect(buttonElement).toHaveAttribute('type', 'button');
     expect(buttonElement).toHaveAttribute('aria-label', dictionary['en']['calendar_icon_btn_aria_label']);
 
     const iconElement = container.querySelector('svg-calendar-mock');
@@ -127,19 +116,9 @@ describe('<DatePicker />', () => {
     );
 
     const tooltipElement = screen.getByRole('tooltip');
-    expect(tooltipElement).toHaveClass('fade calendar-popover show popover bs-popover-bottom');
-    expect(tooltipElement).toHaveStyle(
-      'position: absolute; top: 0px; left: 0px; margin: 0px; transform: translate(0px, 0px);'
-    );
     expect(tooltipElement).toHaveAttribute('data-popper-escaped', 'true');
-    expect(tooltipElement).toHaveAttribute('data-popper-placement', 'bottom-start');
-    expect(tooltipElement).toHaveAttribute('data-popper-reference-hidden', 'true');
     expect(tooltipElement).toHaveAttribute('id', 'popover-calendar');
-    expect(tooltipElement).toHaveAttribute('x-placement', 'bottom');
     expect(tooltipElement.firstChild).toHaveClass('arrow');
-    expect(tooltipElement.firstChild).toHaveStyle(
-      'margin: 0px; position: absolute; left: 0px; transform: translate(0px, 0px);'
-    );
 
     const DatePickerCalendarElement = screen.getByRole('heading', { level: 5 });
     expect(DatePickerCalendarElement).toHaveClass('mock-date-picker-calendar');

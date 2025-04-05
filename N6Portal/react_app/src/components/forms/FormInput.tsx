@@ -23,6 +23,7 @@ interface IBeforeMaskedValueChangeProps {
 }
 
 export interface IFormInputProps {
+  dataTestId?: string;
   name: string;
   label: string;
   as?: FormInputAs;
@@ -75,13 +76,14 @@ const FormInput: FC<IFormInputProps & FormContextProps> = memo(
     isDirty,
     customResetAction,
     setValue,
-    beforeMaskedValueChange
+    beforeMaskedValueChange,
+    dataTestId
   }) => {
     const asProps = mask
       ? { as: MaskedInput, mask, alwaysShowMask, beforeMaskedValueChange }
       : as === 'textarea'
-      ? { as, rows: textareaRows }
-      : { as };
+        ? { as, rows: textareaRows }
+        : { as };
     const typeProps = mask ? 'text' : type;
 
     const resetToDefaultValue = () => setValue(name, defaultValue, { shouldDirty: true, shouldValidate: true });
@@ -108,6 +110,7 @@ const FormInput: FC<IFormInputProps & FormContextProps> = memo(
                   disabled={disabled}
                   maxLength={Number(maxLength) || undefined}
                   ref={ref}
+                  data-testid={dataTestId}
                 />
               );
             }}
@@ -118,6 +121,7 @@ const FormInput: FC<IFormInputProps & FormContextProps> = memo(
             </button>
           )}
           <Form.Label
+            data-testid={`${dataTestId}_label`}
             className={classnames('input-label', {
               'has-value': hasValue || (mask && alwaysShowMask),
               'is-invalid': isInvalid

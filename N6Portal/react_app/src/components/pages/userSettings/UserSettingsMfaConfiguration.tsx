@@ -39,14 +39,15 @@ const UserSettingsMfaConfiguration: FC = () => {
   };
 
   return (
-    <section>
+    <section data-testid="user-settings-mfa-config-section">
       <div className="user-settings-section-header">
         <MfaIcon />
-        <h2>{messages.user_settings_mfa_title}</h2>
+        <h2 data-testid="user-settings-mfa-title">{messages.user_settings_mfa_title}</h2>
       </div>
       <div className="user-settings-section-body">
-        <h3>{messages.user_settings_mfa_config_title}</h3>
+        <h3 data-testid="user-settings-mfa-config-title">{messages.user_settings_mfa_config_title}</h3>
         <CustomButton
+          dataTestId="user-settings-mfa-config-cta-btn"
           variant="secondary"
           text={`${messages.user_settings_mfa_config_cta}`}
           loading={initMfaConfigStatus === 'loading'}

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 # Let's apply n6 specific monkey-patching as early as possible.
 import n6lib  # noqa

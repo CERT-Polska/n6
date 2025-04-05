@@ -62,6 +62,7 @@ const SignUpStepOne: FC<IProps> = ({ changeStep, changeTosVersions }) => {
             <ReactMarkdown>{signUpTerms}</ReactMarkdown>
           </div>
           <FormCheckbox
+            dataTestId="signup-terms-checkbox"
             name="consent"
             label={`${checkboxLabel}`}
             className="signup-terms-checkbox"

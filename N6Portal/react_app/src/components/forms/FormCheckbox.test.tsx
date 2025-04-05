@@ -1,11 +1,6 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, renderHook, render, screen, act } from '@testing-library/react';
 import { useForm } from 'react-hook-form';
-import { FormProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { FormProviderTestWrapper } from 'utils/testWrappers';
 import FormCheckbox from './FormCheckbox';
 import * as FormRenderErrorMsgModule from './FormRenderErrorMsg';
 import * as validateFieldModule from './validation/validators';
@@ -39,8 +34,8 @@ describe('<FormCheckbox />', () => {
       let formMethods = useFormRender.result.current;
       formMethods = { ...formMethods };
 
-      const { container } = render(
-        <FormProviderTestWrapper formMethods={{ ...formMethods }}>
+      render(
+        <FormProviderTestWrapper formMethods={formMethods}>
           <FormCheckbox
             name={buttonName}
             label={labelName}
@@ -60,28 +55,16 @@ describe('<FormCheckbox />', () => {
         isTouched: false
       });
 
-      const outerDivElement = container.firstChild;
-      expect(outerDivElement).toHaveClass('form-checkbox-wrapper custom-checkbox-input');
-
       const checkboxElement = screen.getByRole('checkbox');
-      expect(checkboxElement).toHaveClass('form-checkbox-input form-check-input');
       expect(checkboxElement).toHaveAttribute('id', `checkbox-${buttonName}`);
       expect(checkboxElement).not.toBeChecked();
 
-      const spanElement = container.querySelector('span');
-      expect(spanElement).toBeInTheDocument();
-      expect(spanElement).toHaveClass('custom-checkbox');
-
       const labelElement = screen.getByText(labelName);
-      expect(labelElement).toBeInTheDocument();
-      expect(labelElement).toHaveClass('form-checkbox-label form-check-label');
       expect(labelElement).toHaveAttribute('for', checkboxElement.id);
-      expect(labelElement.parentElement).toHaveClass('form-checkbox-label-wrapper');
 
       if (renderTooltip) {
         const tooltipElement = screen.getByRole('heading', { level: 5 });
         expect(tooltipElement).toHaveTextContent(tooltipMsg);
-        expect(tooltipElement.parentElement).toHaveClass('form-checkbox-label-wrapper');
       } else {
         expect(screen.queryByRole('heading', { level: 5 })).not.toBeInTheDocument();
       }

@@ -1,13 +1,6 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from 'react-query';
-import { IntlProvider } from 'react-intl';
+import { LanguageProviderTestWrapper, QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { useOrgConfig } from 'api/orgConfig';
-import { dictionary } from 'dictionary';
 import EditSettings from 'components/pages/editSettings/EditSettings';
 import { IOrgConfig } from 'api/orgConfig/types';
 
@@ -29,15 +22,14 @@ type Locale = 'en' | 'pl';
 
 describe('EditSettings', () => {
   const mockOrgConfig = useOrgConfig as jest.MockedFunction<typeof useOrgConfig>;
-  const queryClient = new QueryClient();
 
   const renderComponent = (lang: Locale = 'en') => {
     return render(
-      <QueryClientProvider client={queryClient}>
-        <IntlProvider messages={dictionary[lang]} locale={lang}>
+      <QueryClientProviderTestWrapper>
+        <LanguageProviderTestWrapper locale={lang}>
           <EditSettings />
-        </IntlProvider>
-      </QueryClientProvider>
+        </LanguageProviderTestWrapper>
+      </QueryClientProviderTestWrapper>
     );
   };
 

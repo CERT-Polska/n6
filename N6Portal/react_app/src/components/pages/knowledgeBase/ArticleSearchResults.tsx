@@ -30,27 +30,34 @@ const ArticleSearchResults: FC = () => {
 
   const isEmptyView = !isQueryValid || !searchedArticles?.length;
   return (
-    <div className={classnames('kb-search-results', { 'kb-search-results-empty': isEmptyView })}>
+    <div
+      data-testid="kb-search-results"
+      className={classnames('kb-search-results', { 'kb-search-results-empty': isEmptyView })}
+    >
       <ApiLoader status={isQueryValid ? status : 'success'} error={error}>
         {isEmptyView ? (
           <>
-            <h1>{`${messages['knowledge_base_search_results_empty']} ${queryLang}`}</h1>
-            <p>{messages['knowledge_base_search_results_empty_info']}</p>
+            <h1 data-testid="kb-search-results-empty-title">{`${messages['knowledge_base_search_results_empty']} ${queryLang}`}</h1>
+            <p data-testid="kb-search-results-empty-info">{messages['knowledge_base_search_results_empty_info']}</p>
           </>
         ) : (
           <>
             <header className="kb-search-results-header">
-              <h1 className="h1">
-                {`${messages['knowledge_base_search_results']} ${queryLang} (${searchedArticles?.length})`}
+              <h1 data-testid="kb-search-results-title" className="h1">
+                {`${messages['knowledge_base_search_results']} ${queryLang} (${searchedArticles.length})`}
               </h1>
             </header>
             <section>
-              {searchedArticles?.map((article) => (
+              {searchedArticles.map((article) => (
                 <div key={article.id} className="kb-search-results-item">
-                  <p>{article.title[locale]}</p>
+                  <p data-testid={`kb-search-results-item-title-${article.id}`}>{article.title[locale]}</p>
                   <div className="kb-search-results-arrow">
-                    <Link to={article.url} className="stretched-link">
-                      <RightArrow />
+                    <Link
+                      to={article.url}
+                      data-testid={`kb-search-results-item-link-${article.id}`}
+                      className="stretched-link"
+                    >
+                      <RightArrow data-testid={`kb-search-results-item-link-arrow-${article.id}`} />
                     </Link>
                   </div>
                 </div>

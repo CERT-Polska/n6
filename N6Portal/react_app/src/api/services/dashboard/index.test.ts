@@ -1,8 +1,4 @@
-/**
- * @jest-environment jsdom
- */
-
-import { queryClientTestHookWrapper } from 'utils/createTestHookWrapper';
+import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { getDashboard, useDashboard } from './index';
 import { IDashboardResponse } from './types';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -41,7 +37,7 @@ describe('useDashboard', () => {
 
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: useDashboardMockedData }));
 
-    const useDashboardRenderingResult = renderHook(() => useDashboard(), { wrapper: queryClientTestHookWrapper() });
+    const useDashboardRenderingResult = renderHook(() => useDashboard(), { wrapper: QueryClientProviderTestWrapper });
     await waitFor(() => {
       expect(useDashboardRenderingResult.result.current.isSuccess).toBe(true);
     });

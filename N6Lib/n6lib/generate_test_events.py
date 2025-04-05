@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import copy
 import datetime
@@ -332,6 +332,8 @@ class RandomEvent(RandomEventGeneratorConfigMixin):
     def generate_database_rows(self):
         event = copy.deepcopy(self.event)
         event['custom'] = {'enriched': event.pop('enriched')}
+        if client := event.get('client'):
+            event['custom']['client'] = sorted(client)
         event["ip"] = None
         event["cc"] = None
         event["asn"] = None

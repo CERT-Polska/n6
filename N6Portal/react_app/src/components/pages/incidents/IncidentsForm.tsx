@@ -1,4 +1,4 @@
-import { FC, useState, useEffect } from 'react';
+import { FC, useState, useEffect, useMemo, useCallback } from 'react';
 import { AxiosError } from 'axios';
 import { ToastContainer, toast } from 'react-toastify';
 import { UseMutateAsyncFunction } from 'react-query';
@@ -26,78 +26,71 @@ import {
 import IncidentsFilter from 'components/pages/incidents/IncidentsFilter';
 import { storageAvailable } from 'utils/storageAvailable';
 import useAuthContext from 'context/AuthContext';
+import { TAvailableResources } from 'api/services/info/types';
 
 interface IProps {
   dataLength: number;
   refetchData: UseMutateAsyncFunction<IFilterResponse, AxiosError, IRequestParams, unknown>;
+  currentTab: TAvailableResources;
 }
 
-const FILTERS_STORAGE = 'userFilters';
+export const FILTERS_STORAGE = 'userFilters';
+const fullAccessOnlyFilters = ['restriction', 'client'];
 
-const IncidentsForm: FC<IProps> = ({ dataLength, refetchData }) => {
+const IncidentsForm: FC<IProps> = ({ dataLength, refetchData, currentTab }) => {
   const { fullAccess } = useAuthContext();
-  const availableFilters: TFilter[] = fullAccess
-    ? allFilters
-    : allFilters.filter((filter) => filter.name !== 'restriction');
+  const availableFilters: TFilter[] = useMemo(() => {
+    return fullAccess ? allFilters : allFilters.filter((filter) => !fullAccessOnlyFilters.includes(filter.name));
+  }, [fullAccess]);
   const { messages, formatMessage } = useTypedIntl();
   const [selectedFilters, setSelectedFilters] = useState<TFilter[]>([]);
 
   const methods = useForm<IIncidentsForm>({ mode: 'onBlur', reValidateMode: 'onBlur' });
   const { handleSubmit, unregister, setValue, getValues } = methods;
+  const isInsideTab = currentTab === '/report/inside';
 
   const onSubmit: SubmitHandler<IIncidentsForm> = (data) => {
     const parsedData = parseIncidentsFormData(data);
-    refetchData(parsedData);
+    if (isInsideTab) delete parsedData.client;
+    refetchData(parsedData, {
+      onSuccess: async (_refetchData) => {
+        if (!storageAvailable('localStorage')) return;
+        if (isInsideTab) removeFilter(['client']);
 
-    if (!storageAvailable('localStorage')) return;
-    const storedFilters: TStoredFilter = JSON.parse(localStorage.getItem(FILTERS_STORAGE) ?? '{}');
+        const assignedFilters: Partial<TStoredFilter> = {};
+        selectedFilters.forEach((filter) => {
+          assignedFilters[filter.name] = {
+            ...filter,
+            value: data[filter.name]
+          };
+        });
 
-    const storedKeys = Object.keys(storedFilters) as Array<keyof IIncidentsForm>;
-    const assignedFilters: Partial<TStoredFilter> = {};
-
-    storedKeys.forEach((filterKey) => {
-      assignedFilters[filterKey] = {
-        ...storedFilters[filterKey],
-        value: data[filterKey]
-      };
+        const { startDate, startTime } = getValues();
+        assignedFilters.startDate = { isDate: true, value: startDate };
+        assignedFilters.startTime = { isDate: true, value: startTime };
+        localStorage.setItem(FILTERS_STORAGE, JSON.stringify(assignedFilters));
+      }
     });
-
-    const { startDate, startTime } = getValues();
-    !storedKeys.includes('startDate') && (assignedFilters.startDate = { isDate: true, value: startDate });
-    !storedKeys.includes('startTime') && (assignedFilters.startTime = { isDate: true, value: startTime });
-
-    localStorage.setItem(FILTERS_STORAGE, JSON.stringify(assignedFilters));
   };
 
-  const selectFilter = (filter: TFilter) => {
-    setSelectedFilters([...selectedFilters, filter]);
+  const selectFilter = useCallback((filter: TFilter) => {
+    setSelectedFilters((prevFilters) => [...prevFilters, filter]);
+  }, []);
 
-    if (!storageAvailable('localStorage')) return;
+  const removeFilter = useCallback(
+    (filterNames: TFilterName[]) => {
+      setSelectedFilters((prevFilters) => prevFilters.filter((listElem) => listElem.name !== filterNames[0]));
+      unregister(filterNames);
+    },
+    [unregister]
+  );
 
-    const storedFilters: TStoredFilter = JSON.parse(localStorage.getItem(FILTERS_STORAGE) ?? '{}');
-    storedFilters[filter.name] = {
-      ...filter,
-      value: filter.name === 'category' || filter.name === 'proto' ? [] : ''
-    };
-
-    localStorage.setItem(FILTERS_STORAGE, JSON.stringify(storedFilters));
-  };
-
-  const removeFilter = (filterNames: TFilterName[]) => {
-    const newList = selectedFilters.filter((listElem) => listElem.name !== filterNames[0]);
-    setSelectedFilters(newList);
-    unregister(filterNames);
-
-    if (!storageAvailable('localStorage')) return;
-
-    const storedFilters: TStoredFilter = JSON.parse(localStorage.getItem(FILTERS_STORAGE) ?? '{}');
-    if (Object.keys(storedFilters).length === 0) return;
-
-    delete storedFilters[filterNames[0]];
-    localStorage.setItem(FILTERS_STORAGE, JSON.stringify(storedFilters));
-  };
-
-  const filtersToAdd = availableFilters.filter((filter) => !selectedFilters.find((elem) => elem.name === filter.name));
+  const filtersToAdd = useMemo(() => {
+    return availableFilters.filter(
+      (filter) =>
+        !selectedFilters.find((elem) => elem.name === filter.name) && !(isInsideTab && filter.name === 'client')
+    );
+  }, [availableFilters, selectedFilters, isInsideTab]);
 
   useEffect(() => {
     if (dataLength >= optLimit) {
@@ -120,20 +113,34 @@ const IncidentsForm: FC<IProps> = ({ dataLength, refetchData }) => {
     try {
       const storedFilters: TStoredFilter = JSON.parse(localStorage.getItem(FILTERS_STORAGE) ?? '{}');
       const customFiltersKeys = Object.keys(storedFilters) as Array<keyof IIncidentsForm>;
+      const validFilterNames = [...allFilters.map((filter) => filter.name), 'startDate', 'startTime'];
 
       const allCustomFilters: TFilter[] = [];
 
       customFiltersKeys.forEach((key) => {
-        const { value, ...filter } = storedFilters[key];
-        value && setValue(key, value);
-        !('isDate' in filter) && allCustomFilters.push(filter);
+        if (validFilterNames.includes(key)) {
+          const { value, ...filter } = storedFilters[key];
+          const foundFilter = allFilters.find((f) => f.name === key) as TFilter;
+          value && setValue(key, value);
+          if ('validate' in filter && 'validate' in foundFilter) {
+            filter['validate'] = foundFilter.validate;
+          }
+          if ('validateTimeRequired' in filter && 'validateTimeRequired' in foundFilter) {
+            filter['validateTimeRequired'] = foundFilter.validateTimeRequired;
+          }
+          !('isDate' in filter) && allCustomFilters.push(filter);
+        }
       });
 
-      setSelectedFilters(allCustomFilters);
+      if (isInsideTab) {
+        setSelectedFilters(allCustomFilters.filter((f) => f.name !== 'client'));
+      } else {
+        setSelectedFilters(allCustomFilters);
+      }
     } catch {
       localStorage.removeItem(FILTERS_STORAGE);
     }
-  }, [setValue]);
+  }, [setValue, isInsideTab]);
 
   return (
     <div className="w-100">
@@ -143,12 +150,17 @@ const IncidentsForm: FC<IProps> = ({ dataLength, refetchData }) => {
             <div className="incidents-form-container">
               <div className="incidents-form-input-date-wrapper">
                 <DatePicker
+                  data-testid="incidients-date-picker"
                   name="startDate"
                   label={`${messages.incidents_form_start_date}`}
                   selectedDate={subDays(new Date(), 7)}
                   validate={validateDatePicker}
                 />
-                <FormTimeInput name="startTime" label={`${messages.incidents_form_start_time}`} />
+                <FormTimeInput
+                  dataTestId="incidents-startTime"
+                  name="startTime"
+                  label={`${messages.incidents_form_start_time}`}
+                />
               </div>
               {selectedFilters.map((filter) => (
                 <IncidentsFilter key={filter.name} filter={filter} removeFilter={removeFilter} />
@@ -164,10 +176,12 @@ const IncidentsForm: FC<IProps> = ({ dataLength, refetchData }) => {
                   className={classNames('incidents-dropdown-add-filter', {
                     'd-none': !filtersToAdd.length
                   })}
+                  dataTestId="incidents-add-filter-btn"
                 />
                 <Dropdown.Menu>
                   {filtersToAdd.map((filter: TFilter) => (
                     <Dropdown.Item
+                      data-testid={`${filter.name}_filter_item`}
                       key={filter.name}
                       as="button"
                       onClick={() => selectFilter(filter)}
@@ -181,6 +195,7 @@ const IncidentsForm: FC<IProps> = ({ dataLength, refetchData }) => {
               </Dropdown>
 
               <CustomButton
+                dataTestId="incidents-search-submit-btn"
                 type="submit"
                 variant="primary"
                 text={`${messages.incidents_form_btn_submit}`}

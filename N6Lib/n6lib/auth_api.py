@@ -285,12 +285,14 @@ class AuthAPI(ConfigMixin):
                                             access_token,
                                             json_web_key,
                                             required_claims,
-                                            audience):
+                                            decoding_options=None,
+                                            audience=None):
         try:
             return jwt_decode(access_token,
                               json_web_key,
                               accepted_algorithms=(JWT_ALGO_RSA_SHA256,),
                               required_claims=required_claims,
+                              options=decoding_options,
                               required_audience=audience)
         except JWTDecodeError as exc:
             LOGGER.warning(exc)

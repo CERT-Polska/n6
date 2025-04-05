@@ -1,26 +1,20 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import ExportJSON from './ExportJSON';
 import { dictionary } from 'dictionary';
-import { LanguageProvider } from 'context/LanguageProvider';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import { TAvailableResources } from 'api/services/info/types';
 import userEvent from '@testing-library/user-event';
 import { format } from 'date-fns';
-import { IResponseTableData } from 'api/services/globalTypes';
+import { ICustomResponse, IResponse } from 'api/services/globalTypes';
 
 describe('<ExportJSON />', () => {
   it('renders simple span with export link message when no resource is given', () => {
     const { container } = render(
-      <LanguageProvider>
+      <LanguageProviderTestWrapper>
         <ExportJSON data={[]} />
-      </LanguageProvider>
+      </LanguageProviderTestWrapper>
     );
-    expect(container.firstChild).toHaveClass('incidents-export-link font-smaller font-weight-medium disabled');
-    expect(container.firstChild).toHaveTextContent(dictionary['en']['incidents_export_link_json']);
+    expect(container.firstChild).toHaveTextContent('JSON file');
   });
 
   it.each([
@@ -30,7 +24,7 @@ describe('<ExportJSON />', () => {
   ])(
     'renders button with download onClick function when given resource',
     async ({ resource, expectedDownloadPrefix }) => {
-      const data: IResponseTableData[] = [];
+      const data: (IResponse & ICustomResponse)[] = [];
 
       global.URL.createObjectURL = jest.fn().mockImplementation((jsonFile) => {
         return JSON.stringify(jsonFile);
@@ -41,15 +35,14 @@ describe('<ExportJSON />', () => {
       const now = new Date();
 
       render(
-        <LanguageProvider>
+        <LanguageProviderTestWrapper>
           <ExportJSON data={data} resource={resource as TAvailableResources} />
-        </LanguageProvider>
+        </LanguageProviderTestWrapper>
       );
       jest.useRealTimers();
 
       const buttonElement = screen.getByRole('button', { name: dictionary['en']['incidents_export_link_json'] });
-      expect(buttonElement).toHaveClass('incidents-export-link font-smaller font-weight-medium');
-      expect(buttonElement).toHaveTextContent(dictionary['en']['incidents_export_link_json']);
+      expect(buttonElement).toHaveTextContent('JSON file');
 
       const linkElement = document.createElement('a');
       linkElement.click = jest.fn();

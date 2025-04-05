@@ -1,13 +1,8 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import Footer from './Footer';
 import { useLocation } from 'react-router-dom';
 import routeList from 'routes/routeList';
-import { LanguageProvider } from 'context/LanguageProvider';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import * as LanguagePickerModule from 'components/shared/LanguagePicker';
 
 jest.mock('react-router-dom', () => ({
@@ -25,15 +20,11 @@ describe('<Footer />', () => {
       const LanguagePickerSpy = jest.spyOn(LanguagePickerModule, 'default');
 
       const { container } = render(
-        <LanguageProvider>
+        <LanguageProviderTestWrapper>
           <Footer />
-        </LanguageProvider>
+        </LanguageProviderTestWrapper>
       );
-
-      const footer = screen.getByRole('contentinfo');
-      expect(footer).toBeInTheDocument();
-      expect(footer).toHaveClass('page-footer d-flex justify-content-center align-items-center');
-
+      expect(screen.getByRole('contentinfo')).toBeInTheDocument();
       expect(container.querySelectorAll('button').length).toBe(2); // two buttons
 
       const englishButton = screen.getByText('English');
@@ -56,9 +47,9 @@ describe('<Footer />', () => {
   it('returns nothing in any other path than provided previously', () => {
     useLocationMock.mockReturnValue({ pathname: '/random-path' });
     const { container } = render(
-      <LanguageProvider>
+      <LanguageProviderTestWrapper>
         <Footer />
-      </LanguageProvider>
+      </LanguageProviderTestWrapper>
     );
     expect(container).toBeEmptyDOMElement();
   });

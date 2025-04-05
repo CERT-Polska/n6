@@ -13,7 +13,8 @@ RUN . /home/dataman/env_py3k/bin/activate; \
 RUN sudo npm install --global yarn; \
     cd /home/dataman/n6/N6Portal/react_app \
     && yarn \
-    && yarn build;
+    && yarn build; \
+    sudo npx -y playwright install --with-deps;
 
 # Customization of configuration files.
 RUN cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6;
@@ -26,7 +27,7 @@ RUN a2enmod wsgi && \
     a2enmod ssl && \
     a2enmod rewrite && \
     a2ensite 000-default && \
-    a2ensite n6-api && \
+    a2ensite n6-restapi && \
     a2ensite n6-portal && \
     a2ensite n6-adminpanel
 

@@ -12,16 +12,16 @@ components to work, run the command:
 
 ```bash
 $ mkdir /home/dataman/.n6
-$ cp /home/dataman/n6/N6DataPipeline/n6datapipeline/data/conf/* /home/dataman/.n6/
-$ cp /home/dataman/n6/N6DataSources/n6datasources/data/conf/* /home/dataman/.n6/
-$ cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6
+$ cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6/
 ```
 
 The configuration files should have been created in `/home/dataman/.n6`.
 
 ```bash
 $ ls /home/dataman/.n6/
-00_global.conf  00_pipeline.conf  02_archiveraw.conf  05_enrich.conf  07_aggregator.conf
+00_global.conf  00_pipeline.conf
+[...]
+05_enrich.conf  07_aggregator.conf  07_comparator.conf
 [...]
 60_abuse_ch.conf  60_amqp.conf  60_cert_pl.conf  60_cesnet_cz.conf  60_dan_tv.conf
 [...]
@@ -40,14 +40,14 @@ Example configuration with the _root_ logger and handlers: _syslog_ (writes to S
 keys = root
 
 [handlers]
-keys = syslog, stream
+keys = stream, syslog
 
 [formatters]
-keys = n6_syslog_handler, standard
+keys = standard, syslog_dedicated
 
 [logger_root]
 level = INFO
-handlers = syslog, stream
+handlers = stream, syslog
 
 [handler_stream]
 class = StreamHandler
@@ -58,13 +58,13 @@ args = (sys.stdout,)
 [handler_syslog]
 class = n6lib.log_helpers.N6SysLogHandler
 level = WARNING
-formatter = n6_syslog_handler
+formatter = syslog_dedicated
 args = ('/dev/log',)
 
 [formatter_standard]
 format = n6: %(levelname) -10s %(asctime)s %(name) -25s in %(funcName)s() (#%(lineno)d): %(message)s
 
-[formatter_n6_syslog_handler]
+[formatter_syslog_dedicated]
 format = n6: %(levelname) -10s %(asctime)s %(script_basename)s, %(name)s in %(funcName)s() (#%(lineno)d): %(message)s
 class = n6lib.log_helpers.NoTracebackCutFormatter
 ```
@@ -186,7 +186,7 @@ Now, let us try to run one of _n6_ parsers!
 ```bash
 (env)$ n6parser_certplshield
 n6: INFO       2020-01-16 12:31:17,313 UTC n6lib.log_helpers         in configure_logging() (#133): logging configuration loaded from '/home/dataman/.n6/logging.conf'
-n6: INFO       2020-01-16 12:31:17,316 UTC n6lib.config              in _load_n6_config_files() (#1042): Config files read properly: "/home/dataman/.n6/00_global.conf", "/home/dataman/.n6/02_archiveraw.conf", "/home/dataman/.n6/05_enrich.conf", "/home/dataman/.n6/07_aggregator.conf", "/home/dataman/.n6/07_comparator.conf", "/home/dataman/.n6/09_auth_db.conf", "/home/dataman/.n6/21_recorder.conf", "/home/dataman/.n6/23_filter.conf", "/home/dataman/.n6/60_abuse_ch.conf", "/home/dataman/.n6/60_cert_pl.conf", "/home/dataman/.n6/60_misp.conf", "/home/dataman/.n6/60_spam404_com.conf", [...]
+n6: INFO       2020-01-16 12:31:17,316 UTC n6lib.config              in _load_n6_config_files() (#1042): Config files read properly: "/home/dataman/.n6/00_global.conf", [...] "/home/dataman/.n6/05_enrich.conf", "/home/dataman/.n6/07_aggregator.conf", "/home/dataman/.n6/07_comparator.conf", [...] "/home/dataman/.n6/21_recorder.conf", "/home/dataman/.n6/23_filter.conf", [...] "/home/dataman/.n6/60_abuse_ch.conf", "/home/dataman/.n6/60_cert_pl.conf", "/home/dataman/.n6/60_cert_pl.conf", [...]
 n6: INFO       2020-01-16 12:31:17,319 UTC n6.base.queue             in connect() (#459): Connecting to localhost
 n6: INFO       2020-01-16 12:31:17,320 UTC pika.adapters.base_connection in _create_and_connect_to_socket() (#212): Connecting to ::1:5672
 n6: INFO       2020-01-16 12:31:17,324 UTC n6.base.queue             in on_connection_open() (#492): Connection opened

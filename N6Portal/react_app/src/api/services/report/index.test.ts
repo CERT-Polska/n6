@@ -1,11 +1,7 @@
-/**
- * @jest-environment jsdom
- */
-
 import { getReportInside, getReportThreats, useReportInside, useReportThreats } from '.';
 import { renderHook, waitFor } from '@testing-library/react';
 import { IRequestParams, IResponse } from '../globalTypes';
-import { queryClientTestHookWrapper } from 'utils/createTestHookWrapper';
+import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { controllers, customAxios, dataController, jsonDataFormat } from 'api';
 
 describe('getReportThreats', () => {
@@ -58,7 +54,7 @@ describe('useReportThreats', () => {
       .mockReturnValue(Promise.resolve({ data: mockedResponseData }));
 
     const useReportThreatsRenderingResult = renderHook(() => useReportThreats(params), {
-      wrapper: queryClientTestHookWrapper()
+      wrapper: QueryClientProviderTestWrapper
     });
     await waitFor(() => {
       expect(useReportThreatsRenderingResult.result.current.isSuccess).toBe(true);
@@ -123,7 +119,7 @@ describe('useReportInside', () => {
       .mockReturnValue(Promise.resolve({ data: mockedResponseData }));
 
     const useReportInsideRenderingResult = renderHook(() => useReportInside(params), {
-      wrapper: queryClientTestHookWrapper()
+      wrapper: QueryClientProviderTestWrapper
     });
     await waitFor(() => {
       expect(useReportInsideRenderingResult.result.current.isSuccess).toBe(true);

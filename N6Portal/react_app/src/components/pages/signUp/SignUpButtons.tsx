@@ -19,12 +19,14 @@ const SignUpButtons: FC<IProps> = ({ submitText, isSubmitting }) => {
   return (
     <div className="signup-buttons text-center">
       <CustomButton
+        dataTestId="signup-cancel-btn"
         text={`${messages.signup_btn_cancel}`}
         variant="outline"
         onClick={onCancelClick}
         className="signup-btn cancel"
       />
       <CustomButton
+        dataTestId="signup-submit-btn"
         text={submitText}
         loading={isSubmitting}
         disabled={isSubmitting}

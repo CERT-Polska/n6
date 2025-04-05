@@ -1,7 +1,9 @@
 process.env.TZ = 'UTC';
 
 module.exports = {
+  roots: ['<rootDir>/src'],
   setupFilesAfterEnv: ['<rootDir>/src/setupTests.ts'],
+  testEnvironment: 'jsdom',
   preset: 'ts-jest',
   transform: {
     '^.+\\.(ts|tsx)?$': 'ts-jest',
@@ -44,20 +46,13 @@ module.exports = {
     'images/user-settings-api-key.svg': '<rootDir>/src/__mocks__/user-settings-api-key.js',
     'images/user-settings-mfa.svg': '<rootDir>/src/__mocks__/user-settings-mfa.js',
     'images/user.svg': '<rootDir>/src/__mocks__/user.js',
-    '.svg': '<rootDir>/src/__mocks__/svgDefaultMock.js'
+    '.svg': '<rootDir>/src/__mocks__/svgDefaultMock.js',
+    'react-markdown': '<rootDir>/src/__mocks__/react_markdown.js'
   },
-  verbose: true,
+  verbose: false,
   collectCoverage: true,
-  collectCoverageFrom: [
-    '**/utils/**.{js,jsx,ts,tsx}',
-    '**/utils.{js,jsx,ts,tsx}',
-    '**/components/**.{js,jsx,ts,tsx}',
-    '**/components.{js,jsx,ts,tsx}',
-    '**/api/**.{js,jsx,ts,tsx}',
-    '**/api.{js,jsx,ts,tsx}'
-  ],
+  collectCoverageFrom: ['**/src/api/**', '**/src/components/**', '**/src/utils/**'],
   moduleDirectories: ['node_modules', 'src'],
-  silent: false,
   clearMocks: true,
   resetMocks: true,
   restoreMocks: true

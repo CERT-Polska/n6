@@ -25,6 +25,212 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [4.22.0] (2025-04-05)
+
+#### General Audience Stuff
+
+- [setup, lib, etc/docker] **Dropped support for Python 3.9. From now on,
+  only Python 3.11 is officially supported.** Debian 12 (*bookworm*) is
+  (still) the recommended operating system, and CPython 3.11 is the
+  recommended implementation of Python.
+
+- [data sources] A new data source: `phishtank.verified` (collector and
+  parser).
+
+- [data pipeline] Added components for e-mail notifications:
+  `n6counter` and `n6notifier` as well as `n6notifier_templates_renderer`
+  (implemented in the `n6datapipeline.notifier`, `n6datapipeline.counter`
+  and `n6datapipeline.aux.notifier_templates_renderer` modules).
+
+- [data pipeline, portal, rest api, lib] Modified `n6recorder` to fix a
+  bug in *n6 REST API* (and *n6 Portal*'s API), concerning only users of
+  organizations with the `full_access=True` in the Auth DB, which caused
+  that resultant events' `client` lists might be incomplete (erroneously
+  limited to the values of the `client` query parameter or -- in results
+  from `/report/inside` -- to the identifier of the querying user's
+  organization). From now on, `n6recorder` additionally records copies of
+  events' `client` lists in the `custom` column of the Event DB's `event`
+  table; and both of those web APIs, when generating their results, get
+  `client` lists from it (rather than from the `client` column of the
+  `client_to_event` table). *Warning regarding the transitional period:*
+  for all older data, `client` lists are just *not included* in results!
+  Modified the following `n6lib`'s submodules to implement the fix:
+  `data_backend_api`, `db_events`, `record_dict`, `generate_test_events`;
+  in particular, changed -- in a **backward incompatible** way -- the
+  behavior and signature of the `n6lib.db_events.make_raw_result_dict()`
+  function... A side benefit of those changes is an optimization: many
+  database queries are now faster (*not only* for users of organizations
+  with the `full_access=True` in the Auth DB).
+
+- [portal, lib, config] Made significant changes/fixes/improvements
+  related to the *n6 Portal*'s [OpenID
+  Connect](https://openid.net/foundation/how-connect-works/)-based
+  *single sign-on* authentication mechanism (implemented, in particular,
+  in `n6lib.oidc_provider_api.OIDCProviderAPI`,
+  `n6lib.pyramid_commons.OIDCUserAuthenticationPolicy` and
+  `n6lib.pyramid_commons.N6LoginOIDCView`...).
+  Now, when using an *identity provider*, it is possible to authenticate
+  and automatically create new local user accounts (in Auth DB) --
+  by matching tokens' `org_uuid` claim values against organizations'
+  `org_uuid` stored in Auth DB. Also, among others, JSON Web Key Sets are
+  now obtained in a more effective and reliable manner, and without the
+  need to authenticate to the IdP server.
+  **Added support for the following *n6 Portal*'s configuration options:**
+  `oidc_provider_api.verify_audience` (default: `false`),
+  `oidc_provider_api.required_audience` (default: empty, which means that
+  the Portal API's URL will be used),
+  `oidc_provider_api.idp_server_request_retries` (default: `3`),
+  `oidc_provider_api.idp_server_request_backoff_factor` (default: `0.2`),
+  `oidc_provider_api.idp_server_request_timeout` (default: `10`).
+  **Removed support for the following *n6 Portal*'s configuration options:**
+  `oidc_provider_api.client_id`,
+  `oidc_provider_api.client_secret_key`,
+  `oidc_provider_api.verify_ssl`.
+
+- [admin panel, auth db, lib] New column in the Auth DB's `org` table (and
+  new `n6lib.auth_db.models.Org`'s field): `org_uuid`. **What is important**
+  from the point of view of the administrators of an *n6* instance is that
+  the *Alembic migrations machinery* needs to be used to update the schema
+  of the production Auth DB (for the instructions how to do it, see
+  `N6Lib/n6lib/auth_db/alembic/README.md`).
+
+- [portal] *Incidents* page: added, for users of organizations with
+  `full_access=True`, the `client` data column (for all three data
+  resources), together with a new filter (only for the `/report/threats`
+  and `/search/events` resources).
+
+- [portal] *Incidents* page: added a new dynamic behavior regarding which
+  data columns are displayed and when; also, generally, much more columns
+  are now available. Use the *Columns* drop-down list to lock the columns
+  you want to keep displayed; click the *Reset Columns* button (a new one)
+  to restore the dynamic behavior.
+
+- [portal] Modified the formats of exported JSON and CSV files -- now they
+  are more comprehensive (more columns...) and/or easier to process (JSON
+  data format resembles that of the REST API's `*.json` resources...).
+
+- [portal] Minor UX fixes/improvements.
+
+- [docs] The *n6*'s [documentation](https://n6.readthedocs.io/):
+  enhancements, updates and fixes. In particular, added the documentation
+  describing installation of *n6 Stream API* (including the Docker-based
+  variant).
+
+#### System/Configuration/Programming-Only
+
+- [config, etc/docker, portal, rest api, broker auth api, admin panel,
+  data sources, data pipeline, lib] The config prototype files for
+  `N6DataPipeline` and `N6DataSources` as well as for `N6AdminPanel` and
+  `N6Lib` (*et consortes*) are now stored solely in `etc/n6/` (carefully
+  merged the content of `N6DataPipeline/n6datapipeline/data/conf/` into
+  `etc/n6/`). In similar vein, moved the config prototype files for *n6
+  Portal*, *n6 Rest API* and the Broker Auth API (related to *n6 Stream
+  API*...) into `etc/web/conf/`. Also, updated, improved and/or renamed
+  many of those files.
+
+- [config, etc/docker, portal, rest api, broker auth api] Adjusted all
+  concerned `*.ini` configuration prototype files, so that they no longer
+  contain *inline* (i.e., `;`-only-prefixed appended to non-empty lines)
+  comments, as such comments are unsupported if our *n6*-specific monkey
+  patching of `configparser` is not applied early enough -- which may be
+  the case when it comes to running *n6 Portal API*, *n6 REST API* or the
+  Broker Auth API (related to *n6 Stream API*...) without a `*.wsgi` file
+  containing `import n6lib` as early as possible. **Using such *inline*
+  comments in any `*.ini` files is now deprecated!** (but it is still
+  perfectly OK in `*.conf` files!)
+
+- [lib, cli, tests] Changed some stuff related to tests and test
+  helpers/tooling/configuration/discovery/execution, including some
+  **backward incompatible** changes... In particular, loading `n6sdk`'s
+  doctests using the standard `unittest`-specific mechanism is no longer
+  supported (from now on, `n6sdk.tests.test_doctests.load_tests()` raises
+  `RuntimeError`); use `pytest` instead (with the `--doctest-modules`
+  option...). Also, added the `addopts = --import-mode=importlib -ra` option
+  to the global configuration of `pytest` (in the top-level `pytest.ini`
+  file).
+
+- [cli, lib] Fixed
+  `n6create_and_initialize_auth_db`/`n6lib.auth_db.scripts.CreateAndInitializeAuthDB`
+  (and `_AuthDBConfiguratorForAlembicEnv`), so that the Auth DB config
+  section name's base used by a `CreateAndInitializeAuthDB` instance (stored
+  by it as `self.config_section`) is now used also by the Alembic machinery
+  invoked by that instance (previously, the name's base used by the Alembic
+  machinery was always `"auth_db"`, which was plain wrong if the name's base
+  for that instance was customized to be something else).
+
+- [cli, lib] Got rid of an annoying warning (`MYSQL_OPT_RECONNECT is
+  deprecated and will be removed in a future version`), previously printed
+  to *stderr* by `libmysqlclient`.
+
+- [setup, lib] Removed the `python-keycloak` dependency of `N6Lib`.
+
+- [portal, setup, tests] Regarding the implementation of the *n6 Portal*'s
+  frontend (*React*-based TS/JS code and related resources, together with
+  the development tooling...): made a bunch of additions/enhancements,
+  improvements, fixes as well as upgrades/additions regarding external
+  packages. Among others: significantly expanded and improved the test
+  suite, in particular, added functional tests using `playwright`; did
+  a lot of cleaning and refactoring; introduced `stylelint`...
+
+- [etc/docker] Upgraded the MariaDB version to `10.11`. Replaced the Maria
+  Docker image with an official one.
+
+- [etc/docker, stream api, broker auth api] Added `docker-compose.yml` and
+  `Dockerfile` files for the *n6 Stream API*'s broker and server...
+
+- [lib, setup, config, etc/docker, tests, docs] Other additions, changes,
+  improvements, fixes, cleanups and removals as well as some refactoring...
+
+#### Programming-Only
+
+- [lib] `n6sdk.data_spec.utils`: changed the
+  `@cleaning_kwargs_as_params_with_data_spec` decorator -- so that, from now
+  on, it ensures that any arguments to a function decorated with it that are
+  to be bound to *positional-or-keyword* parameters are always treated as
+  *keyword arguments* (so that they *are* validated with the decorator's
+  *data-spec-based* machinery, regardless of whether they are given as
+  *positional* or *keyword* arguments); plus, appropriately
+  changed/adjusted the signatures of some public methods provided by
+  `n6lib.auth_db.api.AuthManageAPI` -- given that, in particular, in the
+  signature of a method to which the decorator is applied, from now on, the
+  `self` parameter must be explicitly marked as *positional-only* (using the
+  `/,` marker); the same is true for other parameters intended to be
+  specified as positional arguments *and* to be excluded from the
+  *data-spec-based* machinery's validation (see: `org` in the signature of
+  `AuthManageAPI.create_new_user()`). *Note:* some of those changes are
+  **backward incompatible**.
+
+- [lib] `n6lib.jwt_helpers`: changed the signature of the `jwt_decode()`
+  function by adding the `options` argument (optional...) -- as the 4th
+  one, i.e., positionally *before* `required_claims`, though typically you
+  will pass it and any further arguments as keyword (named) ones anyway...
+
+- [lib] Added a new module: `n6sdk.func_helpers` -- containing the
+  implementation of a new decorator: `@with_args_as_kwargs_if_possible` (see
+  its docstring for more information...), needed to implement the changes to
+  the decorator `@cleaning_kwargs_as_params_with_data_spec` described above.
+
+- [lib] Added a module stub: `n6lib.func_helpers`; its `__all__` sequence
+  includes the aforementioned `@with_args_as_kwargs_if_possible` decorator
+  (imported from `n6sdk.func_helpers`) as well as a few helpers imported
+  from `n6lib.common_helpers` (`@memoized`, `@deep_copying_result`,
+  `@exiting_on_exception`, `with_flipped_args()`) -- intended to be moved
+  into this module in the future...
+
+- [lib] Added new tools in `n6lib.sqlalchemy_related_test_helpers`:
+  `get_declared_db_structure()`, `get_reflected_db_structure()`,
+  `fetch_db_content()`, `insert_db_content()`, `delete_db_content()`,
+  `disabled_foreign_key_checks()` (plus a few auxiliary type aliases).
+
+- [lib, admin panel] `n6adminpanel.app`: added a new mixin,
+  `ListViewFormattingExtraFilesMixin`, which allows to inject Admin
+  Panel's view with another CSS file that contains styles for *list*
+  views' DOM objects.
+
+- [lib, auth db] `n6lib.auth_db.fields`: added `UUID4SimpleField` for
+  simplified validation of UUID values.
+
+
 ## [4.12.1] (2025-01-03)
 
 #### General Audience Stuff
@@ -344,7 +550,7 @@ Some features of this document's layout were inspired by
 
 - [portal, setup, tests] Regarding the implementation of the *n6 Portal*'s
   frontend (*React*-based TS/JS code and related resources, together with
-  development tooling...): made a bunch of additions, changes/enhancements,
+  the development tooling...): a bunch of additions, changes/enhancements,
   fixes/cleanups as well as some refactoring, plus external package updates
   and additions... Among others, upgraded `Node`, `React` and `TypeScript`,
   and implemented a comprehensive `Jest`-based test suite...
@@ -825,6 +1031,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **The first public release of *n6*.**
 
 
+[4.22.0]: https://github.com/CERT-Polska/n6/compare/v4.12.1...v4.22.0
 [4.12.1]: https://github.com/CERT-Polska/n6/compare/v4.12.0...v4.12.1
 [4.12.0]: https://github.com/CERT-Polska/n6/compare/v4.5.0...v4.12.0
 [4.5.0]: https://github.com/CERT-Polska/n6/compare/v4.4.0...v4.5.0

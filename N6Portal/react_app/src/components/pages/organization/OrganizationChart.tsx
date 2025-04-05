@@ -20,7 +20,7 @@ import { useTypedIntl } from 'utils/useTypedIntl';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
-const options: ChartOptions<'bar'> = {
+export const barChartOptions: ChartOptions<'bar'> = {
   plugins: {
     tooltip: {
       enabled: true,
@@ -63,18 +63,22 @@ const OrganizationChart: FC = () => {
   if (!data && status !== 'loading') return null;
 
   return (
-    <div className="content-wrapper">
+    <div className="content-wrapper" data-testid="organization-chart">
       <Row>
         <Col sm="12" className="mb-4">
           <div className={classNames('organization-card', { 'empty-chart': data?.empty_dataset })}>
             <ApiLoader status={status} error={error}>
               {data?.empty_dataset ? (
-                <h3 className="mb-0">{`${messages['organization_chart_no_data']} ${data.days_range} ${messages['organization_chart_no_data_sentence_end']}`}</h3>
+                <h3
+                  data-testid="organization-chart-no-data"
+                  className="mb-0"
+                >{`${messages['organization_chart_no_data']} ${data.days_range} ${messages['organization_chart_no_data_sentence_end']}`}</h3>
               ) : (
                 <Bar
+                  data-testid="organization-chart-bar"
                   width="400px"
                   height="450px"
-                  options={options}
+                  options={barChartOptions}
                   data={{
                     labels: data?.days,
                     datasets: Object.entries(data?.datasets || {}).map(([key, entry]) => ({

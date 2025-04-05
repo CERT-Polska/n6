@@ -5547,15 +5547,13 @@ _N6DATAPIPELINE_CONFIG_ERROR_MSG_PATTERN = """
 
 {0}.
 
-Make sure that config files for n6 are present in '/etc/n6' or
-'~/.n6' (or their directory subtrees) and that they are valid
+Make sure that config files for *n6* are present in '/etc/n6/' or
+'~/.n6/' (or their directory subtrees) and that they are valid
 (especially, that they contain all needed entries).
 
-Note: you may want to copy config file prototypes (templates)
-from '<N6 CODE REPO DIR>/N6DataPipeline/n6datapipeline/data/conf/'
-and '<N6 CODE REPO DIR>/N6DataSources/n6datasources/data/conf/'
-(and/or from '<N6 CODE REPO DIR>/etc/') to '~/.n6', and then
-adjust them (in '~/.n6') to your needs.
+Note: you may want to copy config file prototypes (templates) from
+'etc/n6/' in the *n6* source code repository to your local '~/.n6/',
+and then adjust them (in that local '~/.n6/') to your needs.
 
 """
 

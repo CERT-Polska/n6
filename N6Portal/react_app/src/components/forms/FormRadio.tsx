@@ -1,4 +1,4 @@
-import { FC, memo, useMemo } from 'react';
+import { FC, JSX, memo, useMemo } from 'react';
 import { Controller, useFormContext, Validate } from 'react-hook-form';
 import { Form, FormCheck } from 'react-bootstrap';
 import classnames from 'classnames';
@@ -22,6 +22,7 @@ interface IProps {
   showValidationMsg?: boolean;
   tooltip?: JSX.Element;
   validate?: Record<string, Validate<string>>;
+  dataTestId?: string;
 }
 
 const FormRadio: FC<IProps & FormContextProps> = memo(
@@ -35,7 +36,8 @@ const FormRadio: FC<IProps & FormContextProps> = memo(
     isDirty,
     tooltip,
     formState: { errors },
-    validate
+    validate,
+    dataTestId
   }) => {
     return (
       <div className={className}>
@@ -59,6 +61,7 @@ const FormRadio: FC<IProps & FormContextProps> = memo(
                       })}
                     >
                       <FormCheck.Input
+                        data-testid={`${dataTestId}-${option.value}`}
                         type="radio"
                         id={`radio-${name}-${option.value}`}
                         value={option.value}

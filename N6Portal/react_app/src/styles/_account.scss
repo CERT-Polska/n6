@@ -12,7 +12,9 @@
 
 .account-card {
   background-color: $light-background;
+
   @include box-border(false);
+
   margin-bottom: sizeToRem(30);
 
   @include media-breakpoint-up(md) {
@@ -64,6 +66,7 @@
 
 .account-info-item-title {
   margin-bottom: 0;
+
   @include media-breakpoint-up(lg) {
     margin-bottom: sizeToRem(10);
   }

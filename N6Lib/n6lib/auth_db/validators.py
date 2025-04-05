@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2024 NASK. All rights reserved.
+# Copyright (c) 2018-2025 NASK. All rights reserved.
 
 import json
 import string
@@ -22,6 +22,7 @@ from n6lib.auth_db.fields import (
     HTTPAbsoluteURLField,
     UserLoginField,
     UUID4SecretField,
+    UUID4SimpleField,
 )
 from n6lib.common_helpers import ascii_str
 from n6lib.data_spec import FieldValueError
@@ -183,6 +184,7 @@ _adjust_time_keeping_microseconds = (
 class _AuthDBValidatorsDataSpec(BaseDataSpec):
 
     org_id = OrgIdField()
+    org_uuid = UUID4SimpleField()
 
     user_login = UserLoginField()
     component_login = ComponentLoginField()
@@ -382,6 +384,10 @@ class AuthDBValidators(object):
         _adjust_ascii_only_ldap_safe_to_unicode_stripped,
         make_adjuster_using_data_spec('org_id'))
     validator_for__org_group_id = _adjust_ascii_only_ldap_safe_to_unicode_stripped_or_none
+
+    validator_for__org_uuid = chained(
+        _adjust_to_unicode_stripped,
+        make_adjuster_using_data_spec('org_uuid'))
 
     validator_for__mfa_key_base = chained(
         _adjust_to_unicode_stripped,

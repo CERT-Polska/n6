@@ -1,5 +1,6 @@
-# Copyright (c) 2013-2024 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
+import copy
 import datetime
 import socket
 import unittest
@@ -528,15 +529,17 @@ class Test_make_raw_result_dict(TestCaseMixin, unittest.TestCase):
     @foreach(
         param(
             colum_to_value=dict(),  # <- All columns set to None...
-            client_org_ids=set(),
             expected_result_dict=dict(),  # (skipped all None values)
         ),
 
         param(
-            colum_to_value=dict(),
-            client_org_ids=frozenset({'o2', 'o1', 'o3'}),
+            colum_to_value=dict(
+                custom={
+                    'client': ['o1', 'o2', 'o3'],
+                },
+            ),
             expected_result_dict=dict(
-                # (added `client`,
+                # (moved `client`, removed empty `custom`
                 # skipped all None values)
                 client=['o1', 'o2', 'o3']
             ),
@@ -547,7 +550,6 @@ class Test_make_raw_result_dict(TestCaseMixin, unittest.TestCase):
                 dip='1.2.3.4',
                 dport=0,
             ),
-            client_org_ids=set(),
             expected_result_dict=dict(
                 # (skipped all None values)
                 dip='1.2.3.4',
@@ -566,7 +568,6 @@ class Test_make_raw_result_dict(TestCaseMixin, unittest.TestCase):
                 extra_noncolumn=sen.WHATEVER,
                 another_extra_noncolumn=sen.WHAAATEVER,
             ),
-            client_org_ids=set(),
             expected_result_dict=dict(
                 # (skipped all None values and non-column keys,
                 # skipped `dip` set to "no IP" placeholder)
@@ -584,15 +585,17 @@ class Test_make_raw_result_dict(TestCaseMixin, unittest.TestCase):
                 ip='0.0.0.0',    # "no IP" placeholder
                 time=sen.some_dt,
                 modified=sen.some_other_dt,
-                custom={'foo': sen.WHATEVER},
+                custom={
+                    'client': ['o3', 'o2', 'o1'],
+                    'foo': sen.WHATEVER,
+                },
                 extra_noncolumn=None,
             ),
-            client_org_ids=['o2', 'o1', 'o3'],
             expected_result_dict=dict(
-                # (added `client`,
+                # (moved `client`, kept non-empty `custom`,
                 # skipped all None values and non-column keys,
                 # skipped `ip` set to "no IP" placeholder)
-                client=['o1', 'o2', 'o3'],
+                client=['o3', 'o2', 'o1'],
                 id=sen.event_id,
                 time=sen.some_dt,
                 modified=sen.some_other_dt,
@@ -607,10 +610,12 @@ class Test_make_raw_result_dict(TestCaseMixin, unittest.TestCase):
                 address=sen.some_address,
                 time=sen.some_dt,
                 modified=sen.some_other_dt,
+                custom={
+                    'client': ['o1'],
+                },
             ),
-            client_org_ids={'o1'},
             expected_result_dict=dict(
-                # (added `client`,
+                # (moved `client`, removed empty `custom`,
                 # skipped all None values,
                 # skipped `ip` and `dip` set to "no IP" placeholders)
                 client=['o1'],
@@ -620,14 +625,14 @@ class Test_make_raw_result_dict(TestCaseMixin, unittest.TestCase):
             ),
         ),
     )
-    def test(self, colum_to_value, client_org_ids, expected_result_dict):
+    def test(self, colum_to_value, expected_result_dict):
         column_values_source_object = self._make_row_fake(colum_to_value)
-        result_dict = make_raw_result_dict(column_values_source_object, client_org_ids)
+        result_dict = make_raw_result_dict(column_values_source_object)
         self.assertEqualIncludingTypes(result_dict, expected_result_dict)
 
     def _make_row_fake(self, colum_to_value):
         column_to_none = dict.fromkeys(n6NormalizedData._n6columns)
-        row = PlainNamespace(**(column_to_none | colum_to_value))
+        row = PlainNamespace(**(column_to_none | copy.deepcopy(colum_to_value)))
         assert row.fqdn is None  # (example of column with no value)
         return row
 

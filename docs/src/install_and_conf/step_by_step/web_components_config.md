@@ -16,7 +16,7 @@
 
 ## _n6 REST API_
 
-Set up database connection addresses in `/home/dataman/n6/etc/web/conf/api.ini` (_Pyramid_
+Set up database connection addresses in `/home/dataman/n6/etc/web/conf/restapi.ini` (_Pyramid_
 framework configuration):
 
 ```ini
@@ -24,14 +24,14 @@ sqlalchemy.url = mysql://root:password@localhost/n6
 auth_db.url = mysql://root:password@localhost/auth_db
 ```
 
-Copy (as root) the Apache2 config from `/home/dataman/n6/etc/apache2/sites-available/n6-api.conf`
+Copy (as root) the Apache2 config from `/home/dataman/n6/etc/apache2/sites-available/n6-restapi.conf`
 to `/etc/apache2/sites-available/`.
 
 ```bash
-$ cp /home/dataman/n6/etc/apache2/sites-available/n6-api.conf /etc/apache2/sites-enabled/
+$ cp /home/dataman/n6/etc/apache2/sites-available/n6-restapi.conf /etc/apache2/sites-enabled/
 ```
 
-Add the `ServerName` option in `/etc/apache2/sites-available/n6-api.conf` with your server's name
+Add the `ServerName` option in `/etc/apache2/sites-available/n6-restapi.conf` with your server's name
 as its value, so a part of configuration looks like the one below:
 
 ```bash
@@ -49,7 +49,7 @@ $ sudo echo 'ServerName localhost' >> /etc/apache2/apache2.conf
 Enable the website:
 
 ```bash
-$ sudo a2ensite n6-api
+$ sudo a2ensite n6-restapi
 $ systemctl restart apache2
 ```
 
@@ -67,8 +67,8 @@ This response means the _event_ database is empty.
 
 ### _n6 REST API_ configuration
 
-The configuration file `api.ini` provides several options important for proper working
-the _n6 REST API_, especially concerning application, server and logging  configuration. All options are described in detail in the `api.ini` file comments.
+The configuration file `restapi.ini` provides several options important for proper working
+the _n6 REST API_, especially concerning application, server and logging  configuration. All options are described in detail in the `restapi.ini` file comments.
 
 
 ## _n6 Portal_
@@ -375,7 +375,7 @@ There are a few possible causes:
 Copy the example _n6 Admin Panel_ configuration files to the directory with _n6_ config files:
 
 ```bash
-(env_py3k)$ cp /home/dataman/n6/N6AdminPanel/n6adminpanel/admin_panel.conf /home/dataman/.n6
+(env_py3k)$ cp /home/dataman/n6/etc/n6/admin_panel.conf /home/dataman/.n6
 ```
 
 It is recommended to generate a random string to be used as the secret key for your instance

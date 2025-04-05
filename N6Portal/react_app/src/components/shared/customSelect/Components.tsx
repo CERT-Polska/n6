@@ -1,3 +1,4 @@
+import { JSX } from 'react';
 import { components, IndicatorProps, ControlProps } from 'react-select';
 import useMatchMediaContext from 'context/MatchMediaContext';
 import { SelectOption } from 'components/shared/customSelect/CustomSelect';

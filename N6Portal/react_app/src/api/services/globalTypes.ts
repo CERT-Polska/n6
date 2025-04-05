@@ -68,6 +68,7 @@ export interface IAddress {
 export interface IRequestParams {
   'time.min': Date;
   asn?: string;
+  client?: string;
   category?: string;
   cc?: string;
   dport?: string;
@@ -100,6 +101,7 @@ export interface IResponse {
   origin?: TOrigin;
   confidence: TConfidence;
   category: TCategory;
+  client?: string[];
   time: string;
   name?: TName;
   md5?: string;
@@ -112,8 +114,73 @@ export interface IResponse {
   url?: string;
   fqdn?: string;
   target?: string;
-  adip?: string;
   dip?: string;
+}
+
+export interface ICustomResponse {
+  action?: string;
+  additional_data?: string;
+  alternative_fqdns?: string;
+  artemis_uuid?: string;
+  block?: string;
+  botid?: string;
+  cert_length?: string;
+  channel?: string;
+  count_actual?: string;
+  dataset?: string;
+  description?: string;
+  detected_since?: string;
+  device_id?: string;
+  device_model?: string;
+  device_type?: string;
+  device_vendor?: string;
+  device_version?: string;
+  dns_version?: string;
+  email?: string;
+  enriched?: string;
+  facebook_id?: string;
+  filename?: string;
+  first_seen?: string;
+  gca_specific?: string;
+  handshake?: string;
+  header?: string;
+  iban?: string;
+  injects?: string;
+  intelmq?: string;
+  internal_ip?: string;
+  ip_network?: string;
+  ipmi_version?: string;
+  mac_address?: string;
+  method?: string;
+  min_amplification?: string;
+  misp_eventdid?: string;
+  misp_attr_uuid?: string;
+  misp_event_uuid?: string;
+  phone?: string;
+  product?: string;
+  product_code?: string;
+  proxy_type?: string;
+  referer?: string;
+  registrar?: string;
+  request?: string;
+  revision?: string;
+  rt?: string;
+  sender?: string;
+  snitch_uuid?: string;
+  subject_common_name?: string;
+  sysdesc?: string;
+  tags?: string;
+  url_pattern?: string;
+  urls_matched?: string;
+  user_agent?: string;
+  username?: string;
+  vendor?: string;
+  version?: string;
+  visible_databases?: string;
+  x509fp_sha1?: string;
+  x509issuer?: string;
+  x509subject?: string;
+  adip?: string;
 }
 
 // as type because of Table.tsx error: Type 'IResponseTableData' is not assignable to type 'Record<string, unknown>'. Index signature is missing in type 'IResponseTableData'
@@ -123,4 +190,6 @@ export type IResponseParsedAddress = {
   asn?: string;
 };
 
-export type IResponseTableData = IResponseParsedAddress & Omit<IResponse, 'time' | 'address'> & { time: string };
+export type IResponseTableData = IResponseParsedAddress &
+  ICustomResponse &
+  Omit<IResponse, 'time' | 'address' | 'client'> & { time: string; client?: string };

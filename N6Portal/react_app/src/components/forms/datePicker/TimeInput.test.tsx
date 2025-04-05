@@ -1,11 +1,6 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import TimeInput from './TimeInput';
-import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/createTestComponentWrapper';
+import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/testWrappers';
 import { useForm } from 'react-hook-form';
 import * as FormInputModule from '../FormInput';
 import userEvent from '@testing-library/user-event';

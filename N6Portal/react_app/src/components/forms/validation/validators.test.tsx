@@ -3,7 +3,7 @@ import {
   composeValidators,
   composeValidatorsForMultivalues,
   equalMfaLength,
-  // isRequired,
+  isRequired,
   maxLength,
   minLength,
   mustBeAscii,
@@ -151,28 +151,28 @@ describe('composeValidators', () => {
   });
 });
 
-// TODO: uncomment tests after File unknown reference problem will be fixed
-// (probably when this app Node version will be upgraded to 18+)
+describe('isRequired', () => {
+  it.each([
+    { value: 'test', expected: true },
+    { value: new File([], 'test.txt'), expected: true },
+    { value: { value: 'value', label: 'label' } as SelectOption<string>, expected: true },
 
-// describe('isRequired', () => {
-//   it.each([
-//     { value: 'test', expected: true },
-//     // { value: new File([], 'test.txt'), expected: true },
-//     { value: { value: 'value', label: 'label' } as SelectOption<string>, expected: true },
+    { value: { value: 'value', label: '' } as SelectOption<string>, expected: true }, // should this be allowed?
+    { value: { value: '', label: 'label' } as SelectOption<string>, expected: true },
+    { value: { value: '', label: '' } as SelectOption<string>, expected: true },
+    { value: { value: '' } as SelectOption<string>, expected: true },
+    { value: { label: '' } as SelectOption<string>, expected: true },
 
-//     { value: { value: 'value', label: '' } as SelectOption<string>, expected: true }, // should this be allowed?
-//     { value: { value: '', label: 'label' } as SelectOption<string>, expected: true },
-//     { value: { value: '', label: '' } as SelectOption<string>, expected: true },
-//     { value: { value: '' } as SelectOption<string>, expected: true },
-//     { value: { label: '' } as SelectOption<string>, expected: true },
-
-//     { value: {} as SelectOption<string>, expected: 'validation_isRequired' },
-//     { value: '', expected: 'validation_isRequired' },
-//     { value: null, expected: 'validation_isRequired' }
-//   ])('returns...', ({ value, expected }) => {
-//     expect(isRequired(value)).toBe(expected);
-//   });
-// });
+    { value: {} as SelectOption<string>, expected: 'validation_isRequired' },
+    { value: '', expected: 'validation_isRequired' },
+    { value: null, expected: 'validation_isRequired' }
+  ])(
+    'returns true if not empty string or object is provided or throws validation_isRequired',
+    ({ value, expected }) => {
+      expect(isRequired(value)).toBe(expected);
+    }
+  );
+});
 
 describe('notNullCharacter', () => {
   it.each([
@@ -664,6 +664,3 @@ describe('mustBeAscii', () => {
     }
   );
 });
-
-// TODO: cover lines:
-// 65-67,192,196-201,205,210-213

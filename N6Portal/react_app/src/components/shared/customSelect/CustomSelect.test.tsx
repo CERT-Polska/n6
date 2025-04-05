@@ -1,8 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import CustomSelect, { SelectOption } from './CustomSelect';
 import { TRestriction } from 'api/services/globalTypes';

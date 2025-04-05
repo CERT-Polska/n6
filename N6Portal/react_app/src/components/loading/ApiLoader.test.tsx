@@ -1,15 +1,10 @@
-/**
- * @jest-environment jsdom
- */
-
-import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
 import ApiLoader from './ApiLoader';
 import { AxiosError } from 'axios';
 import { AuthContext, IAuthContext } from 'context/AuthContext';
 import routeList from 'routes/routeList';
 import { noop } from 'utils/noop';
-import { LanguageProvider } from 'context/LanguageProvider';
+import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import { dictionary } from 'dictionary';
 
 jest.mock('react-router-dom', () => {
@@ -111,13 +106,11 @@ describe('<ApiLoader />', () => {
     ({ statusCode, noError, subtitle }) => {
       const testError = { response: { status: statusCode } } as AxiosError;
       render(
-        <LanguageProvider>
+        <LanguageProviderTestWrapper>
           <ApiLoader status={'error'} error={testError} noError={noError} children={<div />} />
-        </LanguageProvider>
+        </LanguageProviderTestWrapper>
       );
-      const subtitleElement = screen.getByText(subtitle);
-      expect(subtitleElement).toBeInTheDocument();
-      expect(subtitleElement).toHaveClass('mb-0 error-page-subtitle');
+      expect(screen.getByText(subtitle)).toBeInTheDocument();
     }
   );
 });

@@ -1,8 +1,4 @@
-/**
- * @jest-environment jsdom
- */
-
-import { queryClientTestHookWrapper } from 'utils/createTestHookWrapper';
+import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import { getArticle, getArticles, useArticle, useArticles } from './index';
 import { IArticle, IArticlesList } from './types';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -47,7 +43,7 @@ describe('useArticle', () => {
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: useArticleMockedData }));
 
     const useArticleRenderingResult = renderHook(() => useArticle(articleId), {
-      wrapper: queryClientTestHookWrapper()
+      wrapper: QueryClientProviderTestWrapper
     });
     await waitFor(() => {
       expect(useArticleRenderingResult.result.current.isSuccess).toBe(true);
@@ -95,7 +91,7 @@ describe('useArticles', () => {
 
     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: useArticlesMockedData }));
 
-    const useArticlesRenderingResult = renderHook(() => useArticles(), { wrapper: queryClientTestHookWrapper() });
+    const useArticlesRenderingResult = renderHook(() => useArticles(), { wrapper: QueryClientProviderTestWrapper });
     await waitFor(() => {
       expect(useArticlesRenderingResult.result.current.isSuccess).toBe(true);
     });

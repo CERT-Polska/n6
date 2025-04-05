@@ -10,7 +10,7 @@ export interface IInfo {
   knowledge_base_enabled?: boolean;
 }
 
-interface IIpMinMaxSeq {
+export interface IIpMinMaxSeq {
   max_ip: string;
   min_ip: string;
 }

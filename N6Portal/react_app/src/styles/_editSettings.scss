@@ -29,7 +29,7 @@
 
 // form part
 
-.edit-settings-form-wrapper {
+%edit-settings-form-wrapper {
   padding: sizeToRem(50) sizeToRem(15);
   flex-grow: 1;
   width: 100%;
@@ -39,52 +39,63 @@
   .input-field {
     padding-right: sizeToRem(40);
   }
+
   .input-field.dirty,
   .form-radio-option-wrapper.dirty.checked,
   .form-checkbox-wrapper.dirty {
     background-color: rgba($primary, 0.078);
   }
+
   .input-field:-webkit-autofill {
     box-shadow: 0 0 sizeToRem(1000) $form-autocomplete inset !important;
   }
+
   .input-field:autofill {
     box-shadow: 0 0 sizeToRem(1000) $form-autocomplete inset !important;
   }
+
   .form-input-time {
     width: initial;
+    height: initial;
+    margin: 0;
   }
+
   .form-input-time .input-label {
     display: inline-block;
   }
+
   .form-control:disabled {
-    background-color: white;
+    background-color: $light-background;
     opacity: 0.5;
   }
+
   .form-radio-input:disabled ~ .custom-radiobtn::after,
   .form-checkbox-input:disabled ~ .custom-checkbox {
     background-color: $dark-lighter;
   }
+
   textarea ~ .input-label {
     top: sizeToRem(24);
   }
+
   textarea ~ .reset-field-btn {
     top: sizeToRem(5);
     transform: initial;
   }
+
   .input-field:disabled ~ .input-label:not(.has-value) {
     opacity: 0.5;
   }
-  .form-input-time {
-    margin: 0;
-    height: initial;
-  }
+
   .form-input-time .input-field {
     min-height: sizeToRem(54) !important;
     width: 100%;
   }
+
   input:disabled {
     cursor: default;
   }
+
   .update-info .form-control,
   .update-info .form-radio-option-wrapper.checked,
   .form-checkbox-wrapper.update-info {
@@ -93,7 +104,11 @@
   }
 }
 
-.edit-settings-input-wrapper {
+.edit-settings-form-wrapper {
+  @extend %edit-settings-form-wrapper;
+}
+
+%edit-settings-input-wrapper {
   position: relative;
   padding: 0 sizeToRem(40) 0 0;
 
@@ -107,21 +122,26 @@
 
   .input-field {
     border: #dadada solid 1px;
-    background-color: white;
+    background-color: $light-background;
     transition: background-color 0.2s ease;
     color: black;
 
     &:focus {
-      background-color: white;
+      background-color: $light-background;
     }
 
     &:not([value='']) {
       border-color: black;
     }
   }
+
   .input-label {
     color: gray;
   }
+}
+
+.edit-settings-input-wrapper {
+  @extend %edit-settings-input-wrapper;
 }
 
 .edit-settings-additional-comment {
@@ -142,7 +162,7 @@
     transition: background-color 0.2s ease;
 
     &:focus {
-      background-color: white !important;
+      background-color: $light-background !important;
       color: black;
     }
 
@@ -164,6 +184,7 @@
   .form-checkbox-wrapper {
     padding: sizeToRem(8) sizeToRem(8) sizeToRem(8) sizeToRem(32);
   }
+
   .custom-checkbox,
   .custom-radiobtn,
   .custom-checkbox-input input {
@@ -172,24 +193,51 @@
 }
 
 .edit-settings-form-radio {
-  @extend .signup-form-radio;
+  @extend %signup-form-radio;
+
   .form-radio-option-wrapper {
     min-width: initial;
     padding: sizeToRem(10);
   }
 }
 
+.custom-field-array-entry__field {
+  .input-field {
+    border: #dadada solid 1px;
+    background-color: #f5f5f5 !important;
+    margin-bottom: sizeToRem(20);
+    transition: background-color 0.2s ease;
+
+    &:focus {
+      background-color: $light-background !important;
+      color: black;
+    }
+
+    &:not([value='']) {
+      background-color: $light-background !important;
+    }
+  }
+
+  .input-label {
+    color: gray;
+  }
+}
+
 .edit-settings-field-array-btn-remove,
 .custom-field-array-btn-restore {
+  /* stylelint-disable-next-line scss/at-extend-no-missing-placeholder */
   @extend .signup-field-array-btn-remove;
 }
 
 .edit-settings-field-array-btn-add {
+  /* stylelint-disable-next-line scss/at-extend-no-missing-placeholder */
   @extend .signup-field-array-btn-add;
 }
 
 .custom-field-array-wrapper {
+  /* stylelint-disable-next-line scss/at-extend-no-missing-placeholder */
   @extend .signup-field-array-wrapper;
+
   &.restore-field .input-field:disabled {
     cursor: not-allowed;
     opacity: 1;
@@ -203,16 +251,17 @@
 
 // tooltips
 
-$xs_tooltip_right: sizeToRem(-5);
-$md_tooltip_right: sizeToRem(-50);
+$xs-tooltip-right: sizeToRem(-5);
+$md-tooltip-right: sizeToRem(-50);
 
 .edit-settings-tooltip {
   margin-top: 0;
   position: absolute;
   top: sizeToRem(9);
-  right: $xs_tooltip_right;
+  right: $xs-tooltip-right;
+
   @include media-breakpoint-up(md) {
-    right: $md_tooltip_right;
+    right: $md-tooltip-right;
   }
 }
 
@@ -220,24 +269,29 @@ $md_tooltip_right: sizeToRem(-50);
   margin-left: sizeToRem(10);
 }
 
-.edit-settings-notification-tooltip {
+%edit-settings-notification-tooltip {
   position: absolute;
   top: sizeToRem(2);
   right: sizeToRem(16);
 }
 
+.edit-settings-notification-tooltip {
+  @extend %edit-settings-notification-tooltip;
+}
+
 .edit-settings-lang-tooltip {
-  @extend .edit-settings-notification-tooltip;
+  @extend %edit-settings-notification-tooltip;
+
   top: sizeToRem(4);
 }
 
 .edit-settings-comment-tooltip {
   position: absolute;
   top: 0;
-  right: $xs_tooltip_right;
+  right: $xs-tooltip-right;
 
   @include media-breakpoint-up(md) {
-    right: $md_tooltip_right;
+    right: $md-tooltip-right;
   }
 }
 
@@ -250,13 +304,15 @@ $md_tooltip_right: sizeToRem(-50);
 
   button {
     min-width: sizeToRem(120);
+
     &:last-of-type {
-      margin: sizeToRem(16) 0 0 0;
+      margin: sizeToRem(16) 0 0;
     }
   }
 
   @include media-breakpoint-up(sm) {
     flex-direction: row;
+
     button {
       &:last-of-type {
         margin: 0 0 0 sizeToRem(30);
@@ -268,17 +324,22 @@ $md_tooltip_right: sizeToRem(-50);
 // toast
 
 .edit-settings-toast-container {
+  /* stylelint-disable-next-line selector-class-pattern */
   .Toastify__toast {
-    color: white;
+    color: $light-background;
     background-color: $dark;
     font-size: sizeToRem(16);
   }
+
+  /* stylelint-disable-next-line selector-class-pattern */
   .Toastify__close-button {
     color: inherit;
     opacity: 1;
   }
+
+  /* stylelint-disable-next-line selector-class-pattern */
   .Toastify__toast.error {
-    background-color: white;
+    background-color: $light-background;
     color: $danger;
     border: 1px solid $danger;
     box-shadow: none;
@@ -296,8 +357,8 @@ $md_tooltip_right: sizeToRem(-50);
 }
 
 .edit-settings-disabled-field .input-field.dirty:disabled {
-  color: rgba(156, 0, 245, 0.8);
-  border: 1px solid rgba(156, 0, 245, 0.8);
+  color: rgb(156, 0, 245 / 0.8);
+  border: 1px solid rgb(156, 0, 245 / 0.8);
 }
 
 @mixin button-styles($scale, $margin-right, $margin-top, $right-xs, $right-md) {
@@ -309,6 +370,7 @@ $md_tooltip_right: sizeToRem(-50);
   right: $right-xs;
   transform-origin: center !important;
   transition: transform 0.1s ease-in-out;
+
   @include media-breakpoint-up(sm) {
     right: $right-md;
     margin-top: sizeToRem(18);
@@ -316,11 +378,11 @@ $md_tooltip_right: sizeToRem(-50);
 }
 
 .custom-field-array-delete-button {
-  @include button-styles(2, 9, -55, $xs_tooltip_right, $md_tooltip_right);
+  @include button-styles(2, 9, -55, $xs-tooltip-right, $md-tooltip-right);
 }
 
 .custom-field-array-add-button {
-  @include button-styles(1.5, 9, -75, $xs_tooltip_right, sizeToRem(-50));
+  @include button-styles(1.5, 9, -75, $xs-tooltip-right, sizeToRem(-50));
 }
 
 .custom-field-array-delete-button:hover,
@@ -333,33 +395,8 @@ $md_tooltip_right: sizeToRem(-50);
   transform: scale(0.9);
 }
 
-.custom-field-array-entry_field {
-  .input-field {
-    border: #dadada solid 1px;
-    background-color: #f5f5f5 !important;
-    margin-bottom: sizeToRem(20);
-    transition: background-color 0.2s ease;
-
-    &:focus {
-      background-color: white !important;
-      color: black;
-    }
-
-    &:not([value='']) {
-      background-color: white !important;
-    }
-  }
-
-  .input-label {
-    color: gray;
-  }
-}
-
 .custom-field-array-enable .form-control:disabled {
   opacity: 1;
-}
-
-.custom-field-array-disable .form-control:disabled {
 }
 
 .icon-custom-btn {
@@ -368,22 +405,27 @@ $md_tooltip_right: sizeToRem(-50);
 }
 
 .field-removing {
-  transition: opacity 0.1s ease-out, transform 0.1s ease-in;
+  transition:
+    opacity 0.1s ease-out,
+    transform 0.1s ease-in;
   opacity: 0;
   transform: translateY(60px);
 }
 
 .field-restoring {
-  transition: opacity 0.1s ease-out, transform 0.1s ease-in;
+  transition:
+    opacity 0.1s ease-out,
+    transform 0.1s ease-in;
   opacity: 0;
   transform: translateY(-60px);
 }
 
-@keyframes fadeInNewAddedField {
+@keyframes fade-i-new-added-field {
   from {
     opacity: 0;
     transform: translateY(60px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -391,5 +433,5 @@ $md_tooltip_right: sizeToRem(-50);
 }
 
 .field-adding {
-  animation: fadeInNewAddedField 0.2s ease-out;
+  animation: fade-i-new-added-field 0.2s ease-out;
 }

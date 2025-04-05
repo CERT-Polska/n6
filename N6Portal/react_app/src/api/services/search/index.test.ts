@@ -1,7 +1,3 @@
-/**
- * @jest-environment jsdom
- */
-
 import { getSearch, IFilterResponse } from './index';
 import { waitFor } from '@testing-library/react';
 import { customAxios, dataController, jsonDataFormat } from 'api';
