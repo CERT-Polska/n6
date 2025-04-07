@@ -37,20 +37,20 @@ Some features of this document's layout were inspired by
 - [data sources] A new data source: `phishtank.verified` (collector and
   parser).
 
-- [data pipeline] Added components for e-mail notifications:
-  `n6counter` and `n6notifier` as well as `n6notifier_templates_renderer`
-  (implemented in the `n6datapipeline.notifier`, `n6datapipeline.counter`
-  and `n6datapipeline.aux.notifier_templates_renderer` modules).
+- [data pipeline] New components for e-mail notifications: `n6counter`,
+  `n6notifier` and `n6notifier_templates_renderer` (implemented in the
+  `n6datapipeline.notifier`, `n6datapipeline.counter` and
+  `n6datapipeline.aux.notifier_templates_renderer` modules).
 
 - [data pipeline, portal, rest api, lib] Modified `n6recorder` to fix a
-  bug in *n6 REST API* (and *n6 Portal*'s API), concerning only users of
-  organizations with the `full_access=True` in the Auth DB, which caused
+  bug in *n6 REST API* (and the *n6 Portal*'s API), concerning only users
+  of organizations with `full_access=True` in the Auth DB, which caused
   that resultant events' `client` lists might be incomplete (erroneously
-  limited to the values of the `client` query parameter or -- in results
+  limited to the values of the `client` query parameter, or -- in results
   from `/report/inside` -- to the identifier of the querying user's
   organization). From now on, `n6recorder` additionally records copies of
   events' `client` lists in the `custom` column of the Event DB's `event`
-  table; and both of those web APIs, when generating their results, get
+  table; and both concerned web APIs, when generating their results, get
   `client` lists from it (rather than from the `client` column of the
   `client_to_event` table). *Warning regarding the transitional period:*
   for all older data, `client` lists are just *not included* in results!
@@ -119,25 +119,28 @@ Some features of this document's layout were inspired by
 #### System/Configuration/Programming-Only
 
 - [config, etc/docker, portal, rest api, broker auth api, admin panel,
-  data sources, data pipeline, lib] The config prototype files for
-  `N6DataPipeline` and `N6DataSources` as well as for `N6AdminPanel` and
-  `N6Lib` (*et consortes*) are now stored solely in `etc/n6/` (carefully
-  merged the content of `N6DataPipeline/n6datapipeline/data/conf/` into
-  `etc/n6/`). In similar vein, moved the config prototype files for *n6
-  Portal*, *n6 Rest API* and the Broker Auth API (related to *n6 Stream
-  API*...) into `etc/web/conf/`. Also, updated, improved and/or renamed
-  many of those files.
+  data sources, data pipeline, lib] The `*.conf` configuration prototype
+  files for `N6DataPipeline` and `N6DataSources` as well as for
+  `N6AdminPanel` and `N6Lib` (*et consortes*...) are now stored
+  solely in `etc/n6/` (we carefully merged the former contents of
+  `N6DataPipeline/n6datapipeline/data/conf/` and
+  `N6DataSources/n6datasources/data/conf/` into `etc/n6/`). In similar
+  vein, moved the `*.ini` configuration prototype files for `N6RestApi`
+  (*n6 Rest API*), `N6Portal` (the *n6 Portal*'s API) and
+  `N6BrokerAuthApi` (our internal API related to the *n6 Stream API*'s
+  RabbitMQ instance...) into `etc/web/conf/`. Also, updated, improved
+  and/or renamed many of those files.
 
 - [config, etc/docker, portal, rest api, broker auth api] Adjusted all
   concerned `*.ini` configuration prototype files, so that they no longer
   contain *inline* (i.e., `;`-only-prefixed appended to non-empty lines)
   comments, as such comments are unsupported if our *n6*-specific monkey
   patching of `configparser` is not applied early enough -- which may be
-  the case when it comes to running *n6 Portal API*, *n6 REST API* or the
-  Broker Auth API (related to *n6 Stream API*...) without a `*.wsgi` file
-  containing `import n6lib` as early as possible. **Using such *inline*
-  comments in any `*.ini` files is now deprecated!** (but it is still
-  perfectly OK in `*.conf` files!)
+  the case when it comes to running *n6 REST API*, the *n6 Portal*'s API
+  or the Broker Auth API (related to *n6 Stream API*...) without a
+  `*.wsgi` file containing `import n6lib` as early as possible. Therefore,
+  **using *inline* comments in any `*.ini` files is now deprecated!** (but
+  it is still perfectly OK in `*.conf` files!)
 
 - [lib, cli, tests] Changed some stuff related to tests and test
   helpers/tooling/configuration/discovery/execution, including some
@@ -145,9 +148,9 @@ Some features of this document's layout were inspired by
   doctests using the standard `unittest`-specific mechanism is no longer
   supported (from now on, `n6sdk.tests.test_doctests.load_tests()` raises
   `RuntimeError`); use `pytest` instead (with the `--doctest-modules`
-  option...). Also, added the `addopts = --import-mode=importlib -ra` option
-  to the global configuration of `pytest` (in the top-level `pytest.ini`
-  file).
+  option...). Also, added the `addopts = --import-mode=importlib -ra`
+  option to the global configuration of `pytest` (in the top-level
+  `pytest.ini` file).
 
 - [cli, lib] Fixed
   `n6create_and_initialize_auth_db`/`n6lib.auth_db.scripts.CreateAndInitializeAuthDB`
