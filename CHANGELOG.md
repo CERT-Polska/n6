@@ -25,22 +25,41 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [4.23.0] (2025-04-09)
+
+#### General Audience Stuff
+
+- [docs] Some fixes/improvements to this changelog.
+
+#### System/Configuration/Programming-Only
+
+- [etc/docker, data sources] `etc/n6/`: added 13 missing `60_*.conf`
+  configuration prototype files related to data sources (collectors
+  and parsers).
+
+- [cli, data sources] Added a helper script --
+  `N6DataSources/_check_console_scripts_and_conf.py` -- to check consistency
+  *between* `n6datasources.collectors.*`/`n6datasources.parsers.*` modules
+  *and* corresponding `etc/n6/60_*.conf` configuration prototype files as
+  well as the content of `N6DataSources/console_scripts`.
+
+
 ## [4.22.0] (2025-04-05)
 
 #### General Audience Stuff
 
-- [setup, lib, etc/docker] **Dropped support for Python 3.9. From now on,
-  only Python 3.11 is officially supported.** Debian 12 (*bookworm*) is
-  (still) the recommended operating system, and CPython 3.11 is the
-  recommended implementation of Python.
+- [setup, lib, etc/docker, ...] **Dropped support for Python 3.9.**
+  **From now on, only Python 3.11 is officially supported.** Debian 12
+  (*bookworm*) is, still, the recommended operating system, and CPython
+  3.11 is the recommended implementation of Python.
 
 - [data sources] A new data source: `phishtank.verified` (collector and
   parser).
 
 - [data pipeline] New components for e-mail notifications: `n6counter`,
-  `n6notifier` and `n6notifier_templates_renderer` (implemented in the
-  `n6datapipeline.notifier`, `n6datapipeline.counter` and
-  `n6datapipeline.aux.notifier_templates_renderer` modules).
+  `n6notifier` and `n6notifier_templates_renderer` (implemented,
+  respectively, in the `n6datapipeline.notifier`, `n6datapipeline.counter`
+  and `n6datapipeline.aux.notifier_templates_renderer` modules).
 
 - [data pipeline, portal, rest api, lib] Modified `n6recorder` to fix a
   bug in *n6 REST API* (and the *n6 Portal*'s API), concerning only users
@@ -87,23 +106,23 @@ Some features of this document's layout were inspired by
   `oidc_provider_api.client_secret_key`,
   `oidc_provider_api.verify_ssl`.
 
-- [admin panel, auth db, lib] New column in the Auth DB's `org` table (and
+- [admin panel, auth db, lib] A new column in the Auth DB's `org` table (and
   new `n6lib.auth_db.models.Org`'s field): `org_uuid`. **What is important**
   from the point of view of the administrators of an *n6* instance is that
   the *Alembic migrations machinery* needs to be used to update the schema
   of the production Auth DB (for the instructions how to do it, see
   `N6Lib/n6lib/auth_db/alembic/README.md`).
 
-- [portal] *Incidents* page: added, for users of organizations with
+- [portal] The *Incidents* page: added, for users of organizations with
   `full_access=True`, the `client` data column (for all three data
   resources), together with a new filter (only for the `/report/threats`
   and `/search/events` resources).
 
-- [portal] *Incidents* page: added a new dynamic behavior regarding which
-  data columns are displayed and when; also, generally, much more columns
-  are now available. Use the *Columns* drop-down list to lock the columns
-  you want to keep displayed; click the *Reset Columns* button (a new one)
-  to restore the dynamic behavior.
+- [portal] The *Incidents* page: added a new dynamic behavior regarding
+  which data columns are displayed and when; also, generally, much more
+  columns are now available. Use the *Columns* drop-down list to lock the
+  columns you want to keep displayed; click the *Reset Columns* button (a
+  new one) to restore the dynamic behavior.
 
 - [portal] Modified the formats of exported JSON and CSV files -- now they
   are more comprehensive (more columns...) and/or easier to process (JSON
@@ -119,10 +138,10 @@ Some features of this document's layout were inspired by
 #### System/Configuration/Programming-Only
 
 - [config, etc/docker, portal, rest api, broker auth api, admin panel,
-  data sources, data pipeline, lib] The `*.conf` configuration prototype
+  data sources, data pipeline, lib] All `*.conf` configuration prototype
   files for `N6DataPipeline` and `N6DataSources` as well as for
   `N6AdminPanel` and `N6Lib` (*et consortes*...) are now stored
-  solely in `etc/n6/` (we carefully merged the former contents of
+  in `etc/n6/` (we carefully merged the former contents of
   `N6DataPipeline/n6datapipeline/data/conf/` and
   `N6DataSources/n6datasources/data/conf/` into `etc/n6/`). In similar
   vein, moved the `*.ini` configuration prototype files for `N6RestApi`
@@ -170,16 +189,17 @@ Some features of this document's layout were inspired by
 - [portal, setup, tests] Regarding the implementation of the *n6 Portal*'s
   frontend (*React*-based TS/JS code and related resources, together with
   the development tooling...): made a bunch of additions/enhancements,
-  improvements, fixes as well as upgrades/additions regarding external
-  packages. Among others: significantly expanded and improved the test
-  suite, in particular, added functional tests using `playwright`; did
-  a lot of cleaning and refactoring; introduced `stylelint`...
+  improvements and fixes. Among others: significantly expanded and
+  improved the test suite, in particular, added functional tests using
+  `playwright`; did a lot of cleaning and refactoring; introduced
+  `stylelint`; upgraded some external packages, in particular, to get
+  rid of their older versions' *security* problems.
 
-- [etc/docker] Upgraded the MariaDB version to `10.11`. Replaced the Maria
-  Docker image with an official one.
+- [etc/docker] Upgraded the MariaDB version to `10.11`. Replaced the
+  MariaDB Docker image with an official one.
 
-- [etc/docker, stream api, broker auth api] Added `docker-compose.yml` and
-  `Dockerfile` files for the *n6 Stream API*'s broker and server...
+- [etc/docker, stream api, broker auth api] Added `docker compose`'s
+  `*.yml` and `Dockerfile` files for the *n6 Stream API* stuff...
 
 - [lib, setup, config, etc/docker, tests, docs] Other additions, changes,
   improvements, fixes, cleanups and removals as well as some refactoring...
@@ -252,8 +272,8 @@ Some features of this document's layout were inspired by
 
 #### General Audience Stuff
 
-- [setup, lib, etc/docker] Debian 12 (*bookworm*) and CPython 3.11 are now
-  the officially recommended operating system and Python implementation.
+- [setup, lib, etc/docker, ...] Debian 12 (*bookworm*) and CPython 3.11 are
+  now the officially recommended operating system and Python implementation.
   (CPython 3.9 is still supported.)
 
 - [data sources] New data sources: `turris-cz.greylist-csv` (collector and
@@ -1034,6 +1054,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **The first public release of *n6*.**
 
 
+[4.23.0]: https://github.com/CERT-Polska/n6/compare/v4.22.0...v4.23.0
 [4.22.0]: https://github.com/CERT-Polska/n6/compare/v4.12.1...v4.22.0
 [4.12.1]: https://github.com/CERT-Polska/n6/compare/v4.12.0...v4.12.1
 [4.12.0]: https://github.com/CERT-Polska/n6/compare/v4.5.0...v4.12.0
