@@ -1068,6 +1068,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **The first public release of *n6*.**
 
 
+[4.23.10]: https://github.com/CERT-Polska/n6/compare/v4.23.0...v4.23.10
 [4.23.0]: https://github.com/CERT-Polska/n6/compare/v4.22.0...v4.23.0
 [4.22.0]: https://github.com/CERT-Polska/n6/compare/v4.12.1...v4.22.0
 [4.12.1]: https://github.com/CERT-Polska/n6/compare/v4.12.0...v4.12.1
