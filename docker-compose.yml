@@ -78,28 +78,6 @@ services:
       - ./etc/rabbitmq/conf:/volume/rabbitmq/conf/:ro
     networks:
       - n6-pub-net
-  mongo:
-    image: mongo:4.2
-    hostname: mongo
-    restart: always
-    environment:
-      MONGO_INITDB_DATABASE: n6
-    container_name: mongo
-    ports:
-      - 27017:27017
-    command: --auth
-    healthcheck:
-      test: "if mongo --eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 2)'; then exit 0; fi; exit 1;"
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 120s
-    networks:
-      - n6-pub-net
-    volumes:
-      - ./docker/mongo/docker-healthcheck:/docker-healthcheck
-      - ./volume/mongo/db:/data/db
-      - ./etc/mongo/initdb:/docker-entrypoint-initdb.d
   mysql:
     image: n6_mysql
     build:

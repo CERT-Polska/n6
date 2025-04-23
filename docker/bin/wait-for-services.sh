@@ -4,7 +4,6 @@ set -e
 counter_limit=90
 counter_rabbit=1
 counter_mysql=1
-counter_mongo=1
 counter_redis=1
 counter_mailhog=1
 
@@ -33,14 +32,3 @@ until echo 'show databases;' | mysql -h mysql -u root -ppassword | grep n6 1>/de
   fi
 done
 >&2 echo "MySQL is up!"
-
-# check mongo availability
-until mongo n6 --host mongo -u admin -p password --eval "db.stats()" 1>/dev/null; do
-  >&2 echo counter_mongo "Mongo is unavailable - sleeping $counter_mongo/$counter_limit. Waiting for mongo ..."
-  ((counter_mongo++))
-  sleep 4
-  if [[ counter_mongo -gt $counter_limit ]]; then
-    >&2 echo "Mongo is still unavailable. Exiting ..."
-    exit 1
-  fi
-done

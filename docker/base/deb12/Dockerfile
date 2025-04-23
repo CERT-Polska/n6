@@ -132,13 +132,9 @@ RUN \
     sed -i '1i#!/usr/bin/env python\n' /usr/local/bin/rabbitmqadmin && \
     chown dataman:dataman /usr/local/bin/rabbitmqadmin && \
     chmod +x /usr/local/bin/rabbitmqadmin; \
-    # Mongo & MySQL client
-    # apt-get update && \
-    wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | apt-key add - && \
-    echo "deb http://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/4.2 multiverse" | tee /etc/apt/sources.list.d/mongodb-org.list && \
+    # MySQL client
     apt-get update && \
     apt-get install -y \
-        mongodb-org \
         default-mysql-client && \
     apt-get clean;
 

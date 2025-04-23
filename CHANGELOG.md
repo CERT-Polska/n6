@@ -25,6 +25,20 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [4.23.10] (2025-04-23)
+
+#### System/Configuration/Programming-Only
+
+- [etc/docker] Disabled or removed the stuff related to the `n6archiveraw`
+  data pipeline component and its MongoDB database, to avoid recent
+  problems with installing the very old version of MongoDB the component
+  is compatible with. (*Note:* soon, in a future version of *n6*, we will
+  replace `n6archiveraw` with a completely new *n6* component; that new
+  component will use another database technology, not MongoDB).
+
+- [setup, lib] Slightly upgraded some dependencies.
+
+
 ## [4.23.0] (2025-04-09)
 
 #### General Audience Stuff
