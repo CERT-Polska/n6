@@ -1,4 +1,14 @@
-# n6 Stream API
+<style>
+  code.language-bash::before{
+    content: "$ ";
+  }
+  code.language-bashcmd::before{
+    content: "$ ";
+  }
+</style>
+
+
+# *n6 Stream API*
 
 The API described in this document complements [*n6 REST API*](restapi.md).
 The *Stream API* makes it possible to receive events asynchronously, in
@@ -151,7 +161,7 @@ destination:/exchange/example.org/inside.bots.*.*
 Using an OpenSSL command line tool to connect to the server, authenticate
 and subscribe:
 
-```
+```bashcmd
 openssl s_client -connect n6stream.cert.pl:61614
 
 CONNECT

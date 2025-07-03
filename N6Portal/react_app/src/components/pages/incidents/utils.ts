@@ -39,6 +39,7 @@ export interface IIncidentsForm
   proto?: SelectOption<TProto>[];
   restriction?: SelectOption<TRestriction>[];
   client?: string;
+  nameSub?: string;
 }
 
 const categoryList = [
@@ -141,6 +142,7 @@ export const allFilters: TFilter[] = [
   { name: 'ipNet', label: 'incidents_form_ip_net', type: 'input', validate: validateIpNetworkRequired },
   { name: 'md5', label: 'incidents_form_md5', type: 'input', validate: validateMd5Required },
   { name: 'name', label: 'incidents_form_name', type: 'input', validate: validateIncidentNameRequired },
+  { name: 'nameSub', label: 'incidents_form_name_sub', type: 'input', validate: validateIncidentNameRequired },
   {
     name: 'proto',
     label: 'incidents_form_proto',
@@ -181,8 +183,20 @@ export const convertObjectArrToString = (options: SelectOption<TCategory | TProt
 export const optLimit = 1000;
 
 export const parseIncidentsFormData = (data: IIncidentsForm): IRequestParams => {
-  const { category, proto, fqdnSub, ipNet, urlSub, startDate, startTime, endDate, endTime, restriction, ...rest } =
-    data;
+  const {
+    category,
+    proto,
+    fqdnSub,
+    ipNet,
+    urlSub,
+    nameSub,
+    startDate,
+    startTime,
+    endDate,
+    endTime,
+    restriction,
+    ...rest
+  } = data;
 
   const newData = {
     ...rest,
@@ -194,7 +208,8 @@ export const parseIncidentsFormData = (data: IIncidentsForm): IRequestParams => 
     ...(restriction ? { restriction: convertObjectArrToString(restriction) } : {}),
     ...(fqdnSub ? { 'fqdn.sub': fqdnSub } : {}),
     ...(ipNet ? { 'ip.net': ipNet } : {}),
-    ...(urlSub ? { 'url.sub': urlSub } : {})
+    ...(urlSub ? { 'url.sub': urlSub } : {}),
+    ...(nameSub ? { 'name.sub': nameSub } : {})
   };
 
   return newData;

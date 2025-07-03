@@ -47,7 +47,7 @@ describe('<UserSettingsMfaEdit />', () => {
     expect(MfaQRCodeSpy).toHaveBeenCalledWith({ ...initialMfaConfig.mfa_config }, {});
 
     const editButton = screen.getByRole('button');
-    expect(editButton).toHaveTextContent('Erase and Configure New');
+    expect(editButton).toHaveTextContent('Erase and configure new');
     await userEvent.click(editButton);
     expect(postMfaConfigSpy).toHaveBeenCalled();
     expect(updateUserSettingsMfaStateMock).toHaveBeenCalledWith('form', mockedLoginData);

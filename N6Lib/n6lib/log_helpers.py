@@ -29,7 +29,6 @@ from n6lib.const import (
     HOSTNAME,
     USER_DIR,
     SCRIPT_BASENAME,
-    TOPLEVEL_N6_PACKAGES,
 )
 
 
@@ -69,33 +68,7 @@ def early_Formatter_class_monkeypatching():  # called in n6lib/__init__.py
     logging.Formatter.formatTime = formatTime
 
 
-def get_logger(name=None):
-    """
-    Like logging.getLogger(...) but replacing '__main__' with a sensible name.
-
-    For example, if the script path is '/whatever/n6/utils/foo.py'
-    get_logger('__main__') is equivalent to logging.getLogger('n6.utils.foo').
-    """
-    if name == '__main__':
-        # try to get the script path from __main__.__file__
-        script_path = getattr(sys.modules['__main__'], '__file__', None)
-        if not script_path:
-            # or, if __main__ does not have a non-blank __file__ attribute,
-            # extract the script path from sys.argv...
-            script_path = sys.argv[0]
-        # strip off the filename extension...
-        remaining = os.path.splitext(script_path)[0]
-        # ..and pop path name segments up to
-        # (and including) the n6 toplevel package name
-        aggregated_segments = collections.deque()
-        while True:
-            remaining, segment = os.path.split(remaining)
-            segment = segment.replace('.', 'D')  # just in case of '.' or '..'
-            aggregated_segments.appendleft(segment)
-            if segment in TOPLEVEL_N6_PACKAGES or remaining in ('', '/'):
-                break
-        name = '.'.join(aggregated_segments)
-    return logging.getLogger(name)
+get_logger = logging.getLogger  # This alias exists for historical reasons...
 
 
 _LOGGER = get_logger(__name__)

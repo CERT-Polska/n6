@@ -50,13 +50,13 @@ RUN \
             -G root,sudo,www-data \
             -u 1000 dataman && \
     echo "dataman	ALL=(ALL:ALL) NOPASSWD:ALL" >> /etc/sudoers; \
-    bash -c "mkdir -p  /home/dataman/.n6 /etc/apache2/sites-available /home/dataman/apa_config/python-eggs /home/dataman/certs" && \
+    bash -c "mkdir -p  /home/dataman/.n6 /home/dataman/logs /etc/apache2/sites-available /home/dataman/apa_config/python-eggs /home/dataman/certs" && \
     chown -R dataman:dataman \
         /home/dataman/ /home/dataman/apa_config/ && \
     chmod -R 775 \
         /home/dataman/ /etc/apache2/sites-available; \
-    chown -R 777 \
-        /home/dataman/apa_config/ /home/dataman/apa_config/python-eggs; \
+    chmod -R 777 \
+        /home/dataman/apa_config/ /home/dataman/logs /home/dataman/apa_config/python-eggs; \
     # RabbitMQ client
     wget https://raw.githubusercontent.com/rabbitmq/rabbitmq-management/v3.8.x/bin/rabbitmqadmin -P /usr/local/bin/ && \
     sed -i '1i#!/usr/bin/env python\n' /usr/local/bin/rabbitmqadmin && \
@@ -70,27 +70,16 @@ COPY --chown=dataman:dataman . n6
 
 RUN \
     # create virtualenv (n6datapipeline)
-    python3 -m venv venv-n6datapipeline; \
-    . venv-n6datapipeline/bin/activate; \
-    pip install --upgrade pip -i https://pypi.python.org/simple/; \
-    # setuptools is locked as a part of a temporary workaround (TODO: fix it when #7792 is done + see: #8823)
-    pip install --upgrade 'setuptools<68.0.0' wheel;
+    python3 -m venv venv-n6datapipeline
 
 RUN \
     # create virtualenv (n6brokerauthapi)
-    python3 -m venv venv-n6brokerauthapi; \
-    . venv-n6brokerauthapi/bin/activate; \
-    pip install --upgrade pip -i https://pypi.python.org/simple/; \
-    # setuptools is locked as a part of a temporary workaround (TODO: fix it when #7792 is done + see: #8823)
-    pip install --upgrade 'setuptools<68.0.0' wheel;
-
-
+    python3 -m venv venv-n6brokerauthapi
 
 # Install N6DataPipeline
-RUN . /home/dataman/venv-n6datapipeline/bin/activate; \
-    cd /home/dataman/n6; \
-    ./do_setup.py N6DataPipeline N6Lib N6SDK;
-
+RUN . /home/dataman/venv-n6datapipeline/bin/activate && \
+    cd /home/dataman/n6 && \
+    ./do_setup.py -u N6DataPipeline
 
 # Copy n6 conf files
 RUN cp -f /home/dataman/n6/etc/streamapi/n6/*.conf /home/dataman/.n6; \
@@ -101,9 +90,9 @@ RUN cp -f /home/dataman/n6/etc/streamapi/n6/*.conf /home/dataman/.n6; \
     chmod a+x /home/dataman/entrypoint.sh;
 
 # Install N6DataPipeline
-RUN . /home/dataman/venv-n6brokerauthapi/bin/activate; \
-    cd /home/dataman/n6; \
-    ./do_setup.py N6BrokerAuthApi N6Lib N6SDK;
+RUN . /home/dataman/venv-n6brokerauthapi/bin/activate && \
+    cd /home/dataman/n6 && \
+    ./do_setup.py -u N6BrokerAuthApi
 
 RUN cp -f /home/dataman/n6/etc/streamapi/apa_config/* /home/dataman/apa_config/; \
     cp -f /home/dataman/n6/etc/streamapi/apache2/* /etc/apache2/sites-available/;

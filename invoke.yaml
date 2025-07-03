@@ -1,0 +1,4 @@
+# See: https://docs.pyinvoke.org/en/stable/concepts/configuration.html
+
+run:
+  echo: false

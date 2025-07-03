@@ -474,6 +474,16 @@ class N6DataSpec(DataSpec):
         in_params=('optional', 'unrestricted'),
         in_result=('optional', 'unrestricted'),
         max_length=255,
+
+        extra_params=dict(
+            sub=UnicodeLimitedFieldForN6(
+                in_params='optional',
+                custom_info=dict(
+                    func='like_query',
+                ),
+                max_length=255,
+            )
+        )
     )
 
     origin = UnicodeEnumFieldForN6(

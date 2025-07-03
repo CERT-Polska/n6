@@ -9,32 +9,33 @@ COPY --chown=dataman:dataman . n6
 # Optional installation of old Python-2 stuff. Now, **only if** you
 # provide that stuff manually (for some experimentation, if you are
 # interested in such ancient stuff). Normally, **you don't need it.**
-RUN . /home/dataman/env/bin/activate; \
-    cd /home/dataman/n6/misc-nonpub/old-code-py2 && \
-    ./do_setup.py -a $action N6Lib-py2 N6CoreLib N6Core || true ;
+# [TODO: remove]
+RUN ( . /home/dataman/env/bin/activate && \
+      cd /home/dataman/n6/misc-nonpub/old-code-py2 && \
+      ./do_setup.py -a $action N6Lib-py2 N6CoreLib N6Core ; true )
 
 # Actual installation of *n6* (in Python 3 environment)
-RUN . /home/dataman/env_py3k/bin/activate; \
-    cd /home/dataman/n6; \
-    ./do_setup.py -a $action N6Lib N6SDK N6DataPipeline N6DataSources; \
-    ./do_setup.py -a $action -L N6DataSources-nonpub || true;  # <- Optional extra stuff...
+RUN . /home/dataman/env_py3k/bin/activate && \
+    cd /home/dataman/n6 && \
+    # XXX: `-p 'freezegun==0.3.4'` is temporarily needed for certain custom stuff... (TODO later: remove it from here)
+    ./do_setup.py -b -x tests -p 'freezegun==0.3.4' -a $action N6Lib N6SDK N6DataPipeline N6DataSources  # `-b` <- Install also "bonus" (optional custom) stuff if available...
 
 # Customization of configuration files
-RUN . /home/dataman/env/bin/activate; \
-    mkdir -p /home/dataman/supervisord/log \
+RUN mkdir -p /home/dataman/supervisord/log \
              /home/dataman/supervisord/programs_py2k \
              /home/dataman/supervisord/programs && \
     cd /home/dataman/n6/etc/supervisord && \
-    /home/dataman/env/bin/python get_parsers_conf_py2k.py && \
-    cp programs_py2k/*.conf /home/dataman/supervisord/programs_py2k/ && \
-    cp supervisord_py2k.conf /home/dataman/supervisord/; \
+    # (the following 5 lines are related to old Python-2 stuff) [TODO: remove]
+    ( . /home/dataman/env/bin/activate && \
+      /home/dataman/env/bin/python get_parsers_conf_py2k.py && \
+      cp programs_py2k/*.conf /home/dataman/supervisord/programs_py2k/ && \
+      cp supervisord_py2k.conf /home/dataman/supervisord/ && \
+      yes | n6config ; true ) && \
     /home/dataman/env_py3k/bin/python get_parsers_conf.py && \
     cp programs/*.conf /home/dataman/supervisord/programs/ && \
     cp supervisord.conf /home/dataman/supervisord/ && \
-    # n6 configs
-    yes | n6config; \
-    cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6; \
-    cp -f /home/dataman/n6/etc-nonpub/n6/*.conf /home/dataman/.n6 || true;  # <- Configs for optional extra stuff...
+    cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6 && \
+    ( cp -f /home/dataman/n6/etc-*/n6/*.conf /home/dataman/.n6 ; true )  # <- Configs for "bonus" (optional custom) stuff if available...
 
 # Some helpful links:
 # RabbitMQ management: https://localhost:15671

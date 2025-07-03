@@ -1,2 +1,9 @@
-include *.txt *.md *.rst *.conf *.wsgi
-recursive-include n6adminpanel *.conf *.html *.png *.css *.js *.svg
+include *.txt *.md *.rst
+graft n6adminpanel/templates
+graft n6adminpanel/static
+
+global-exclude *~ *.py[cod] *.so
+prune **/__pycache__
+prune .*cache*
+prune build
+prune dist

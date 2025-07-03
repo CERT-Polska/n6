@@ -386,7 +386,7 @@ function execKnowledgeBaseTests(user: MockedUser) {
         test('download pdf button has correct accessibility attributes', async ({ page }) => {
           const downloadButton = page.getByTestId('kb-article-download-pdf-button');
 
-          await expect(downloadButton).toContainText('Download pdf');
+          await expect(downloadButton).toContainText('Download PDF file');
           await expect(page.getByTestId('kb-article-download-pdf-icon')).toBeVisible();
           await expect(downloadButton).toHaveAttribute('type', 'button');
         });
@@ -415,7 +415,7 @@ function execKnowledgeBaseTests(user: MockedUser) {
           await page.getByTestId('kb-article-download-pdf-button').click();
 
           await expect(page.getByTestId('kb-article-download-pdf-error')).toBeVisible();
-          await expect(page.getByText('Failed to download file')).toBeVisible();
+          await expect(page.getByText('Failed to download PDF file')).toBeVisible();
         });
 
         test('downloads PDF in the current language', async ({ page }) => {

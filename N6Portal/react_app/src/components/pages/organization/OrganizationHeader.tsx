@@ -40,7 +40,7 @@ const OrganizationHeader: FC<IProps> = ({ name, range, at }) => {
                   data-testid="organization-header-update-icon"
                 />
                 <div className="d-flex organization-details align-items-flex-start">
-                  <span className="mr-1" data-testid="organization-header-last-update">
+                  <span className="me-1" data-testid="organization-header-last-update">
                     {messages.organization_last_update}
                   </span>
                   <span className="font-weight-bold" data-testid="organization-header-last-update-date">
@@ -50,7 +50,7 @@ const OrganizationHeader: FC<IProps> = ({ name, range, at }) => {
               </div>
             </Col>
             <Col xl="6">
-              <div className="organization-details-wrapper h-100 d-flex justify-content-flex-start align-items-center pl-xl-3">
+              <div className="organization-details-wrapper h-100 d-flex justify-content-flex-start align-items-center ps-xl-3">
                 <img
                   src={DataRange}
                   className="organization-header-icon"
@@ -58,7 +58,7 @@ const OrganizationHeader: FC<IProps> = ({ name, range, at }) => {
                   data-testid="organization-header-data-range-icon"
                 />
                 <div className="d-flex organization-details align-items-flex-start">
-                  <span className="mr-1" data-testid="organization-header-data-range">
+                  <span className="me-1" data-testid="organization-header-data-range">
                     {messages.organization_data_range}
                   </span>
                   <span className="font-weight-bold" data-testid="organization-header-data-range-value">

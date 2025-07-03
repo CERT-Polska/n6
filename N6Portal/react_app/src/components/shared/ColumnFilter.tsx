@@ -33,7 +33,7 @@ const ColumnFilter: FC<IProps> = ({ columns, customOnClick, resetColumns }) => {
       >
         <span
           data-testid="column-filter-dropdown-title"
-          className="font-smaller font-weight-medium column-filter-dropdown-title mr-2"
+          className="font-smaller font-weight-medium column-filter-dropdown-title me-2"
         >
           {messages.incidents_column_filter}
         </span>
@@ -49,7 +49,7 @@ const ColumnFilter: FC<IProps> = ({ columns, customOnClick, resetColumns }) => {
         >
           <label
             data-testid="column-filter-reset-columns-label"
-            className="column-filter-dropdown-label d-flex align-items-center my-1 font-weight-medium pl-2"
+            className="column-filter-dropdown-label d-flex align-items-center my-1 font-weight-medium ps-2"
           >
             {messages.incidents_column_filter_reset_columns}
           </label>
@@ -69,7 +69,7 @@ const ColumnFilter: FC<IProps> = ({ columns, customOnClick, resetColumns }) => {
             <input
               data-testid={`${column.Header?.toString()}-column-filter-checkbox`}
               readOnly
-              className="mr-2"
+              className="me-2"
               type="checkbox"
               checked={column.isVisible}
               onClick={(e) => {

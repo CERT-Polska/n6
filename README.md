@@ -3,7 +3,7 @@
 [*n6* (Network Security Incident eXchange)](https://cert.pl/en/n6/)
 is a system to collect, manage and distribute security information on a
 large scale. Distribution is realized through a simple REST API and a
-[web interface](https://n6portal.cert.pl/) that authorized users can use
+[web interface](https://n6portal.cert.pl) that authorized users can use
 to receive various types of data, in particular information on threats
 and incidents in their networks.
 
@@ -20,7 +20,7 @@ Contact us via e-mail: [n6@cert.pl](mailto:n6@cert.pl).
 ## Copyright and License
 
 Copyright (c) 2013-2025
-[Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network)](https://en.nask.pl/).
+[Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network)](https://nask.pl/en/).
 All rights reserved.
 
 *n6* is free software; you can redistribute it and/or modify it under

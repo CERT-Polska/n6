@@ -22,7 +22,7 @@ const KnowledgeBase: FC = () => {
     <KBSearchContextProvider>
       <CollapseChapterContextProvider>
         <div className="content-wrapper kb-wrapper" data-testid="knowledge-base-wrapper">
-          <Row className="no-gutters">
+          <Row className="g-0">
             <Col data-testid="kb-articles-column" xs={12} lg={3}>
               <ArticlesList />
             </Col>

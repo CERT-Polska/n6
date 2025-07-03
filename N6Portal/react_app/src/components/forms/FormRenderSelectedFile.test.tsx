@@ -43,7 +43,7 @@ describe('<FormRenderSelectedFile />', () => {
         {
           variant: 'secondary',
           text: `Replace file`,
-          className: 'form-render-btn-replace ml-3',
+          className: 'form-render-btn-replace ms-3',
           onClick: onClickMock
         },
         null

@@ -2,7 +2,7 @@
 
 ## Necessary _n6_ packages
 
-Make sure you have _n6_ system installed accordingly to the guides [Docker installation](../../../install_and_conf/docker.md) or [Step-by-step installation](../../../install_and_conf/step_by_step/index.md).
+Make sure you have _n6_ system installed accordingly to the guides [Docker-Based Installation](../../../install_and_conf/docker.md) or [Step-by-Step Installation](../../../install_and_conf/step_by_step/index.md).
 
 ## _Knowledge Base_ runtime configuration
 

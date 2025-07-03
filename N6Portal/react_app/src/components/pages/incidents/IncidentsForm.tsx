@@ -35,7 +35,7 @@ interface IProps {
 }
 
 export const FILTERS_STORAGE = 'userFilters';
-const fullAccessOnlyFilters = ['restriction', 'client'];
+export const fullAccessOnlyFilters = ['restriction', 'client', 'nameSub'];
 
 const IncidentsForm: FC<IProps> = ({ dataLength, refetchData, currentTab }) => {
   const { fullAccess } = useAuthContext();

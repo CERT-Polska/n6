@@ -27,7 +27,7 @@ describe('<ArticleSearchResults />', () => {
         </QueryClientProviderTestWrapper>
       </BrowserRouter>
     );
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('No results found in language');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('No results found in English');
     expect(screen.getByText(dictionary['en']['knowledge_base_search_results_empty_info'])).toHaveRole('paragraph');
   });
 
@@ -49,7 +49,7 @@ describe('<ArticleSearchResults />', () => {
         </QueryClientProviderTestWrapper>
       </BrowserRouter>
     );
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('No results found in language');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('No results found in English');
     expect(screen.getByText(dictionary['en']['knowledge_base_search_results_empty_info'])).toHaveRole('paragraph');
   });
 

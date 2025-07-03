@@ -139,7 +139,7 @@ h5 {
 .content-wrapper-sm0 {
   @include content-wrapper-base($page-padding-sm);
 
-  @include media-breakpoint-down(sm) {
+  @include media-breakpoint-down(md) {
     padding: 0;
   }
 }

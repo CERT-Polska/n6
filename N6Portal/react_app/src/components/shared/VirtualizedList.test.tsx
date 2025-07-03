@@ -5,27 +5,14 @@ import { CSSProperties } from 'react';
 const mockedOffsetHeight = 10000;
 const mockedOffsetWidth = 12000;
 
+jest.mock(
+  'react-virtualized-auto-sizer',
+  () =>
+    ({ children }: { children: any }) =>
+      children({ height: mockedOffsetHeight, width: mockedOffsetWidth })
+);
+
 describe('<VirtualizedList />', () => {
-  // required for AutoSizer to work properly in test env
-  const originalOffsetHeight = Object.getOwnPropertyDescriptor(
-    HTMLElement.prototype,
-    'offsetHeight'
-  ) as PropertyDescriptor;
-  const originalOffsetWidth = Object.getOwnPropertyDescriptor(
-    HTMLElement.prototype,
-    'offsetWidth'
-  ) as PropertyDescriptor;
-
-  beforeAll(() => {
-    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, value: mockedOffsetHeight });
-    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, value: mockedOffsetWidth });
-  });
-
-  afterAll(() => {
-    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', originalOffsetHeight);
-    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', originalOffsetWidth);
-  });
-
   it.each([
     { containerHeight: 300, rowHeight: 10, expectedContainerHeight: 100, renderedCount: 10 },
     { containerHeight: 300, rowHeight: 100, expectedContainerHeight: 750, renderedCount: 5 },

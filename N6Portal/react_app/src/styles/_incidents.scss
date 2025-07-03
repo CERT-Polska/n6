@@ -3,6 +3,7 @@
   background: none;
   text-align: left;
   padding: sizeToRem(8);
+  text-decoration: none !important;
 
   &.disabled {
     border: sizeToRem(2) solid transparent;
@@ -201,7 +202,7 @@
   position: relative;
   margin-right: sizeToRem(10);
 
-  @include media-breakpoint-down(sm) {
+  @include media-breakpoint-down(md) {
     max-width: 100%;
   }
 
@@ -276,7 +277,7 @@
 .incidents-form-input-wrapper,
 .incidents-form-input,
 .incidents-form-select-wrapper {
-  @include media-breakpoint-down(xs) {
+  @include media-breakpoint-down(sm) {
     width: 100%;
     margin-right: 0;
     margin-left: 0;
@@ -302,7 +303,7 @@
 .incidents-toast {
   width: sizeToRem(400);
 
-  @include media-breakpoint-down(sm) {
+  @include media-breakpoint-down(md) {
     width: sizeToRem(320);
   }
 
@@ -355,4 +356,8 @@
     right: unset !important;
     left: 0 !important;
   }
+}
+
+.dropdown-menu {
+  --bs-tertiary-bg: #e9ecef !important;
 }

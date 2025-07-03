@@ -14,7 +14,7 @@
   margin-bottom: 0;
   margin-right: sizeToRem(10);
 
-  @include media-breakpoint-down(xs) {
+  @include media-breakpoint-down(sm) {
     font-size: sizeToRem(14);
   }
 }

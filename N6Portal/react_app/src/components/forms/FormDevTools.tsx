@@ -1,5 +1,5 @@
-import { DevTool } from '@hookform/devtools';
 import { JSX } from 'react';
+import { DevTool } from '@hookform/devtools';
 import { Control, FieldValues } from 'react-hook-form';
 
 interface IProps<P extends FieldValues> {

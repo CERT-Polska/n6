@@ -155,12 +155,12 @@
   max-width: calc(#{$content-max-width} - (#{$page-padding-lg} * 2));
   width: calc(100% - (#{$page-padding-lg} * 2));
 
-  @include media-breakpoint-down(md) {
+  @include media-breakpoint-down(lg) {
     width: calc(100% - (#{$page-padding-md} * 2));
     max-width: calc(#{$content-max-width} - (#{$page-padding-md} * 2));
   }
 
-  @include media-breakpoint-down(sm) {
+  @include media-breakpoint-down(md) {
     width: calc(100% - (#{$page-padding-sm} * 2));
     max-width: calc(#{$content-max-width} - (#{$page-padding-sm} * 2));
   }
@@ -192,12 +192,12 @@
   z-index: 3;
   background-color: transparent;
 
-  @include media-breakpoint-down(md) {
+  @include media-breakpoint-down(lg) {
     width: calc(100% - (#{$page-padding-md} * 2));
     max-width: calc(#{$content-max-width} - (#{$page-padding-md} * 2));
   }
 
-  @include media-breakpoint-down(sm) {
+  @include media-breakpoint-down(md) {
     width: calc(100% - (#{$page-padding-sm} * 2));
     max-width: calc(#{$content-max-width} - (#{$page-padding-sm} * 2));
   }

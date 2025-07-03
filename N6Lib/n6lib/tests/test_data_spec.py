@@ -33,7 +33,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'id', 'rid', 'client', 'ignored',
         'source', 'restriction', 'confidence', 'category',
         'time.min', 'time.max', 'time.until',
-        'origin', 'name', 'target',
+        'origin', 'name', 'name.sub', 'target',
         'ip', 'ip.net', 'asn', 'cc',
         'url', 'url.sub', 'url.b64', 'fqdn', 'fqdn.sub',
         'proto', 'sport', 'dport', 'dip',
@@ -50,6 +50,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'rid',
         'restriction',
         'dip',
+        'name.sub',
     }
 
     ANONYMIZED_PARAM_KEYS = {

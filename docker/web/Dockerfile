@@ -5,16 +5,16 @@ ARG action=develop
 COPY --chown=dataman:dataman . n6
 
 # Install web components in Python 3 environment.
-RUN . /home/dataman/env_py3k/bin/activate; \
+RUN . /home/dataman/env_py3k/bin/activate && \
     cd /home/dataman/n6/ && \
-    ./do_setup.py -a $action N6Lib N6SDK N6RestApi N6Portal N6AdminPanel N6BrokerAuthApi;
+    ./do_setup.py -x tests -a $action N6Lib N6SDK N6RestApi N6Portal N6AdminPanel N6BrokerAuthApi
 
 # Install n6 Portal frontend
-RUN sudo npm install --global yarn; \
-    cd /home/dataman/n6/N6Portal/react_app \
-    && yarn \
-    && yarn build; \
-    sudo npx -y playwright install --with-deps;
+RUN sudo npm install --global yarn && \
+    cd /home/dataman/n6/N6Portal/react_app && \
+    yarn && \
+    yarn build && \
+    sudo npx -y playwright install --with-deps
 
 # Customization of configuration files.
 RUN cp -f /home/dataman/n6/etc/n6/*.conf /home/dataman/.n6;

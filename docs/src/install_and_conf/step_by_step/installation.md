@@ -1,94 +1,141 @@
-The following examples assume the home directory is `/home/dataman` 
-and the project path is `/home/dataman/n6`.
+<style>
+  code.language-bash::before{
+    content: "$ ";
+  }
+</style>
 
-# Installation of _n6_ Components
 
-## Shell user
+# Installing *n6* Components
 
-First, change the shell user to `dataman`:
+## Where Are We?
+
+Before any operations, ensure the current working directory is the home
+directory of `dataman` (which is supposed to be the user in whose shell
+you execute all commands):
 
 ```bash
-$ su - dataman
-```
-
-## Installing specific python version
-
-If you already have Python 3.9 installed skip this step.
-
-Download Python:
-```bash
-$ wget https://www.python.org/ftp/python/3.9.2/Python-3.9.2.tgz
-```
-
-Once the download is complete, extract the gzipped archive:
-```bash
-$ tar -xf Python-3.9.2.tgz
-```
-Create makefiles
-```bash
-$ cd Python-3.9.2
-$ ./configure --enable-optimizations
-```
-Start build process
-```bash
-$ make -j $(nproc)
-```
-
-Run install script as root (use altinstall to not overwrite the default system python3 binary) 
-```bash
-$ make altinstall
-```
-
-Check if Python was installed properlly
-```bash
-$ python3.9 --version
+cd ~
 ```
 
 
-## _Virtualenv_ initialization
+## New *Virtual Environment*
 
-Create and activate a new Python _virtualenv_, let us call it `env_py3k`; 
-
-If you installed Python 3.9 use:
-```bash
-$ virtualenv --python="/usr/local/bin/python3.9" /home/dataman/env_py3k
-$ source /home/dataman/env_py3k/bin/activate
-```
-
-Otherwise:
-```bash
-$ virtualenv /home/dataman/env_py3k
-$ source /home/dataman/env_py3k/bin/activate
-```
-
-Check the python version being used:
+Create a new Python *virtual environment*... Let its name be `env_py3k`
+(for the purposes of this guide):
 
 ```bash
-$ python --version
-Python 3.9.**
+python3.11 -m venv env_py3k
 ```
 
-## Running setup scripts of _n6_ packages
-
-For the typical installation of _n6_ Python packages, run the `do_setup.py` script
-in the cloned `n6` directory, with names of packages (names of parent directories of packages)
-as its arguments:
+...then, activate it:
 
 ```bash
-(env_py3k)$ cd /home/dataman/n6
-(env_py3k)$ pip install setuptools==68.1.0
-(env_py3k)$ ./do_setup.py N6Lib N6SDK N6DataPipeline N6DataSources N6RestApi N6Portal N6AdminPanel N6BrokerAuthApi;
+source ./env_py3k/bin/activate
 ```
 
-!!! note
-
-    You can add the `-a develop` argument to run the script in the *develop*
-    mode. In this mode a link file to each package is created in your
-    `site-packages` directory. Then, every change in code is reflected
-    immediately, without having to install the affected package again.
-
-After successful installation, try the autocomplete option to reveal a list of _n6_ components:
+Now you can run the Python interpreter...
 
 ```bash
-(env_py3k)$ n6  # <- try the TAB key directly after typing "n6" to see the results of autocompletion
+python
 ```
+
+...to check if everything is OK:
+
+```python
+>>> import sys
+>>> sys.version_info[:2]
+(3, 11)
+>>> sys.executable
+'/home/dataman/env_py3k/bin/python'
+>>> exit()  # Do not forget to exit Python :)
+```
+
+
+## Actual Installation
+
+Enter the *n6* source code directory:
+
+```bash
+cd n6
+```
+
+...and execute the following command to install all *n6* components:
+
+```bash
+./do_setup.py -u all
+```
+
+!!! info
+
+    The suggested command-line option `-u` causes that, before any other
+    action, the basic package installation tools (*pip* and *uv*) will be
+    automatically upgraded to their newest versions.
+
+!!! tip
+
+    The `do_setup.py` script offers a bunch of other command-line options.
+
+    In particular, you can add the `--dev` (or `-d`) option to install *n6*
+    in the *development* mode:
+
+    ```
+    ./do_setup.py -u --dev all
+    ```
+
+    ...so that, after installation of *n6* packages, every change to their
+    source code in subdirectories of `/home/dataman/n6/*` will be reflected
+    in the *virtual environment* -- without the necessity to install the
+    affected packages again. Apart from that, `--dev` ensures that certain
+    useful test and development tools (e.g., `pytest`) are also installed.
+
+    To learn more about `do_setup.py`'s command-line arguments, execute:
+
+    ```
+    ./do_setup.py --help
+    ```
+
+After successful installation, use the shell autocomplete mechanism to
+reveal all available executable scripts provided by the installed *n6*
+components:
+
+```bash
+n6  # <- try the TAB key directly after typing "n6" to see the results of autocompletion
+```
+
+
+## What did we just install?
+
+The positional command-line argument `all` passed to `./do_setup.py`
+made the script install *all* components of *n6*, that is:
+
+* **_n6 pipeline_ components** -- whose implementation can be found in
+  these `n6/`'s subdirectories:
+    * `N6DataSources` -- providing all basic *collectors* and *parsers* (i.e.,
+      the `n6collector_*` and `n6parser_*` components, focused on dealing
+      with particular *data sources*)
+    * `N6DataPipeline` -- providing such components as: `n6enrich`,
+      `n6aggregator`, `n6comparator`, `n6filter`, `n6recorder` and
+      others...
+
+* **_web_ components of _n6_** -- whose implementation can be found in
+  these `n6/`'s subdirectories:
+    * `N6Portal` -- providing **_n6 Portal_** (the GUI for end users)
+    * `N6RestApi` -- providing **_[n6 REST API](../../usage/restapi.md)_**
+      (for those end users who prefer to interact with *n6* via custom
+      client scripts/applications...)
+    * `N6AdminPanel` -- providing **_n6 Admin Panel_** (a simple GUI app
+      for administrators only -- to manage the contents of *Auth DB*)
+    * *not discussed in this guide:* `N6BrokerAuthApi` (providing a [RabbitMQ
+      HTTP auth backend](https://github.com/rabbitmq/rabbitmq-server/blob/v3.13.x/deps/rabbitmq_auth_backend_http/README.md)
+      implementation, being a part of the optional **_[n6 Stream
+      API](../../usage/streamapi.md)_** stuff -- see a separate [setup
+      guide dedicated to *n6 Stream API*...](../opt/streamapi/docker.md))
+
+* *n6*'s library stuff and helper scripts -- whose implementation can be
+  found in the code repo's subdirectories `N6Lib` and `N6SDK`.
+
+!!! note ""
+
+    **See also:**
+
+    *[Architecture and Data Flow Overview](../../data_flow_overview.md)*

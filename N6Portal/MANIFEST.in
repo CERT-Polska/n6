@@ -1,2 +1,8 @@
-include *.txt *.md *.ini *.cfg *.rst
-recursive-include n6portal *.ico *.png *.css *.gif *.jpg *.pt *.txt *.mak *.mako *.js *.html *.xml
+include *.txt *.md *.rst
+prune react_app
+
+global-exclude *~ *.py[cod] *.so
+prune **/__pycache__
+prune .*cache*
+prune build
+prune dist

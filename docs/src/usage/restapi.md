@@ -1,4 +1,4 @@
-# n6 REST API
+# *n6 REST API*
 
 The API described in this document is the *n6* system's main interface
 to share security information with external systems and applications.

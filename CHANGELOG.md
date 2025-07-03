@@ -25,6 +25,13 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [4.30.0-beta1] (2025-07-03)
+
+*Note: this is a prerelease.*
+
+[**TBD:** release notes for the final release `4.30.0`]
+
+
 ## [4.23.10] (2025-04-23)
 
 #### System/Configuration/Programming-Only
@@ -1068,6 +1075,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **The first public release of *n6*.**
 
 
+[4.30.0-beta1]: https://github.com/CERT-Polska/n6/compare/v4.23.10...v4.30.0b1
 [4.23.10]: https://github.com/CERT-Polska/n6/compare/v4.23.0...v4.23.10
 [4.23.0]: https://github.com/CERT-Polska/n6/compare/v4.22.0...v4.23.0
 [4.22.0]: https://github.com/CERT-Polska/n6/compare/v4.12.1...v4.22.0

@@ -21,14 +21,14 @@ const MobileNavigation: FC = () => {
   };
 
   return (
-    <Dropdown onToggle={(isOpen) => setIsOpen(isOpen)} className="mr-4 ml-auto">
+    <Dropdown onToggle={(isOpen) => setIsOpen(isOpen)} className="me-4 ms-auto">
       <Dropdown.Toggle
         id="dropdown-user-menu"
         aria-label={`${messages.header_user_menu_aria_label}`}
         bsPrefix="header-user-btn"
         className="light-focus"
       >
-        <span className="font-bigger font-weight-medium header-mobile-dropdown-title mr-2">
+        <span className="font-bigger font-weight-medium header-mobile-dropdown-title me-2">
           {dropdownHeaders[pathname]}
         </span>
         <Chevron className={classNames('header-dropdown-chevron', { open: isOpen })} />

@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2023 NASK. All rights reserved.
+# Copyright (c) 2020-2025 NASK. All rights reserved.
 
 from unittest.mock import (
     ANY,
@@ -14,6 +14,7 @@ from unittest_expander import (
 
 from n6datasources.collectors.cert_pl import CertPlShieldCollector
 from n6datasources.tests.collectors._collector_test_helpers import BaseCollectorTestCase
+from n6lib.config import ConfigError
 
 
 @expand
@@ -23,12 +24,12 @@ class TestCertPlShieldCollector(BaseCollectorTestCase):
 
     EXAMPLE_ORIG_DATA = (
         b'invalid\trow\twhich\tshould\tbe\tskipped\n'
-        b'6\texample_6.com\t2020-06-03T14:00:00\n'
-        b'5\texample_5.com\t2020-06-03T13:00:00\n'
-        b'4\texample_4.com\t2020-06-03T12:00:00\n'
-        b'3\texample_3.com\t2020-06-02T13:00:00\n'
-        b'2\texample_2.com\t2020-06-01T14:00:00\n'
-        b'1\texample_1.com\t2020-06-01T13:00:00'
+        b'6\texample_6.com\t2020-06-03T14:00:00+00:00\n'
+        b'5\texample_5.com\t2020-06-03T13:00:00+00:00\n'
+        b'4\texample_4.com\t2020-06-03T12:00:00+00:00\n'
+        b'3\texample_3.com\t2020-06-02T13:00:00+00:00\n'
+        b'2\texample_2.com\t2020-06-01T14:00:00+00:00\n'
+        b'1\texample_1.com\t2020-06-01T13:00:00+00:00'
     ),
 
     EXPECTED_PROP_KWARGS = {
@@ -46,17 +47,25 @@ class TestCertPlShieldCollector(BaseCollectorTestCase):
                       expected_publish_output_calls,
                       expected_saved_state,
                       label,                # arg (added by @foreach) irrelevant here
-                      context_targets):     # arg (added by @foreach) irrelevant here
-
-        collector = self.prepare_collector(self.COLLECTOR_CLASS,
-                                           config_content=config_content,
-                                           initial_state=initial_state)
+                      context_targets,      # arg (added by @foreach) irrelevant here
+                      expecting_config_error=False):
 
         def prepare_orig_data():
             return b"".join(orig_data)
 
-        collector.obtain_orig_data = prepare_orig_data
-        collector.run_collection()
+        if expecting_config_error:
+            with self.assertRaises(ConfigError):
+                collector = self.prepare_collector(self.COLLECTOR_CLASS,
+                                                   config_content=config_content,
+                                                   initial_state=initial_state)
+
+        else:
+            collector = self.prepare_collector(self.COLLECTOR_CLASS,
+                                               config_content=config_content,
+                                               initial_state=initial_state)
+            collector.obtain_orig_data = prepare_orig_data
+            collector.run_collection()
+
         self.assertEqual(self.publish_output_mock.mock_calls, expected_publish_output_calls)
         self.assertEqual(self.saved_state, expected_saved_state)
 
@@ -65,8 +74,6 @@ class TestCertPlShieldCollector(BaseCollectorTestCase):
         yield param(
             config_content='''
                 [CertPlShieldCollector]
-                row_count_mismatch_is_fatal = False
-                url=https://www.example.com
                 download_retries=3
             ''',
             initial_state={
@@ -79,13 +86,13 @@ class TestCertPlShieldCollector(BaseCollectorTestCase):
             expected_publish_output_calls=[
                 call(
                     # routing_key
-                    'cert-pl.shield',
+                    'cert-pl.shield.202505',
 
                     # body
                     (
-                        b'4\texample_4.com\t2020-06-03T12:00:00\n'
-                        b'5\texample_5.com\t2020-06-03T13:00:00\n'
-                        b'6\texample_6.com\t2020-06-03T14:00:00'
+                        b'4\texample_4.com\t2020-06-03T12:00:00+00:00\n'
+                        b'5\texample_5.com\t2020-06-03T13:00:00+00:00\n'
+                        b'6\texample_6.com\t2020-06-03T14:00:00+00:00'
                     ),
 
                     # prop_kwargs
@@ -95,7 +102,7 @@ class TestCertPlShieldCollector(BaseCollectorTestCase):
             expected_saved_state={
                 'newest_row_time': '2020-06-03 14:00:00',
                 'newest_rows': {
-                    '6\texample_6.com\t2020-06-03T14:00:00'
+                    '6\texample_6.com\t2020-06-03T14:00:00+00:00'
                 },
                 'rows_count': 6
             },
@@ -104,8 +111,6 @@ class TestCertPlShieldCollector(BaseCollectorTestCase):
         yield param(
             config_content='''
                 [CertPlShieldCollector]
-                row_count_mismatch_is_fatal = False
-                url=https://www.example.com
                 download_retries=3
            ''',
             initial_state=sentinel.NO_STATE,
@@ -113,16 +118,16 @@ class TestCertPlShieldCollector(BaseCollectorTestCase):
             expected_publish_output_calls=[
                 call(
                     # routing_key
-                    'cert-pl.shield',
+                    'cert-pl.shield.202505',
 
                     # body
                     (
-                        b'1\texample_1.com\t2020-06-01T13:00:00\n'
-                        b'2\texample_2.com\t2020-06-01T14:00:00\n'
-                        b'3\texample_3.com\t2020-06-02T13:00:00\n'
-                        b'4\texample_4.com\t2020-06-03T12:00:00\n'
-                        b'5\texample_5.com\t2020-06-03T13:00:00\n'
-                        b'6\texample_6.com\t2020-06-03T14:00:00'
+                        b'1\texample_1.com\t2020-06-01T13:00:00+00:00\n'
+                        b'2\texample_2.com\t2020-06-01T14:00:00+00:00\n'
+                        b'3\texample_3.com\t2020-06-02T13:00:00+00:00\n'
+                        b'4\texample_4.com\t2020-06-03T12:00:00+00:00\n'
+                        b'5\texample_5.com\t2020-06-03T13:00:00+00:00\n'
+                        b'6\texample_6.com\t2020-06-03T14:00:00+00:00'
                     ),
 
                     # prop_kwargs
@@ -132,10 +137,42 @@ class TestCertPlShieldCollector(BaseCollectorTestCase):
             expected_saved_state={
                 'newest_row_time': '2020-06-03 14:00:00',
                 'newest_rows': {
-                    '6\texample_6.com\t2020-06-03T14:00:00'
+                    '6\texample_6.com\t2020-06-03T14:00:00+00:00'
                 },
                 'rows_count': 6
             },
+        )
+
+        # The `url` option is set,
+        # we expect a `ConfigError` to be raised
+        # - this option should not be used
+        yield param(
+            config_content='''
+                [CertPlShieldCollector]
+                url='https://example.org'
+                download_retries=3
+           ''',
+            initial_state=sentinel.NO_STATE,
+            orig_data=cls.EXAMPLE_ORIG_DATA,
+            expected_publish_output_calls=[],
+            expected_saved_state=sentinel.NO_STATE,
+            expecting_config_error=True,
+        )
+
+        # The `row_count_mismatch_is_fatal` option is set,
+        # we expect a `ConfigError` to be raised
+        # - this option should not be used
+        yield param(
+            config_content='''
+                [CertPlShieldCollector]
+                row_count_mismatch_is_fatal = True
+                download_retries=3
+           ''',
+            initial_state=sentinel.NO_STATE,
+            orig_data=cls.EXAMPLE_ORIG_DATA,
+            expected_publish_output_calls=[],
+            expected_saved_state=sentinel.NO_STATE,
+            expecting_config_error=True,
         )
 
     @foreach(cases)

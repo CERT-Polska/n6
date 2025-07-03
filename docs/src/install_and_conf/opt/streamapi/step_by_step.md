@@ -1,7 +1,11 @@
-# Configuration of *n6 Stream API*
+# *n6 Stream API*: Step-by-Step Installation
+
+!!! warning
+
+    This guide is a draft, not a ready document.
 
 The *n6 Stream API* installation is based on Debian 12.
-This guide describes how to install [*n6 Stream Api*](../../usage/streamapi.md) along with a **second** RabbitMQ on **another** server, **different** than main *n6* instance.
+This guide describes how to install [*n6 Stream Api*](../../../usage/streamapi.md) along with a **second** RabbitMQ on **another** server, **distinct** from the main *n6* instance.
 
 The simplified data flow of the `n6 Stream Api`:
 
@@ -37,9 +41,20 @@ https://www.rabbitmq.com/docs/install-debian
 
 Install packages:
 
-```
-$ apt update
-$ apt install rabbitmq-server apache2 pip libapache2-mod-wsgi-py3 python3-virtualenv
+```bash
+$ apt update \
+  && apt install -y \
+      apache2 \
+      git \
+      libapache2-mod-wsgi-py3 \
+      python3.11 \
+      python3.11-dev \
+      python3.11-venv \
+      rabbitmq-server \
+      sudo \
+      swig \
+      wget \
+  && apt clean
 $ git clone https://github.com/CERT-Polska/n6.git
 ```
 
@@ -48,7 +63,8 @@ $ git clone https://github.com/CERT-Polska/n6.git
 
 ### RabbitMQ configuration
 
-#### Enable plugins:
+#### Enable plugins
+
 Enable these plugins by running the `rabbitmq-plugins` command
 
 ```
@@ -64,7 +80,7 @@ Enable these plugins by running the `rabbitmq-plugins` command
 [e*] rabbitmq_web_dispatch             3.12.6
 ```
 
-### Create RabbitMQ config:
+### Create RabbitMQ config
 
 !!! Note
     Configuration below assumes you have your own `/etc/rabbitmq/rabbitmq.conf` file.
@@ -141,21 +157,14 @@ Definition: federation-upstream-set: all
 
 ### n6 preparation
 
-* Install the n6 Data Pipeline inside a new virtualenv environment:
+* Install the n6 Data Pipeline inside a new Python *virtual environment*:
 
 ```bash
-$ virtualenv venv-n6datapipeline
+$ /usr/bin/python3.11 -m venv venv-n6datapipeline
 $ source venv-n6datapipeline/bin/activate
 (venv-n6datapipeline) $ cd n6
-(venv-n6datapipeline) $ python do_setup.py N6DataPipeline
+(venv-n6datapipeline) $ ./do_setup.py -u N6DataPipeline
 ```
-
-!!! Note
-      If during the `python do_setup.py N6DataPipeline` command you encountered any errors, try:
-
-      ```
-      (venv-n6datapipeline) $ pip install setuptools==68.1.0
-      ```
 
 #### Create n6 configuration
 
@@ -267,21 +276,14 @@ class = n6lib.log_helpers.NoTracebackCutFormatter
 
 
 
-* Install the n6 Broker Auth API inside a new virtualenv environment:
+* Install the n6 Broker Auth API inside a new Python *virtual environment*:
 
 ```bash
-$ virtualenv venv-n6brokerauthapi
+$ /usr/bin/python3.11 -m venv venv-n6brokerauthapi
 $ source venv-n6brokerauthapi/bin/activate
 (venv-n6brokerauthapi) $ cd n6
-(venv-n6brokerauthapi) $ python do_setup.py N6BrokerAuthApi
+(venv-n6brokerauthapi) $ ./do_setup.py -u N6BrokerAuthApi
 ```
-
-!!! Note
-      If during the `python do_setup.py N6BrokerAuthApi` command you encountered any errors, try:
-
-      ```
-      (venv-n6brokerauthapi) $ pip install setuptools==68.1.0
-      ```
 
 * Create configuration for the n6 Broker Auth Api
 
@@ -394,7 +396,7 @@ Inside the virtual enviroment, run `exchange_updater`:
 
 ### Testing
 
-* Make sure the `n6annonymizer` is running within the `venv-n6datapipeline` env. Supervisor mode is preferred.
-* Connect to the STOMP server based on the stream api [wiki](../../usage/streamapi.md)
+* Make sure the `n6anonymizer` is running within the `venv-n6datapipeline` env. Supervisor mode is preferred.
+* Connect to the STOMP server (see the Stream API [usage guide](../../../usage/streamapi.md))
 * Push some data into the n6 pipeline. Make sure the organization that the user is connected to has all the necessary rights to read those events. The access list is the same as in the REST API and Portal
 * Events should be received by the connected client

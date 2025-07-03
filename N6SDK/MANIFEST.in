@@ -1,4 +1,8 @@
-include *.txt *.md *.ini *.cfg *.rst requirements
-include docs/Makefile
-recursive-include docs/source *.py *.rst .gitkeep
-recursive-include n6sdk *.txt *.md *.ini *.cfg *.rst
+include *.txt *.md *.rst
+include n6sdk/_api_test_tool/config_base.ini
+
+global-exclude *~ *.py[cod] *.so
+prune **/__pycache__
+prune .*cache*
+prune build
+prune dist

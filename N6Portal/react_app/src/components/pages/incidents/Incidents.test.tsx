@@ -138,7 +138,7 @@ describe('<Incidents />', () => {
       const listTabElement = tabButton.parentElement as HTMLElement;
       expect(listTabElement).toHaveRole('listitem');
       expect(firstRowContainer).toContainElement(listTabElement);
-      if (tabButton.textContent === 'Other threats') {
+      if (tabButton.textContent === 'General threat indicators') {
         // corresponding to first availableResource
         expect(listTabElement.className).toContain(' selected');
         expect(listTabElement).toHaveTextContent(
@@ -194,7 +194,7 @@ describe('<Incidents />', () => {
     }; // defaults from IncidentsForm (see.: IncidentsForm.test.tsx)
 
     const selectedTab = screen.getAllByRole('listitem').find((tab) => tab.className.includes(' selected'));
-    expect(selectedTab).toHaveTextContent('Other threats'); // for /report/threats
+    expect(selectedTab).toHaveTextContent('General threat indicators'); // for /report/threats
     expect(getSearchSpy).toHaveBeenCalledWith(parseIncidentsFormData(incidentsFormData), '/report/threats');
 
     // no results since getSearch Promise resolved to empty list

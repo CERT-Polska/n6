@@ -96,6 +96,7 @@ class Test_EventsQueryProcessor__get_key_to_query_func(unittest.TestCase):
             'modified.min': qmc_mock.modified_query,
             'modified.until': qmc_mock.modified_query,
             'name': key_query,
+            'name.sub': qmc_mock.like_query,
             'origin': key_query,
             'proto': key_query,
             'replaces': key_query,

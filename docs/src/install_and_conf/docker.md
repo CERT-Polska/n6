@@ -3,20 +3,16 @@
     content: "$ ";
   }
 </style>
+
 # Docker-Based Installation
 
-## Opening remarks
-
 This short guide describes how to run, for testing and exploration, the
-latest version of *n6* -- using the _Docker_ and _docker compose_ tools.
+latest version of *n6* -- using the _Docker_ and _Docker Compose_ tools.
 
-The goal of this guide is to give you an example of how you can run *n6*
-in the easiest possible way, so that you can learn -- by monitoring and
-experimenting -- how the *n6* system works and how you can interact with
-it. Keep in mind that this guide was designed for Linux-based systems.
-Even with usage of _Docker_ and _docker compose_, we cannot guarantee
-that it will work on other systems (such as Windows or Mac OS).
-
+The goal of this guide is to give you an example of how to easily run
+the *n6* system, so that you can learn -- by experimenting with the
+stuff -- what the basic building blocks of *n6* are and how they
+interact with each other and with the outside world.
 
 !!! warning "Disclaimer: what these materials _are_ and what they are _not_"
 
@@ -30,7 +26,7 @@ that it will work on other systems (such as Windows or Mac OS).
 
     In other words, these materials are *not* intended to be used as a
     recipe for a secure production setup -- in particular, when it comes to
-    (but not limited to) such issues as X.509 certificates (note that those
+    (but not limited to) such subjects as X.509 certificates (note that those
     in the [`etc/ssl/*`](https://github.com/CERT-Polska/n6/tree/master/etc/ssl)
     directories of the source code repository are purely example ones --
     they should *never* be used for anything related to production
@@ -38,24 +34,35 @@ that it will work on other systems (such as Windows or Mac OS).
     materials are, generally, either skipped or reduced to what is necessary
     just to run the stuff), or file access permissions.
 
-    It should be obvious that an experienced system administrator and/or
-    security specialist should prepare and/or carefully review and adjust
+    It should be obvious that an experienced system administrator or
+    security expert should prepare and/or carefully review and adjust
     any configuration/installation/deployment of services that are to be
     made production ones, in particular if those services are to be made
     public.
 
 ## Requirements
 
-- _Docker Engine_ installed (a reasonably new version)
-- _Docker Compose_ installed (a reasonably new version)
+- [*Docker Engine*](https://docs.docker.com/engine/) installed (a reasonably new version)
+- [*Docker Compose*](https://docs.docker.com/compose/) installed (a reasonably new version)
 - The *n6* [source code repository](https://github.com/CERT-Polska/n6) cloned
+
+!!! note
+
+    This guide is Linux-dedicated. Despite the use of *Docker*, we do not
+    guarantee that the described operations will work on other systems (such
+    as Windows or Mac OS).
+
+!!! important
+
+    Internet access is required during the entire installation process.
 
 
 ## Building the environment
 
 !!! note
 
-    Make sure you are in the top-level directory of the cloned source code repository.
+    Make sure you are in the top-level directory of a cloned *n6* source
+    code repository.
 
 To build our demonstrational *n6* environment we use [Docker Compose](https://docs.docker.com/compose/) which binds all the services needed to run the *n6* infrastructure.
 
@@ -68,24 +75,23 @@ The result of the process are ready-to-use docker images.
 !!! tip
 
     Sometimes docker images might not be built correctly due to external factors.
-    In case of any errors, try building them once more.
+    In case of any errors, try building the images again.
 
 !!! note
 
-    The Docker stack requires all images to be built correctly.
-    In case of errors, please do not hesitate to create an
-    [issue on our GitHub site](https://github.com/CERT-Polska/n6/issues).
+    The Docker stack requires all images to be built correctly. In case of
+    an irrecoverable error, please do not hesitate to create an [issue on
+    our GitHub site](https://github.com/CERT-Polska/n6/issues).
 
-If the build process has been correctly performed you should be able to
-run the following command to obtain a result similar to what is listed
-here:
+After successfully building the images, run the following command:
 
 ```bash
 docker images | grep n6
 ```
 
+The command output should be similar to this:
+
 ```
-Output:
 n6_mysql            latest              a34ee42c8e58        20 minutes ago      551MB
 n6_rabbit           latest              841d42d17010        20 minutes ago      250MB
 n6_web              latest              1f219d032515        21 minutes ago      2.39GB
@@ -121,10 +127,10 @@ By default, the stack exposes the following ports:
 
 !!! note
 
-    Make sure that all ports are not used by your localhost.
-    If a port is used by another service, please change it in the
-    `docker compose.yml` file and for GUI parameterization configurator
-    you also need to change port in `run_app_server.js` in `N6Porta/reactapp/config/`
+    Make sure none of these ports are already in use for `localhost`.
+    If a port is occupied by another service, please change it in the
+    `docker-compose.yml` file (and, in the case of the GUI parameterization
+    configurator, also in `N6Portal/react_app/config/run_app_server.js`).
 
 ## Launching the system
 
@@ -141,13 +147,14 @@ Now, give Docker a few minutes to initialize.
     You can use the `-d` flag to run the application in the background (*detached mode*).
 
 Port  **3001** is used by the Portal GUI parameterization configurator.
-It is not necessary for n6 to work. Therefore to use it you need to set it up manually:
+It is not necessary for *n6* to work; to use the configurator, you need
+to set it up manually:
 
 ```bash
 docker compose exec web bash
 ```
 
-Then
+...and then:
 
 ```bash
 cd /home/dataman/n6/N6Portal/react_app && yarn run config
@@ -163,8 +170,9 @@ the `-y` flag to suppress any confirmation prompts):
 ```bash
 docker compose run --rm worker n6create_and_initialize_auth_db -D -y
 ```
+
+The command output should be similar to this:
 ```
-Output:
 * The 'n6create_and_initialize_auth_db' script started.
 * Dropping the auth database if it exists...
 [...]
@@ -174,29 +182,7 @@ Output:
   * CriteriaCategory "amplifier"
   * CriteriaCategory "bots"
   * CriteriaCategory "backdoor"
-  * CriteriaCategory "cnc"
-  * CriteriaCategory "deface"
-  * CriteriaCategory "dns-query"
-  * CriteriaCategory "dos-attacker"
-  * CriteriaCategory "dos-victim"
-  * CriteriaCategory "flow"
-  * CriteriaCategory "flow-anomaly"
-  * CriteriaCategory "fraud"
-  * CriteriaCategory "leak"
-  * CriteriaCategory "malurl"
-  * CriteriaCategory "malware-action"
-  * CriteriaCategory "other"
-  * CriteriaCategory "phish"
-  * CriteriaCategory "proxy"
-  * CriteriaCategory "sandbox-url"
-  * CriteriaCategory "scam"
-  * CriteriaCategory "scanning"
-  * CriteriaCategory "server-exploit"
-  * CriteriaCategory "spam"
-  * CriteriaCategory "spam-url"
-  * CriteriaCategory "tor"
-  * CriteriaCategory "vulnerable"
-  * CriteriaCategory "webinject"
+[...]
 * Invoking appropriate Alembic tools to stamp the auth database as being at the `head` Alembic revision...
 [...]
 * The 'n6create_and_initialize_auth_db' script exits gracefully.
@@ -267,7 +253,7 @@ Then follow the directions in _Multi-Factor Authentication Setup_.
 - Credentials to log in:
     - username: `login@example.com`,
     - organization: `example.com`,
-    - password: `entered when calling the n6populate_auth_db script`.
+    - password: *the one entered during the execution of the `n6populate_auth_db` script*.
 
 **Mailhog Web GUI:**
 
@@ -297,13 +283,14 @@ Start `worker` container in the interactive mode:
 docker compose exec worker bash
 ```
 
-First, look at the container's directory structure:
+Within the container, look at the directory structure:
 
 ```bash
 ls -l
 ```
+
+The command output should be similar to this:
 ```
-Output:
 drwxr-xr-x 3 dataman dataman     4096 Jan 27 10:18 certs
 -rwxr-xr-x 1 dataman dataman       80 Jan 27 10:19 entrypoint.sh
 drwxr-xr-x 1 dataman dataman     4096 Jan 27 10:18 env
@@ -344,7 +331,7 @@ Some files and directories are worth mentioning -- namely:
   parsers.
 
 - the **`n6`** directory contains the cloned repository. The *n6*
-  infrastructure has been installed with the `develop` option. This
+  infrastructure has been installed with the `-a dev` option. This
   means that you can mount the whole locally cloned `n6` directory
   as a _volume_ into the container. As a result, every change in locally
   stored *n6* code will be immediately applied inside the container on
@@ -362,8 +349,9 @@ Run `supervisorctl` to examine the status of all n6 components:
 ```bash
 docker compose exec worker supervisorctl -c supervisord/supervisord.conf
 ```
+
+The command output should include lines similar to the following:
 ```
-Output:
 n6aggregator                         RUNNING   pid 34, uptime 0:05:55
 n6archiveraw                         RUNNING   pid 35, uptime 0:05:55
 n6comparator                         RUNNING   pid 36, uptime 0:05:55

@@ -23,21 +23,6 @@ from n6sdk.data_spec import (
 ###############################################
 
 
-TOPLEVEL_N6_PACKAGES = (
-    'n6adminpanel',
-    'n6brokerauthapi',
-    'n6datapipeline',
-    'n6datasources',
-    'n6gitlabtools',
-    'n6sdk',
-    'n6lib',
-    'n6web',
-    'n6portal',
-    'n6push',
-    'n6testutils',
-)
-
-
 HOSTNAME = socket.gethostname().split('.', 1)[0]
 SCRIPT_FILENAME = (sys.argv[0]
                    if sys.argv and sys.argv[0]

@@ -64,7 +64,7 @@ const FormFilterInput: FC<IProps & FormContextProps> = memo(
     dataTestId
   }) => {
     // allow whitespaces (e.g. `irc bot`) only for fieldsWithWhitespaces
-    const fieldsWithWhitespaces = ['name'];
+    const fieldsWithWhitespaces = ['name', 'nameSub'];
     const keepWhitespaces = fieldsWithWhitespaces.includes(name);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

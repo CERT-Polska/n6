@@ -325,7 +325,7 @@ class n6NormalizedData(Base):
 
     @classmethod
     def like_query(cls, key, value):
-        mapping = {"url.sub": "url", "fqdn.sub": "fqdn"}
+        mapping = {"url.sub": "url", "fqdn.sub": "fqdn", "name.sub": "name"}
         col = getattr(cls, mapping[key])
         return or_(*[
             # Note: Each `col.contains(val, autoescape=True)` call is

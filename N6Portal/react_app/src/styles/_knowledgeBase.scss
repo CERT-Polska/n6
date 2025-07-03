@@ -62,11 +62,7 @@
 
   .kb-chapter-link {
     color: $dark;
-
-    &:hover,
-    &:focus {
-      text-decoration: none;
-    }
+    text-decoration: none;
 
     &.active {
       color: $primary;

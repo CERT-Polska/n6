@@ -1,59 +1,115 @@
-# Supervisor
+<style>
+  code.language-bash::before{
+    content: "$ ";
+  }
+</style>
 
-!!!note
 
-    The following examples assume the home directory path is `/home/dataman`
-    and the project directory path is `/home/dataman/n6`.
+# Managing *n6 Pipeline* Components with *Supervisor*
 
-Supervisor is a system for controlling processes' state under UNIX,
-useful to manage the _n6_ pipeline (`N6DataPipeline`) components and (`N6DataSources`) sources.
+[*Supervisor*](https://supervisord.org/) is a tool for controlling
+processes' state under UNIX-like systems (such as Linux-based ones).
+
+This turns out to be very useful for managing *n6 pipeline* components.
+
+
+## Where are we?
+
+Again, before any operations, ensure the current working directory is
+the home directory of `dataman` (which is supposed to be the user in
+whose shell you execute all commands):
 
 ```bash
-(env_py3k)$ pip install supervisor
+cd ~
 ```
+
+Also, make sure the Python *virtual environment* in which *n6* [has been
+installed](installation.md#actual-installation) is active:
+
+```bash
+source ./env_py3k/bin/activate
+```
+
 
 ## Configuration
 
-Create directories for Supervisor's config and log files. Create a configuration file in
-`~/supervisor/supervisord.conf`.
-You can find example configuration in _n6_ repository, in
-`/home/dataman/n6/etc/supervisord/supervisord.conf`.
+First, install *Supervisor*:
 
 ```bash
-(env_py3k)$ mkdir -p ~/supervisord/{log,programs}
-(env_py3k)$ cp ~/n6/etc/supervisord/supervisord.conf ~/supervisord
+pip install supervisor
 ```
 
-Generate config files for _n6_ parsers and copy them to the `supervisord` directory:
+Then, create directories for Supervisor's configuration and log files.
 
 ```bash
-(env_py3k)$ cd ~/n6/etc/supervisord/
-(env_py3k)$ python get_parsers_conf.py
-(env_py3k)$ cp programs/*.conf ~/supervisord/programs
+mkdir -p supervisord/{log,programs}
 ```
 
-If you install _n6_ in a different Virtualenv than recommended (i.e., other than `env_py3k`),
-then you have to adjust a proper path in all of the files in `n6/etc/supervisord/programs` in
-the `PATH` environment variable and in the `command` option:
-
-```text
-command=/home/dataman/<ENV_NAME>/bin/{program_command}
-environment=PATH="/home/dataman/<ENV_NAME>/bin/"
-```
-
-## Running the Supervisor's process
-
-To run the `supervisord` process:
+Now, create a configuration file in `~/supervisor/supervisord.conf`,
+basing it on the example configuration from the *n6* source code
+repository:
 
 ```bash
-(env_py3k)$ supervisord -c ~/supervisord/supervisord.conf
+cp n6/etc/supervisord/supervisord.conf supervisord
 ```
 
-## Controlling the processes
+Finally, generate configuration files for *parser* components of *n6*,
+and copy them to the `supervisord` directory:
 
-You can manage processes managed by the `supervisord` with the `supervisorctl` command.
+```bash
+cd n6/etc/supervisord
+```
 
-Inside the `supervisorctl` prompt type `status` to list all processes and their status:
+```bash
+PYTHONPATH=/home/dataman/n6/N6DataSources python get_parsers_conf.py \
+  && cp programs/*.conf ~/supervisord/programs
+```
+
+```bash
+cd ~
+```
+
+!!! note
+
+    If you installed *n6* in a different *virtual environment* than
+    recommended (i.e., other than `env_py3k`), you have to adjust paths
+    in all files in `supervisord/programs`:
+
+    ```
+    command=/home/dataman/<ENV_NAME>/bin/{program_command}
+    ```
+
+    ```
+    environment=PATH="/home/dataman/<ENV_NAME>/bin/"
+    ```
+
+
+## Running the Supervisor's Process
+
+Open **a separate `dataman`'s shell session** and activate our *Virtual
+Environment*:
+
+```bash
+source ./env_py3k/bin/activate
+```
+
+Then run the `supervisord` daemon process...
+
+```bash
+supervisord -c ~/supervisord/supervisord.conf
+```
+
+
+## Controlling the Supervisor's Processes
+
+Execute:
+
+```bash
+supervisorctl -c ~/supervisord/supervisord.conf
+```
+
+Inside the `supervisorctl` prompt, type `status` to list all processes
+and their statuses:
 
 ```bash
 supervisor> status
@@ -66,12 +122,25 @@ n6parser_abusechfeodotracker202110.conf RUNNING   pid 3929, uptime 0:00:15
 n6recorder                              RUNNING   pid 3930, uptime 0:00:15
 ```
 
-You can use commands like `start` or `stop` to control a single or all of the processes.
+You can use commands like `start` or `stop` to control a single process
+or all processes...
 
-## Managing message broker queues, created by running components
+!!! tip
 
-Check the RabbitMQ's management GUI for new queues, which should have been created by each
-component that consumes incoming messages.
+    Inside the `supervisorctl` prompt, type `help` to learn more about
+    available commands...
 
-To start some data flow, you should run some collectors. You can do it manually, or schedule
-Cron jobs to run them periodically.
+
+## Components and Queues...
+
+Check the RabbitMQ's management web interface for new queues, which
+should have been created by each *n6 pipeline* component that is
+supposed to consume incoming messages.
+
+To start data flow, you need to run some *collectors*. You can do it
+manually, or schedule *Cron* jobs to run them periodically...
+
+!!! note
+
+    From each *collector*, data is received by a *parser* (in rare cases,
+    by multiple *parsers*).

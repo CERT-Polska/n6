@@ -17,19 +17,16 @@ nav:
       - Stream API: usage/streamapi.md
   - Your Own Instance of n6:
       - Docker-Based Installation: install_and_conf/docker.md
-#      - Step-by-Step Installation:
-#          - Step-by-Step Installation: install_and_conf/step_by_step/index.md
-#          - System Preparation: install_and_conf/step_by_step/system.md
-#          - Installation of n6 Components: install_and_conf/step_by_step/installation.md
-#          - Pre-Setup Configuration: install_and_conf/step_by_step/config.md
-#          - Setting up instance of n6: install_and_conf/step_by_step/setup.md
-#          - Check n6 Data Flow & Web Services: install_and_conf/step_by_step/check.md
-#          - Delve deeper:
-#            - Configuration of n6 Pipeline: install_and_conf/step_by_step/pipeline_config.md
-#            - Examining Data Flow: install_and_conf/step_by_step/examining_data_flow.md
-#            - Certificates: install_and_conf/step_by_step/certificates.md
-#            - Configuration of n6 Web Components: install_and_conf/step_by_step/web_components_config.md
-#            - Supervisor: install_and_conf/step_by_step/supervisor.md
+      - Step-by-Step Installation:
+          - Step-by-Step Installation: install_and_conf/step_by_step/index.md
+          - System Preparation: install_and_conf/step_by_step/system.md
+          - Installing n6 Components: install_and_conf/step_by_step/installation.md
+          - Configuring n6 Components: install_and_conf/step_by_step/config.md
+          - Trying It Out: install_and_conf/step_by_step/check.md
+          - Delving Deeper:
+#            - XXX: install_and_conf/step_by_step/examining_data_flow.md
+            - Managing n6 Pipeline Components with Supervisor: install_and_conf/step_by_step/supervisor.md
+            - n6 Portal – Some Finer Points: install_and_conf/step_by_step/portal_finer_points.md
       - Optional Features (selected topics):
           - Optional Features (selected topics): install_and_conf/opt/index.md
           - Running IntelMQ Bots in n6 Pipeline:
@@ -47,8 +44,11 @@ nav:
               - Management in n6 Admin Panel: install_and_conf/opt/optional_agreements/manage.md
               - Appearance in n6 Portal: install_and_conf/opt/optional_agreements/portal.md
               - n6 Portal Backend API: install_and_conf/opt/optional_agreements/api.md
-          - Docker-Based Configuration of n6 Stream API: install_and_conf/opt/n6streamapi-docker-install.md
-          - Configuration of n6 Stream API: install_and_conf/opt/n6streamapi-install.md
+#          - Stream API:
+#              - Stream API: install_and_conf/opt/streamapi/index.md
+#              - Docker-Based Installation: install_and_conf/opt/streamapi/docker.md
+#              - Step-by-Step Installation: install_and_conf/opt/streamapi/step_by_step.md
+          - Stream API: install_and_conf/opt/streamapi/docker.md
 #  - Developer Guides:
 #      - Implementing a New Data Source:
 #          - Implementing a New Data Source: dev_guides/new_source/index.md

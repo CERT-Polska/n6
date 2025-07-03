@@ -1,5 +1,11 @@
-include *.txt *.md *.rst requirements requirements-*
-recursive-include n6lib *.conf *.ini
-recursive-include n6lib/data *
-recursive-include n6lib/auth_db/alembic *.py *.mako README *.txt *.md *.rst
-recursive-include n6lib/tests/certs_and_requests_for_testing *
+include *.txt *.md *.rst
+include n6lib/auth_db/alembic.ini
+recursive-include n6lib/auth_db/alembic *.py *.mako *.txt *.md *.rst
+graft n6lib/data
+graft n6lib/tests/certs_and_requests_for_testing
+
+global-exclude *~ *.py[cod] *.so
+prune **/__pycache__
+prune .*cache*
+prune build
+prune dist

@@ -164,7 +164,7 @@ describe('<SingleArticle />', () => {
 
     const downloadPdfButton = screen.getByRole('button');
     expect(container.querySelector('svg-download-mock')?.parentElement?.parentElement).toBe(downloadPdfButton);
-    expect(downloadPdfButton).toHaveTextContent('Download pdf');
+    expect(downloadPdfButton).toHaveTextContent('Download PDF');
 
     await userEvent.click(downloadPdfButton);
     expect(getArticlePdfFileSpy).toHaveBeenCalledWith(articleId, 'en');

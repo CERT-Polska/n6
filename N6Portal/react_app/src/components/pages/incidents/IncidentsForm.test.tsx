@@ -1,5 +1,5 @@
 import { render, screen, getAllByRole, act, renderHook, queryAllByRole } from '@testing-library/react';
-import IncidentsForm, { FILTERS_STORAGE } from './IncidentsForm';
+import IncidentsForm, { FILTERS_STORAGE, fullAccessOnlyFilters } from './IncidentsForm';
 import { LanguageProviderTestWrapper, QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import * as DatePickerModule from 'components/forms/datePicker/DatePicker';
 import * as FormTimeInputModule from 'components/forms/datePicker/TimeInput';
@@ -24,9 +24,9 @@ describe('<IncidentsForm />', () => {
   });
 
   it.each([
-    { currentTab: '/report/inside', expectedFilterAmount: 20 },
-    { currentTab: '/search/events', expectedFilterAmount: 21 },
-    { currentTab: '/report/threats', expectedFilterAmount: 21 }
+    { currentTab: '/report/inside', expectedFilterAmount: 21 },
+    { currentTab: '/search/events', expectedFilterAmount: 22 },
+    { currentTab: '/report/threats', expectedFilterAmount: 22 }
   ])(
     'renders list of filters (with mandatory start date and time) to specify incident search query',
     async ({ currentTab, expectedFilterAmount }) => {
@@ -123,7 +123,7 @@ describe('<IncidentsForm />', () => {
       expect(dropdownWrapper).toHaveClass('show dropdown');
       const filtersDropdownWrapper = dropdownWrapper?.childNodes[1] as HTMLElement;
       const filterButtons = getAllByRole(filtersDropdownWrapper, 'button');
-      expect(filterButtons).toHaveLength(allFilters.length - 2); // no restriction or client fields for fullAccess=false
+      expect(filterButtons).toHaveLength(allFilters.length - fullAccessOnlyFilters.length); // no restriction, client or nameSub fields for fullAccess=false
       expect(screen.queryByRole('button', { name: dictionary['en']['incidents_form_restriction'] })).toBe(null);
       expect(screen.queryByRole('button', { name: dictionary['en']['incidents_form_client'] })).toBe(null);
     }

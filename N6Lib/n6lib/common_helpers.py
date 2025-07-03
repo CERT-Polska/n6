@@ -126,15 +126,13 @@ EMAIL_OVERRESTRICTED_SIMPLE_REGEX = re.compile(
 # any valuable information (so they can be cut off from debug messages)
 USELESS_SRC_PATH_PREFIX_REGEXES = (
     re.compile(r'/N6'
-               r'(?:'
-               r'AdminPanel|BrokerAuthApi|DataPipeline|DataSources(?:-\w+)?'
-               r'|GitLabTools|Lib|Portal|Push|RestApi|SDK|TestUtils'
-               r')'
+               r'[A-Z]\w*'
+               r'(?:-\w+)?'
                r'/(?=n6)',
                re.ASCII),
     re.compile(r'/[^/]+\.egg/', re.ASCII),
     re.compile(r'/(?:site|dist)-packages/', re.ASCII),
-    re.compile(r'/python[23](?:\.\d+)+/', re.ASCII),
+    re.compile(r'/python3(?:\.\d+)+/', re.ASCII),
     re.compile(r'^/home/\w+/', re.ASCII),
     re.compile(r'^/usr/(?:(?:local/)?lib/)?', re.ASCII),
 )

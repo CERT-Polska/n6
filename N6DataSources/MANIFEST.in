@@ -1,1 +1,7 @@
-include *.txt *.md *.rst requirements
+include *.txt *.md *.rst
+
+global-exclude *~ *.py[cod] *.so
+prune **/__pycache__
+prune .*cache*
+prune build
+prune dist

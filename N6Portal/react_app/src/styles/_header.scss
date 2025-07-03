@@ -60,6 +60,10 @@
   }
 }
 
+.show > .header-user-btn:focus {
+  box-shadow: 0 0 0 0.2rem rgb(170.85 38.25 246.5 / 0.5);
+}
+
 .header-dropdown-chevron {
   transition: transform 0.3s ease;
 

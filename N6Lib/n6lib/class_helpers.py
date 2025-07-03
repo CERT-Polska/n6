@@ -184,7 +184,7 @@ class CombinedWithSuper:
 
     ***
 
-    Continuing our story, let us (completely indepentently from `A`)
+    Continuing our story, let us (completely independently from `A`)
     extend the same attribute in another subclass of `Root`, name it
     `B`:
 
@@ -302,14 +302,14 @@ class CombinedWithSuper:
             values is missing then the other one becomes the `__get__()`'s
             return value, still *without* calling the *value combiner*.)
 
+            If a *value combiner* is unable to combine certain pair of
+            values (in particular, because of what their types are), it
+            should raise an exception (for example, `TypeError`).
+
             If a *value combiner* succeeds, the result becomes
             the return value of the corresponding invocation of
             `CombinedWithSuper.__get__()`, *unless* the result is
             the `CombinedWithSuper.MISSING` marker (see below).
-
-            If a *value combiner* is unable to combine certain pair of
-            values (in particular, because of what their types are), it
-            should raise an exception (for example, `TypeError`).
 
             A *value combiner* can simulate the lack of the handled
             attribute -- by returning the `CombinedWithSuper.MISSING`
@@ -356,7 +356,7 @@ class CombinedWithSuper:
 
     Each instance of `CombinedWithSuper` has the following public
     fields (typically, they are not needed outside of the code of
-    `CombinedWithSuper`, but ocasionally may appear to be useful).
+    `CombinedWithSuper`, but occasionally may appear to be useful).
 
     All of them *should be treated as read-only ones* (i.e., even
     if that is technically possible, their values should *not* be
@@ -1626,7 +1626,7 @@ class CombinedWithSuper:
                             owner: type[T]) -> Any:
         """
         Get a value, or raise an exception, that will be
-        returned/propagated as the result of the enclosing
+        returned/propagated as the outcome of the enclosing
         invocation of `__get__()`.
 
         This method is invoked by the `CombinedWithSuper.__get__()`'s
@@ -1716,7 +1716,7 @@ class CombinedWithSuper:
 
         This method is invoked by the `get_resultant_value()` method.
 
-        Beware that the default implementation of this method assumes
+        *Important:* the default implementation of this method assumes
         that it is invoked *only* if both the *value from super* and the
         *local value* are present, i.e., that it is *never* invoked if
         `value_from_super` *or* this `CombinedWithSuper` instance's
@@ -2360,7 +2360,7 @@ def properly_negate_eq(self, other):
     class that contributes to the inheritance hierarchy) which shadowed
     the original `object.__ne__()`. In such cases use this implementation
     of `__ne__` just by placing `__ne__ = properly_negate_eq` in the body
-    of your class definition (you could get the same result by setting
+    of your class definition (you could get the same effect by setting
     `__ne__ = object.__ne__`, but `__ne__ = properly_negate_eq` seems
     more readable, especially because of all this description `:-)`).
 

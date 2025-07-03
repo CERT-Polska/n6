@@ -78,85 +78,9 @@ class Test_monkeypached_Formatter_formats_utc_time(unittest.TestCase):
         self.assertEqual(expected, formatted)
 
 
-@patch('n6lib.log_helpers.TOPLEVEL_N6_PACKAGES', ('n6foo', 'n6bar', 'n6ham'))
-@patch('logging.getLogger', return_value=sentinel.logger)
 class Test__get_logger(unittest.TestCase):
-
-    def test_some_module_name(self, mocked__getLogger):
-        returned = get_logger('my_package.my_module')
-        self._do_asserts(mocked__getLogger, returned,
-                         expected_getLogger_arg='my_package.my_module')
-
-    @patch('__main__.__file__', new='foooo/n6foo/bar/actual_name.py')
-    def test_main__file__with_toplevel_n6_package(self, mocked__getLogger):
-        returned = get_logger('__main__')
-        self._do_asserts(mocked__getLogger, returned,
-                         expected_getLogger_arg='n6foo.bar.actual_name')
-
-    @patch('__main__.__file__', new='/foooo/n6foo/bar/actual_name.py')
-    def test_main__file__with_toplevel_n6_package__abs_path(self, mocked__getLogger):
-        returned = get_logger('__main__')
-        self._do_asserts(mocked__getLogger, returned,
-                         expected_getLogger_arg='n6foo.bar.actual_name')
-
-    @patch('__main__.__file__', new='n6bar/bar/actual_name.py')
-    def test_main__file__leftmost_toplevel_n6_package(self, mocked__getLogger):
-        returned = get_logger('__main__')
-        self._do_asserts(mocked__getLogger, returned,
-                         expected_getLogger_arg='n6bar.bar.actual_name')
-
-    @patch('__main__.__file__', new='/n6ham/bar/actual_name.py')
-    def test_main__file__leftmost_toplevel_n6_package__abs_path(self, mocked__getLogger):
-        returned = get_logger('__main__')
-        self._do_asserts(mocked__getLogger, returned,
-                         expected_getLogger_arg='n6ham.bar.actual_name')
-
-    @patch('__main__.__file__', new='n6spammmm/bar/actual_name.py')
-    def test_main__file__without_toplevel_n6_package(self, mocked__getLogger):
-        returned = get_logger('__main__')
-        self._do_asserts(mocked__getLogger, returned,
-                         expected_getLogger_arg='n6spammmm.bar.actual_name')
-
-    @patch('__main__.__file__', new='/foooo/bar/actual_name.py')
-    def test_main__file__without_toplevel_n6_package__abs_path(self, mocked__getLogger):
-        returned = get_logger('__main__')
-        self._do_asserts(mocked__getLogger, returned,
-                         expected_getLogger_arg='foooo.bar.actual_name')
-
-    @patch('__main__.__file__', new='actual_name.py')
-    def test_main__file__without_toplevel_n6_package__single_name(self, mocked__getLogger):
-        returned = get_logger('__main__')
-        self._do_asserts(mocked__getLogger, returned,
-                         expected_getLogger_arg='actual_name')
-
-    @patch('__main__.__file__', new='/actual_name.py')
-    def test_main__file__without_toplevel_n6_package__single_name__abs_path(self,
-                                                                            mocked__getLogger):
-        returned = get_logger('__main__')
-        self._do_asserts(mocked__getLogger, returned,
-                         expected_getLogger_arg='actual_name')
-
-    @patch('__main__.__file__', new='')
-    def test_main__file__empty(self, mocked__getLogger):
-        self._test_using_sys_argv(mocked__getLogger)
-
-    @patch('__main__.__file__', new=None)
-    def test_main__file__none(self, mocked__getLogger):
-        self._test_using_sys_argv(mocked__getLogger)
-
-    @patch.dict(sys.modules, {'__main__': types.ModuleType('__main__')})
-    def test_main__without_file(self, mocked__getLogger):
-        self._test_using_sys_argv(mocked__getLogger)
-
-    def _test_using_sys_argv(self, mocked__getLogger):
-        with patch('sys.argv', new=['/foooo/n6foo/bar/actual_name.py', 'a', 'b']):
-            returned = get_logger('__main__')
-            self._do_asserts(mocked__getLogger, returned,
-                             expected_getLogger_arg='n6foo.bar.actual_name')
-
-    def _do_asserts(self, mocked__getLogger, returned, expected_getLogger_arg):
-        mocked__getLogger.assert_called_once_with(expected_getLogger_arg)
-        self.assertIs(returned, sentinel.logger)
+    def test(self):
+        assert get_logger is logging.getLogger
 
 
 @patch('n6lib.log_helpers._loaded_configuration_paths', new_callable=set)

@@ -1,0 +1,107 @@
+#
+# Project Basics
+#
+
+
+[project]
+
+name = "n6lib"
+dynamic = ["version"]
+description = "The library of common *n6* modules"
+requires-python = ">=3.9, <3.12"
+dependencies = [
+    "n6sdk",
+
+    "alembic",
+    "bcrypt",
+    "docker",
+    "importlib-resources",
+    "jinja2",
+    "mysqlclient",
+    "passlib",
+    "pika",
+    "pyjwt[crypto]",
+    "pymongo",
+    "pyotp",
+    "pyramid",
+    "pystemmer",
+    "pystempel",
+    "python-dateutil",
+    "radar",
+    "requests",
+    "rt",
+    "sqlalchemy",
+    "typing-extensions",
+    "urllib3",
+    "webob",
+]
+
+#readme = "README.md"
+maintainers = [
+    {name = "CERT Polska", email = "n6@cert.pl"}
+]
+license = "AGPL-3.0-only"
+keywords = [
+    "n6", "security", "incident", "library",
+]
+classifiers = [
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.optional-dependencies]
+dev = [
+    "coverage",
+    "invoke",
+    "mkdocs",
+    "mkdocs-material",
+    "packaging",
+    "pylint",
+    "pytest",
+    "pytest-cov",
+    "unittest-expander",
+
+    "pyramid-debugtoolbar",
+    "waitress",
+]
+tests = [
+    "pytest",
+    "pytest-cov",
+    "coverage",
+    "unittest-expander",
+]
+
+[project.urls]
+Homepage = "https://github.com/CERT-Polska/n6"
+Documentation = "https://n6.readthedocs.io/"
+Repository = "https://github.com/CERT-Polska/n6.git"
+Issues = "https://github.com/CERT-Polska/n6/issues"
+Changelog = "https://github.com/CERT-Polska/n6/blob/master/CHANGELOG.md"
+
+[project.scripts]
+n6create_and_initialize_auth_db = "n6lib.auth_db.scripts:create_and_initialize_auth_db"
+n6drop_auth_db = "n6lib.auth_db.scripts:drop_auth_db"
+n6populate_auth_db = "n6lib.auth_db.scripts:populate_auth_db"
+n6import_to_auth_db = "n6lib.auth_db.scripts:import_to_auth_db"
+n6prepare_legacy_auth_db_for_alembic = """\
+    n6lib.auth_db._before_alembic.script_preparing_for_alembic\
+    :prepare_legacy_auth_db_for_alembic"""
+
+
+#
+# `setuptools`-related settings
+#
+
+
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["n6*"]
+
+[tool.setuptools.dynamic]
+version = {file = ".n6-version"}

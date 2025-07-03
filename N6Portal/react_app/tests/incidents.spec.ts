@@ -82,6 +82,7 @@ export const IncidentFilters = [
   'ipNet',
   'md5',
   'name',
+  'nameSub',
   'proto',
   'restriction',
   'sha1',
@@ -97,7 +98,7 @@ function execIncidentsTests(user: MockedUser) {
   test(`${user.name} should display incidents page elements`, async ({ page }) => {
     expect(page.url()).toEqual('https://localhost/incidents');
     await expectHeaderIsVisibleAndEnabled(page, user);
-    await expect(page.getByText('Choose criteria and do a')).toBeVisible();
+    await expect(page.getByText('Choose search criteria')).toBeVisible();
   });
 
   test.describe('Columns', () => {
@@ -462,6 +463,7 @@ function execIncidentsTests(user: MockedUser) {
         if (!user.fullAccess) {
           await expect(page.getByTestId('restriction_filter_item')).not.toBeVisible();
           await expect(page.getByTestId('client_filter_item')).not.toBeVisible();
+          await expect(page.getByTestId('nameSub_filter_item')).not.toBeVisible();
           continue;
         }
         if (isInsideTab && filter === 'client') {

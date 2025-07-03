@@ -21,7 +21,7 @@ interface ICollapseToggleButton {
 const CollapseToggleButton: FC<ICollapseToggleButton> = ({ children, handleChange, active, dataTestId }) => {
   return (
     <button className="kb-collapse-button" onClick={handleChange} aria-expanded={active} data-testid={dataTestId}>
-      <Chevron className={classNames('articles-list-chapter-chevron mr-2', { open: active })} />
+      <Chevron className={classNames('articles-list-chapter-chevron me-2', { open: active })} />
       {children}
     </button>
   );

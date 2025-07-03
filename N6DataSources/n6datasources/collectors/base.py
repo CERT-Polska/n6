@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2024 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 """
 Collector base classes + auxiliary tools.
@@ -1801,15 +1801,23 @@ class BaseTimeOrderedRowsCollector(StatefulCollectorMixin, BaseTwoPhaseCollector
         raise NotImplementedError
 
     def _check_counts(self, prev_rows_count, rows_count, fresh_rows):
-        problems = []
+        problems = list(
+            self._generate_count_mismatch_problems(prev_rows_count, rows_count, fresh_rows),
+        )
+        if problems:
+            separator = '\n\nThe following problem also occurred:\n\n'
+            msg = separator.join(problems)
+            if self.config['row_count_mismatch_is_fatal']:
+                raise ValueError(msg)
+            LOGGER.warning(msg)
 
+    def _generate_count_mismatch_problems(self, prev_rows_count, rows_count, fresh_rows):
         if len(fresh_rows) != len(set(fresh_rows)):
-            problems.append('Found duplicates among the fresh rows.')
-
+            yield 'Found duplicates among the fresh rows.'
         if prev_rows_count is not None:
             expected_rows_count = prev_rows_count + len(fresh_rows)
             if rows_count != expected_rows_count:
-                problems.append(
+                yield (
                     f'The currently stated count of all rows ({rows_count}) '
                     f'is not equal to the sum of the count stated by the '
                     f'previous run of the collector ({prev_rows_count}) '
@@ -1827,13 +1835,6 @@ class BaseTimeOrderedRowsCollector(StatefulCollectorMixin, BaseTwoPhaseCollector
 
                     f'\n* some of the fresh rows duplicate some of the '
                     f'rows collected earlier.')
-
-        if problems:
-            separator = '\n\nThe following problem also occurred:\n\n'
-            msg = separator.join(problems)
-            if self.config['row_count_mismatch_is_fatal']:
-                raise ValueError(msg)
-            LOGGER.warning(msg)
 
 
 class BaseDownloadingTimeOrderedRowsCollector(BaseDownloadingCollector,

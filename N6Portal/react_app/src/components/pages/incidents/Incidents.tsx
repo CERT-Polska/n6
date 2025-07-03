@@ -398,10 +398,10 @@ const Incidents: FC = () => {
   return (
     <div className="incidents-wrapper d-flex flex-column flex-grow-1">
       <div className="w-100">
-        <Row className="no-gutters">
+        <Row className="g-0">
           <Col xs="12" md="8">
             <div className="incidents-header-left d-flex align-items-center">
-              <ul className="incidents-header-buttons w-100 m-0 pl-0 d-flex">
+              <ul className="incidents-header-buttons w-100 m-0 ps-0 d-flex">
                 {availableResources.map((resource) => (
                   <li
                     key={resource}
@@ -423,7 +423,7 @@ const Incidents: FC = () => {
           </Col>
           <Col xs="12" md="4">
             <div className="incidents-header-right d-flex align-items-center">
-              <div className="d-flex mr-5">
+              <div className="d-flex me-5">
                 <ColumnFilter
                   columns={tableInstance.allColumns}
                   customOnClick={storeColumnsOnToggle}
@@ -436,7 +436,7 @@ const Incidents: FC = () => {
                   id="incidents-export-dropdown"
                   bsPrefix="export-dropdown-toggle"
                 >
-                  <span className="font-smaller font-weight-medium column-filter-dropdown-title mr-2">
+                  <span className="font-smaller font-weight-medium column-filter-dropdown-title me-2">
                     {messages.incidents_export_dropdown_title}
                   </span>
                   <Chevron className="dropdown-chevron" />

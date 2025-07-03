@@ -1,9 +1,12 @@
-# Copyright (c) 2020-2023 NASK. All rights reserved.
+# Copyright (c) 2020-2025 NASK. All rights reserved.
 
 import unittest
 
 from n6datasources.parsers.base import BaseParser
-from n6datasources.parsers.cert_pl import CertPlShieldParser
+from n6datasources.parsers.cert_pl import (
+    CertPlShieldParser,
+    CertPlShield202505Parser,
+)
 from n6datasources.tests.parsers._parser_test_mixin import ParserTestMixin
 
 
@@ -85,4 +88,50 @@ class TestCertPlShieldParser(ParserTestMixin, unittest.TestCase):
                     fqdn="example_1.com",
                 ),
             ]
+        )
+
+
+class TestCertPlShield202505Parser(ParserTestMixin, unittest.TestCase):
+
+    PARSER_SOURCE = 'cert-pl.shield'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202505'
+    PARSER_CLASS = CertPlShield202505Parser
+    PARSER_BASE_CLASS = BaseParser
+    PARSER_CONSTANT_ITEMS = {
+        'restriction': 'public',
+        'confidence': 'high',
+        'category': 'phish',
+    }
+
+    def cases(self):
+        yield (
+            b'4\texample_4.com\t2025-05-08T12:28:06+00:00\n'
+            b'3\texample_3.com\t2025-05-08T12:27:06+00:00\n'
+            b'2\texample_2.com\t2025-05-08T12:26:06+00:00\n'
+            b'1\texample_1.com\t2025-05-08T12:25:06+00:00\n'
+            ,
+            [
+                dict(
+                    time="2025-05-08 12:28:06",
+                    fqdn="example_4.com",
+                ),
+                dict(
+                    time="2025-05-08 12:27:06",
+                    fqdn="example_3.com",
+                ),
+                dict(
+                    time="2025-05-08 12:26:06",
+                    fqdn="example_2.com",
+                ),
+                dict(
+                    time="2025-05-08 12:25:06",
+                    fqdn="example_1.com",
+                ),
+            ]
+        )
+
+        yield (
+            b'invalid\trow\t\n'
+            ,
+            ValueError
         )

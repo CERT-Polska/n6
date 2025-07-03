@@ -1,4 +1,4 @@
-# Copyright (c) 2016-2024 NASK. All rights reserved.
+# Copyright (c) 2016-2025 NASK. All rights reserved.
 
 import unittest
 
@@ -23,7 +23,7 @@ class TestTurrisCzGreylistCsv202401Parser(ParserTestMixin, unittest.TestCase):
     PARSER_RAW_FORMAT_VERSION_TAG = '202401'
     
     http_last_modified = "2023-12-21 10:14:00"
-    expires_time = "2023-12-29 10:14:00"  # 8 days later
+    expires_time = "2023-12-22 10:14:00"  # 1 day later
     MESSAGE_EXTRA_HEADERS = {'meta': {'http_last_modified': http_last_modified}}
 
     def cases(self):

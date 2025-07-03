@@ -52,28 +52,23 @@ describe('<Account />', () => {
     expect(accountPageContainers).toHaveLength(3); // user info, email and inside criteria
 
     const userInfoContainer = accountPageContainers[0] as HTMLElement;
-    const emailInfoContainer = accountPageContainers[1] as HTMLElement;
-    const insideCriteriaContainer = accountPageContainers[2] as HTMLElement;
+    const organizationInfoContainer = accountPageContainers[1] as HTMLElement;
+    const emailInfoContainer = accountPageContainers[2] as HTMLElement;
 
-    expect(getByRole(userInfoContainer, 'heading', { level: 2 })).toHaveTextContent('User settings');
+    expect(getByRole(userInfoContainer, 'heading', { level: 2 })).toHaveTextContent('User');
+    expect(getByRole(organizationInfoContainer, 'heading', { level: 2 })).toHaveTextContent('Organization');
     expect(getByRole(emailInfoContainer, 'heading', { level: 2 })).toHaveTextContent('E-mail notification settings');
-    expect(getByRole(insideCriteriaContainer, 'heading', { level: 2 })).toHaveTextContent(
-      "'Inside' resource events criteria"
-    );
 
     const headers = [
       [userInfoContainer, 'User login'],
-      [userInfoContainer, 'User organization'],
-      [userInfoContainer, 'Available resources'],
+      [organizationInfoContainer, 'User organization'],
+      [organizationInfoContainer, 'Organization actual name'],
+      [organizationInfoContainer, 'Available resources'],
+      [organizationInfoContainer, 'Inside network criteria'],
       [emailInfoContainer, 'Notification addresses'],
       [emailInfoContainer, 'Notification times'],
       [emailInfoContainer, 'Notification language'],
-      [emailInfoContainer, 'Notifications on business days only'],
-      [insideCriteriaContainer, 'ASN filter'],
-      [insideCriteriaContainer, 'CC filter'],
-      [insideCriteriaContainer, 'FQDN filter'],
-      [insideCriteriaContainer, 'Known URLs'],
-      [insideCriteriaContainer, 'IP network filter']
+      [emailInfoContainer, 'Notifications on business days only']
     ];
 
     // overall headers
@@ -81,10 +76,10 @@ describe('<Account />', () => {
       expect(getByText(container as HTMLElement, header as string)).toBeInTheDocument();
     }
 
-    // user information content
+    // available resources information content
     userConfig.available_resources.forEach((resource) => {
       expect(
-        getByText(userInfoContainer, dictionary['en'][`account_resources_${resource as TAvailableResources}`])
+        getByText(organizationInfoContainer, dictionary['en'][`account_resources_${resource as TAvailableResources}`])
       ).toBeInTheDocument();
     });
 
@@ -110,11 +105,11 @@ describe('<Account />', () => {
     // inside criteria content
     [cc_seq, fqdn_seq, asn_seq, url_seq].forEach((param) => {
       param.forEach((value) => {
-        expect(getByText(insideCriteriaContainer, value)).toBeInTheDocument();
+        expect(organizationInfoContainer.textContent).toContain(value.toString());
       });
     });
     ip_min_max_seq.forEach((ip_range) => {
-      expect(getByText(insideCriteriaContainer, `${ip_range.min_ip} - ${ip_range.max_ip}`)).toBeInTheDocument();
+      expect(organizationInfoContainer.textContent).toContain(`${ip_range.min_ip} - ${ip_range.max_ip}`);
     });
   });
 });

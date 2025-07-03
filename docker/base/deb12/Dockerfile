@@ -41,6 +41,7 @@ RUN \
 
 RUN \
     # install base dependencies
+    echo "deb http://security.debian.org/debian-security bullseye-security main" >> /etc/apt/sources.list && \
     echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/99AcquireRetries; \
     # apt-related: optional custom (our-organization-specific) proxy
     if [ "${use-proxy}" = "true" ]; then \
@@ -61,6 +62,8 @@ RUN \
         libfuse-dev \
         libgeoip1 \
         libsasl2-dev \
+        libssl1.1 \
+        libssl-dev \
         libxml2-dev \
         libxslt1-dev \
         libyajl2 \
@@ -86,17 +89,7 @@ RUN \
     npm install -g node-sass && \
     bash -c "echo 'ServerName localhost' >> /etc/apache2/apache2.conf";
 
-# install libssl1.1.1 and libssl1.1.1-dev
 RUN \
-    wget --no-check-certificate http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.1_1.1.1w-0+deb11u2_amd64.deb; \
-    wget --no-check-certificate http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl-dev_1.1.1w-0+deb11u2_amd64.deb
-
-RUN \
-    dpkg -i libssl1.1_1.1.1w-0+deb11u2_amd64.deb; \
-    dpkg -i libssl-dev_1.1.1w-0+deb11u2_amd64.deb
-
-RUN \
-    # sudo apt-get install libssl-dev && \
     wget https://www.python.org/ftp/python/2.7.18/Python-2.7.18.tar.xz && \
     tar -xvf Python-2.7.18.tar.xz && \
     cd Python-2.7.18 && \
@@ -158,7 +151,7 @@ RUN set -ex; \
     # create virtualenv (n6)
     virtualenv --python=python2.7 env; \
     . env/bin/activate; \
-    pip install --upgrade pip -i https://pypi.python.org/simple/; \
+    pip install --upgrade pip; \
     pip install --upgrade 'setuptools<45.0.0' wheel; \
     # workaround against crash during normal install of httplib2 (needed by some test tools...)
     wget https://files.pythonhosted.org/packages/92/92/478727070c62def583e645ceeba18e69df266bf78e11639bc787c2386421/httplib2-0.20.1.tar.gz; \
@@ -188,11 +181,10 @@ RUN set -ex; \
 
 RUN \
     # create virtualenv (n6)
-    python3 -m venv env_py3k; \
-    . env_py3k/bin/activate; \
-    pip install --upgrade pip -i https://pypi.python.org/simple/; \
-    # setuptools is locked as a part of a temporary workaround (TODO: fix it when #7792 is done + see: #8823)
-    pip install --upgrade 'setuptools<68.0.0' wheel; \
+    python3 -m venv env_py3k && \
+    . env_py3k/bin/activate && \
+    pip install --upgrade pip && \
+    pip install --upgrade setuptools wheel && \
     # install tools for n6 tests
     pip install --no-cache-dir \
         unittest_expander==0.4.4 \

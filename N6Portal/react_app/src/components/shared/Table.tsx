@@ -102,7 +102,7 @@ const Table: FC<IProps> = ({ getTableProps, getTableBodyProps, headerGroups, row
       >
         <div className={classnames('full-view-btn-wrapper d-flex align-items-end', { 'full-view': fullView })}>
           <button
-            className="full-view-mode-btn ml-auto mt-auto"
+            className="full-view-mode-btn ms-auto mt-auto"
             aria-label={fullView ? `${messages.incidents_table_collapse}` : `${messages.incidents_table_expand}`}
             onClick={() => {
               if (!fullView) {

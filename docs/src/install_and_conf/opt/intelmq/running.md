@@ -1,6 +1,6 @@
 # Running _IntelMQ_ Bots and Message Format Adapters
 
-## Running a bot
+## Running a Bot
 
 ```bash
 (env)$ n6run_bot [-h] [-e] BOT_ID
@@ -13,16 +13,16 @@ Arguments:
 - **-e, --exception-proof** Run the bot in the "exception-proof" mode, where it will send
   forward incoming messages, even if an exception is raised
 
-## Running message format adapters
+## Running Message Format Adapters
 
-### _n6_ to _IntelMQ_ message format adapter
+### _n6_ to _IntelMQ_ Adapter
 
 ```bash
 (env)$ n6run_adapter_to_intelmq
 ```
 
-### _IntelMQ_ to _n6_ message format adapter
+### _IntelMQ_ to _n6_ Adapter
 
 ```bash
-(env)$ n6run_adapter_to_intelmq
+(env)$ n6run_adapter_to_n6
 ```

@@ -4,7 +4,9 @@ n6enrich = n6datapipeline.enrich:main
 n6comparator = n6datapipeline.comparator:main
 n6filter = n6datapipeline.filter:main
 n6recorder = n6datapipeline.recorder:main
+
 n6anonymizer = n6datapipeline.aux.anonymizer:main
+n6exchange_updater = n6datapipeline.aux.exchange_updater:main
 
 n6counter = n6datapipeline.counter:main
 n6notifier = n6datapipeline.notifier:main

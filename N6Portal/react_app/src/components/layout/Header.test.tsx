@@ -88,7 +88,7 @@ describe('<Header />', () => {
       expect(screen.getByRole('banner')).toBeInTheDocument();
 
       const logoN6Element = screen.getByRole('img');
-      expect(logoN6Element).toHaveAttribute('alt', 'Logo N6');
+      expect(logoN6Element).toHaveAttribute('alt', 'n6 logo');
       expect(logoN6Element.parentElement).toHaveAttribute('href', routeList.incidents);
       expect(logoN6Element.parentElement).toHaveRole('link');
 
@@ -163,7 +163,7 @@ describe('<Header />', () => {
       expect(screen.getByRole('banner')).toBeInTheDocument();
 
       const logoN6Element = screen.getByRole('img');
-      expect(logoN6Element).toHaveAttribute('alt', 'Logo N6');
+      expect(logoN6Element).toHaveAttribute('alt', 'n6 logo');
       expect(logoN6Element.parentElement).toHaveAttribute('href', routeList.incidents);
       expect(logoN6Element.parentElement).toHaveRole('link');
 

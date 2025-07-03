@@ -58,6 +58,7 @@
   }
 
   .input-group-prepend {
+    display: flex;
     border-radius: 0 sizeToRem(5) sizeToRem(5) 0;
     background-color: $dark-lighter;
   }
@@ -132,7 +133,7 @@
   margin-left: sizeToRem(10);
   margin-right: sizeToRem(20);
 
-  @include media-breakpoint-down(xs) {
+  @include media-breakpoint-down(sm) {
     margin-right: sizeToRem(0);
   }
 
@@ -322,11 +323,11 @@ textarea.input-field ~ .input-label.has-value {
   display: flex;
   align-items: center;
 
-  @include media-breakpoint-down(sm) {
+  @include media-breakpoint-down(md) {
     margin: 0 sizeToRem(15);
   }
 
-  @include media-breakpoint-down(xs) {
+  @include media-breakpoint-down(sm) {
     flex-direction: column;
     text-align: center;
 
@@ -342,7 +343,7 @@ textarea.input-field ~ .input-label.has-value {
     font-family: $font-fam-headers;
     line-height: $line-height-headers;
 
-    @include media-breakpoint-down(xs) {
+    @include media-breakpoint-down(sm) {
       margin-left: 0;
     }
   }

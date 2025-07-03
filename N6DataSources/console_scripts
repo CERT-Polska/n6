@@ -92,6 +92,7 @@ n6parser_abusechurlhausurls202001 = n6datasources.parsers.abuse_ch:AbuseChUrlhau
 
 ## cert_pl.*
 n6parser_certplshield = n6datasources.parsers.cert_pl:CertPlShieldParser_main
+n6parser_certplshield202505 = n6datasources.parsers.cert_pl:CertPlShield202505Parser_main
 
 ## cesnet-cz.*
 n6parser_cesnetczwarden = n6datasources.parsers.cesnet_cz:CesnetCzWardenParser_main

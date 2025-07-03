@@ -1,4 +1,4 @@
-# Copyright (c) 2016-2024 NASK. All rights reserved.
+# Copyright (c) 2016-2025 NASK. All rights reserved.
 
 """
 Parser: `turris-cz.greylist-csv`.
@@ -23,7 +23,7 @@ class TurrisCzGreylistCsv202401Parser(BlackListParser):
         'category': 'scanning',
     }
 
-    EXPIRES_DAYS = 8
+    EXPIRES_DAYS = 1
     TIMESTRING_FORMAT = "%Y-%m-%d %H:%M:%S"
 
     def parse(self, data):

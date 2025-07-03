@@ -1,14 +1,15 @@
 # Installation and Configuration
 
-## Necessary _n6_ packages
+## Necessary _n6_ Packages
 
-Make sure you have the `N6DataPipeline` package installed:
+Make sure you have the `N6DataPipeline` package installed (in an already
+activated Python *virtual environment*!):
 
 ```bash
-(env)$ ./do_setup.py N6DataPipeline
+(env)$ ./do_setup.py -u N6DataPipeline
 ```
 
-## _IntelMQ_ package
+## _IntelMQ_ Package
 
 Install the `intelmq` package from PyPI. For the best compatibility,
 install the `3.0.2` version, which is the last version tested.
@@ -19,7 +20,7 @@ install the `3.0.2` version, which is the last version tested.
 $ sudo intelmqsetup
 ```
 
-## _IntelMQ_ runtime configuration
+## _IntelMQ_ Runtime Configuration
 
 n6 bot runner uses _IntelMQ_'s runtime configuration. It may be placed
 in '/opt/intelmq/etc/runtime.yaml' or '/etc/intelmq/runtime.yaml' etc.
@@ -31,7 +32,7 @@ n6 system for running _IntelMQ_ bots reads the `n6config` subsection in bot ID s
 by the _IntelMQ_. This subsection provides some configuration, which may be required for some types
 of bots (like parser bots).
 
-### Example _IntelMQ_ bot configuration
+### Example _IntelMQ_ Bot Configuration
 
 ```yaml
 spamhaus-drop-parser:
@@ -57,7 +58,7 @@ require a `default_binding_key` option in the `n6config` section. The option's v
 that the parser will accept incoming messages from the collector, which sends messages with
 routing key `spamhaus.intelmq-collector`.
 
-## _n6_ pipeline configuration
+## _n6 Pipeline_ Configuration
 
 You have to place _IntelMQ_ components somewhere in the pipeline. It can be achieved by configuring
 components that will be used in the n6 config's `pipeline` section. For example: you want to

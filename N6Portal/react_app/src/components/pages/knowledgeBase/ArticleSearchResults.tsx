@@ -37,7 +37,7 @@ const ArticleSearchResults: FC = () => {
       <ApiLoader status={isQueryValid ? status : 'success'} error={error}>
         {isEmptyView ? (
           <>
-            <h1 data-testid="kb-search-results-empty-title">{`${messages['knowledge_base_search_results_empty']} ${queryLang}`}</h1>
+            <h1 data-testid="kb-search-results-empty-title">{`${messages['knowledge_base_search_results_empty']} ${messages[`knowledge_base_search_results_empty_lang_${queryLang}`]}`}</h1>
             <p data-testid="kb-search-results-empty-info">{messages['knowledge_base_search_results_empty_info']}</p>
           </>
         ) : (
