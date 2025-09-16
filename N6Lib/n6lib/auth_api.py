@@ -27,10 +27,6 @@ from typing import (
     Union,
 )
 
-from sqlalchemy import (
-    null,
-    text as sqla_text,
-)
 from sqlalchemy.exc import SQLAlchemyError
 
 from n6lib.api_key_auth_helper import (
@@ -2585,7 +2581,7 @@ class _CondToCondWithNullSafeNegationsTransformer(CondTransformer):
 
 class _CondToSQLAlchemyConverter(CondVisitor):
 
-    # This transformer converts instances of `Cond` subclasses to
+    # This visitor converts instances of `Cond` subclasses to
     # SQLAlchemy objects representing SQL `WHERE ...` conditions.
     #
     # **Important:** any condition it is applied to should have
@@ -2599,6 +2595,8 @@ class _CondToSQLAlchemyConverter(CondVisitor):
         self._sqla_or = sqlalchemy.or_
         self._sqla_make_true = sqlalchemy.true
         self._sqla_make_false = sqlalchemy.false
+        self._sqla_make_null = sqlalchemy.null
+        self._sqla_text = sqlalchemy.text
         self._sqla_column = functools.partial(getattr, n6NormalizedData)
 
     def visit_NotCond(self, cond):
@@ -2614,10 +2612,10 @@ class _CondToSQLAlchemyConverter(CondVisitor):
             return self._sqla_column(subcond.rec_key).notin_(values)
 
         if isinstance(subcond, IsTrueCond):
-            return self._sqla_column(subcond.rec_key).isnot(sqla_text('TRUE'))
+            return self._sqla_column(subcond.rec_key).isnot(self._sqla_text('TRUE'))
 
         if isinstance(subcond, IsNullCond):
-            return self._sqla_column(subcond.rec_key).isnot(null())
+            return self._sqla_column(subcond.rec_key).isnot(self._sqla_make_null())
 
         return self._sqla_not(self(subcond))
 
@@ -2654,10 +2652,10 @@ class _CondToSQLAlchemyConverter(CondVisitor):
         return self._sqla_column(cond.rec_key).between(min_value, max_value)
 
     def visit_IsTrueCond(self, cond):
-        return self._sqla_column(cond.rec_key).is_(sqla_text('TRUE'))
+        return self._sqla_column(cond.rec_key).is_(self._sqla_text('TRUE'))
 
     def visit_IsNullCond(self, cond):
-        return self._sqla_column(cond.rec_key).is_(null())
+        return self._sqla_column(cond.rec_key).is_(self._sqla_make_null())
 
     def visit_FixedCond(self, cond):
         return (self._sqla_make_true() if cond.truthness else self._sqla_make_false())

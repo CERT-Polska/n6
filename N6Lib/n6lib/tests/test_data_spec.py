@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2015-2025 NASK. All rights reserved.
 
 import copy
 import datetime
@@ -96,6 +96,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'facebook_id',
         'gca_specific',
         'ipmi_version',
+        'long_description',
         'mac_address',
         'misp_eventdid',  # use of the field is deprecated
         'misp_attr_uuid',
@@ -151,6 +152,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'email',
         'iban',
         'injects',
+        'long_description',
         'phone',
         'product',
         'registrar',

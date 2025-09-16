@@ -25,11 +25,319 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
-## [4.30.0-beta1] (2025-07-03)
+## [4.31.0] (2025-09-16)
 
-*Note: this is a prerelease.*
+#### General Audience Stuff
 
-[**TBD:** release notes for the final release `4.30.0`]
+- [data sources, config, etc/docker] Recent upstream changes to the
+  `cert-pl.shield` source (causing, in particular, that now the
+  available dataset is always limited to the last 6 months) forced us to
+  **remove the `row_count_mismatch_is_fatal` and `url` configuration
+  options for this particular collector (`CertPlShieldCollector`)**,
+  which means that now -- for this data source -- setting any of them
+  causes `ConfigError`. Apart from that, due to the *changed date+time
+  format*, we added a **new parser: `CertPlShield202505Parser`** (and
+  the collector gained `raw_format_version_tag = '202505'`).
+
+- [data sources] The `turris-cz.graylist-csv` source now updates its
+  data every 24h; accordingly, changed the `expires` interval to 1 day.
+
+- [data pipeline] Made a few improvements/changes/fixes regarding
+  certain pipeline components; in particular, `n6aggregator` uses
+  significantly less RAM than before. (See the relevant notes in
+  the *System/Configuration/Programming-Only* and *Programming-Only*
+  sections below...)
+
+- [auth db, admin panel, broker auth api, lib, etc/docker] Removed the
+  Auth DB tables: `ca_cert`, `cert`, `component`, `system_group` (and
+  `user_system_group_link`) as well as the related Admin Panel views.
+  **What is most important** from the point of view of the
+  administrators of an *n6* instance is that the *Alembic migrations
+  machinery* needs to be used to update the schema of the production
+  Auth DB (for the instructions how to do it, see
+  `N6Lib/n6lib/auth_db/alembic/README.md`). Also, changed the related
+  **Broker Auth API**'s stuff by **getting rid of the notion of
+  _privileged access_ and _administrator users_**.
+  (See also: the relevant notes in the *Programming* section below...)
+
+- [portal, rest api, stream api, data pipeline, data sources, lib] Added
+  a new event field (available for all users): `long_description` -- a
+  text allowed to be very long (the theoretical limit is 16,000,000 bytes
+  of a UTF-8-encoded representation -- though, in practice, such long
+  values are neither expected nor recommended).
+
+- [portal, rest api, lib] Added a new search parameter, `name.sub`
+  (*`Name (part)`* in the Portal's GUI), which allows to specify a
+  *substring* of searched events' `name`; available only for *privileged
+  users* (i.e., those whose organizations have `full_access=True` in
+  Auth DB).
+
+- [portal] The `expired` and `status` event fields (already provided by
+  the backend) are now visible/selectable in the GUI.
+
+- [portal] Improved/rearranged/fixed several UI views or their elements
+  (including some texts/translations).
+
+- [docs] Restored and revamped+updated the *Step-by-Step Installation*
+  guide.
+
+- [docs] A bunch of documentation improvements/adjustments/updates/fixes
+  (including also some improvements/updates/fixes to `README*` files and
+  to this changelog).
+
+#### System/Configuration/Programming-Only
+
+- [setup, cli, lib, docs, ...] **Revamped all *n6* packages' stuff
+  related to the *installation* and *dependency management* processes**
+  -- making them more convenient, automated, expeditious, secure and
+  strict. In particular: got rid of `setup.py` files; instead, introduced
+  `pyproject.toml` files as well as numerous `requirements*.txt` and
+  `*constraints.txt` files (now, finally, we have declarations of
+  *"abstract" dependencies* and additional *constraints* separate from
+  *locked requirements* with automatically resolved versions of external
+  packages); rewrote (practically from scratch, in a backward incompatible
+  way) the `do_setup.py` installation script (see its new docstring and
+  `--help` text...) -- among others, introducing the use of the *uv* tool
+  and modern versions of *setuptools* (installation of *n6* is now *orders
+  of magnitude faster* than formerly) as well as making a *virtual
+  environment* required to install anything; introduced `invoke` as
+  the main tool to run dependency-management-related tasks (including
+  (re)generating locked requirements) and other developer tasks (see the
+  `tasks.py` file, especially the docstring near its beginning). Apart
+  from all that, revamped all `MANIFEST.in` files.
+
+- [setup, ...] Updated versions of some external dependencies (including
+  some *security-related* cases). Also, added/removed a few other external
+  dependencies (as needed).
+
+- [data sources, config, etc/docker] The `etc/n6/60_openphish.conf`
+  configuration prototype file: updated the value of `url` in the
+  `OpenphishWebBlCollector` collector's section. You may want to update
+  this option accordingly in your actual configuration file.
+
+- [data pipeline] `n6aggregator`: an old format of pickled aggregator
+  state data (with `dict`-based state of `HiFreqEventData` instances) --
+  which previously was already considered a legacy one (not used since
+  the version 4.0.0) -- is **no longer supported**.
+
+- [data pipeline] `n6aggregator`: bumped the *pickle* protocol version
+  used to serialize aggregator data from *4* to *5* (but, obviously,
+  data already serialized using the older version is still properly
+  deserialized).
+
+- [data pipeline] `n6aggregator`: when serializing event payloads,
+  *zlib*-based compression is not attempted anymore (but, when it comes
+  to deserialization, *zlib*-compressed payloads are still properly
+  decompressed).
+
+- [data pipeline, config, etc/docker] `n6aggregator`: introduced
+  a **new configuration option** (in the `aggregator` section):
+  `finished_groups_count_triggering_restart` (integer; default
+  value: `10_000_000`). (See the next bullet point...)
+
+- [data pipeline] `n6aggregator`: to save RAM, changed how the
+  aggregated events' payloads are dealt with: they are no longer
+  kept in the program memory and pickled together with other aggregator
+  state data. From now on, they are (immediately after being obtained)
+  **stored on disk, in the (so called) *payload storage* file**
+  (separate from the *aggregator data* file), **and loaded from
+  there only when necessary** (i.e., when the respective suppressed
+  event is to be published). The *payload storage* file needs to be
+  periodically *maintained*/*reorganized* (to reduce its size, not
+  allowing it to increase indefinitely); this is done automatically on
+  each start of the `n6aggregator`'s machinery; and to ensure this is
+  done often enough, the `n6aggregator`'s machinery automatically
+  restarts itself (internally, i.e., within the same OS process) when
+  the number of successfully processed aggregation groups reaches the
+  value of the `finished_groups_count_triggering_restart` configuration
+  option (the option can be set to `0` to disable the mechanism of
+  auto-restarts, but that would not be a good idea in production).
+  Note: **the aforementioned automatic periodic *payload storage*
+  maintenance/reorganization procedure requires additional free disk
+  space up to the combined size of both existing state files** (the
+  pickled *aggregator data* one and the *payload storage* one).
+
+- [data pipeline] `n6aggregator`: to prevent, in a possibly reliable
+  way, the aforementioned auto-restarts from losing currently processed
+  events, the experimental mechanism of *graceful shutdown* (see the
+  relevant note in the *Programming-Only* section below...) is used to
+  perform the *stop* part of the auto-restart procedure.
+
+- [data pipeline] `n6aggregator`: from now on, the *aggregator data*
+  pickle file is always saved *atomically* (so that, *either* the new
+  version is successfully written, *or* -- in case of an error -- the
+  old version is kept intact).
+
+- [data pipeline] `n6aggregator`: improved exception handling when
+  saving and restoring state as well as exiting; in particular, from now
+  on, more exceptions are handled (including non-`Exception`-ones, such
+  as `KeyboardInterrupt`) and exceptions that signal real error/breakage
+  conditions are consequently propagated or replaced with another
+  exception (previously, in some cases, they were unnecessarily
+  suppressed). When it comes to exiting, an important change is that,
+  from now on, the state is saved also when exiting due to an
+  AMQP-communication-related exception (not just `KeyboardInterrupt`).
+
+- [data pipeline, lib] `n6recorder`: fixed `IntegrityError` that might
+  erroneously bubble up from the `Recorder`'s methods `blacklist_update()`
+  and `suppressed_update()`.
+
+- [data pipeline, setup, cli] Added to `N6DataPipeline/console_scripts`
+  the missing declaration of the `n6exchange_updater` executable script.
+
+- [portal, setup, tests] Regarding the implementation of the *n6
+  Portal*'s frontend (*React*-based TS/JS code and related resources,
+  together with the development tooling...): made some enhancements,
+  improvements and fixes; among others, changed some external packages'
+  versions (in particular, to get rid of some *security* problems).
+
+- [rest api, setup, config, lib, logs, tests, etc/docker] Within the
+  `N6RestApi` top-level directory, renamed the `n6web` package to
+  `n6restapi`. Suitably adjusted any affected *n6*'s code, configuration
+  prototypes, tests, etc. **Important:** in your *n6 REST API*'s
+  configuration (`*.ini`) file(s), you need to **replace all occurrences
+  of `n6web` with `n6restapi`**. Also, note that any related logger
+  names and other log entry elements (including, e.g., routing keys used
+  by our AMQP-based logging handler) in which the package name `n6web`
+  appeared (including also Audit Log ones) are affected as well: now,
+  the `n6restapi` name is used everywhere, instead of `n6web`.
+
+- [auth db, lib, setup/cli] Removed the `n6lib.auth_db._before_alembic`
+  subpackage and the related `n6lib`'s console script
+  `n6prepare_legacy_auth_db_for_alembic`. Made adjustments
+  and minor changes to some existing Alembic migration scripts.
+
+- [event db, etc/docker] A new Event DB index (declared in
+  `etc/mysql/initdb/2_create_indexes.sql`): `idx_event_source_time`
+  (on `(source,time)`).
+
+- [lib, tests, etc/docker, ...] A bunch of adjustments, updates,
+  additions, enhancements, fixes and refactoring/cleanups.
+
+#### Programming-Only
+
+- [data pipeline, lib] New constant and classes in `n6datapipeline.aggregator`:
+  `STATE_PICKLE_PROTOCOL`,
+  `AggregatorStateIntegrityError`,
+  `PayloadHandle`,
+  `PayloadStorage`.
+  Also, renamed `AggregatorDataManager` to `AggregatorDataManager`.
+
+- [data pipeline, lib] A new instance attribute of
+  `n6datapipeline.aggregator.AggregatorData`:
+  `payload_handles` (a list of `PayloadHandle` objects).
+
+- [data pipeline, lib] New method and instance attributes of
+  `n6datapipeline.aggregator.AggregatorDataManager`
+  (formerly: `n6datapipeline.aggregator.AggregatorDataWrapper`):
+  `maintain_state()`,
+  `aggr_data_fac` (a `FileAccessor` object),
+  `payload_storage_fac` (a `FileAccessor` object),
+  `payload_storage` (a `PayloadStorage` object or `None`).
+
+- [data pipeline, lib] Removed the `dbpath` instance attribute of
+  `n6datapipeline.aggregator.AggregatorDataManager`
+  (formerly: `n6datapipeline.aggregator.AggregatorDataWrapper`).
+
+- [data pipeline, lib] A new instance attribute of
+  `n6datapipeline.aggregator.Aggregator`:
+  `config` (an `n6lib.config.ConfigSection` object).
+
+- [data pipeline, lib] Revamped/changed/adjusted some existing
+  behavior and/or internals of the following classes/functions
+  in `n6datapipeline.aggregator` (besides the additions/removals
+  mentioned above):
+  `HiFreqEventData`,
+  `AggregatorDataManager` (formerly: `AggregatorDataWrapper`),
+  `Aggregator`,
+  `main()`.
+
+- [data pipeline, lib] Added a new method of
+  `n6datapipeline.base.LegacyQueuedBase` (together with related internals):
+  `trigger_inner_stop_trying_gracefully_shutting_input_then_output()`;
+  the method is available for subclasses. It triggers a new experimental
+  procedure: *graceful shutdown* (contrasting with the "brutal" nature
+  of the existing mechanism of `inner_stop()`): first the AMQP *input*
+  channel is gracefully shut down, and only then the existing *iterative
+  publishing* machinery is employed, to make it possible to shut down
+  the AMQP *output* channel in a relatively safe and graceful way. The
+  new method accepts an optional argument: `immediately` (its default
+  value is `False`); setting it to `True` causes that the *graceful
+  shutdown* procedure is initiated immediately, whereas by default it
+  is initiated only near the end of execution of the `on_message()`
+  hook method.
+
+- [lib] A new function in `n6lib.common_helpers`:
+  `get_unseen_cause_or_context_exc()` (for more
+  information, see its docstring).
+
+- [lib] Implemented the aforementioned `long_description` field (as
+  a *custom* one) as a part of the `n6lib.data_spec.N6DataSpec` and
+  `n6lib.record_dict.RecordDict` classes, as appropriate...
+  To make that possible -- implemented a new *data spec field* class:
+  `n6sdk.data_spec.fields.UnicodeLimitedByHypotheticalUTF8BytesLengthField`
+  (+ its `...ForN6` variant in `n6lib.data_spec.fields`), and a new function:
+  `n6sdk.encoding_helpers.compute_str_index_from_utf8_bytes_index()`; also,
+  the `n6lib.common_helpers.replace_surrogate_pairs_with_proper_codepoints()`
+  function (an existing one, available also via `n6sdk.encoding_helpers`)
+  gained a new keyword argument: `replace_unpaired_surrogates_with_fffd`
+  (false by default) -- if set to true, all lone (unpaired) surrogates
+  will be replaced with the `\ufffd` character (the Unicode's *Replacement
+  Character*); and, finally, the `n6sdk.data_spec.fields.UnicodeField`
+  class (with all its subclasses) gained a new option (which, as always in
+  the case of `n6sdk.data_spec.fields.Field` subclasses, can be set as a
+  keyword argument to the constructor or as a subclass attribute):
+  `replace_surrogates` (false by default) -- if set to true, the
+  aforementioned `replace_surrogate_pairs_with_proper_codepoints()` helper
+  with the argument `replace_unpaired_surrogates_with_fffd=True` will be
+  applied to the value being cleaned, when the value is (already) a `str`.
+
+- [lib] Removed `n6lib.const.TOPLEVEL_N6_PACKAGES`.
+
+- [lib] `n6lib.log_helpers`: `get_logger()` is now an alias for
+  `logging.getLogger()` (got rid of a custom implementation of
+  `get_logger()`).
+
+- [admin panel, lib] Due to the aforementioned removal of the `ca_cert`,
+  `cert`, `component`, `system_group` and `user_system_group_link` Auth
+  DB tables, removed also: the related stuff from `n6lib.auth_db.models`
+  (`CACert`, `Cert`, `Component`, `SystemGroup` and
+  `user_system_group_link`, and the following attributes of the `User`
+  model class: `system_groups`, `owned_certs`, `created_certs` and
+  `revoked_certs`); the related stuff from `n6lib.auth_db.validators`
+  (including the `is_cert_serial_number_valid()` function and the
+  following attributes of the `AuthDBValidators` class:
+  `validator_for__component__login`,
+  `validator_for__system_group__name`,
+  `validator_for__ca_cert__ca_label`, all `validator_for__cert__*` ones,
+  `validator_for__certificate` and `validator_for__ssl_config`); the
+  `ComponentLoginField` class from `n6lib.auth_db.fields`; the constants
+  from `n6lib.auth_db`: `CLIENT_CA_PROFILE_NAME`,
+  `SERVICE_CA_PROFILE_NAME`, `MAX_LEN_OF_CA_LABEL`,
+  `MAX_LEN_OF_CERT_SERIAL_HEX`, `MAX_LEN_OF_SYSTEM_GROUP_NAME`; the
+  constants from `n6lib.const`: `CERTIFICATE_SERIAL_NUMBER_HEXDIGIT_NUM`
+  and `ADMINS_SYSTEM_GROUP_NAME`. Adjusted/reduced the related stuff in
+  `n6lib.ldap_api_replacement` (indirectly adjusting also the shape of
+  some data obtained by the *Auth API* machinery -- by getting rid of
+  some keys...), and removed the `_Comp` and `_SysGr` classes from
+  `n6lib.ldap_related_test_helpers`. Removed the related Admin Panel's
+  views and elements of views, defined in `n6adminpanel.app`: all
+  `AdminPanel.table_views` items corresponding to the removed Auth DB
+  models (mentioned above) and the `ComponentView`, `CertView`,
+  `CACertView` and `_ExtraCSSMixin` classes (the last one together with
+  the `N6AdminPanel/n6adminpanel/static/cert.css` file), and the related
+  fields/columns of `UserInlineFormAdmin` and `UserView`:
+  `system_groups`, `created_certs`, `owned_certs` and `revoked_certs`.
+
+- [broker auth api, lib] For the purposes of the aforementioned
+  changes to the Broker Auth API stuff: regarding the class
+  `n6brokerauthapi.auth_base.BaseBrokerAuthManager` and its subclass
+  `n6brokerauthapi.auth_stream_api.StreamApiBrokerAuthManager` --
+  removed the `user_is_admin` property and the
+  `apply_privileged_access_rules()` method; regarding the view classes
+  (i.e., the `n6brokerauthapi.views._N6BrokerAuthViewBase` class and all
+  its subclasses) -- removed the `allow_administrator_response()` method
+  as well as all uses of the removed stuff.
 
 
 ## [4.23.10] (2025-04-23)
@@ -1075,7 +1383,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **The first public release of *n6*.**
 
 
-[4.30.0-beta1]: https://github.com/CERT-Polska/n6/compare/v4.23.10...v4.30.0b1
+[4.31.0]: https://github.com/CERT-Polska/n6/compare/v4.23.10...v4.31.0
 [4.23.10]: https://github.com/CERT-Polska/n6/compare/v4.23.0...v4.23.10
 [4.23.0]: https://github.com/CERT-Polska/n6/compare/v4.22.0...v4.23.0
 [4.22.0]: https://github.com/CERT-Polska/n6/compare/v4.12.1...v4.22.0

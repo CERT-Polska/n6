@@ -7,10 +7,10 @@
 
 # Trying It Out
 
-This will be a step-by-step go through the *n6* data flow (see:
+In this chapter we walk step by step through the *n6* data flow (see:
 *[Architecture and Data Flow Overview](../../data_flow_overview.md)*).
 
-For our examples we will use the `cert-pl.shield` *data source*.
+The examples below use the `cert-pl.shield` *data source*.
 
 !!! tip
 
@@ -18,9 +18,11 @@ For our examples we will use the `cert-pl.shield` *data source*.
     configuration (see the relevant fragments of the previous chapter
     [*Configuring* n6 *Components*](config.md)), all *n6* components
     put their log entries into the `/home/dataman/logs/log_n6_all`
-    file (you can observe its content, e.g., with the `tail -f
+    file.
+
+    You can observe its content with the `tail -f
     /home/dataman/logs/log_n6_all` command run in a concurrent shell
-    session...).
+    session.
 
 
 ## Where Are We?
@@ -33,8 +35,9 @@ whose shell you execute all commands):
 cd ~
 ```
 
-Also, make sure the Python *virtual environment* in which *n6* [has been
-installed](installation.md#actual-installation) is active:
+Also, make sure the Python *virtual environment* [in
+which](installation.md#new-virtual-environment) *n6* has been
+[installed](installation.md#actual-installation) is active:
 
 ```bash
 source ./env_py3k/bin/activate
@@ -49,16 +52,16 @@ the credentials: user `guest`, password `guest`).
 
 Note that the `n6collector_certplshield` collector (we are about to
 use), if it was started right now, would *not* create by itself any
-RabbitMQ queue for the collector's output!
+RabbitMQ queue for output data!
 
 Most kinds of *n6 pipeline* components -- but *not* `n6collector_*` ones
 -- **declare** their _**input**_ queues (*declaration* causes *creation*
 if the queue did not exist yet) and **subscribe** to them.
 
-So, first things first, initialize the necessary queues by executing the
-following commands... Each of them, after a few seconds, should be (for
-now), terminated with `Ctrl+C`. Thanks to the broker's web interface you
-can observe the creation of consecutive queues...
+So, first things first, you need to initialize the necessary queues by
+executing the following commands... Each of them, after a few seconds,
+should be (for now), terminated with `Ctrl+C`. Thanks to the broker's
+web interface you can observe the creation of consecutive queues...
 
 ```bash
 n6parser_certplshield202505    # ...and Ctrl+C after several seconds
@@ -122,7 +125,7 @@ By doing that step-by-step you can see, thanks to the broker's web
 interface, what happens to the messages at each phase of the data
 handling process.
 
-When you decide that it is enough, execute the command:
+When you decide that's enough, execute the command:
 
 ```bash
 pkill -e --signal SIGINT 'n6(parser|enrich|filter|recorder)'
@@ -130,14 +133,15 @@ pkill -e --signal SIGINT 'n6(parser|enrich|filter|recorder)'
 
 !!! tip
 
-    Of course, starting and stopping *n6 pipeline* components by hand
-    is tedious, considering their number (all those *collectors* and
-    *parsers*...), especially that -- as you just saw -- most of the
-    components are *daemon*-style ones (nearly all, besides *collectors*).
+    Of course, starting and stopping *n6 pipeline* components by hand is
+    tedious, especially considering their number (all those *collectors*
+    and *parsers*...), and given that -- as you just saw -- most of the
+    components (nearly all, excluding *collectors*) are long-running,
+    *daemon*-style, ones.
 
-    Employing some tool to manage that stuff is, therefore, highly
-    recommended. One such tool is *Supervisor* -- discussed in a separate
-    chapter: [*Managing* n6 Pipeline *Components with*
+    Employing some tool to manage the stuff is, therefore, highly
+    recommended. One such tool is *Supervisor*, discussed in a
+    separate chapter: [*Managing* n6 Pipeline *Components with*
     Supervisor](supervisor.md).
 
 
@@ -169,12 +173,12 @@ your phone or another device). **Follow the displayed instructions.**
 !!! tip
 
     If no events are found, try changing the *start date* to some earlier
-    one...
+    one.
 
 !!! info
 
     You can also add filters (with the **Add filter** button) to make your
-    search more specific...
+    searches more specific...
 
 ### Generating API Key
 
@@ -191,9 +195,11 @@ to generate (via *n6 Portal*) your *API key*:
 
 ## Querying *Event DB* via *n6 REST API*
 
-Now you can make a request to the REST API. To obtain the collected
-data (if any) for the current user, execute (replacing `YOUR_API_KEY`
-with your actual **API key** you just generated):
+OK, now you can make a request to the REST API...
+
+To obtain some of the collected *event* data (if any), execute
+(replacing `YOUR_API_KEY` with your actual **API key** you just
+generated):
 
 ```bash
 curl --insecure \
@@ -201,7 +207,7 @@ curl --insecure \
     -H 'Authorization: Bearer YOUR_API_KEY'
 ```
 
-The output should be *event* data in the JSON format, for example:
+The output should be *events* in the JSON format, for example:
 
 ```json
 [
@@ -261,10 +267,9 @@ The output should be *event* data in the JSON format, for example:
 
 ## Managing *Auth DB* Content with *n6 Admin Panel*
 
-The *n6 Admin Panel*'s user interface is straightforward, as it provides
-mainly
-[CRUD](https://en.wikipedia.org/wiki/Create,_read,_update_and_delete)-like
-operations...
+The *n6 Admin Panel*'s user interface is straightforward, as it mainly
+provides [*CRUD*](https://en.wikipedia.org/wiki/Create,_read,_update_and_delete)-like
+operations.
 
 Just go to [https://localhost:4444/](https://localhost:4444/) in a web
-browser and experiment.
+browser -- and experiment...

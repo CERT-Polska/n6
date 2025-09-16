@@ -1,12 +1,9 @@
 # Copyright (c) 2018-2025 NASK. All rights reserved.
 
-import json
 import string
 
-from n6lib.auth_db import MAX_LEN_OF_CERT_SERIAL_HEX
 from n6lib.auth_db.fields import (
     CategoryCustomizedField,
-    ComponentLoginField,
     DateTimeCustomizedField,
     DomainNameCustomizedField,
     EmailCustomizedField,
@@ -90,42 +87,6 @@ def _to_none_if_empty_or_whitespace(val):
     return val
 
 
-def _to_json_or_none(val):
-    if val is None:
-        return None
-    elif isinstance(val, str):
-        val = val.strip()
-        if not val:
-            return None
-        try:
-            json.loads(val)
-        except ValueError:
-            raise FieldValueError(public_message="Cannot decode value: {!a} "
-                                                 "as JSON object.".format(val))
-        else:
-            return val
-    else:
-        try:
-            return json.dumps(val)
-        except (TypeError, ValueError):
-            raise FieldValueError(public_message="Cannot encode value {!a} "
-                                                 "as JSON object.".format(val))
-
-
-def _verified_as_valid_cert_serial_number(val):
-    if not is_cert_serial_number_valid(val):
-        raise FieldValueError(public_message="Value {!a} is not a valid "
-                                             "certificate serial number".format(val))
-    return val
-
-
-def _verified_as_ca_label_containing_no_uppercase(ca_label):
-    if ca_label != ca_label.lower():
-        raise FieldValueError(public_message="CA label {!a} contains illegal "
-                                             "upper-case characters.".format(ca_label))
-    return ca_label
-
-
 _adjust_to_none_if_empty_or_whitespace = (
     make_adjuster_applying_callable(_to_none_if_empty_or_whitespace))
 
@@ -152,10 +113,6 @@ _adjust_ascii_only_ldap_safe_to_unicode_stripped = (
 _adjust_ascii_only_ldap_safe_to_unicode_stripped_or_none = chained(
     make_adjuster_applying_callable(_ascii_only_ldap_safe_str_strip),
     _adjust_to_none_if_empty_or_whitespace)
-
-
-_adjust_to_json_or_none = (
-    make_adjuster_applying_callable(_to_json_or_none))
 
 
 _adjust_country_code = chained(
@@ -187,7 +144,6 @@ class _AuthDBValidatorsDataSpec(BaseDataSpec):
     org_uuid = UUID4SimpleField()
 
     user_login = UserLoginField()
-    component_login = ComponentLoginField()
 
     uuid4 = UUID4SecretField()
     mfa_key_base = NoWhitespaceSecretField()
@@ -227,11 +183,6 @@ class _AuthDBValidatorsDataSpec(BaseDataSpec):
 #
 
 LDAP_UNSAFE_CHARACTERS = frozenset('\\,+"<>;=\x00')
-
-
-def is_cert_serial_number_valid(serial_number: str) -> bool:
-    return (_HEXDIGITS_LOWERCASE.issuperset(serial_number) and
-            len(serial_number) == MAX_LEN_OF_CERT_SERIAL_HEX)
 
 
 class AuthDBValidators(object):
@@ -284,9 +235,6 @@ class AuthDBValidators(object):
     validator_for__user__login = chained(
         _adjust_ascii_only_ldap_safe_to_unicode_stripped,
         make_adjuster_using_data_spec('user_login'))
-    validator_for__component__login = chained(
-        _adjust_ascii_only_ldap_safe_to_unicode_stripped,
-        make_adjuster_using_data_spec('component_login'))
 
     validator_for__org_config_update_request_user_addition_or_activation_request__user_login = chained(  # noqa
         _adjust_ascii_only_ldap_safe_to_unicode_stripped,
@@ -313,26 +261,6 @@ class AuthDBValidators(object):
         _adjust_ascii_only_ldap_safe_to_unicode_stripped_or_none)
     validator_for__criteria_container__label = (
         _adjust_ascii_only_ldap_safe_to_unicode_stripped_or_none)
-    validator_for__system_group__name = (
-        _adjust_ascii_only_ldap_safe_to_unicode_stripped_or_none)
-
-    validator_for__cert__serial_hex = chained(
-        _adjust_to_unicode_stripped,
-        make_adjuster_applying_callable(str.lower),
-        make_adjuster_applying_callable(_verified_as_valid_cert_serial_number))
-    validator_for__cert__creator_details = _adjust_to_json_or_none
-    validator_for__cert__created_on = _adjust_time
-    validator_for__cert__valid_from = _adjust_time
-    validator_for__cert__expires_on = _adjust_time
-    validator_for__cert__revoked_on = _adjust_time
-    validator_for__cert__revocation_comment = chained(
-        _adjust_to_unicode_stripped,
-        _adjust_to_none_if_empty_or_whitespace)
-
-    validator_for__ca_cert__ca_label = chained(
-        _adjust_ascii_only_ldap_safe_to_unicode_stripped,
-        make_adjuster_applying_callable(_verified_as_ca_label_containing_no_uppercase),
-        _adjust_to_none_if_empty_or_whitespace)
 
     validator_for__ignore_list__label = (
         _adjust_ascii_only_to_unicode_stripped_or_none)
@@ -420,12 +348,6 @@ class AuthDBValidators(object):
     validator_for__source_id = _adjust_source_id
     validator_for__anonymized_source_id = _adjust_source_id
 
-    validator_for__certificate = chained(
-        _adjust_ascii_only_to_unicode,
-        _adjust_to_none_if_empty_or_whitespace)
     validator_for__csr = chained(
-        _adjust_ascii_only_to_unicode,
-        _adjust_to_none_if_empty_or_whitespace)
-    validator_for__ssl_config = chained(
         _adjust_ascii_only_to_unicode,
         _adjust_to_none_if_empty_or_whitespace)

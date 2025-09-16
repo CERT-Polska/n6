@@ -17,14 +17,14 @@ system, such as [*Debian GNU/Linux*](https://www.debian.org/).
 
     This guide assumes that you have installed _**Debian 12**_ (*Bookworm*).
 
-    Installation (on that system) of other required software is described in
-    respective sections of this chapter.
+    Installation of other required software is described in respective
+    sections of this chapter.
 
 !!! note
 
     This guide assumes, for simplicity of description, that all components
-    are installed on the same machine/system. Keep in mind that this is not
-    a requirement, just one of possible approaches.
+    are installed on the same machine/system. This is not a requirement,
+    just one of possible approaches.
 
 Third-party software the *n6* system depends on includes:
 
@@ -116,7 +116,8 @@ su - dataman
     last one executed directly as `root`).
 
 Already within the `dataman` user's shell, explicitly set the current
-*umask* mode to a standard and relatively safe value (just in case...):
+*umask* mode to a relatively safe, yet convenient, standard value (just
+in case):
 
 ```bash
 umask 0022
@@ -195,8 +196,8 @@ touch logs/log_n6_all \
 
 ## RabbitMQ
 
-*RabbitMQ* is an open source message broker software that implements the
-Advanced Message Queuing Protocol (AMQP). RabbitMQ is responsible for
+*RabbitMQ* is an open source message broker software that implements
+Advanced Message Queuing Protocol (AMQP). The broker is responsible for
 communication between most of the *n6 pipeline* components.
 
 ### Installing and Starting
@@ -321,7 +322,7 @@ sudo service rabbitmq-server restart
 Now you should be able to sign in, with a web browser, to the management
 GUI of your RabbitMQ instance at
 [https://localhost:15671](https://localhost:15671) -- using  the default
-*guest* credentials (username: `guest`, password `guest`).
+*guest* credentials (username: `guest`, password: `guest`).
 
 !!! note
 
@@ -340,7 +341,7 @@ GUI of your RabbitMQ instance at
 *n6* uses two SQL databases for which a MariaDB server is needed: *Event
 DB* (which makes use of the *RocksDB* engine) and *Auth DB* (which makes
 use of the standard *InnoDB* engine). The purpose of each will be
-discussed [later](config.md#initializing-sql-databases) in this guide...
+discussed [later](config.md#initializing-n6s-databases) in this guide...
 
 ### Installing and Starting
 
@@ -451,8 +452,7 @@ sudo service apache2 restart
     A warning similar to the following may be printed:
 
     `Could not reliably determine the server's fully qualified domain name,
-    using [...]. Set the 'ServerName' directive globally to suppress this
-    message`.
+    ... Set the 'ServerName' directive globally to suppress this message`.
 
     It can be ignored for a *non-production* installation.
 
@@ -498,13 +498,13 @@ Also, ensure the `wsgi` module is enabled (typically, it already is):
 sudo /usr/sbin/a2enmod wsgi
 ```
 
-...so the command's output is expected to be:
+The command's output is (therefore) expected to be:
 
 ```
 Module wsgi already enabled
 ```
 
-Now, restart the `apache2` service to activate the newly enabled modules: 
+Now, restart the `apache2` service, activating the newly enabled modules: 
 
 ```bash
 sudo service apache2 restart
@@ -533,7 +533,7 @@ curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
   | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
 ```
 
-Add the Node.js repository to the list of Debian repositories:
+Add the Node.js repository to the list of Debian repositories...
 
 ```bash
 echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg]" \

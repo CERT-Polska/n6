@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2024 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 """
 .. note::
@@ -25,6 +25,8 @@ from n6sdk.datetime_helpers import (
 from n6sdk.encoding_helpers import (
     ascii_str,
     as_unicode,
+    compute_str_index_from_utf8_bytes_index,
+    replace_surrogate_pairs_with_proper_codepoints,
     str_to_bool,
     verified_as_ascii_str,
 )
@@ -385,7 +387,7 @@ class UnicodeField(Field):
 
     encoding = 'utf-8'
     decode_error_handling = 'strict'
-
+    replace_surrogates = False
     disallow_empty = False
 
     #: **Experimental attribute**
@@ -417,6 +419,10 @@ class UnicodeField(Field):
                         ascii_str(value),
                         self.encoding)))
         assert isinstance(value, str)
+        if self.replace_surrogates:
+            value = replace_surrogate_pairs_with_proper_codepoints(
+                value,
+                replace_unpaired_surrogates_with_fffd=True)
         if self.auto_strip:
             value = value.strip()
         return value
@@ -571,6 +577,55 @@ class UnicodeLimitedField(UnicodeField):
                     u'Length of "{}" is greater than {}'.format(
                         ascii_str(value),
                         self.max_length)))
+
+
+class UnicodeLimitedByHypotheticalUTF8BytesLengthField(UnicodeField):
+
+    """
+    For text data with limited *hypothetical UTF-8 bytes representation's
+    length* (i.e., the length of the possible `bytes` representation, as
+    if the ready value was encoded to UTF-8). Note that the value itself
+    is still a Unicode string (`str`), *not* `bytes`.
+
+    The constructor-argument-or-subclass-attribute :attr:`max_utf8_bytes`
+    (an integer number greater or equal to 1) is obligatory.
+    """
+
+    max_utf8_bytes = None
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.max_utf8_bytes is None:
+            raise TypeError(f"'max_utf8_bytes' not specified for "
+                            f"{self.__class__.__qualname__} "
+                            f"(neither as a class attribute "
+                            f"nor as a constructor argument)")
+        if self.max_utf8_bytes < 1:
+            raise ValueError(f"'max_utf8_bytes' specified for "
+                             f"{self.__class__.__qualname__} "
+                             f"should not be lesser than 1 "
+                             f"({self.max_utf8_bytes!a} given)")
+
+    def _validate_value(self, value):
+        super()._validate_value(value)
+
+        max_length = compute_str_index_from_utf8_bytes_index(value, self.max_utf8_bytes)
+        if max_length is not None:
+            error_msg = (
+                f'"{ascii_str(value)}" would take up more than '
+                f'{self.max_utf8_bytes} bytes if encoded to UTF-8')
+
+            if self.disallow_empty and max_length <= 0:
+                assert max_length == 0
+                raise FieldValueError(public_message=(
+                    f'{error_msg}; but, at the same time, the '
+                    f'value would be empty after trimming'))
+
+            raise FieldValueTooLongError(
+                field=self,
+                checked_value=value,
+                max_length=max_length,
+                public_message=error_msg)
 
 
 class UnicodeRegexField(UnicodeField):

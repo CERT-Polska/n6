@@ -23,8 +23,10 @@ keywords = [
     "n6", "security", "incident", "api", "library", "framework",
 ]
 classifiers = [
+    "Environment :: Console",
     "Framework :: Pyramid",
     "Operating System :: POSIX :: Linux",
+    "Private :: Do Not Upload",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
     "Topic :: Security",
@@ -33,6 +35,7 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
+    # varia:
     "coverage",
     "invoke",
     "mkdocs",
@@ -43,6 +46,7 @@ dev = [
     "pytest-cov",
     "unittest-expander",
 
+    # web-specific:
     "pyramid-debugtoolbar",
     "waitress",
 ]

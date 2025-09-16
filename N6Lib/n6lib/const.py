@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import os.path as osp
 import re
@@ -34,15 +34,6 @@ SCRIPT_BASENAME = (osp.basename(SCRIPT_FILENAME).split('.', 1)[0]
 
 ETC_DIR = '/etc/n6'
 USER_DIR = osp.expanduser('~/.n6')
-
-
-# how many hexadecimal digits a normalized
-# certificate serial number should have in n6 PKI
-CERTIFICATE_SERIAL_NUMBER_HEXDIGIT_NUM = 20
-
-
-# the name of the administrator group in the Auth DB
-ADMINS_SYSTEM_GROUP_NAME = 'admins'
 
 
 # names of HTTP server's environment variables providing SSL information

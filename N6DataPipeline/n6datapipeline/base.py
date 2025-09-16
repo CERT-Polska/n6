@@ -123,13 +123,9 @@ class LegacyQueuedBase(object):
     # (see: the `get_arg_parser()` method)
     supports_n6recovery: bool = True
 
-    #  Specifies a prefetch window in terms of whole messages.
-    #  This field may be used in combination with the prefetch-size field
-    #  (although the prefetch-size limit is not implemented
-    #  yet in RabbitMQ). A message will only be sent in advance
-    #  if both prefetch windows (and those at the channel
-    #  and connection level) allow it. The prefetch-count is ignored
-    #  if the no-ack option is set.
+    # used to set the value of the `prefetch_count` argument
+    # passed to `pika` input channel's `basic_qos(...)` (see also:
+    # https://www.rabbitmq.com/docs/confirms#channel-qos-prefetch)
     prefetch_count: int = 20
 
     # basic kwargs for `pika.BasicProperties` (message-publishing-related)
@@ -382,6 +378,7 @@ class LegacyQueuedBase(object):
         self._num_queues_bound = 0
         self._declared_output_exchanges = set()
         self.output_ready = False
+        self._graceful_shutdown_phase = 0
         self._closing = False
         self._consumer_tag = None
         LOGGER.debug('AMQP communication state attributes cleared')
@@ -618,9 +615,59 @@ class LegacyQueuedBase(object):
 
     ### XXX... (TODO: analyze whether it is correct...)
     def inner_stop(self):
+        graceful_shutdown_phase_before = self._graceful_shutdown_phase
+        self._graceful_shutdown_phase = 0
         self._closing = True
-        self.stop_consuming()
+        if graceful_shutdown_phase_before <= 2:
+            self.stop_consuming()
         self.close_channels()
+
+    def trigger_inner_stop_trying_gracefully_shutting_input_then_output(self, immediately=False):
+        if not self._graceful_shutdown_phase and not self._closing:
+            self._graceful_shutdown_phase = 1
+            if immediately:
+                self._handle_graceful_shutdown_phase_if_any()
+
+    def _handle_graceful_shutdown_phase_if_any(self):
+        if self._graceful_shutdown_phase != 1:
+            return
+
+        if self._channel_in is None or not self._channel_in.is_open:
+            LOGGER.error(
+                f'Cannot shut down the input channel gracefully, as it is '
+                f'not open (channel object: %a). Calling `inner_stop()`...',
+                self._channel_in)
+            self.inner_stop()
+            return
+
+        self._graceful_shutdown_phase = 2
+        self.stop_consuming()
+        self._graceful_shutdown_phase = 3
+        self._wait_until_input_is_shut_down_then_gracefully_shut_down_output()
+
+    def _wait_until_input_is_shut_down_then_gracefully_shut_down_output(self):
+        if self._channel_in is not None and self._channel_in.is_open:
+            self._connection.add_timeout(
+                0.1,
+                self._wait_until_input_is_shut_down_then_gracefully_shut_down_output)
+        else:
+            self._graceful_shutdown_phase = 4
+            flush_out = self.FLUSH_OUT
+
+            def publish_iteratively():
+                yield flush_out
+
+            self.publish_iteratively = publish_iteratively
+
+            # Ugly hack, but all that *n6 pipeline*'s AMQP stuff
+            # will be reimplemented anyway... (soon, hopefully)
+            actual_input_queue = self.input_queue
+            try:
+                self.input_queue = None
+                self.start_iterative_publishing()
+            finally:
+                self.input_queue = actual_input_queue
+
 
     def _make_timeout_callback_manager(self, timeout_attribute_name):
         # TODO: either restore the actual `TimeoutCallbackManager`
@@ -681,7 +728,7 @@ class LegacyQueuedBase(object):
         print('Could not connect to RabbitMQ. Reason: {}.'.format(error_message),
               file=sys.stderr)
         LOGGER.critical('Could not connect to RabbitMQ. Reason: %s', error_message)
-        sys.exit(1)
+        raise SystemExit(1) from n6AMQPCommunicationError
 
     def on_connection_open(self, connection):
         """
@@ -710,6 +757,7 @@ class LegacyQueuedBase(object):
             `reply_text`: The server-provided reply_text if given
         """
         reply_text = ascii_str(reply_text)
+        self._graceful_shutdown_phase = 0
         self._closing = True
         self._channel_in = None
         self._channel_out = None
@@ -726,7 +774,7 @@ class LegacyQueuedBase(object):
                   file=sys.stderr)
             LOGGER.error('AMQP connection has been closed with code: %s. Reason: %s',
                          reply_code, reply_text)
-            sys.exit(1)
+            raise SystemExit(1) from n6AMQPCommunicationError
 
 
     # * Channels-related stuff:
@@ -767,6 +815,11 @@ class LegacyQueuedBase(object):
             `channel_mode`: type of channel to close - "in" or "out"
         """
         channel = getattr(self, "_channel_%s" % channel_mode)
+        if channel is None:
+            LOGGER.warning('Cannot close channel %a, as it is already %a!',
+                           channel_mode,
+                           channel)
+            return
         if channel.is_open:
             channel.close()
 
@@ -779,10 +832,15 @@ class LegacyQueuedBase(object):
         """
         LOGGER.debug('Input channel opened')
         self._channel_in = channel
-        self._channel_in.add_on_close_callback(self.on_channel_closed)
+        self._channel_in.add_on_close_callback(self._on_input_channel_closed)
         self._num_queues_bound = 0
         self.setup_input_exchange()
         self.setup_dead_exchange()
+
+    def _on_input_channel_closed(self, *args, **kwargs):
+        if self._graceful_shutdown_phase:
+            kwargs['close_connection'] = False
+        self.on_channel_closed(*args, **kwargs)
 
     def on_output_channel_open(self, channel):
         """
@@ -797,7 +855,8 @@ class LegacyQueuedBase(object):
         self._declared_output_exchanges.clear()
         self.setup_output_exchanges()
 
-    def on_channel_closed(self, channel, reply_code, reply_text):
+    def on_channel_closed(self, channel, reply_code, reply_text,
+                          *, close_connection=True):
         """
         From pika docs:
 
@@ -818,6 +877,8 @@ class LegacyQueuedBase(object):
                else LOGGER.warning)
         log('Channel %s has been closed: (%s) %s',
             channel_str, reply_code, reply_text)
+        if not close_connection:
+            return
         self._connection.close(
             reply_code=reply_code,
             reply_text='Because channel {0} has been closed: "{1}"'
@@ -1132,11 +1193,18 @@ class LegacyQueuedBase(object):
                         'The message will be requeued...',
                         exc,
                         delivery_tag)
-            self.nacknowledge_message(delivery_tag, '{0!a} in {1!a}'.format(exc, self),
-                                      requeue=True)
+            if self._channel_in is not None and self._channel_in.is_open:
+                self.nacknowledge_message(delivery_tag, f'{exc!a} in {self!a}',
+                                          requeue=True)
+            else:
+                LOGGER.error('Cannot requeue message #%a, because '
+                             'input channel (%a) is not open!',
+                             delivery_tag,
+                             self._channel_in)
             raise
         else:
             self.acknowledge_message(delivery_tag)
+        self._handle_graceful_shutdown_phase_if_any()
 
     def input_callback(self,
                        routing_key: str,

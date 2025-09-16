@@ -10,8 +10,10 @@ dynamic = ["version"]
 description = "The *n6 Admin Panel* web application"
 requires-python = ">=3.9, <3.12"
 dependencies = [
+    # inner *n6* dependencies:
     "n6lib",
 
+    # external dependencies:
     "blinker",
     "flask-admin",
     "flask",
@@ -31,8 +33,10 @@ keywords = [
     "n6", "security", "incident", "admin panel",
 ]
 classifiers = [
+    "Environment :: Web Environment",
     "Framework :: Flask",
     "Operating System :: POSIX :: Linux",
+    "Private :: Do Not Upload",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
     "Topic :: Security",

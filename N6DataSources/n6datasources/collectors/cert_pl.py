@@ -22,9 +22,9 @@ class CertPlShieldCollector(BaseDownloadingTimeOrderedRowsCollector):
     # Warning: the configuration specification is manually overridden
     # here. Consequently, any changes to it made in superclasses will
     # *not* be propagated to this collector. The reason we override the
-    # the configuration specification for this collector is that we need
-    # the `url` and `row_count_mismatch_is_fatal` values to be hardcoded
-    # (see `set_configuration()` below...) rather than kept customizable.
+    # configuration specification for this collector is that we need the
+    # `url` and `row_count_mismatch_is_fatal` values to be hardcoded
+    # (see `set_configuration()` below) rather than kept customizable.
     config_spec_pattern = '''
         [{collector_class_name}]
         base_request_headers = {{}} :: py_namespaces_dict

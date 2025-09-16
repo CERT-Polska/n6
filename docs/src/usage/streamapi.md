@@ -82,10 +82,11 @@ Each STOMP message returned by the server contains a single *n6* event in the
 [JSON](https://www.json.org/json-en.html) format.
 
 All event attributes described in the [*REST API*
-documentation](restapi.md#event-attributes), **except `modified` and `status`**,
-can appear in events emitted by the *Stream API*.
+documentation](restapi.md#event-attributes) can appear in events emitted
+by the *Stream API*, **except for the `modified` and `status`
+attributes**
 
-**Additionally**, each event has a **`type`** attribute. Its value is one of:
+**Additionally**, each event has a **`type` attribute**. Its value is one of:
 
 - `"event"` -- meaning that the event is an ordinary one (or, for certain
   data sources, one being the initial event of an aggregated series of

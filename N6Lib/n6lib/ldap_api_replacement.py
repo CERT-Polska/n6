@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2024 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 # + Some portions of the code in of this module (namely, those methods
 #   of the `LdapAPI` class which have a "Copied from: ..." comments in
 #   their docstrings) were copied from the *python-ldap* library
@@ -165,18 +165,7 @@ class LdapAPI(SQLAuthDBConfigMixin):
                               'attrs': {            #          * dict of LDAP entry's attributes
                                   'cn': ['some_src'],
                                   'objectClass': ['top', 'n6Source'],
-                                  'n6anonymized': ['hidden.42']}}}},
-                  'system-groups': {                #    * node (represents LDAP entry)
-                      'attrs': {},                  #      * dict of LDAP entry's attributes
-                      'cn': {                       #      * node container
-                          'admins': {               #        * node (represents LDAP entry)
-                              'attrs': {            #          * dict of LDAP entry's attributes
-                                  'cn': ['admins'],
-                                  'n6refint': [
-                                      # refint DNs
-                                      'n6login=ads-adm,o=cert.pl,ou=orgs,dc=n6,dc=cert,dc=pl',
-                                      'n6login=x@cert.pl,o=cert.pl,ou=orgs,dc=n6,dc=cert,dc=pl'],
-                                  'objectClass': ['top', 'n6SystemGroup']}}}}},
+                                  'n6anonymized': ['hidden.42']}}}}},
                ...}
 
             -- with an additional key: `_extra_` -- the value assigned to
@@ -292,8 +281,6 @@ class LdapAPI(SQLAuthDBConfigMixin):
             self._generate_ou_subsource_groups,
             self._generate_ou_sources,
             self._generate_ou_criteria,
-            self._generate_ou_components,
-            self._generate_ou_system_groups,
         ]:
             for dn, coerced_attrs in generator():
                 self.tick_callback()
@@ -455,29 +442,6 @@ class LdapAPI(SQLAuthDBConfigMixin):
                 'n6ip-network': [inst.ip_network for inst in criteria_container.criteria_ip_networks],
                 'n6category': [inst.category for inst in criteria_container.criteria_categories],
                 'n6name': [inst.name for inst in criteria_container.criteria_names],
-            })
-
-    def _generate_ou_components(self):
-        (ou_components_dn,
-         ou_components_attrs) = self._make_dn_and_coerced_attrs('ou', ou='components')
-        yield ou_components_dn, ou_components_attrs
-        for component in self._db_session.query(models.Component):
-            yield self._make_dn_and_coerced_attrs('n6login', ou_components_dn, **{
-                'n6login': component.login,
-                # 'password': <for now, it is not needed here>,
-            })
-
-    def _generate_ou_system_groups(self):
-        (ou_system_groups_dn,
-         ou_system_groups_attrs) = self._make_dn_and_coerced_attrs('ou', ou='system-groups')
-        yield ou_system_groups_dn, ou_system_groups_attrs
-        for system_group in self._db_session.query(models.SystemGroup):
-            yield self._make_dn_and_coerced_attrs('cn', ou_system_groups_dn, **{
-                'cn': system_group.name,
-                'n6refint': [
-                    self._make_dn('n6login', inst.login,
-                                  parent=self._make_dn('o', inst.org_id, parent='ou=orgs'))
-                    for inst in system_group.users],
             })
 
     def _make_dn_and_coerced_attrs(self, rdn_type, parent=None, **attrs):
@@ -809,15 +773,6 @@ class LdapAPI(SQLAuthDBConfigMixin):
         ... ('ou=sources,dc=n6,dc=cert,dc=pl', {
         ...      'objectClass': ['top', 'organizationalUnit'],
         ...      'ou': ['sources']},
-        ... ),
-        ... # note: intermediate node ou=system-groups,dc=n6,dc=cert,dc=pl is
-        ... # not given => its `attrs` dict in the results will be empty
-        ... ('cn=admins,ou=system-groups,dc=n6,dc=cert,dc=pl', {
-        ...      'cn': ['admins'],
-        ...      'n6refint': [
-        ...          'n6login=ads-adm,o=cert.pl,ou=orgs,dc=n6,dc=cert,dc=pl',
-        ...          'n6login=x@cert.pl,o=cert.pl,ou=orgs,dc=n6,dc=cert,dc=pl'],
-        ...      'objectClass': ['top', 'n6SystemGroup']},
         ... )]
         >>> LdapAPI._structuralize_search_results(search_results,
         ...                                       keep_dead_refints=True) == {
@@ -857,17 +812,7 @@ class LdapAPI(SQLAuthDBConfigMixin):
         ...      'sources': {
         ...          'attrs': {
         ...              'objectClass': ['top', 'organizationalUnit'],
-        ...              'ou': ['sources']}},
-        ...      'system-groups': {
-        ...          'attrs': {},
-        ...          'cn': {
-        ...              'admins': {
-        ...                  'attrs': {
-        ...                      'cn': ['admins'],
-        ...                      'n6refint': [
-        ...                          'n6login=ads-adm,o=cert.pl,ou=orgs,dc=n6,dc=cert,dc=pl',
-        ...                          'n6login=x@cert.pl,o=cert.pl,ou=orgs,dc=n6,dc=cert,dc=pl'],
-        ...                      'objectClass': ['top', 'n6SystemGroup']}}}}}}
+        ...              'ou': ['sources']}}}}
         True
         >>> LdapAPI._structuralize_search_results(search_results) == {
         ...  'attrs': {},
@@ -906,16 +851,7 @@ class LdapAPI(SQLAuthDBConfigMixin):
         ...      'sources': {
         ...          'attrs': {
         ...              'objectClass': ['top', 'organizationalUnit'],
-        ...              'ou': ['sources']}},
-        ...      'system-groups': {
-        ...          'attrs': {},
-        ...          'cn': {
-        ...              'admins': {
-        ...                  'attrs': {
-        ...                      'cn': ['admins'],
-        ...                      'n6refint': [
-        ...                          'n6login=x@cert.pl,o=cert.pl,ou=orgs,dc=n6,dc=cert,dc=pl'],
-        ...                      'objectClass': ['top', 'n6SystemGroup']}}}}}}
+        ...              'ou': ['sources']}}}}
         True
         """
         dn_to_refint_lists = {}
@@ -1061,7 +997,7 @@ class _LdapAttrNormalizer(object):
             # n6blocked, or
             # o (but not being a client org id), or
             # cn (but not being a source name), or
-            # ou, cACertificate;binary, userCertificate;binary, etc.
+            # ou, etc.
             normalizer_meth = None
         return normalizer_meth
 
@@ -1176,7 +1112,6 @@ class _LdapAttrNormalizer(object):
     _normalize_n6login = _ascii_only_to_unicode_stripped
     _normalize_n6email_notifications_times = _ascii_only_to_unicode_stripped
 
-    _normalize_n6cert_revocation_comment = _to_unicode_stripped
     _normalize_n6url = _to_unicode_stripped
 
     # (for LDAP attributes with the 1.3.6.1.4.1.1466.115.121.1.7 SYNTAX, i.e., 'Boolean')
@@ -1191,14 +1126,6 @@ class _LdapAttrNormalizer(object):
     _normalize_n6time_window = _pass_unmodified
     _normalize_n6queries_limit = _pass_unmodified
     _normalize_n6results_limit = _pass_unmodified
-    _normalize_n6cert_serial = _pass_unmodified
-    _normalize_n6cert_usage = _pass_unmodified
-
-    # (for LDAP attributes with the 1.3.6.1.4.1.1466.115.121.1.24 SYNTAX, i.e., 'Generalized Time')
-    _normalize_n6cert_created_on = _pass_unmodified
-    _normalize_n6cert_valid_from = _pass_unmodified
-    _normalize_n6cert_expires_on = _pass_unmodified
-    _normalize_n6cert_revoked_on = _pass_unmodified
 
     def _normalize_n6asn(self, val):
         asn_as_int = self._asn_field_spec.clean_result_value(val)
@@ -1229,13 +1156,6 @@ class _LdapAttrNormalizer(object):
 
     def _normalize_n6name(self, val):
         return self._name_field_spec.clean_result_value(val)
-
-    def _normalize_n6cert_serial_hex(self, val):
-        return self._ascii_only_to_unicode_stripped(val).lower()
-
-    def _normalize_n6cert_request(self, val):
-        lines = splitlines_asc(self._ascii_only_to_unicode_stripped(val))
-        return '\n'.join(lines) + '\n'
 
     def _normalize_n6email_notifications_language(self, val):
         return self._ascii_only_to_unicode_stripped(val).lower()

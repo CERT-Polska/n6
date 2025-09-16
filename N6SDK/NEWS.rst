@@ -11,11 +11,9 @@ Unreleased
    please use *n6lib* and/or other sub-packages of *n6* -- which is now
    an open-source project; see: https://github.com/CERT-Polska/n6.
 
-   Also, **beware** that the separate *n6sdk*'s documentation
-   (residing in the ``N6SDK/docs`` directory, and still available at
-   https://n6sdk.readthedocs.io/) is **not updated anymore**.  Please
-   refer to the current documentation of *n6* -- available at
-   https://n6.readthedocs.io/.
+   The separate *n6sdk*'s documentation (still available in the source
+   code repo, in ``N6SDK/docs``) is **not maintained anymore**. Please
+   refer to the actual documentation of *n6* at https://n6.readthedocs.io/.
 
    In the future, most probably, we will erase *n6sdk* completely as a
    separate package, incorporating its most important parts into *n6lib*

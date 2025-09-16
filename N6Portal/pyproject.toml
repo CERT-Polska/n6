@@ -10,9 +10,11 @@ dynamic = ["version"]
 description = "The *n6 Portal* web application"
 requires-python = ">=3.9, <3.12"
 dependencies = [
+    # inner *n6* dependencies:
     "n6lib",
     "n6sdk",
 
+    # external dependencies:
     "pyramid",
 ]
 
@@ -25,8 +27,10 @@ keywords = [
     "n6", "security", "incident", "portal", "gui", "web",
 ]
 classifiers = [
+    "Environment :: Web Environment",
     "Framework :: Pyramid",
     "Operating System :: POSIX :: Linux",
+    "Private :: Do Not Upload",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
     "Topic :: Security",
@@ -34,6 +38,7 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
+    # varia:
     "coverage",
     "invoke",
     "mkdocs",
@@ -44,6 +49,7 @@ dev = [
     "pytest-cov",
     "unittest-expander",
 
+    # web-specific:
     "pyramid-debugtoolbar",
     "waitress",
 ]

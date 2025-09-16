@@ -74,6 +74,7 @@ const LoginMfaForm: FC = () => {
                 label={`${messages.login_mfa_input_label}`}
                 maxLength="8"
                 validate={validateMfaCode}
+                autoComplete="off"
               />
               <div className="d-flex mt-4">
                 <CustomButton

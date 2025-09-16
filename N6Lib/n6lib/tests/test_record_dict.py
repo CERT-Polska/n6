@@ -2181,6 +2181,190 @@ class TestRecordDict(TestCaseMixin, unittest.TestCase):
             datetime.datetime.now(),
         ))
 
+    def test__setitem__long_description(self):
+        self.patch_object(
+            RecordDict.data_spec.long_description,
+            'max_utf8_bytes',
+            # Note: the original value is 16_000_000.
+            # Let's use a smaller one for these tests:
+            16,
+        )
+        self._test_setitem_valid('long_description', (
+            S('', ('', b'', bytearray(b''))),
+            S('x', ('x', b'x', bytearray(b'x'))),
+            S(u'AbĆ', (u'AbĆ', u'AbĆ'.encode('utf-8'), bytearray(u'AbĆ'.encode('utf-8')))),
+            S('\U00010000', (
+                '\ud800\udc00',                           # valid surrogate pair
+                b'\xf0\x90\x80\x80',
+                bytearray(b'\xed\xa0\x80\xed\xb0\x80'),   # valid surrogate pair
+            )),
+            S('\ufffd', (   # <- this is Unicode's *replacement character* (U+FFFD)
+                '\ufffd',                     # replacement character
+                '\udcdd',                     # unpaired surrogate
+                b'\xef\xbf\xbd',              # replacement character
+                bytearray(b'\xed\xb3\x9d'),   # unpaired surrogate
+                b'\xdd',                      # non-UTF-8 byte
+            )),
+            S('\ufffd\ufffd\ufffd', (
+                '\ufffd\ufffd\ufffd',                                 # replacement characters
+                '\udcdd\udc00\ud800',                                 # unpaired surrogates
+                bytearray(b'\xef\xbf\xbd\xef\xbf\xbd\xef\xbf\xbd'),   # replacement characters
+                b'\xed\xb3\x9d\xed\xb0\x80\xed\xa0\x80',              # unpaired surrogates
+                bytearray(b'\xdd\xcc\xee'),                           # non-UTF-8 bytes
+            )),
+            S('\ufffd\U00010000', (
+                '\ufffd\U00010000',     # starting with replacement character
+                '\ufffd\ud800\udc00',   # (also)
+                '\ud800\U00010000',     # starting with unpaired surrogate
+                '\ud800\ud800\udc00',   # (also)
+                '\udc00\U00010000',     # (also)
+                '\udc00\ud800\udc00',   # (also)
+                b'\xef\xbf\xbd\xf0\x90\x80\x80',              # starting with replacement character
+                bytearray(b'\xef\xbf\xbd\xed\xa0\x80\xed\xb0\x80'),   # (also)
+                b'\xed\xa0\x80\xf0\x90\x80\x80',              # starting with unpaired surrogate
+                bytearray(b'\xed\xa0\x80\xed\xa0\x80\xed\xb0\x80'),   # (also)
+                b'\xed\xb0\x80\xed\xa0\x80\xed\xb0\x80',              # (also)
+                bytearray(b'\xc4\xf0\x90\x80\x80'),           # starting with non-UTF-8 byte
+                b'\xc4\xed\xa0\x80\xed\xb0\x80',                      # (also)
+                bytearray(b'\xdd\xed\xa0\x80\xed\xb0\x80'),           # (also)
+                b'\xef\xed\xa0\x80\xed\xb0\x80',                      # (also)
+                bytearray(b'\xf0\xed\xa0\x80\xed\xb0\x80'),           # (also)
+                b'\xf0\xf0\x90\x80\x80',                              # (also)
+            )),
+            S('\U00010000\ufffd', (
+                '\U00010000\ufffd',     # ending with replacement character
+                '\ud800\udc00\ufffd',   # (also)
+                '\U00010000\ud800',     # ending with unpaired surrogate
+                '\ud800\udc00\ud800',   # (also)
+                '\U00010000\udc00',     # (also)
+                '\ud800\udc00\udc00',   # (also)
+                bytearray(b'\xf0\x90\x80\x80\xef\xbf\xbd'),   # ending with replacement character
+                b'\xed\xa0\x80\xed\xb0\x80\xef\xbf\xbd',              # (also)
+                bytearray(b'\xf0\x90\x80\x80\xed\xa0\x80'),   # ending with unpaired surrogate
+                b'\xed\xa0\x80\xed\xb0\x80\xed\xa0\x80',              # (also)
+                bytearray(b'\xed\xa0\x80\xed\xb0\x80\xed\xb0\x80'),   # (also)
+                b'\xf0\x90\x80\x80\xc4',                      # ending with non-UTF-8 byte
+                bytearray(b'\xed\xa0\x80\xed\xb0\x80\xc4'),           # (also)
+                b'\xed\xa0\x80\xed\xb0\x80\xdd',                      # (also)
+                bytearray(b'\xed\xa0\x80\xed\xb0\x80\xef'),           # (also)
+                b'\xed\xa0\x80\xed\xb0\x80\xf0',                      # (also)
+                bytearray(b'\xf0\x90\x80\x80\xf0'),                   # (also)
+            )),
+
+            # Effective (hypothetical) bytes length greater than
+            # `max_utf8_bytes` is always supposed to cause value
+            # trimming, i.e., cutting from right).
+            S('abcdEFGHijklMNOP', (
+                'abcdEFGHijklMNOP',    # effective bytes length is 16
+                'abcdEFGHijklMNOPQ',   # effective bytes length is 17
+                b'abcdEFGHijklMNOP',               # effective bytes length is 16
+                bytearray(b'abcdEFGHijklMNOPQ'),   # effective bytes length is 17
+            )),
+            S('gęśl gęśl g', (
+                'gęśl gęśl g',               # effective bytes length is 15
+                'gęśl gęśl gę',              # effective bytes length is 17
+                'gęśl gęśl gęg',             # effective bytes length is 18
+                'gęśl gęśl g\uabcd',         # effective bytes length is 18
+                'gęśl gęśl gęś',             # effective bytes length is 19
+                'gęśl gęśl g\U00010000',     # effective bytes length is 19
+                'gęśl gęśl g\ud800\udc00',   # effective bytes length is 19
+                b'g\xc4\x99\xc5\x9bl g\xc4\x99\xc5\x9bl g',         # effective bytes length is 15
+                bytearray(b'g\xc4\x99\xc5\x9bl g\xc4\x99\xc5\x9bl g\xc4\x99'),          # ...is 17
+                b'g\xc4\x99\xc5\x9bl g\xc4\x99\xc5\x9bl g\xc4\x99g',                    # ...is 18
+                bytearray(b'g\xc4\x99\xc5\x9bl g\xc4\x99\xc5\x9bl g\xea\xaf\x8d'),      # ...is 18
+                b'g\xc4\x99\xc5\x9bl g\xc4\x99\xc5\x9bl g\xc4\x99\xc5\x9b',             # ...is 19
+                bytearray(b'g\xc4\x99\xc5\x9bl g\xc4\x99\xc5\x9bl g\xf0\x90\x80\x80'),  # ...is 19
+                b'g\xc4\x99\xc5\x9bl g\xc4\x99\xc5\x9bl g\xed\xa0\x80\xed\xb0\x80',     # ...is 19
+            )),
+            S('gęśl \ufffdśl g', (
+                'gęśl \ufffdśl g',     # effective bytes length is 15
+                'gęśl \udcddśl g',       # with unpaired surrogate
+                'gęśl \ufffdśl gę',    # effective bytes length is 17
+                'gęśl \udcddśl gę',      # with unpaired surrogate
+                'gęśl \ufffdśl gęg',   # effective bytes length is 18
+                'gęśl \udcddśl gęg',     # with unpaired surrogate
+                'gęśl \ufffdśl gęś',   # effective bytes length is 19
+                'gęśl \udcddśl gęś',     # with unpaired surrogate
+                b'g\xc4\x99\xc5\x9bl \xef\xbf\xbd\xc5\x9bl g',      # effective bytes length is 15
+                bytearray(b'g\xc4\x99\xc5\x9bl \xed\xb3\x9d\xc5\x9bl g'),  # with unp. surrogate
+                b'g\xc4\x99\xc5\x9bl \xdd\xc5\x9bl g',                     # with non-UTF-8 byte
+                bytearray(b'g\xc4\x99\xc5\x9bl \xef\xbf\xbd\xc5\x9bl g\xc4\x99'),          # ...17
+                b'g\xc4\x99\xc5\x9bl \xed\xb3\x9d\xc5\x9bl g\xc4\x99',
+                bytearray(b'g\xc4\x99\xc5\x9bl \xdd\xc5\x9bl g\xc4\x99'),
+                b'g\xc4\x99\xc5\x9bl \xef\xbf\xbd\xc5\x9bl g\xc4\x99g',                    # ...18
+                bytearray(b'g\xc4\x99\xc5\x9bl \xed\xb3\x9d\xc5\x9bl g\xc4\x99g'),
+                b'g\xc4\x99\xc5\x9bl \xdd\xc5\x9bl g\xc4\x99g',
+                bytearray(b'g\xc4\x99\xc5\x9bl \xef\xbf\xbd\xc5\x9bl g\xc4\x99\xc5\x9b'),  # ...19
+                b'g\xc4\x99\xc5\x9bl \xed\xb3\x9d\xc5\x9bl g\xc4\x99\xc5\x9b',
+                bytearray(b'g\xc4\x99\xc5\x9bl \xdd\xc5\x9bl g\xc4\x99\xc5\x9b'),
+            )),
+            S('\U00010000' * 4, (
+                '\U00010000' * 4,                              # effective bytes length is 16
+                '\U00010000' * 4 + 'x',                        # effective bytes length is 17
+                '\U00010000' * 4 + '\ud800',                   # effective bytes length is 19
+                '\U00010000' * 4 + '\udc00',                   # effective bytes length is 19
+                '\U00010000' * 4 + '\U00010000\U00010000abcdefghJAŹŃ',        # ...is greater
+                b'\xf0\x90\x80\x80' * 4,                       # effective bytes length is 16
+                bytearray(b'\xf0\x90\x80\x80' * 4 + b'x'),     # effective bytes length is 17
+                b'\xf0\x90\x80\x80' * 4 + b'\xed\xa0\x80',     # effective bytes length is 19
+                bytearray(b'\xf0\x90\x80\x80' * 4 + b'\xed\xb0\x80'),              # ...is 19
+                b'\xf0\x90\x80\x80' * 4 + b'\xdd',             # effective bytes length is 19
+                bytearray(b'\xf0\x90\x80\x80' * 4 + b'\xf0'),  # effective bytes length is 19
+                b'\xf0\x90\x80\x80' * 4 + b'\xef',             # effective bytes length is 19
+                bytearray(b'\xf0\x90\x80\x80' * 4 + b'\xed\xa0\x80\xed\xb0\x80'),  # ...is 20
+                b'\xf0\x90\x80\x80' * 400,                                    # ...is greater
+
+                # similar, using surrogate pairs:
+                '\ud800\udc00' * 4,                  # effective bytes length is 16
+                '\ud800\udc00' * 4 + 'x',            # effective bytes length is 17
+                '\ud800\udc00' * 4 + '\ud800',       # effective bytes length is 19
+                '\ud800\udc00' * 4 + '\udc00',       # effective bytes length is 19
+                '\ud800\udc00' * 4 + '\U00010000',   # effective bytes length is 19
+                '\ud800\udc00' * 400,                # effective bytes length is greater
+                bytearray(b'\xed\xa0\x80\xed\xb0\x80' * 4),   # effective bytes length is 16
+                b'\xed\xa0\x80\xed\xb0\x80' * 4 + b'x',       # effective bytes length is 17
+                bytearray(b'\xed\xa0\x80\xed\xb0\x80' * 4 + b'\xed\xa0\x80'),     # ...is 19
+                b'\xed\xa0\x80\xed\xb0\x80' * 4 + b'\xed\xb0\x80',                # ...is 19
+                bytearray(b'\xed\xa0\x80\xed\xb0\x80' * 4 + b'\xdd'),             # ...is 19
+                b'\xed\xa0\x80\xed\xb0\x80' * 4 + b'\xf0',                        # ...is 19
+                bytearray(b'\xed\xa0\x80\xed\xb0\x80' * 4 + b'\xef'),             # ...is 19
+                b'\xed\xa0\x80\xed\xb0\x80' * 4 + b'\xf0\x90\x80\x80',            # ...is 20
+                bytearray(b'\xed\xa0\x80\xed\xb0\x80' * 400),                # ...is greater
+            )),
+            S('\ufffd\U00010000\U00010000\U00010000', (
+                # effective bytes length is 13:
+                '\ufffd\U00010000\U00010000\U00010000',         # starting with replacement char.
+                '\ufffd\ud800\udc00\ud800\udc00\ud800\udc00',   # (also)
+                '\ud800\U00010000\U00010000\U00010000',         # starting with unpaired surrogate
+                '\ud800\ud800\udc00\ud800\udc00\ud800\udc00',   # (also)
+
+                # effective bytes length is 17:
+                '\ufffd\U00010000\U00010000\U00010000\U00010000',  # starting w. replacement char.
+                '\ufffd\ud800\udc00\ud800\udc00\ud800\udc00\ud800\udc00',      # (also)
+                '\ud800\U00010000\U00010000\U00010000\U00010000',  # starting w. unpaired surrogate
+                '\ud800\ud800\udc00\ud800\udc00\ud800\udc00\ud800\udc00',      # (also)
+                b'\xef\xbf\xbd' + b'\xf0\x90\x80\x80' * 4,         # starting w. replacement char.
+                bytearray(b'\xef\xbf\xbd' + b'\xed\xa0\x80\xed\xb0\x80' * 4),  # (also)
+                b'\xed\xb0\x80' + b'\xf0\x90\x80\x80' * 4,         # starting w. unpaired surrogate
+                bytearray(b'\xed\xb0\x80' + b'\xed\xa0\x80\xed\xb0\x80' * 4),  # (also)
+                b'\xdd' + b'\xf0\x90\x80\x80' * 4,                 # starting w. non-UTF-8 byte
+                bytearray(b'\xdd' + b'\xed\xa0\x80\xed\xb0\x80' * 4),          # (also)
+
+                # effective bytes length is greater:
+                '\ufffd\U00010000\U00010000\U00010000\U00010000\U00010000\U00010000abcdefghJAŹŃ',
+                '\ud800\U00010000\U00010000\U00010000\U00010000\U00010000\U00010000abcdefghJAŹŃ',
+                '\ud800\ud800\udc00\ud800\udc00\ud800\udc00\ud800\udc00\ud800\udc00\ud800\udc00',
+                b'\xef\xbf\xbd' + b'\xed\xa0\x80\xed\xb0\x80' * 400,  # starting with ...repl.char.
+                bytearray(b'\xed\xb0\x80' + b'\xed\xa0\x80\xed\xb0\x80' * 400),  # ...unp.surrogate
+                b'\xdd' + b'\xed\xa0\x80\xed\xb0\x80' * 400,                    # ...non-UTF-8 byte
+            )),
+        ))
+        self._test_setitem_adjuster_error('long_description', (
+            123,
+            None,
+            datetime.datetime.now(),
+        ))
+
     def test__setitem__ip_network(self):
         self._test_setitem_valid('ip_network', (
             S(u'1.101.2.102/4', (

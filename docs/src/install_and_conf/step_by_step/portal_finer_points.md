@@ -105,7 +105,7 @@ Header set Access-Control-Allow-Credentials true
 ```
 
 The `*` (asterisk) character may be used instead of `http://192.168.56.101:8080`, which allows
-cross-origin requests from all websites. However, it is not recommended for security reasons.
+cross-origin requests from all websites (such a practice is widely discouraged for security reasons).
 
 If the address `http://192.168.56.101:8080` is set to allow cross-origin requests from, then
 this address should be used to access GUI. Even if, for example, `192.168.56.101` is

@@ -7,7 +7,6 @@ Create Date: 2020-03-27 14:03:18.956491+00:00
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import mysql
 
 
 # revision identifiers, used by Alembic.
@@ -154,45 +153,46 @@ def downgrade():
 
     op.add_column('org',
                   sa.Column('location_coords',
-                            mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=100),
+                            sa.String(length=100),
                             nullable=True))
     op.add_column('org',
-                  sa.Column('public_entity', mysql.TINYINT(display_width=1), autoincrement=False,
+                  sa.Column('public_entity',
+                            sa.Boolean(),
+                            autoincrement=False,
                             nullable=False))
     op.add_column('org',
                   sa.Column('location_type_label',
-                            mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=100),
+                            sa.String(length=100),
                             nullable=True))
     op.add_column('org',
-                  sa.Column('address', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=255),
+                  sa.Column('address',
+                            sa.String(length=255),
                             nullable=True))
     op.add_column('org',
-                  sa.Column('location', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=100),
+                  sa.Column('location',
+                            sa.String(length=100),
                             nullable=True))
     op.add_column('org',
                   sa.Column('entity_type_label',
-                            mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=100),
+                            sa.String(length=100),
                             nullable=True))
     op.add_column('org',
-                  sa.Column('verified', mysql.TINYINT(display_width=1), autoincrement=False,
+                  sa.Column('verified',
+                            sa.Boolean(),
+                            autoincrement=False,
                             nullable=False))
 
     op.create_table('extra_id_type',
-                    sa.Column('label', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=100),
-                              nullable=False),
+                    sa.Column('label', sa.String(length=100), nullable=False),
                     sa.PrimaryKeyConstraint('label'),
+                    mysql_charset='utf8mb4',
                     mysql_collate='utf8mb4_nopad_bin',
-                    mysql_default_charset='utf8mb4',
                     mysql_engine='InnoDB')
     op.create_table('extra_id',
-                    sa.Column('id', mysql.INTEGER(display_width=11), nullable=False),
-                    sa.Column('value', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=100),
-                              nullable=False),
-                    sa.Column('id_type_label',
-                              mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=100),
-                              nullable=False),
-                    sa.Column('org_id', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=32),
-                              nullable=False),
+                    sa.Column('id', sa.Integer(), nullable=False),
+                    sa.Column('value', sa.String(length=100), nullable=False),
+                    sa.Column('id_type_label', sa.String(length=100), nullable=False),
+                    sa.Column('org_id', sa.String(length=32), nullable=False),
                     sa.ForeignKeyConstraint(['id_type_label'], ['extra_id_type.label'],
                                             name=op.f('fk__ei_e7a97f__itl_8e1c9e__eitl_702f4c'),
                                             onupdate='CASCADE'),
@@ -200,46 +200,38 @@ def downgrade():
                                             name=op.f('fk__ei_e7a97f__oi_092380__ooi_475c58'),
                                             onupdate='CASCADE', ondelete='CASCADE'),
                     sa.PrimaryKeyConstraint('id'),
+                    mysql_charset='utf8mb4',
                     mysql_collate='utf8mb4_nopad_bin',
-                    mysql_default_charset='utf8mb4',
                     mysql_engine='InnoDB')
     op.create_index(op.f('uq__ei_e7a97f__v_itl_oi_78f3d2'), 'extra_id',
                     ['value', 'id_type_label', 'org_id'], unique=True)
 
     op.create_table('location_type',
-                    sa.Column('label', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=100),
-                              nullable=False),
+                    sa.Column('label', sa.String(length=100), nullable=False),
                     sa.PrimaryKeyConstraint('label'),
+                    mysql_charset='utf8mb4',
                     mysql_collate='utf8mb4_nopad_bin',
-                    mysql_default_charset='utf8mb4',
                     mysql_engine='InnoDB')
     op.create_table('entity_type',
-                    sa.Column('label', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=100),
-                              nullable=False),
+                    sa.Column('label', sa.String(length=100), nullable=False),
                     sa.PrimaryKeyConstraint('label'),
+                    mysql_charset='utf8mb4',
                     mysql_collate='utf8mb4_nopad_bin',
-                    mysql_default_charset='utf8mb4',
                     mysql_engine='InnoDB')
     op.create_table('contact_point',
-                    sa.Column('id', mysql.INTEGER(display_width=11), nullable=False),
-                    sa.Column('org_id', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=32),
-                              nullable=False),
-                    sa.Column('title', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=255),
-                              nullable=True),
-                    sa.Column('name', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=255),
-                              nullable=True),
-                    sa.Column('surname', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=255),
-                              nullable=True),
-                    sa.Column('email', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=255),
-                              nullable=True),
-                    sa.Column('phone', mysql.VARCHAR(collation='utf8mb4_nopad_bin', length=255),
-                              nullable=True),
+                    sa.Column('id', sa.Integer(), nullable=False),
+                    sa.Column('org_id', sa.String(length=32), nullable=False),
+                    sa.Column('title', sa.String(length=255), nullable=True),
+                    sa.Column('name', sa.String(length=255), nullable=True),
+                    sa.Column('surname', sa.String(length=255), nullable=True),
+                    sa.Column('email', sa.String(length=255), nullable=True),
+                    sa.Column('phone', sa.String(length=255), nullable=True),
                     sa.ForeignKeyConstraint(['org_id'], ['org.org_id'],
                                             name=op.f('fk__cp_02a618__oi_092380__ooi_475c58'),
                                             onupdate='CASCADE', ondelete='CASCADE'),
                     sa.PrimaryKeyConstraint('id'),
+                    mysql_charset='utf8mb4',
                     mysql_collate='utf8mb4_nopad_bin',
-                    mysql_default_charset='utf8mb4',
                     mysql_engine='InnoDB')
 
     op.create_foreign_key(op.f('fk__o_e87cb4__ltl_4a88a8__ltl_0991ed'), 'org', 'location_type',

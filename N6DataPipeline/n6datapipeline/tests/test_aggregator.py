@@ -4,15 +4,20 @@ import datetime
 import json
 import os
 import pickle
+import sys
 import tempfile
 import unittest
 from collections import namedtuple
-
+from functools import cached_property
+from pathlib import Path
 from unittest.mock import (
     MagicMock,
+    call,
     patch,
     sentinel,
 )
+
+from pika.exceptions import AMQPError
 from unittest_expander import (
     expand,
     foreach,
@@ -20,28 +25,38 @@ from unittest_expander import (
     paramseq,
 )
 
-from n6datapipeline.base import n6QueueProcessingException
+from n6datapipeline.base import (
+    n6AMQPCommunicationError,
+    n6QueueProcessingException,
+)
 from n6datapipeline.aggregator import (
     Aggregator,
     AggregatorData,
-    AggregatorDataWrapper,
+    AggregatorDataManager,
+    PayloadStorage,
     HiFreqEventData,
     SourceData,
 )
+from n6lib.config import ConfigSection
+from n6lib.file_helpers import FileAccessor
 from n6lib.unit_test_helpers import TestCaseMixin
 
+
+_tmp_dir = tempfile.TemporaryDirectory(prefix=__name__)
 
 
 @expand
 class TestAggregator(TestCaseMixin, unittest.TestCase):
 
-    sample_dbpath = "/tmp/sample_dbfile"
+    sample_dbpath = f"{_tmp_dir.name}/sample_dbfile"
     sample_time_tolerance = 600
     sample_time_tolerance_per_source = {
         'anotherprovider.andchannel': 1200,
     }
+
     starting_datetime = datetime.datetime(2017, 6, 1, 10)
     mocked_utcnow = datetime.datetime(2017, 7, 1, 7, 0, 0)
+
     input_callback_proper_msg = (
         b'{'
         b'"source": "testprovider.testchannel",'
@@ -57,6 +72,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         b'"time": "2017-06-01 10:00:00"'
         b'}'
     )
+
     mocked_config = {
         "aggregator": {
             "dbpath": sample_dbpath,
@@ -64,6 +80,80 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             "time_tolerance_per_source": repr(sample_time_tolerance_per_source),
         }
     }
+    resultant_config = ConfigSection("aggregator", {
+        "dbpath": sample_dbpath,
+        "time_tolerance": sample_time_tolerance,
+        "time_tolerance_per_source": sample_time_tolerance_per_source,  # (<- *non*-default value)
+        'finished_groups_count_triggering_restart': 10_000_000,  # (<- default value)
+    })
+
+
+    @paramseq
+    def _expected_exc_from_super_run():
+        for c in [KeyboardInterrupt, AMQPError, n6AMQPCommunicationError]:  # (expected excs)
+            yield c()
+            yield c('blabla')
+            try:
+                raise SystemExit from c
+            except SystemExit as exc:
+                yield exc
+            try:
+                raise SystemExit(1) from c('blabla')
+            except SystemExit as exc:
+                yield exc
+            try:
+                try:
+                    raise c()
+                except c:
+                    sys.exit(1)
+            except SystemExit as exc:
+                yield exc
+                try:
+                    raise SystemExit(1) from exc
+                except SystemExit as e:
+                    yield e
+                try:
+                    raise SystemExit(1)
+                except SystemExit as e:
+                    yield e
+
+    @paramseq
+    def _unexpected_exc_from_super_run():
+        for c in [SystemExit, ValueError, n6QueueProcessingException]:  # (arbitrary example excs)
+            yield c()
+            yield c('blabla')
+            try:
+                raise SystemExit from c
+            except SystemExit as exc:
+                yield exc
+            try:
+                raise SystemExit(1) from c('blabla')
+            except SystemExit as exc:
+                yield exc
+            try:
+                try:
+                    raise c()
+                except c:
+                    sys.exit(1)
+            except SystemExit as exc:
+                yield exc
+                try:
+                    raise SystemExit(1) from exc
+                except SystemExit as e:
+                    yield e
+                try:
+                    raise SystemExit(1)
+                except SystemExit as e:
+                    yield e
+        yield SystemExit(1)
+        for c2 in [KeyboardInterrupt, AMQPError, n6AMQPCommunicationError]:
+            try:
+                try:
+                    raise c2()
+                except c2:
+                    raise SystemExit(1) from None
+            except SystemExit as exc:
+                yield exc
 
 
     @paramseq
@@ -615,7 +705,6 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             },
         )
 
-
     @paramseq
     def _unordered_data_to_process(cls):
         # The first event is published, second and third are ignored,
@@ -832,17 +921,81 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
             expected_last_active_dt_updates=4,
         )
 
+
     def setUp(self):
+        self._payload_storage = PayloadStorage._make_for_tests()
+        self.addCleanup(self._payload_storage.close)
         self._published_events = []
         self._aggregator = Aggregator.__new__(Aggregator)
-        aggr_data_wrapper = AggregatorDataWrapper.__new__(AggregatorDataWrapper)
-        aggr_data_wrapper.aggr_data = AggregatorData()
-        aggr_data_wrapper.time_tolerance = datetime.timedelta(seconds=self.sample_time_tolerance)
-        aggr_data_wrapper.time_tolerance_per_source = {
+        aggr_data_manager = AggregatorDataManager.__new__(AggregatorDataManager)
+        aggr_data_manager.aggr_data = AggregatorData()
+        aggr_data_manager.time_tolerance = datetime.timedelta(seconds=self.sample_time_tolerance)
+        aggr_data_manager.time_tolerance_per_source = {
             source: datetime.timedelta(seconds=time_tolerance)
             for source, time_tolerance in self.sample_time_tolerance_per_source.items()}
         self._mocked_datetime_counter = 0
-        self._aggregator.db = aggr_data_wrapper
+        self._aggregator.db = aggr_data_manager
+        self._aggregator._finished_groups_count = 0
+
+
+    def test_run__with_no_exc(self):
+        m = MagicMock()
+        aggregator = self._aggregator
+        aggregator.db.store_state = m.store_state
+        self.patch('n6datapipeline.base.LegacyQueuedBase.run', m.super_run)
+        self.patch('n6datapipeline.base.LegacyQueuedBase.stop', m.super_stop)
+
+        aggregator.run()
+
+        self.assertEqual(m.mock_calls, [
+            call.super_run(),
+            call.store_state(),
+        ])
+
+
+    @foreach(_expected_exc_from_super_run)
+    @foreach([True, False])  # <- Shall *raise exception from `stop()`*?
+    def test_run__with_expected_exc_from_super_run(self, raise_exception_from_stop, exc):
+        assert isinstance(raise_exception_from_stop, bool)
+        m = MagicMock()
+        m.super_run.side_effect = exc
+        if raise_exception_from_stop:
+            m.super_stop.side_effect = Exception('<whatever>')
+            m.super_stop.__qualname__ = '<name irrelevant here>'
+        aggregator = self._aggregator
+        aggregator.db.store_state = m.store_state
+        self.patch('n6datapipeline.base.LegacyQueuedBase.run', m.super_run)
+        self.patch('n6datapipeline.base.LegacyQueuedBase.stop', m.super_stop)
+
+        with self.assertRaises(type(exc)):
+            aggregator.run()
+
+        self.assertEqual(m.mock_calls, [
+            call.super_run(),
+            # Before propagating `exc`, first stored the state...
+            call.store_state(),
+            # ...and attempted to stop the IO loop (suppressing
+            # an `Exception`-derived error from `stop()`, if any)
+            call.super_stop(),
+        ])
+
+
+    @foreach(_unexpected_exc_from_super_run)
+    def test_run__with_unexpected_exc_from_super_run(self, exc):
+        m = MagicMock()
+        m.super_run.side_effect = exc
+        aggregator = self._aggregator
+        aggregator.db.store_state = m.store_state
+        self.patch('n6datapipeline.base.LegacyQueuedBase.run', m.super_run)
+        self.patch('n6datapipeline.base.LegacyQueuedBase.stop', m.super_stop)
+
+        with self.assertRaises(type(exc)):
+            aggregator.run()
+
+        self.assertEqual(m.mock_calls, [
+            call.super_run(),
+            # Just propagated `exc`, *without* storing the state.
+        ])
 
 
     @foreach(_ordered_data_to_process
@@ -879,6 +1032,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                                      expected_ids_to_single_events,
                                      expected_ids_to_suppressed_events,
                                      expected_last_active_dt_updates)
+
 
     @foreach([
         param(
@@ -926,12 +1080,42 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         self.assertJsonEqual(publish_output_kwargs["body"], expected_body_content)
 
 
-    def test_input_callback(self):
-        with patch.object(Aggregator, "process_event") as process_event_mock:
-            self._aggregator.input_callback("testprovider.testchannel",
-                                            self.input_callback_proper_msg,
-                                            sentinel.Properties)
-        process_event_mock.assert_called_with(json.loads(self.input_callback_proper_msg))
+    @foreach([
+        param(
+            finished_groups_count=0,
+            expected_graceful_shutdown_method_calls=[],
+        ),
+        param(
+            finished_groups_count=41,
+            expected_graceful_shutdown_method_calls=[],
+        ),
+        param(
+            finished_groups_count=42,
+            expected_graceful_shutdown_method_calls=[call()],
+        ),
+    ])
+    def test_input_callback(self, finished_groups_count, expected_graceful_shutdown_method_calls):
+        expected_process_event_calls = [call(json.loads(self.input_callback_proper_msg))]
+        self._aggregator.process_event = process_event_mock = MagicMock()
+        self._aggregator.trigger_inner_stop_trying_gracefully_shutting_input_then_output = \
+            graceful_shutdown_method_mock = MagicMock()
+        self._aggregator.config = ConfigSection("<name irrelevant here>", {
+            "finished_groups_count_triggering_restart": 42,
+        })
+        self._aggregator._finished_groups_count = finished_groups_count
+
+        self._aggregator.input_callback("testprovider.testchannel",
+                                        self.input_callback_proper_msg,
+                                        sentinel.Properties)
+
+        self.assertEqual(
+            process_event_mock.mock_calls,
+            expected_process_event_calls,
+        )
+        self.assertEqual(
+            graceful_shutdown_method_mock.mock_calls,
+            expected_graceful_shutdown_method_calls,
+        )
 
 
     def test_input_callback_with__group_missing(self):
@@ -941,27 +1125,52 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
                                                 self.input_callback_msg_no__group,
                                                 sentinel.Properties)
 
+
     @patch("n6datapipeline.base.LegacyQueuedBase.__init__", autospec=True)
+    @patch("n6datapipeline.aggregator.AggregatorDataManager", return_value=sentinel.db)
     @patch("n6lib.config.Config._load_n6_config_files", return_value=mocked_config)
-    def test_init_class(self, config_mock, init_mock):
+    def test_init(self, config_mock, db_constructor_mock, super__init__mock):
         fp = None
         try:
             with tempfile.NamedTemporaryFile(delete=False) as fp:
                 pickle.dump('whatever', fp)
-            config_mock.return_value["aggregator"]["dbpath"] = fp.name
+            expected_config = self.resultant_config.copy()
+            config_mock.return_value["aggregator"]["dbpath"] = expected_config["dbpath"] = fp.name
+
             self._aggregator.__init__()
+
+            self.assertEqual(super__init__mock.mock_calls, [
+                call(self._aggregator),
+            ])
+
+            self.assertTrue(hasattr(self._aggregator, "config"))
+            self.assertIsInstance(self._aggregator.config, ConfigSection)
+            self.assertEqual(self._aggregator.config, expected_config)
+
+            self.assertTrue(hasattr(self._aggregator, "db"))
+            self.assertIs(self._aggregator.db, sentinel.db)
+            self.assertEqual(db_constructor_mock.mock_calls, [
+                call(
+                    expected_config["dbpath"],
+                    time_tolerance=datetime.timedelta(seconds=expected_config["time_tolerance"]),
+                    time_tolerance_per_source={
+                        source: datetime.timedelta(seconds=seconds)
+                        for source, seconds in expected_config["time_tolerance_per_source"].items()
+                    },
+                ),
+            ])
         finally:
             if fp is not None:
                 os.remove(fp.name)
 
-        # state dir does not exist
+        # state directory does not exist
         with tempfile.NamedTemporaryFile() as fp, \
                 self.assertRaisesRegex(Exception, r"state directory does not exist"):
             config_mock.return_value["aggregator"]["dbpath"] = os.path.join(fp.name,
                                                                             "nonexistent_file")
             self._aggregator.__init__()
 
-        # state directory exists, but it has no rights to write
+        # state directory exists, but we have no write access to it
         with tempfile.NamedTemporaryFile() as fp, \
                 patch("os.access", return_value=None), \
                 self.assertRaisesRegex(Exception, r"write access to the state directory needed"):
@@ -978,6 +1187,7 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
         """
         self._mocked_datetime_counter += 1
         return self.mocked_utcnow
+
 
     def _test_process_event(self,
                             input_data,
@@ -1063,11 +1273,11 @@ class TestAggregator(TestCaseMixin, unittest.TestCase):
 
 
 @expand
-class TestAggregatorDataWrapper(unittest.TestCase):
+class TestAggregatorDataManager(unittest.TestCase):
 
     tested_source = "testprovider.testchannel"
     other_source = "otherprovider.otherchannel"
-    sample_db_path = "/tmp/example.pickle"
+    sample_aggr_data_path = Path(_tmp_dir.name, "example.pickle")
     sample_time_tolerance = 600
     sample_time_tolerance_per_source = {
         other_source: 1200,
@@ -1112,7 +1322,7 @@ class TestAggregatorDataWrapper(unittest.TestCase):
     # the `process_new_message()` method.
     # `ExpectedHiFreqData` fields:
     # 'name': an expected name of a key of
-    #   the `AggregatorDataWrapper`.`groups` attribute, whose
+    #   the `SourceData.groups` attribute, whose
     #   value should be the expected `HiFreqEventData` instance.
     # 'until', 'first' and 'count': fields that explicitly
     #   correspond to `HiFreqEventData` instance's attributes.
@@ -1512,13 +1722,25 @@ class TestAggregatorDataWrapper(unittest.TestCase):
         )
 
     def setUp(self):
-        self._adw = AggregatorDataWrapper.__new__(AggregatorDataWrapper)
+        self._adw = AggregatorDataManager.__new__(AggregatorDataManager)
+
+        self._adw.aggr_data_fac = FileAccessor(self.sample_aggr_data_path)
+        self._adw.aggr_data_fac.path.unlink(missing_ok=True)
+
+        self._adw.payload_storage_fac = FileAccessor(
+            self._adw.aggr_data_fac.path.with_suffix('.payload-storage'),
+        )
+        self._adw.payload_storage_fac.path.unlink(missing_ok=True)
+
+        self._adw.aggr_data = AggregatorData()
+        self._adw.payload_storage = PayloadStorage(self._adw.payload_storage_fac.path)
+        self.addCleanup(lambda: self._adw.payload_storage.close())
+        self._adw.payload_storage.associate_with_aggr_data(self._adw.aggr_data)
+
         self._adw.time_tolerance = datetime.timedelta(seconds=self.sample_time_tolerance)
         self._adw.time_tolerance_per_source = {
             source: datetime.timedelta(seconds=time_tolerance)
             for source, time_tolerance in self.sample_time_tolerance_per_source.items()}
-        self._adw.dbpath = self.sample_db_path
-        self._adw.aggr_data = AggregatorData()
 
     def test_store_restore_state(self):
         """
@@ -1531,63 +1753,323 @@ class TestAggregatorDataWrapper(unittest.TestCase):
             "_group": "group1",
             "time": "2017-06-01 22:10:00",
         }
+        expected_stored_message = message.copy()
 
-        expected_stored_message = {
+        # process an example message
+        self._adw.process_new_message(message)
+        # assert the aggregator data file does not exist yet
+        self.assertFalse(self.sample_aggr_data_path.exists())
+        # store the state
+        self._adw.store_state()
+        # assert the aggregator data file exists
+        self.assertTrue(self.sample_aggr_data_path.is_file())
+        # erase state attributes
+        self._adw.aggr_data = None
+        self._adw.payload_storage = None
+        # restore the state
+        self._adw.restore_state()
+        # check the state
+        event = self._adw.aggr_data.sources[self.tested_source].groups["group1"]
+        self.assertEqual(event.count, 1)
+        self.assertEqual(event._initial_payload, expected_stored_message)
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 1)
+
+        # assert the exception is being raised when trying to store
+        # the state, but cannot write to the path
+        self.sample_aggr_data_path.unlink()
+        self.sample_aggr_data_path.mkdir()
+        with self.assertRaises(IsADirectoryError):
+            self._adw.store_state()
+
+        self._adw.aggr_data = None
+        self._adw.payload_storage = None
+
+        # assert the warning is being logged when trying to restore
+        # the state from a non-existent file
+        self.sample_aggr_data_path.rmdir()
+        with self.assertLogs(level='WARNING') as patched_logger:
+            self._adw.restore_state()
+        self.assertEqual(patched_logger.output, [
+            f"WARNING:n6datapipeline.aggregator:The aggregator data "
+            f"file does not exist (FileNotFoundError: [Errno 2] No such "
+            f"file or directory: {str(self.sample_aggr_data_path)!a}). "
+            f"Initializing a new empty state..."
+        ])
+
+    def test_store_restore_maintain_state(self):
+        message_1 = {
             "id": "c4ca4238a0b923820dcc509a6f75852b",
             "source": self.tested_source,
-            "_group": "group1",
+            "_group": "group_1",
             "time": "2017-06-01 22:10:00",
         }
+        message_1_bis = {
+            "id": "00112233445566778899aabbccddeeff",
+            "source": self.tested_source,
+            "_group": "group_1",
+            "time": "2017-06-01 22:10:20",
+        }
+        message_2 = {
+            "id": "0123456789abcdef0123456789abcdef",
+            "source": self.other_source,
+            "_group": "group_2",
+            "time": "2025-07-14 03:16:11",
+        }
+        message_3 = {
+            "id": "33333333333333333333333333333333",
+            "source": self.other_source,
+            "_group": "group_3",
+            "time": "2025-07-14 03:31:59",
+        }
+        message_4 = {
+            "id": "44444444444444444444444444444444",
+            "source": self.tested_source,
+            "_group": "group_4",
+            "time": "2025-07-14 03:34:01",
+        }
+        message_5 = {
+            "id": "55555555555555555555555555555555",
+            "source": self.tested_source,
+            "_group": "group_5",
+            "time": "2025-07-14 03:34:01",
+        }
+        expected_stored_message_1 = message_1.copy()
+        expected_stored_message_2 = message_2.copy()
+        expected_stored_message_3 = message_3.copy()
+        expected_stored_message_4 = message_4.copy()
+        expected_stored_message_5 = message_5.copy()
 
-        self._adw.process_new_message(message)
-        with tempfile.NamedTemporaryFile() as fp:
-            self._adw.dbpath = fp.name
-            # store the state
-            self._adw.store_state()
-            # delete attribute with stored sources
-            del self._adw.aggr_data
-            # check restored state from existing file
-            self._adw.restore_state()
-            self.assertDictEqual(
-                self._adw.aggr_data.sources[self.tested_source].groups[
-                    message["_group"]]._initial_payload,
-                expected_stored_message)
-            # assert given path exist
-            self.assertTrue(self._adw.dbpath)
-        # assert the exception is being raised when trying to store
-        # the state, but there is no access to the given path; first,
-        # make sure there actually is no access to the given path
-        tmp_db_path = "/root/example.pickle"
-        assert not os.access(tmp_db_path, os.W_OK), ('The test case relies on the assumption that '
-                                                     'the user running the tests does not '
-                                                     'have permission to write '
-                                                     'to: {!a}'.format(tmp_db_path))
-        self._adw.dbpath = tmp_db_path
-        with self.assertLogs(level='ERROR') as patched_logger:
-            self._adw.store_state()
-        self.assertEqual(patched_logger.output, ["ERROR:n6datapipeline.aggregator:Failed to save "
-                                                 "the aggregator state to '/root/example.pickle' "
-                                                 "(PermissionError: [Errno 13] Permission denied: "
-                                                 "'/root/example.pickle'). Proceeding without "
-                                                 "having it saved, but the component may "
-                                                 "not work correctly anymore!"])
-        # assert the exception is being raised when trying to restore
-        # the state from nonexistent file; first, safely create
-        # a temporary file, then close and remove it, so the path
-        # most likely does not exist
-        with tempfile.NamedTemporaryFile() as fp:
-            tmp_db_path = fp.name
-        assert not os.path.exists(tmp_db_path), ('The randomly generated temporary directory: '
-                                                 '{!a} still exists, so the test cannot '
-                                                 'be correctly performed'.format(tmp_db_path))
-        with patch.object(self._adw, "dbpath", tmp_db_path), \
-             self.assertLogs(level='WARNING') as patched_logger:
-            self._adw.restore_state()
-        self.assertEqual(patched_logger.output, ["WARNING:n6datapipeline.aggregator:Could not "
-                                                 "load the aggregator state (FileNotFoundError: "
-                                                 "[Errno 2] No such file or directory: {!a}). "
-                                                 "Initializing a new empty state..."
-                                                 .format(tmp_db_path)])
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 0)
+
+        # process example messages
+        self._adw.process_new_message(message_1)
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 1)
+        self._adw.process_new_message(message_2)
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 2)
+        # ...and immediately check the state...
+        event_1 = self._adw.aggr_data.sources[self.tested_source].groups["group_1"]
+        self.assertEqual(event_1.count, 1)
+        self.assertEqual(event_1._initial_payload, expected_stored_message_1)
+        event_2 = self._adw.aggr_data.sources[self.other_source].groups["group_2"]
+        self.assertEqual(event_2.count, 1)
+        self.assertEqual(event_2._initial_payload, expected_stored_message_2)
+        # ...including also the payload handles
+        payload_1_handle = self._adw.aggr_data.payload_handles[0]
+        payload_2_handle = self._adw.aggr_data.payload_handles[1]
+        self.assertEqual(payload_1_handle.load(), expected_stored_message_1)
+        self.assertEqual(payload_2_handle.load(), expected_stored_message_2)
+        self.assertEqual(payload_1_handle.offset, 0)
+        self.assertGreater(payload_2_handle.offset, payload_1_handle.offset)
+
+        # store the state
+        self._adw.store_state()
+        # erase state attributes
+        self._adw.aggr_data = None
+        self._adw.payload_storage = None
+        # restore the state
+        self._adw.restore_state()
+        # ...and immediately check some payload handles
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 2)
+
+        # do the maintenance of the state
+        self._adw.maintain_state(shall_shrink=True)
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 2)
+
+        # check the state...
+        event_1 = self._adw.aggr_data.sources[self.tested_source].groups["group_1"]
+        self.assertEqual(event_1.count, 1)
+        self.assertEqual(event_1._initial_payload, expected_stored_message_1)
+        event_2 = self._adw.aggr_data.sources[self.other_source].groups["group_2"]
+        self.assertEqual(event_2.count, 1)
+        self.assertEqual(event_2._initial_payload, expected_stored_message_2)
+        # ...including also the payload handles
+        payload_1_handle = self._adw.aggr_data.payload_handles[0]
+        payload_2_handle = self._adw.aggr_data.payload_handles[1]
+        self.assertEqual(payload_1_handle.load(), expected_stored_message_1)
+        self.assertEqual(payload_2_handle.load(), expected_stored_message_2)
+        self.assertEqual(payload_1_handle.offset, 0)
+        self.assertGreater(payload_2_handle.offset, payload_1_handle.offset)
+
+        # process other example messages
+        self._adw.process_new_message(message_1_bis)
+        self._adw.process_new_message(message_3)
+        self._adw.process_new_message(message_4)
+        self._adw.process_new_message(message_5)
+        # ...and immediately check some payload handles
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 5)
+        payload_4_handle = self._adw.aggr_data.payload_handles[3]
+        payload_5_handle = self._adw.aggr_data.payload_handles[4]
+        self.assertEqual(payload_4_handle.load(), expected_stored_message_4)
+        self.assertEqual(payload_5_handle.load(), expected_stored_message_5)
+        payload_4_offset_a = payload_4_handle.offset
+        payload_5_offset_a = payload_5_handle.offset
+        self.assertGreater(payload_5_offset_a, payload_4_offset_a)
+
+        # simulate finishing processing one of the newly added groups
+        del self._adw.aggr_data.sources[self.tested_source].groups["group_4"]
+
+        # store the state
+        self._adw.store_state()
+        # erase state attributes
+        self._adw.aggr_data = None
+        self._adw.payload_storage = None
+        # restore the state
+        self._adw.restore_state()
+        # ...and immediately check some payload handles
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 5)
+        payload_4_handle = self._adw.aggr_data.payload_handles[3]
+        payload_5_handle = self._adw.aggr_data.payload_handles[4]
+        self.assertEqual(payload_4_handle.offset, payload_4_offset_a)
+        self.assertEqual(payload_5_handle.load(), expected_stored_message_5)
+        self.assertEqual(payload_5_handle.offset, payload_5_offset_a)
+
+        # do the maintenance of the state
+        self._adw.maintain_state(shall_shrink=True)
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 4)
+
+        # check the state...
+        self.assertNotIn("group_4", self._adw.aggr_data.sources[self.tested_source].groups)
+        event_1 = self._adw.aggr_data.sources[self.tested_source].groups["group_1"]
+        self.assertEqual(event_1.count, 2)
+        self.assertEqual(event_1._initial_payload, expected_stored_message_1)
+        event_2 = self._adw.aggr_data.sources[self.other_source].groups["group_2"]
+        self.assertEqual(event_2.count, 1)
+        self.assertEqual(event_2._initial_payload, expected_stored_message_2)
+        event_3 = self._adw.aggr_data.sources[self.other_source].groups["group_3"]
+        self.assertEqual(event_3.count, 1)
+        self.assertEqual(event_3._initial_payload, expected_stored_message_3)
+        event_5 = self._adw.aggr_data.sources[self.tested_source].groups["group_5"]
+        self.assertEqual(event_5.count, 1)
+        self.assertEqual(event_5._initial_payload, expected_stored_message_5)
+        # ...including some payload handles
+        payload_3_handle = self._adw.aggr_data.payload_handles[2]
+        payload_5_handle = self._adw.aggr_data.payload_handles[3]
+        self.assertEqual(payload_3_handle.load(), expected_stored_message_3)
+        self.assertEqual(payload_5_handle.load(), expected_stored_message_5)
+        payload_3_offset = payload_3_handle.offset
+        payload_5_offset_b = payload_5_handle.offset
+        self.assertLess(payload_5_offset_b, payload_5_offset_a)
+        self.assertGreater(payload_5_offset_b, payload_3_offset)
+
+        # simulate finishing processing some other groups
+        del self._adw.aggr_data.sources[self.other_source].groups["group_2"]
+        del self._adw.aggr_data.sources[self.other_source].groups["group_3"]
+
+        # store the state
+        self._adw.store_state()
+        # erase state attributes
+        self._adw.aggr_data = None
+        self._adw.payload_storage = None
+        # restore the state
+        self._adw.restore_state()
+        # ...and immediately check some payload handles
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 4)
+        payload_3_handle = self._adw.aggr_data.payload_handles[2]
+        payload_5_handle = self._adw.aggr_data.payload_handles[3]
+        self.assertEqual(payload_3_handle.offset, payload_3_offset)
+        self.assertEqual(payload_5_handle.load(), expected_stored_message_5)
+        self.assertEqual(payload_5_handle.offset, payload_5_offset_b)
+
+        # do the maintenance of the state
+        self._adw.maintain_state(shall_shrink=True)
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 2)
+
+        # check the state...
+        self.assertNotIn("group_2", self._adw.aggr_data.sources[self.other_source].groups)
+        self.assertNotIn("group_3", self._adw.aggr_data.sources[self.other_source].groups)
+        self.assertNotIn("group_4", self._adw.aggr_data.sources[self.tested_source].groups)
+        self.assertTrue(self._adw.aggr_data.sources[self.tested_source].groups)
+        self.assertFalse(self._adw.aggr_data.sources[self.other_source].groups)
+        event_1 = self._adw.aggr_data.sources[self.tested_source].groups["group_1"]
+        self.assertEqual(event_1.count, 2)
+        self.assertEqual(event_1._initial_payload, expected_stored_message_1)
+        event_5 = self._adw.aggr_data.sources[self.tested_source].groups["group_5"]
+        self.assertEqual(event_5.count, 1)
+        self.assertEqual(event_5._initial_payload, expected_stored_message_5)
+        # ...including some payload handle
+        payload_5_handle = self._adw.aggr_data.payload_handles[1]
+        self.assertEqual(payload_5_handle.load(), expected_stored_message_5)
+        payload_5_offset_c = payload_5_handle.offset
+        self.assertLess(payload_5_offset_c, payload_5_offset_b)
+
+        # simulate finishing processing yet another group
+        del self._adw.aggr_data.sources[self.tested_source].groups["group_1"]
+
+        # store the state
+        self._adw.store_state()
+        # erase state attributes
+        self._adw.aggr_data = None
+        self._adw.payload_storage = None
+        # restore the state
+        self._adw.restore_state()
+        # ...and immediately check some payload handle
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 2)
+        payload_5_handle = self._adw.aggr_data.payload_handles[1]
+        self.assertEqual(payload_5_handle.load(), expected_stored_message_5)
+        self.assertEqual(payload_5_handle.offset, payload_5_offset_c)
+        self.assertGreater(payload_5_handle.offset, 0)
+
+        # do the maintenance of the state, but this time with `shall_shrink=False`
+        self._adw.maintain_state(shall_shrink=False)
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 2)
+
+        # check the state...
+        self.assertNotIn("group_1", self._adw.aggr_data.sources[self.tested_source].groups)
+        self.assertNotIn("group_2", self._adw.aggr_data.sources[self.other_source].groups)
+        self.assertNotIn("group_3", self._adw.aggr_data.sources[self.other_source].groups)
+        self.assertNotIn("group_4", self._adw.aggr_data.sources[self.tested_source].groups)
+        self.assertTrue(self._adw.aggr_data.sources[self.tested_source].groups)
+        self.assertFalse(self._adw.aggr_data.sources[self.other_source].groups)
+        event_5 = self._adw.aggr_data.sources[self.tested_source].groups["group_5"]
+        self.assertEqual(event_5.count, 1)
+        self.assertEqual(event_5._initial_payload, expected_stored_message_5)
+        # ...including some payload handle
+        payload_5_handle = self._adw.aggr_data.payload_handles[1]
+        self.assertEqual(payload_5_handle.load(), expected_stored_message_5)
+        self.assertEqual(payload_5_handle.offset, payload_5_offset_c)
+        self.assertGreater(payload_5_handle.offset, 0)
+
+        # do the maintenance of the state again, now normally (with `shall_shrink=True`)
+        self._adw.maintain_state(shall_shrink=True)
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 1)
+
+        # check the state...
+        self.assertNotIn("group_1", self._adw.aggr_data.sources[self.tested_source].groups)
+        self.assertNotIn("group_2", self._adw.aggr_data.sources[self.other_source].groups)
+        self.assertNotIn("group_3", self._adw.aggr_data.sources[self.other_source].groups)
+        self.assertNotIn("group_4", self._adw.aggr_data.sources[self.tested_source].groups)
+        self.assertTrue(self._adw.aggr_data.sources[self.tested_source].groups)
+        self.assertFalse(self._adw.aggr_data.sources[self.other_source].groups)
+        event_5 = self._adw.aggr_data.sources[self.tested_source].groups["group_5"]
+        self.assertEqual(event_5.count, 1)
+        self.assertEqual(event_5._initial_payload, expected_stored_message_5)
+        # ...including some payload handle
+        payload_5_handle = self._adw.aggr_data.payload_handles[0]
+        self.assertEqual(payload_5_handle.load(), expected_stored_message_5)
+        self.assertEqual(payload_5_handle.offset, 0)
+
+        # simulate finishing processing the last group
+        del self._adw.aggr_data.sources[self.tested_source].groups["group_5"]
+
+        # store the state
+        self._adw.store_state()
+        # erase state attributes
+        self._adw.aggr_data = None
+        self._adw.payload_storage = None
+        # restore the state
+        self._adw.restore_state()
+        # ...and immediately check some payload handle
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 1)
+        payload_5_handle = self._adw.aggr_data.payload_handles[0]
+        self.assertEqual(payload_5_handle.offset, 0)
+
+        # do the maintenance of the state
+        self._adw.maintain_state(shall_shrink=True)
+        self.assertEqual(len(self._adw.aggr_data.payload_handles), 0)
+
+        # check the state
+        self.assertFalse(self._adw.aggr_data.sources[self.tested_source].groups)
+        self.assertFalse(self._adw.aggr_data.sources[self.other_source].groups)
 
     @foreach(_test_process_new_message_data)
     def test_process_new_message(self, messages, expected_source_time,
@@ -1821,24 +2303,31 @@ class TestAggregatorData(unittest.TestCase):
         sample_other_source: 1000,
     }
 
-    groups_hifreq_data = HiFreqEventData(
-        {
-            "id": "c4ca4238a0b923820dcc509a6f75849c",
-            "source": sample_source,
-            "_group": sample_group,
-            "time": "2017-06-02 12:00:00",
-        }
-    )
-    buffer_hifreq_data = HiFreqEventData(
-        {
-            "id": "c4ca4238a0b923820dcc509a6f75849b",
-            "source": sample_source,
-            "_group": sample_group,
-            "time": "2017-06-01 10:00:00",
-        }
-    )
+    @cached_property
+    def groups_hifreq_data(self):
+        return HiFreqEventData(
+            {
+                "id": "c4ca4238a0b923820dcc509a6f75849c",
+                "source": self.sample_source,
+                "_group": self.sample_group,
+                "time": "2017-06-02 12:00:00",
+            }
+        )
+
+    @cached_property
+    def buffer_hifreq_data(self):
+        return HiFreqEventData(
+            {
+                "id": "c4ca4238a0b923820dcc509a6f75849b",
+                "source": self.sample_source,
+                "_group": self.sample_group,
+                "time": "2017-06-01 10:00:00",
+            }
+        )
 
     def setUp(self):
+        self._payload_storage = PayloadStorage._make_for_tests()
+        self.addCleanup(self._payload_storage.close)
         self._aggregator_data = AggregatorData()
         self._sample_source_data = SourceData(
             datetime.timedelta(seconds=self.sample_time_tolerance))

@@ -13,10 +13,12 @@ dynamic = [
 description = "Data-sources-dedicated components of *n6* (collectors and parsers)"
 requires-python = ">=3.9, <3.12"
 dependencies = [
+    # inner *n6* dependencies:
     "n6lib",
     "n6sdk",
     "n6datapipeline",
 
+    # external dependencies:
     "lxml",
     "more_itertools",
     "pika",
@@ -34,7 +36,10 @@ keywords = [
     "n6", "security", "incident", "data sources", "data collection", "data parsing",
 ]
 classifiers = [
+    "Environment :: Console",
+    "Environment :: Other Environment",
     "Operating System :: POSIX :: Linux",
+    "Private :: Do Not Upload",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
     "Topic :: Security",

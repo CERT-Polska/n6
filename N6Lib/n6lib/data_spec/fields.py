@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 
 # Terminology: some definitions and synonyms
@@ -43,6 +43,7 @@ from n6sdk.data_spec.fields import (
     SourceField,
     UnicodeField,
     UnicodeEnumField,
+    UnicodeLimitedByHypotheticalUTF8BytesLengthField,
     UnicodeLimitedField,
     UnicodeRegexField,
     URLField,
@@ -249,6 +250,10 @@ class UnicodeEnumFieldForN6(UnicodeEnumField, FieldForN6):
     pass
 
 class UnicodeLimitedFieldForN6(UnicodeLimitedField, FieldForN6):
+    pass
+
+class UnicodeLimitedByHypotheticalUTF8BytesLengthFieldForN6(
+        UnicodeLimitedByHypotheticalUTF8BytesLengthField, FieldForN6):
     pass
 
 class UnicodeRegexFieldForN6(UnicodeRegexField, FieldForN6):

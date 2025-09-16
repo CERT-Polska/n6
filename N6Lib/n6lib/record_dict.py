@@ -1055,6 +1055,9 @@ class RecordDict(collections_abc.MutableMapping):
 
     adjust_ip_network = make_adjuster_using_data_spec('ip_network')
 
+    adjust_long_description = make_adjuster_using_data_spec(
+        'long_description', on_too_long=trim)
+
     adjust_min_amplification = make_adjuster_using_data_spec(
         'min_amplification', on_too_long=trim)
 

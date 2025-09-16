@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2024 NASK. All rights reserved.
+# Copyright (c) 2018-2025 NASK. All rights reserved.
 
 import datetime
 import unittest
@@ -15,15 +15,12 @@ from unittest_expander import (
 from n6lib.auth_db.fields import CategoryCustomizedField
 from n6lib.auth_db.models import (
     Agreement,
-    CACert,
-    Cert,
     CriteriaASN,
     CriteriaCategory,
     CriteriaCC,
     CriteriaContainer,
     CriteriaIPNetwork,
     CriteriaName,
-    Component,
     RecentWriteOpCommit,
     DependantEntity,
     EMailNotificationAddress,
@@ -60,7 +57,6 @@ from n6lib.auth_db.models import (
     Source,
     Subsource,
     SubsourceGroup,
-    SystemGroup,
     User,
     UserProvisionalMFAConfig,
     UserSpentMFACode,
@@ -691,28 +687,42 @@ class TestValidators(unittest.TestCase):
                                   expected_msg_pattern)
 
     @foreach(
-        param(model=Cert, tested_arg='serial_hex'),
+        param(model=RegistrationRequest, tested_arg='id'),
         param(model=OrgConfigUpdateRequest, tested_arg='id'),
     )
     @foreach(
-        param(val='06f30a5903f4cf0642b5'),
+        param(val='06f30a5903f4cf0642b506f30a5903f4cf06'),
+        param(val='\t06f30A5903f4cF0642b506f30a5903f4cF06\t'),
         param(val='abcdef0123456789ffff'),
-        param(val='5cc863bfbf1b669e5f05'),
         param(val='B4162A543BE9E50ACE42'),
         param(val='   9aadc6e968ee4a4d5601   '),
+        param(val='f'),
+        param(val='0'),
     )
-    def test_hex_number(self, model, tested_arg, val):
+    def test_hexadecimal_id(self, model, tested_arg, val):
         self._test_proper_values(model, {tested_arg: val}, expecting_stripped_string=True)
 
     @foreach(
-        'e479-09b_23572199b66',
-        '19f16e,29fd.8b56294c',
-        '6ę515be3556ą8267826c',
-        'b215',
+        param(model=RegistrationRequest, tested_arg='id'),
+        param(model=OrgConfigUpdateRequest, tested_arg='id'),
     )
-    def test_illegal_hex_number(self, val):
-        expected_msg_pattern = r'\bnot a valid certificate serial number\b'
-        self._test_illegal_values(Cert, {'serial_hex': val}, FieldValueError, expected_msg_pattern)
+    @foreach(
+        param(val='06f30a5903f4cf0642b506f30a5903f4cf067'),
+        param(val='\t06f30A5903f4cF0642b506f30a5903f4cF067\t'),
+        param(val='e479-09b_23572199b66'),
+        param(val='19f16e,29fd.8b56294c'),
+        param(val='6ę515be3556ą8267826c'),
+        param(val='g'),
+        param(val='-1'),
+    )
+    def test_illegal_hexadecimal_id(self, model, tested_arg, val):
+        expected_msg_pattern = (
+            r'\b('
+            r'not a valid hex-digits-only identifier'
+            r'|'
+            r'[Ll]ength of "[a-f0-9]+" is greater than 36'
+            r')\b')
+        self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
         param(model=User, tested_arg='api_key_id'),
@@ -782,10 +792,6 @@ class TestValidators(unittest.TestCase):
         self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
-        param(model=Cert, tested_arg='created_on'),
-        param(model=Cert, tested_arg='valid_from'),
-        param(model=Cert, tested_arg='expires_on'),
-        param(model=Cert, tested_arg='revoked_on'),
         param(model=OrgConfigUpdateRequest, tested_arg='modified_on'),
         param(model=OrgConfigUpdateRequest, tested_arg='submitted_on'),
         param(model=RegistrationRequest, tested_arg='submitted_on'),
@@ -853,10 +859,6 @@ class TestValidators(unittest.TestCase):
         self.assertEqual(adjusted_val, expected_adjusted_val)
 
     @foreach(
-        param(model=Cert, tested_arg='created_on'),
-        param(model=Cert, tested_arg='valid_from'),
-        param(model=Cert, tested_arg='expires_on'),
-        param(model=Cert, tested_arg='revoked_on'),
         param(model=OrgConfigUpdateRequest, tested_arg='modified_on'),
         param(model=OrgConfigUpdateRequest, tested_arg='submitted_on'),
         param(model=RegistrationRequest, tested_arg='submitted_on'),
@@ -878,10 +880,6 @@ class TestValidators(unittest.TestCase):
         self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
-        param(model=Cert, tested_arg='created_on'),
-        param(model=Cert, tested_arg='valid_from'),
-        param(model=Cert, tested_arg='expires_on'),
-        param(model=Cert, tested_arg='revoked_on'),
         param(model=OrgConfigUpdateRequest, tested_arg='modified_on'),
         param(model=OrgConfigUpdateRequest, tested_arg='submitted_on'),
         param(model=RegistrationRequest, tested_arg='submitted_on'),
@@ -904,28 +902,6 @@ class TestValidators(unittest.TestCase):
         self._test_illegal_values(model, {tested_arg: val}, FieldValueError, expected_msg_pattern)
 
     @foreach(
-        'n6-service-ca',
-        'n6-client-ca',
-        'abcc#cert',
-        'cert@ca.com',
-        '  abcc#cert  ',
-        '  cert@ca.com  ',
-    )
-    def test_ca_label_lowercase(self, val):
-        self._test_proper_values(CACert, {'ca_label': val}, expecting_stripped_string=True)
-
-    @foreach(
-        'n6-service-CA',
-        'N6Ca',
-        'abcc#Cert',
-        'cert@cA.com',
-        'certcA',
-    )
-    def test_non_lowercase_ca_label(self, val):
-        expected_msg_pattern = r'\bcontains illegal upper-case characters\b'
-        self._test_illegal_values(CACert, {'ca_label': val}, FieldValueError, expected_msg_pattern)
-
-    @foreach(
         param(val='ąęźćżłów').label('uni'),
         param(val='other\udcddval').label('uni-surro'),
     )
@@ -934,7 +910,6 @@ class TestValidators(unittest.TestCase):
         param(model=CriteriaName, tested_arg='name'),
         param(model=OrgGroup, tested_arg='org_group_id'),
         param(model=User, tested_arg='login'),
-        param(model=Component, tested_arg='login'),
         param(model=Entity, tested_arg='email'),
         param(model=EntityContactPoint, tested_arg='email'),
         param(model=EMailNotificationAddress, tested_arg='email'),
@@ -948,8 +923,6 @@ class TestValidators(unittest.TestCase):
         param(model=SubsourceGroup, tested_arg='label'),
         param(model=IgnoreList, tested_arg='label'),
         param(model=Agreement, tested_arg='label'),
-        param(model=SystemGroup, tested_arg='name'),
-        param(model=CACert, tested_arg='ca_label'),
     )
     def test_ascii_only_fields_with_illegal_chars(self, model, tested_arg, val):
         expected_msg_pattern = r'\bcontains non-ASCII characters\b'
@@ -959,7 +932,6 @@ class TestValidators(unittest.TestCase):
         (Org, 'org_id'),
         (RegistrationRequest, 'org_id'),
         (OrgGroup, 'org_group_id'),
-        (Component, 'login'),
         (User, 'login'),
         (RegistrationRequest, 'email'),
         (OrgConfigUpdateRequestUserAdditionOrActivationRequest, 'user_login'),
@@ -968,8 +940,6 @@ class TestValidators(unittest.TestCase):
         (Subsource, 'label'),
         (SubsourceGroup, 'label'),
         (Agreement, 'label'),
-        (SystemGroup, 'name'),
-        (CACert, 'ca_label'),
     )
     def test_setting_ldap_not_safe_chars(self, model, tested_arg):
         val = 'exa+mple'
@@ -987,10 +957,6 @@ class TestValidators(unittest.TestCase):
         param(model=Agreement, tested_arg='pl'),
         param(model=Agreement, tested_arg='url_en'),
         param(model=Agreement, tested_arg='url_pl'),
-        param(model=SystemGroup, tested_arg='name'),
-        param(model=Cert, tested_arg='creator_details'),
-        param(model=Cert, tested_arg='revocation_comment'),
-        param(model=CACert, tested_arg='ca_label'),
         param(model=OrgGroup, tested_arg='org_group_id'),
     )
     @foreach(
@@ -1006,13 +972,9 @@ class TestValidators(unittest.TestCase):
         obj = model(**{tested_arg: val})
         self.assertIsNone(getattr(obj, tested_arg))
 
-    @foreach(
-        param(model=Cert, tested_arg='certificate'),
-        param(model=Cert, tested_arg='csr'),
-        param(model=CACert, tested_arg='certificate'),
-        param(model=CACert, tested_arg='ssl_config'),
+    @foreach([
         param(model=RegistrationRequest, tested_arg='csr'),
-    )
+    ])
     def test_string_based_fields_empty_to_null(
             self, model, tested_arg):
         # (note that same of these fields are NOT NULLABLE so "in the
@@ -1023,8 +985,6 @@ class TestValidators(unittest.TestCase):
 
     @foreach(
         param(model=User, tested_arg='login'),
-        param(model=Component, tested_arg='login'),
-        param(model=Cert, tested_arg='serial_hex'),
         param(model=User, tested_arg='api_key_id'),
         param(model=User, tested_arg='mfa_key_base'),
         param(model=UserProvisionalMFAConfig, tested_arg='mfa_key_base'),
@@ -1032,6 +992,7 @@ class TestValidators(unittest.TestCase):
         param(model=Org, tested_arg='org_id'),
         param(model=RegistrationRequest, tested_arg='org_id'),
         param(model=Org, tested_arg='email_notification_language'),
+        param(model=OrgConfigUpdateRequest, tested_arg='id'),
         param(model=OrgConfigUpdateRequest, tested_arg='email_notification_language'),
         param(model=RegistrationRequest, tested_arg='email_notification_language'),
         param(model=RegistrationRequest, tested_arg='terms_lang'),
@@ -1039,6 +1000,7 @@ class TestValidators(unittest.TestCase):
         param(model=OrgConfigUpdateRequestEMailNotificationAddress, tested_arg='email'),
         param(model=OrgConfigUpdateRequestUserAdditionOrActivationRequest, tested_arg='user_login'),
         param(model=OrgConfigUpdateRequestUserDeactivationRequest, tested_arg='user_login'),
+        param(model=RegistrationRequest, tested_arg='id'),
         param(model=RegistrationRequest, tested_arg='email'),
         param(model=RegistrationRequestEMailNotificationAddress, tested_arg='email'),
         param(model=Entity, tested_arg='email'),

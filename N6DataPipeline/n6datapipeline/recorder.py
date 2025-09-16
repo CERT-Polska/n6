@@ -6,6 +6,7 @@ The *recorder* component -- adds n6 events to the Event DB.
 
 ### TODO: this module is to be replaced with a new implementation...
 
+import contextlib
 import datetime
 import logging
 import os
@@ -538,7 +539,7 @@ class Recorder(LegacyQueuedBase):
             else:
                 assert transact.is_entered
                 self.session_db.add_all(items)
-        except IntegrityError as exc:
+        except IntegrityError as exc:  # May not be caught here if `with_transact` is false!
             str_exc = make_exc_ascii_str(exc)
             LOGGER.warning(str_exc)
         else:
@@ -603,7 +604,7 @@ class Recorder(LegacyQueuedBase):
         id_replaces = self.records['event'][0]["replaces"]
         LOGGER.debug("ID: %a REPLACES: %a", id_db, id_replaces)
 
-        try:
+        with self._handling_integrity_error():
             with transact:
                 rec_count = (self.session_db.query(n6NormalizedData).
                              filter(n6NormalizedData.id == id_replaces).
@@ -628,9 +629,6 @@ class Recorder(LegacyQueuedBase):
                     LOGGER.debug("bl-change, records with id %a DO NOT EXIST!", id_replaces)
                     LOGGER.debug("inserting new events anyway, count.: %a", len(items))
                 self.insert_new_event(items, with_transact=False, recorded=True)
-
-        except IntegrityError as exc:
-            LOGGER.warning("IntegrityError: %a", exc)
 
     def blacklist_delist(self):
         """
@@ -688,7 +686,8 @@ class Recorder(LegacyQueuedBase):
         expires = self.records['event'][0]["expires"]
         LOGGER.debug("ID: %a NEW_EXPIRES: %a", id_event, expires)
 
-        with transact:
+        with self._handling_integrity_error(), \
+             transact:
             rec_count = (self.session_db.query(n6NormalizedData).
                          filter(n6NormalizedData.id == id_event).
                          update({'expires': expires,
@@ -734,7 +733,8 @@ class Recorder(LegacyQueuedBase):
             self.record_dict["_first_time"]).replace(microsecond=0)
         first_time_max = first_time_min + datetime.timedelta(days=0, seconds=1)
 
-        with transact:
+        with self._handling_integrity_error(), \
+             transact:
             rec_count = (self.session_db.query(n6NormalizedData)
                          .filter(
                              n6NormalizedData.time >= first_time_min,
@@ -756,6 +756,15 @@ class Recorder(LegacyQueuedBase):
                 LOGGER.warning("suppressed_update, records with id %a DO NOT EXIST!", id_event)
                 LOGGER.debug("insert new events,,::count:: %a", len(items))
                 self.insert_new_event(items, with_transact=False)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _handling_integrity_error():
+        try:
+            yield
+        except IntegrityError as exc:
+            str_exc = make_exc_ascii_str(exc)
+            LOGGER.warning(str_exc)
 
 
 def main():

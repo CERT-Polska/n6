@@ -15,6 +15,7 @@ CREATE INDEX idx_event_expires ON n6.event (expires);
 CREATE INDEX idx_event_id_time ON n6.event (id,time);
 CREATE INDEX idx_event_time_id ON n6.event (time,id);
 CREATE INDEX idx_event_time_source ON n6.event (time,source);
+CREATE INDEX idx_event_source_time ON n6.event (source,time);
 CREATE INDEX idx_event_time_source_cc ON n6.event (time,source,cc);
 CREATE INDEX idx_event_source_cc_modified ON n6.event (source,cc,modified);
 CREATE INDEX idx_event_asn_time ON n6.event (asn,time);

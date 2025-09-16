@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2016-2025 NASK. All rights reserved.
 
 import unittest
 
@@ -51,6 +51,7 @@ NAMES_OF_FIELD_CLASSES_CORRELATED_WITH_SDK_ONES = frozenset([
     'UnicodeFieldForN6',
     'UnicodeEnumFieldForN6',
     'UnicodeLimitedFieldForN6',
+    'UnicodeLimitedByHypotheticalUTF8BytesLengthFieldForN6',
     'UnicodeRegexFieldForN6',
 ])
 

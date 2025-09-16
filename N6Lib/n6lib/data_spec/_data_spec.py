@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 
 # Terminology: some definitions and synonyms
@@ -33,7 +33,7 @@
 #
 #   [NOTE, however, that the word `field` may have also completely
 #    different meaning: referring just to an *event attribute* (see:
-#    http://redmine.cert.pl/projects/data-repository/wiki/API_REST_en#Event-attributes)
+#    https://n6.readthedocs.io/usage/restapi/#event-attributes)
 #    -- taken as an abstract entity or when referring to some concrete
 #    data, especially to an item of a *raw/cleaned param/result dict*
 #    (see below), or to an item of a RecordDict, or to an item of a
@@ -136,9 +136,7 @@
 # See also
 # --------
 #
-# N6SDK/docs/source/tutorial.rst + docstrings of related n6sdk classes,
-# or just http://n6sdk.readthedocs.io/en/latest/tutorial.html (although
-# the latter may be out of date).
+# N6SDK/docs/source/tutorial.rst + docstrings of related n6sdk classes.
 
 
 from pyramid.decorator import reify
@@ -180,6 +178,7 @@ from n6lib.data_spec.fields import (
     SomeUnicodeListFieldForN6,
     SourceFieldForN6,
     UnicodeEnumFieldForN6,
+    UnicodeLimitedByHypotheticalUTF8BytesLengthFieldForN6,
     UnicodeLimitedFieldForN6,
     URLBase64FieldForN6,
     URLFieldForN6,
@@ -646,6 +645,14 @@ class N6DataSpec(DataSpec):
     artemis_uuid = UnicodeLimitedFieldForN6(in_result='optional', max_length=36)
     snitch_uuid = UnicodeLimitedFieldForN6(in_result='optional', max_length=36)
 
+    # * of the UnicodeLimitedByHypotheticalUTF8BytesLengthFieldForN6 type:
+    long_description = UnicodeLimitedByHypotheticalUTF8BytesLengthFieldForN6(
+        in_result=('optional', 'unrestricted'),
+        decode_error_handling='utf8_surrogatepass_and_surrogateescape',
+        replace_surrogates=True,
+        max_utf8_bytes=16_000_000,  # (given that limit for Event DB's `custom` is 16_777_215)
+    )
+
     # * of the SomeFieldForN6 type:
     additional_data = SomeFieldForN6(in_result='optional')
     botid = SomeFieldForN6(in_result='optional')
@@ -736,6 +743,7 @@ class N6DataSpec(DataSpec):
         'internal_ip',
         'ip_network',
         'ipmi_version',
+        'long_description',
         'mac_address',
         'method',
         'min_amplification',

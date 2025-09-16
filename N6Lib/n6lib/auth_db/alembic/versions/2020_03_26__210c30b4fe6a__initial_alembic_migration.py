@@ -10,7 +10,6 @@ import sys
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import mysql
 from sqlalchemy.exc import OperationalError
 
 from n6lib.auth_db.sqlalchemy_helpers import (
@@ -35,21 +34,20 @@ def upgrade():
             logging.getLogger(__name__).error(
                 'The table %a not found, so the initial Alembic '
                 'migration cannot be applied.  It seems that the '
-                'auth database has not been prepared with the '
-                '`n6prepare_legacy_auth_db_for_alembic` script; '
-                'note that only after doing that it is possible to '
-                'apply any Alembic migrations.', table_to_drop)
+                'schema of the Auth DB we connect to is too old '
+                '(from the times before the introduction of '
+                'Alembic migrations).', table_to_drop)
             sys.exit(
-                '\n*** EXITING WITH ERROR ***\nSee the description in the log.'
-                '\nTL;DR: probably the `n6prepare_legacy_auth_db_for_alembic` '
-                'script needs to be run.')
+                '\n*** EXITING WITH ERROR ***\n'
+                'See the description in the log.')
         raise
 
 
 def downgrade():
-    op.create_table('legacy_auth_db_prepared_marker',
-                    sa.Column('id', mysql.INTEGER(display_width=11), nullable=False),
-                    sa.PrimaryKeyConstraint('id'),
-                    mysql_collate='utf8mb4_nopad_bin',
-                    mysql_default_charset='utf8mb4',
-                    mysql_engine='InnoDB')
+    op.create_table(
+        'legacy_auth_db_prepared_marker',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.PrimaryKeyConstraint('id'),
+        mysql_collate='utf8mb4_nopad_bin',
+        mysql_charset='utf8mb4',
+        mysql_engine='InnoDB')

@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2024 NASK. All rights reserved.
+# Copyright (c) 2018-2025 NASK. All rights reserved.
 
 """
 This is a -- somewhat quick and dirty but still useful -- standalone
@@ -55,7 +55,6 @@ from sqlalchemy import text as sqla_text
 
 import n6lib.config
 from n6lib.auth_db import models
-from n6lib.auth_db._before_alembic.script_preparing_for_alembic import PrepareLegacyAuthDB
 from n6lib.auth_db.api import AuthManageAPI
 from n6lib.auth_db.config import SQLAuthDBConnector
 from n6lib.auth_db.scripts import (
@@ -92,7 +91,6 @@ from n6lib.tests import test_auth_api
 FLAG_OWN_DB = '--own-db'
 FLAG_NO_TESTS = '--no-tests'
 FLAG_INTERACTIVE_CONSOLE_AFTER = '--interactive-console-after'
-FLAG_TEST_WITH_PREPARE_LEGACY_AUTH_DB = '--test-with-PrepareLegacyAuthDB'
 FLAG_TEST_AUTH_API_WITH_PREFETCHING = '--test-auth-api-with-prefetching'
 FLAG_TEST_AUTH_API_WITH_PREFETCHING_USING_PICKLE_CACHE = (
     '--test-auth-api-with-prefetching-using-pickle-cache')
@@ -101,7 +99,6 @@ RECOGNIZED_SCRIPT_FLAGS = [
     FLAG_OWN_DB,
     FLAG_NO_TESTS,
     FLAG_INTERACTIVE_CONSOLE_AFTER,
-    FLAG_TEST_WITH_PREPARE_LEGACY_AUTH_DB,
     FLAG_TEST_AUTH_API_WITH_PREFETCHING,
     FLAG_TEST_AUTH_API_WITH_PREFETCHING_USING_PICKLE_CACHE,
 ]
@@ -457,7 +454,6 @@ def populate_db_with_test_data(auth_api_test_class_name__or__data_maker):
                          id=EXAMPLE_DATABASE_VER,
                          made_at=EXAMPLE_DATABASE_TIMESTAMP_AS_DATETIME)
 
-    _perform_optional_arrangements()
     sleep(1)
 
 
@@ -479,19 +475,6 @@ def _get_data_maker(auth_api_test_class_name__or__data_maker):
         data_maker = auth_api_test_class_name__or__data_maker
     assert callable(data_maker)
     return data_maker
-
-def _perform_optional_arrangements():
-    if FLAG_TEST_WITH_PREPARE_LEGACY_AUTH_DB in script_flags:
-        print('\n\nNOTE: the {!a} option is in use.'
-              '\n'.format(FLAG_TEST_WITH_PREPARE_LEGACY_AUTH_DB),
-              file=sys.stderr)
-        sleep(1)
-        with PrepareLegacyAuthDB(
-                    settings=prepare_auth_db_settings(),
-                    assume_yes=True,
-                    quiet=True,
-                ) as script:
-            script.run()
 
 
 #
@@ -1942,6 +1925,9 @@ class _test_of__ldap_api_replacement__LdapAPI__search_structured__empty_db(
         return []
 
     def run_code_under_test(self):
+        # (we invoke the `search_structured()` method twice so that
+        # `writing_tick_callback()` will be called enough times)
+        self.ldap_api.search_structured()
         return self.ldap_api.search_structured()
 
     expected_result = {
@@ -1951,8 +1937,6 @@ class _test_of__ldap_api_replacement__LdapAPI__search_structured__empty_db(
             'subsource-groups': {'attrs': {'ou': [u'subsource-groups']}},
             'sources': {'attrs': {'ou': [u'sources']}},
             'criteria': {'attrs': {'ou': [u'criteria']}},
-            'components': {'attrs': {'ou': [u'components']}},
-            'system-groups': {'attrs': {'ou': [u'system-groups']}},
         },
         'attrs': {},
         '_extra_': {
@@ -2104,8 +2088,6 @@ class _test_of__ldap_api_replacement__LdapAPI__search_structured__example_nonemp
                     }
                 }
             },
-            'components': {'attrs': {'ou': [u'components']}},
-            'system-groups': {'attrs': {'ou': [u'system-groups']}},
         },
         'attrs': {},
         '_extra_': {

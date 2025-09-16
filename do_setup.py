@@ -14,7 +14,7 @@ run in a Python virtual environment.
 
       ./do_setup.py --help   # or just -h
 
-* Install, *for production*, all *n6* packages and their dependencies:
+* Install all *n6* packages and their basic dependencies:
 
       ./do_setup.py all
 
@@ -24,8 +24,8 @@ run in a Python virtual environment.
 
   (`-a` is an abbreviation for `--action`; "install" is the default)
 
-* Similarly, install all *n6* packages and their dependencies, but this
-  time -- including the *tests* optional dependencies:
+* Similarly, install all *n6* packages and their basic dependencies, but
+  this time -- including also the *tests* optional dependencies:
 
       ./do_setup.py -x tests -- all
 
@@ -33,7 +33,7 @@ run in a Python virtual environment.
 
 * Uninstall everything, unconditionally delete `*.egg-info` files and
   other build artifacts (if any), then update *pip* and *uv*, and then
-  install, *for production*, all *n6* packages and their dependencies:
+  install all *n6* packages and their basic dependencies:
 
       ./do_setup.py -U -u all
 
@@ -49,8 +49,21 @@ run in a Python virtual environment.
 
       ./do_setup.py -u ''
 
-* Install, *for development*, all *n6* packages and their dependencies,
-  including the *dev* optional dependencies:
+* Install *for development* (i.e., in the *editable* mode) all *n6*
+  packages and their basic dependencies:
+
+      ./do_setup.py -a dev all
+
+  ...which is equivalent to:
+
+      ./do_setup.py --action develop all
+
+  Note, however, that the recommended way of *development installation*
+  is described below (in the next bullet point).
+
+* Install *for development* (i.e., in the *editable* mode) all *n6*
+  packages and their basic dependencies, but this time -- including
+  also the *dev* optional dependencies:
 
       ./do_setup.py -a dev -x dev -- all
 
@@ -62,11 +75,12 @@ run in a Python virtual environment.
 
       ./do_setup.py -d all
 
-  *Note*: it is worth noting, among our *dev* optional dependencies, the
-  *[Invoke](https://www.pyinvoke.org/)* tool, for which we have defined
-  a handful of *tasks* that may prove necessary or just useful in your
-  everyday work on development of *n6*. To familiarize with them --
-  after successfully executing the above command -- you can try:
+  *Note*: it is worth noting that, among our *dev* optional dependencies,
+  there is the *[Invoke](https://www.pyinvoke.org/)* tool, for which we
+  have defined a handful of *tasks* that may prove necessary or just
+  useful in your everyday work on development of *n6*. To familiarize
+  with those tasks -- after successfully executing the above command --
+  you can try:
 
       inv --list   # or just -l
       inv add-completion-to-venv --help   # or just -h
@@ -80,8 +94,8 @@ run in a Python virtual environment.
     * the `tasks.py` and `invoke.yaml` files residing at the top of the
       *n6* source code directory.
 
-* Install, *for production*, the `N6DataSources` and `N6AdminPanel`
-  packages, with all necessary dependencies:
+* Install the `N6DataSources` and `N6AdminPanel` packages, with all
+  basic dependencies:
 
       ./do_setup.py N6DataSources N6AdminPanel
 
@@ -100,23 +114,22 @@ run in a Python virtual environment.
 
   (`-N` is an abbreviation for `--no-auto-n6-inner-dependencies`)
 
-* Install, *for production*, all necessary dependencies defined in
-  the relevant `requirements*.txt` files, but *without* actual *n6*
-  stuff (e.g., if you want to install the *n6* packages later):
+* Install all basic dependencies defined in the relevant
+  `requirements*.txt` files, but *without* actual *n6* stuff
+  (e.g., if you want to install the *n6* packages later):
 
       ./do_setup.py -r N6DataSources N6AdminPanel
 
   (`-r` is an abbreviation for `--requirements-but-no-n6-packages`)
 
-  *Note*: here all *dependencies* for `N6DataSources` and `N6AdminPanel`
-  as well as for `N6DataPipeline`, `N6Lib` and `N6SDK` are installed
-  -- but the *n6* packages themselves (`N6DataSources`, `N6AdminPanel`,
-  `N6DataPipeline`, `N6Lib`, `N6SDK`) are *not*.
+  *Note*: here all basic *dependencies* for `N6DataSources` and
+  `N6AdminPanel` as well as for `N6DataPipeline`, `N6Lib` and `N6SDK`
+  are installed but the *n6* packages themselves (`N6DataSources`,
+  `N6AdminPanel`, `N6DataPipeline`, `N6Lib`, `N6SDK`) are *not*.
 
-* Install, *for production*, the `N6DataSources` and `N6AdminPanel`
-  *n6* packages, but *without* any of the dependencies defined in
-  `requirements*.txt` files (e.g., if you have already installed
-  those dependencies):
+* Install the `N6DataSources` and `N6AdminPanel` n6* packages, but
+  *without* any of the dependencies defined in `requirements*.txt`
+  files (e.g., if you have already installed those dependencies):
 
       ./do_setup.py -n N6DataSources N6AdminPanel
 
@@ -126,17 +139,17 @@ run in a Python virtual environment.
   well as `N6DataPipeline`, `N6Lib` and `N6SDK` -- *are* installed (and
   *only* them).
 
-* Install, *for production*, the `N6DataSources` and `N6AdminPanel`
-  packages, with all necessary dependencies -- with the proviso that
-  no `*.pyc` files are generated during installation:
+* Install the `N6DataSources` and `N6AdminPanel` packages, with all
+  basic dependencies -- with the proviso that no `*.pyc` files are
+  generated during installation:
 
       ./do_setup.py -B N6DataSources N6AdminPanel
 
   (`-B` is an abbreviation for `--never-compile-bytecode`)
 
-* Install, *for production*, the `N6DataSources` and `N6AdminPanel`
-  packages, with all necessary dependencies -- with the proviso that
-  nothing is read or written from/to any *uv*'s or *pip*'s cache files:
+* Install the `N6DataSources` and `N6AdminPanel` packages, with all
+  basic dependencies -- with the proviso that nothing is read or written
+  from/to any *uv*'s or *pip*'s cache files:
 
       ./do_setup.py --no-cache N6DataSources N6AdminPanel
 """
@@ -233,7 +246,7 @@ N6_BONUS_COMPANION_PACKAGE_DIRNAME_REGEX = re.compile(
     re.ASCII | re.VERBOSE,
 )
 
-PER_PACKAGE_PROD_REQUIREMENTS_FILENAME = 'requirements.txt'
+PER_PACKAGE_BASIC_REQUIREMENTS_FILENAME = 'requirements.txt'
 PER_PACKAGE_EXTRA_REQUIREMENTS_FILENAME_FMT = 'requirements-{extra}.txt'
 
 ALL_CORE_REQUIREMENTS_DIRNAME = 'requirements'
@@ -466,9 +479,9 @@ class ScriptArgumentParser(argparse.ArgumentParser):
                 "execute `uv pip uninstall` regarding all packages "
                 "already installed in the current Python virtual "
                 "environment (i.e., both n6 ones and external ones, "
-                "except the basic setup tool packages: 'uv' and 'pip'), "
-                "then remove any existing build artifacts, as if the "
-                "option `-C`/`--first-clean-up` was specified (see the "
+                "except the 'uv' and 'pip' packages), then remove "
+                "any existing build artifacts, as if the option "
+                "`-C`/`--first-clean-up` was specified (see the "
                 "*WARNING* its description includes)"
             ),
         )
@@ -477,8 +490,8 @@ class ScriptArgumentParser(argparse.ArgumentParser):
             action='store_true',
             help=(
                 "before any other `uv pip` operations, execute "
-                "`uv pip install --upgrade` regarding the basic "
-                "setup tool packages: 'uv' and 'pip'"
+                "`uv pip install --upgrade` regarding just the "
+                "'uv' and 'pip' packages themselves"
             ),
         )
         self.add_argument(
@@ -1187,7 +1200,8 @@ sf = SystemFacade()
 
 def main() -> None:
     if not __debug__:
-        # (let all `assert`s be 100% reliable when used as a script)
+        # (let all `assert`s be 100% reliable
+        # when this module is used as a script)
         sys.exit(
             "fatal error: this script requires that "
             "Python's `__debug__` constant is true "
@@ -1258,7 +1272,7 @@ def ensure_uv(
             'pip',
             'install',
             '-qq',  # <- To silence warning about outdated *pip*.
-            *PIP_CONSTANT_OPTIONS,
+            *options,
             'uv',
         )
         sf.log_done_op("OK, installed 'uv'")
@@ -1424,19 +1438,19 @@ def generate_install_args_for_requirements_of_n6_pkg(
     n6_pkg_dirname: str,
 ) -> Iterator[str]:
     yield '-r'
-    yield format_prod_requirements_path(n6_pkg_dirname)
+    yield format_basic_requirements_path(n6_pkg_dirname)
     for extra in get_extras_for_n6_pkg(arguments, n6_pkg_dirname):
         yield '-r'
         yield format_extra_requirements_path(n6_pkg_dirname, extra)
 
 
-def format_prod_requirements_path(
+def format_basic_requirements_path(
     n6_pkg_dirname: str,
 ) -> str:
     return str(
         sf.top_dir_path /
         n6_pkg_dirname /
-        PER_PACKAGE_PROD_REQUIREMENTS_FILENAME
+        PER_PACKAGE_BASIC_REQUIREMENTS_FILENAME
     )
 
 

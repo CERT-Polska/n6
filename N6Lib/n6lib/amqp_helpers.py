@@ -53,7 +53,7 @@ RABBITMQ_CONFIG_SPEC_PATTERN = '''
 
     # Path of client certificate file & path of that certificate's private
     # key file, both related to client-certificate-based authentication:
-    ssl_certfile = :: str   ; these two are relevant only if `input_ssl` is
+    ssl_certfile = :: str   ; these two are relevant only if `ssl` is
     ssl_keyfile = :: str    ; true *and* `password_auth` is false
 
     # Options related to username-and-password-based authentication:

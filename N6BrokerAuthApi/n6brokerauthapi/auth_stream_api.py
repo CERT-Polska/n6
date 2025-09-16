@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2023 NASK. All rights reserved.
+# Copyright (c) 2019-2025 NASK. All rights reserved.
 
 import re
 from collections.abc import (
@@ -170,14 +170,6 @@ class StreamApiBrokerAuthManager(BaseBrokerAuthManager):
         return self.db_session.query(models.User).filter(
             models.User.login == self.broker_username).one_or_none()
 
-
-    def apply_privileged_access_rules(self) -> bool:
-        # the conditions are met if the (verified) user belongs
-        # to the "admins" system group in the Auth DB.
-        if self.user_is_admin:
-            assert self.user_verified  # (must be true when the above `if`'s condition is true)
-            return True
-        return False
 
     def apply_vhost_rules(self) -> bool:
         # maybe TODO later: wouldn't it be nice to be able to specify allowed vhosts in config?

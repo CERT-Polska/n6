@@ -202,7 +202,7 @@ Retrieved events are always sorted by their `time`, descendingly.
 ## Attributes and Parameters (Reference)
 
 All *event attributes* and *query parameters* supported by the current
-version of *n6* are listed in the following sections – except that in
+version of *n6* are listed in the following sections -- except that in
 this document we do *not* cover any attributes/parameters that are
 visible/available *only* for *privileged* users [*technically: those
 users whose organizations have the `full_access` flag set to `True` in
@@ -282,6 +282,10 @@ are noted in round brackets.
   of injects performed by banking trojans when a user loads a targeted
   website (see `url_pattern`). Structure of objects depends on malware
   family (not specified here).
+- `long_description` (*string*) Textual description, potentially long
+  (technically: up to 16 million bytes of UTF-8 representation; in
+  practice, such long values are neither expected nor recommended, as
+  they could negatively impact performance).
 - `md5` (*string*) MD5 hash (hexadecimal) of the binary file related to
   the event.
 - `modified` (*string*) **[mandatory]** Time when the event was made
@@ -493,6 +497,7 @@ multiple values* of a parameter are allowed).
 | `iban`                           | *string*            |                        | –                                   |                                    |
 | `id`                             | *string*            | mandatory              | `id`                                |                                    |
 | `injects`                        | *array of objects*  |                        | –                                   |                                    |
+| `long_description`               | *string*            |                        | –                                   |                                    |
 | `md5`                            | *string*            |                        | `md5`                               |                                    |
 | `modified`                       | *string* (time)     | mandatory              | `modified.min`                      | no&nbsp;multiple values            |
 |                                  |                     |                        | `modified.max`                      | no&nbsp;multiple values            |
@@ -531,8 +536,13 @@ multiple values* of a parameter are allowed).
 
 ## API Changelog
 
+### **4.31.0** (2025-09-16)
+
+New event attribute: `long_description`.
+
 ### **4.12.0** (2024-12-23)
 
-After this release of *n6*, any changes to *n6 REST API* will be
-recorded in this section (in addition to being included in the main
-[Changelog](../changelog.md)).
+After this release of *n6*, any changes to *n6 REST API* (to the API
+itself, not just to this document!), if relevant to non-privileged
+users, will be recorded in this section (in addition to being included
+in the main [Changelog](../changelog.md)).

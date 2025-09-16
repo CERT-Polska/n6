@@ -20,14 +20,14 @@ cd ~
 
 ## New *Virtual Environment*
 
-Create a new Python *virtual environment*... Let its name be `env_py3k`
-(for the purposes of this guide):
+Create a new Python *virtual environment*... Let its name, for the
+purposes of this guide, be `env_py3k`:
 
 ```bash
 python3.11 -m venv env_py3k
 ```
 
-...then, activate it:
+Then, activate it:
 
 ```bash
 source ./env_py3k/bin/activate
@@ -99,7 +99,7 @@ reveal all available executable scripts provided by the installed *n6*
 components:
 
 ```bash
-n6  # <- try the TAB key directly after typing "n6" to see the results of autocompletion
+n6  # <- try the TAB key directly after typing "n6" to use autocompletion
 ```
 
 
@@ -132,7 +132,7 @@ made the script install *all* components of *n6*, that is:
       guide dedicated to *n6 Stream API*...](../opt/streamapi/docker.md))
 
 * *n6*'s library stuff and helper scripts -- whose implementation can be
-  found in the code repo's subdirectories `N6Lib` and `N6SDK`.
+  found in the `n6/`'s subdirectories `N6Lib` and `N6SDK`.
 
 !!! note ""
 

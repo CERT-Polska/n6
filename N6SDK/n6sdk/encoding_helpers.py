@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 #
 # For some parts of the source code of the
 # `provide_custom_unicode_error_handlers()` function:
@@ -6,6 +6,7 @@
 # (For more information -- see the docstring of that function.)
 
 import re
+from typing import Union
 
 
 class AsciiMixIn(object):
@@ -327,8 +328,6 @@ def as_str_with_minimum_esc(obj):
     return s
 
 
-_ASCII_PY_IDENTIFIER_INVALID_CHAR = re.compile(r'[^0-9a-zA-Z_]', re.ASCII)
-
 def ascii_py_identifier_str(obj):
     r"""
     Convert the given object to a pure-ASCII :class:'str' being a
@@ -436,12 +435,361 @@ def ascii_py_identifier_str(obj):
         s = '_' + s
     return s
 
+_ASCII_PY_IDENTIFIER_INVALID_CHAR = re.compile(r'[^0-9a-zA-Z_]', re.ASCII)
 
-def replace_surrogate_pairs_with_proper_codepoints(s):
+
+def compute_str_index_from_utf8_bytes_index(
+    s: str,
+    utf8_bytes_index: int,
+) -> Union[int, None]:
+    r"""
+    Given a Unicode string (`str`) and an index (non-negative `int`)
+    that could point to some element of a `bytes` result of encoding
+    the Unicode string to UTF-8 (with the `surrogatepass` encoding
+    error handler), compute the index (non-negative `int`) of the
+    corresponding element (character) of the Unicode string itself.
+    But return `None` if the resultant index had to be greater than
+    or equal to the length of the given Unicode string.
+
+    Perform the computation reasonably quickly and without unnecessary
+    memory overhead (in particular, without actually encoding the given
+    Unicode string to `bytes`).
+
+    >>> s1 = 'abc'  # (trivial case: ASCII only)
+    >>> len(s1) == len(s1.encode('utf-8')) == 3
+    True
+    >>> compute_str_index_from_utf8_bytes_index(s1, 0)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s1, 1)
+    1
+    >>> compute_str_index_from_utf8_bytes_index(s1, 2)
+    2
+    >>> compute_str_index_from_utf8_bytes_index(s1, 3)  # max. index exceeded => None
+    >>> compute_str_index_from_utf8_bytes_index(s1, 4)
+    >>> compute_str_index_from_utf8_bytes_index(s1, 5)
+    >>> compute_str_index_from_utf8_bytes_index(s1, 11)
+    >>> compute_str_index_from_utf8_bytes_index(s1, 12)
+    >>> compute_str_index_from_utf8_bytes_index(s1, 13)
+    >>> compute_str_index_from_utf8_bytes_index(s1, 1_000_000_000_000)
+
+    >>> s2 = 'Aleś \U0001f340 zapodał!'
+    >>> len(s2)
+    15
+    >>> len(s2.encode('utf-8', 'surrogatepass'))
+    20
+    >>> compute_str_index_from_utf8_bytes_index(s2, 0)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s2, 1)
+    1
+    >>> compute_str_index_from_utf8_bytes_index(s2, 2)
+    2
+    >>> compute_str_index_from_utf8_bytes_index(s2, 3)  # 1st byte of 2-bytes codepoint
+    3
+    >>> compute_str_index_from_utf8_bytes_index(s2, 4)  # 2nd byte of 2-bytes codepoint
+    3
+    >>> compute_str_index_from_utf8_bytes_index(s2, 5)
+    4
+    >>> compute_str_index_from_utf8_bytes_index(s2, 6)  # 1st byte of 4-bytes codepoint
+    5
+    >>> compute_str_index_from_utf8_bytes_index(s2, 7)  # 2nd byte of 4-bytes codepoint
+    5
+    >>> compute_str_index_from_utf8_bytes_index(s2, 8)  # 3rd byte of 4-bytes codepoint
+    5
+    >>> compute_str_index_from_utf8_bytes_index(s2, 9)  # 4th byte of 4-bytes codepoint
+    5
+    >>> compute_str_index_from_utf8_bytes_index(s2, 10)
+    6
+    >>> compute_str_index_from_utf8_bytes_index(s2, 11)
+    7
+    >>> compute_str_index_from_utf8_bytes_index(s2, 12)
+    8
+    >>> compute_str_index_from_utf8_bytes_index(s2, 13)
+    9
+    >>> compute_str_index_from_utf8_bytes_index(s2, 14)
+    10
+    >>> compute_str_index_from_utf8_bytes_index(s2, 15)
+    11
+    >>> compute_str_index_from_utf8_bytes_index(s2, 16)
+    12
+    >>> compute_str_index_from_utf8_bytes_index(s2, 17)  # 1st byte of 2-bytes codepoint
+    13
+    >>> compute_str_index_from_utf8_bytes_index(s2, 18)  # 2nd byte of 2-bytes codepoint
+    13
+    >>> compute_str_index_from_utf8_bytes_index(s2, 19)
+    14
+    >>> compute_str_index_from_utf8_bytes_index(s2, 20)  # max. index exceeded => None
+    >>> compute_str_index_from_utf8_bytes_index(s2, 21)
+    >>> compute_str_index_from_utf8_bytes_index(s2, 22)
+    >>> compute_str_index_from_utf8_bytes_index(s2, 23)
+    >>> compute_str_index_from_utf8_bytes_index(s2, 59)
+    >>> compute_str_index_from_utf8_bytes_index(s2, 60)
+    >>> compute_str_index_from_utf8_bytes_index(s2, 61)
+    >>> compute_str_index_from_utf8_bytes_index(s2, 1_000_000_000_000)
+
+    >>> s3 = ' ń\ud83c\udf40\U0001f340'
+    >>> len(s3)
+    5
+    >>> len(s3.encode('utf-8', 'surrogatepass'))
+    13
+    >>> compute_str_index_from_utf8_bytes_index(s3, 0)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s3, 1)
+    1
+    >>> compute_str_index_from_utf8_bytes_index(s3, 2)
+    1
+    >>> compute_str_index_from_utf8_bytes_index(s3, 3)
+    2
+    >>> compute_str_index_from_utf8_bytes_index(s3, 4)
+    2
+    >>> compute_str_index_from_utf8_bytes_index(s3, 5)
+    2
+    >>> compute_str_index_from_utf8_bytes_index(s3, 6)
+    3
+    >>> compute_str_index_from_utf8_bytes_index(s3, 7)
+    3
+    >>> compute_str_index_from_utf8_bytes_index(s3, 8)
+    3
+    >>> compute_str_index_from_utf8_bytes_index(s3, 9)
+    4
+    >>> compute_str_index_from_utf8_bytes_index(s3, 10)
+    4
+    >>> compute_str_index_from_utf8_bytes_index(s3, 11)
+    4
+    >>> compute_str_index_from_utf8_bytes_index(s3, 12)
+    4
+    >>> compute_str_index_from_utf8_bytes_index(s3, 13)  # max. index exceeded => None
+    >>> compute_str_index_from_utf8_bytes_index(s3, 14)
+    >>> compute_str_index_from_utf8_bytes_index(s3, 15)
+    >>> compute_str_index_from_utf8_bytes_index(s3, 16)
+    >>> compute_str_index_from_utf8_bytes_index(s3, 17)
+    >>> compute_str_index_from_utf8_bytes_index(s3, 18)
+    >>> compute_str_index_from_utf8_bytes_index(s3, 19)
+    >>> compute_str_index_from_utf8_bytes_index(s3, 20)
+    >>> compute_str_index_from_utf8_bytes_index(s3, 21)
+    >>> compute_str_index_from_utf8_bytes_index(s3, 1_000_000_000_000)
+
+    >>> s4 = ''.join(reversed(s3))
+    >>> len(s4)
+    5
+    >>> len(s4.encode('utf-8', 'surrogatepass'))
+    13
+    >>> compute_str_index_from_utf8_bytes_index(s4, 0)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s4, 1)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s4, 2)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s4, 3)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s4, 4)
+    1
+    >>> compute_str_index_from_utf8_bytes_index(s4, 5)
+    1
+    >>> compute_str_index_from_utf8_bytes_index(s4, 6)
+    1
+    >>> compute_str_index_from_utf8_bytes_index(s4, 7)
+    2
+    >>> compute_str_index_from_utf8_bytes_index(s4, 8)
+    2
+    >>> compute_str_index_from_utf8_bytes_index(s4, 9)
+    2
+    >>> compute_str_index_from_utf8_bytes_index(s4, 10)
+    3
+    >>> compute_str_index_from_utf8_bytes_index(s4, 11)
+    3
+    >>> compute_str_index_from_utf8_bytes_index(s4, 12)
+    4
+    >>> compute_str_index_from_utf8_bytes_index(s4, 13)  # max. index exceeded => None
+    >>> compute_str_index_from_utf8_bytes_index(s4, 14)
+    >>> compute_str_index_from_utf8_bytes_index(s4, 15)
+    >>> compute_str_index_from_utf8_bytes_index(s4, 16)
+    >>> compute_str_index_from_utf8_bytes_index(s4, 17)
+    >>> compute_str_index_from_utf8_bytes_index(s4, 18)
+    >>> compute_str_index_from_utf8_bytes_index(s4, 19)
+    >>> compute_str_index_from_utf8_bytes_index(s4, 20)
+    >>> compute_str_index_from_utf8_bytes_index(s4, 21)
+    >>> compute_str_index_from_utf8_bytes_index(s4, 1_000_000_000_000)
+
+    >>> s5 = '\U0001f340ń \ud83cń\udf40 ń\U0001f340'
+    >>> len(s5)
+    9
+    >>> len(s5.encode('utf-8', 'surrogatepass'))
+    22
+    >>> compute_str_index_from_utf8_bytes_index(s5, 0)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s5, 1)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s5, 2)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s5, 3)
+    0
+    >>> compute_str_index_from_utf8_bytes_index(s5, 4)
+    1
+    >>> compute_str_index_from_utf8_bytes_index(s5, 5)
+    1
+    >>> compute_str_index_from_utf8_bytes_index(s5, 6)
+    2
+    >>> compute_str_index_from_utf8_bytes_index(s5, 7)
+    3
+    >>> compute_str_index_from_utf8_bytes_index(s5, 8)
+    3
+    >>> compute_str_index_from_utf8_bytes_index(s5, 9)
+    3
+    >>> compute_str_index_from_utf8_bytes_index(s5, 10)
+    4
+    >>> compute_str_index_from_utf8_bytes_index(s5, 11)
+    4
+    >>> compute_str_index_from_utf8_bytes_index(s5, 12)
+    5
+    >>> compute_str_index_from_utf8_bytes_index(s5, 13)
+    5
+    >>> compute_str_index_from_utf8_bytes_index(s5, 14)
+    5
+    >>> compute_str_index_from_utf8_bytes_index(s5, 15)
+    6
+    >>> compute_str_index_from_utf8_bytes_index(s5, 16)
+    7
+    >>> compute_str_index_from_utf8_bytes_index(s5, 17)
+    7
+    >>> compute_str_index_from_utf8_bytes_index(s5, 18)
+    8
+    >>> compute_str_index_from_utf8_bytes_index(s5, 19)
+    8
+    >>> compute_str_index_from_utf8_bytes_index(s5, 20)
+    8
+    >>> compute_str_index_from_utf8_bytes_index(s5, 21)
+    8
+    >>> compute_str_index_from_utf8_bytes_index(s5, 22)  # max. index exceeded => None
+    >>> compute_str_index_from_utf8_bytes_index(s5, 23)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 24)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 25)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 26)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 27)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 28)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 29)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 30)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 31)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 32)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 33)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 34)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 35)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 36)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 37)
+    >>> compute_str_index_from_utf8_bytes_index(s5, 1_000_000_000_000)
+
+    Edge cases are also handled properly:
+
+    >>> compute_str_index_from_utf8_bytes_index('', 0)  # max. index exceeded => None
+    >>> compute_str_index_from_utf8_bytes_index('', 1)
+    >>> compute_str_index_from_utf8_bytes_index('', 1_000_000_000_000)
+
+    >>> compute_str_index_from_utf8_bytes_index('x', 0)
+    0
+    >>> compute_str_index_from_utf8_bytes_index('x', 1)  # max. index exceeded => None
+    >>> compute_str_index_from_utf8_bytes_index('x', 2)
+    >>> compute_str_index_from_utf8_bytes_index('x', 3)
+    >>> compute_str_index_from_utf8_bytes_index('x', 4)
+    >>> compute_str_index_from_utf8_bytes_index('x', 5)
+    >>> compute_str_index_from_utf8_bytes_index('x', 1_000_000_000_000)
+
+    >>> compute_str_index_from_utf8_bytes_index('ń', 0)
+    0
+    >>> compute_str_index_from_utf8_bytes_index('ń', 1)
+    0
+    >>> compute_str_index_from_utf8_bytes_index('ń', 2)  # max. index exceeded => None
+    >>> compute_str_index_from_utf8_bytes_index('ń', 3)
+    >>> compute_str_index_from_utf8_bytes_index('ń', 4)
+    >>> compute_str_index_from_utf8_bytes_index('ń', 5)
+    >>> compute_str_index_from_utf8_bytes_index('ń', 1_000_000_000_000)
+
+    >>> compute_str_index_from_utf8_bytes_index('\uabcd', 0)
+    0
+    >>> compute_str_index_from_utf8_bytes_index('\uabcd', 1)
+    0
+    >>> compute_str_index_from_utf8_bytes_index('\uabcd', 2)
+    0
+    >>> compute_str_index_from_utf8_bytes_index('\uabcd', 3)  # max. index exceeded => None
+    >>> compute_str_index_from_utf8_bytes_index('\uabcd', 4)
+    >>> compute_str_index_from_utf8_bytes_index('\uabcd', 5)
+    >>> compute_str_index_from_utf8_bytes_index('\uabcd', 1_000_000_000_000)
+
+    >>> compute_str_index_from_utf8_bytes_index('\U0001f340', 0)
+    0
+    >>> compute_str_index_from_utf8_bytes_index('\U0001f340', 1)
+    0
+    >>> compute_str_index_from_utf8_bytes_index('\U0001f340', 2)
+    0
+    >>> compute_str_index_from_utf8_bytes_index('\U0001f340', 3)
+    0
+    >>> compute_str_index_from_utf8_bytes_index('\U0001f340', 4)  # max. index exceeded => None
+    >>> compute_str_index_from_utf8_bytes_index('\U0001f340', 5)
+    >>> compute_str_index_from_utf8_bytes_index('\U0001f340', 1_000_000_000_000)
+    """
+    str_length = len(s)
+    if utf8_bytes_index >= 4 * str_length:
+        # (fast path: `utf8_bytes_index` is big enough...)
+        return None
+
+    bytes_countdown = utf8_bytes_index
+    str_index = 0
+
+    def repl(chunk_match: re.Match) -> str:
+        nonlocal bytes_countdown, str_index
+
+        if bytes_countdown <= 0:
+            return ''
+
+        for n in (1, 2, 3, 4):
+            assert chunk_match.start(n) == str_index
+
+            if not (str_portion := chunk_match.group(n)):
+                continue
+
+            str_step = len(str_portion)
+            str_index += str_step
+            bytes_countdown -= n * str_step
+            if bytes_countdown <= 0:
+                str_index += bytes_countdown // n
+                break
+
+        # (only the collected counts are important,
+        # *not* any string substitutions)
+        return ''
+
+    _UNICODE_CHUNK_REGEX_FOR_COUNTING_UTF8_BYTES.sub(repl, s)
+
+    if str_index >= str_length:
+        assert str_index == str_length
+        return None
+
+    assert 0 <= str_index < str_length
+    return str_index
+
+_UNICODE_CHUNK_REGEX_FOR_COUNTING_UTF8_BYTES = re.compile(
+    # (we limit the length of each processed portion to max. 2000 characters,
+    # so that we can handle even a huge string in a memory efficient manner)
+    r'''
+        # Unicode codepoints:              Num of bytes per codepoint in UTF-8:
+        ([\x00-\x7f]{,2000})               # 1
+        ([\x80-\u07ff]{,2000})             # 2
+        ([\u0800-\uffff]{,2000})           # 3
+        ([\U00010000-\U0010ffff]{,2000})   # 4
+    ''',
+    re.VERBOSE,
+)
+
+
+def replace_surrogate_pairs_with_proper_codepoints(
+    s: str,
+    replace_unpaired_surrogates_with_fffd: bool = False,
+):
     r"""
     Make representation of non-BMP characters consistent, by replacing
     surrogate pairs with the actual corresponding non-BMP codepoints.
-    Lone (unpaired) surrogates are left intact.
+    Unpaired (lone) surrogates are left intact, unless the flag
+    `replace_unpaired_surrogates_with_fffd` is set -- then each
+    unpaired surrogate is replaced with the Unicode replacement
+    character ('\ufffd')'.
 
     >>> s = '\ud83c' + '\udf40'
     >>> print(ascii(s))
@@ -449,12 +797,22 @@ def replace_surrogate_pairs_with_proper_codepoints(s):
     >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
     >>> print(ascii(res))
     '\U0001f340'
+    >>> res2 = replace_surrogate_pairs_with_proper_codepoints(
+    ...     s,
+    ...     replace_unpaired_surrogates_with_fffd=True)
+    >>> print(ascii(res2))
+    '\U0001f340'
 
     >>> s = '\ud800' + '\udc00' + '\ud800' + '\udfff' + '\udbff' + '\udc00' + '\udbff' + '\udfff'
     >>> print(ascii(s))
     '\ud800\udc00\ud800\udfff\udbff\udc00\udbff\udfff'
     >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
     >>> print(ascii(res))
+    '\U00010000\U000103ff\U0010fc00\U0010ffff'
+    >>> res2 = replace_surrogate_pairs_with_proper_codepoints(
+    ...     s,
+    ...     replace_unpaired_surrogates_with_fffd=True)
+    >>> print(ascii(res2))
     '\U00010000\U000103ff\U0010fc00\U0010ffff'
 
     Any already-non-BMP codepoints are, obviously, left intact:
@@ -465,8 +823,15 @@ def replace_surrogate_pairs_with_proper_codepoints(s):
     >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
     >>> print(ascii(res))
     '\U0001f340'
+    >>> res2 = replace_surrogate_pairs_with_proper_codepoints(
+    ...     s,
+    ...     replace_unpaired_surrogates_with_fffd=True)
+    >>> print(ascii(res2))
+    '\U0001f340'
 
-    Lone/not-properly-paired surrogates are left intact we well:
+    Lone/not-properly-paired surrogates are either left intact or replaced
+    with '\ufffd', depending on the `replace_unpaired_surrogates_with_fffd`
+    flag:
 
     >>> s = '\ud83c'
     >>> print(ascii(s))
@@ -474,6 +839,11 @@ def replace_surrogate_pairs_with_proper_codepoints(s):
     >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
     >>> print(ascii(res))
     '\ud83c'
+    >>> res2 = replace_surrogate_pairs_with_proper_codepoints(
+    ...     s,
+    ...     replace_unpaired_surrogates_with_fffd=True)
+    >>> print(ascii(res2))
+    '\ufffd'
 
     >>> s = '\udf40' + '\ud83c'  # not a proper surrogate pair (wrong order)
     >>> print(ascii(s))
@@ -481,6 +851,11 @@ def replace_surrogate_pairs_with_proper_codepoints(s):
     >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
     >>> print(ascii(res))
     '\udf40\ud83c'
+    >>> res2 = replace_surrogate_pairs_with_proper_codepoints(
+    ...     s,
+    ...     replace_unpaired_surrogates_with_fffd=True)
+    >>> print(ascii(res2))
+    '\ufffd\ufffd'
 
     >>> s = 'asdfghj' + '\ud83c' + '\udf40' + '\udf40' + '\ud83c' + '\U0001f340' + 'qwertyu'
     >>> print(ascii(s))
@@ -488,10 +863,16 @@ def replace_surrogate_pairs_with_proper_codepoints(s):
     >>> res = replace_surrogate_pairs_with_proper_codepoints(s)
     >>> print(ascii(res))
     'asdfghj\U0001f340\udf40\ud83c\U0001f340qwertyu'
+    >>> res2 = replace_surrogate_pairs_with_proper_codepoints(
+    ...     s,
+    ...     replace_unpaired_surrogates_with_fffd=True)
+    >>> print(ascii(res2))
+    'asdfghj\U0001f340\ufffd\ufffd\U0001f340qwertyu'
     """
     if not isinstance(s, str):
         raise TypeError(f'{s!a} is not a `str`')
-    res = s.encode('utf-16', 'surrogatepass').decode('utf-16', 'surrogatepass')
+    decode_error_handling = 'replace' if replace_unpaired_surrogates_with_fffd else 'surrogatepass'
+    res = s.encode('utf-16', 'surrogatepass').decode('utf-16', decode_error_handling)
     assert not _PROPER_SURROGATE_PAIR.search(res)
     return res
 

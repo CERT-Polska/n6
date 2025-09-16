@@ -10,8 +10,10 @@ dynamic = ["version"]
 description = "The library of common *n6* modules"
 requires-python = ">=3.9, <3.12"
 dependencies = [
+    # inner *n6* dependencies:
     "n6sdk",
 
+    # external dependencies:
     "alembic",
     "bcrypt",
     "docker",
@@ -45,7 +47,9 @@ keywords = [
     "n6", "security", "incident", "library",
 ]
 classifiers = [
+    "Environment :: Console",
     "Operating System :: POSIX :: Linux",
+    "Private :: Do Not Upload",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
     "Topic :: Security",
@@ -54,6 +58,7 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
+    # varia:
     "coverage",
     "invoke",
     "mkdocs",
@@ -64,6 +69,7 @@ dev = [
     "pytest-cov",
     "unittest-expander",
 
+    # web-specific:
     "pyramid-debugtoolbar",
     "waitress",
 ]
@@ -86,9 +92,6 @@ n6create_and_initialize_auth_db = "n6lib.auth_db.scripts:create_and_initialize_a
 n6drop_auth_db = "n6lib.auth_db.scripts:drop_auth_db"
 n6populate_auth_db = "n6lib.auth_db.scripts:populate_auth_db"
 n6import_to_auth_db = "n6lib.auth_db.scripts:import_to_auth_db"
-n6prepare_legacy_auth_db_for_alembic = """\
-    n6lib.auth_db._before_alembic.script_preparing_for_alembic\
-    :prepare_legacy_auth_db_for_alembic"""
 
 
 #

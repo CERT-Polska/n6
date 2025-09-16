@@ -147,7 +147,7 @@ values - based on the pattern: `<event type>.<pipeline stage>.*.*`, where:
 ```text
 Exchange: raw
 Routing Key: cert-pl.shield
-[...]
+...
 type: file
 timestamp: 1645450085
 message_id: 4cb234876abc76ef9a876ef2765aef82
@@ -156,10 +156,9 @@ headers: meta: http_last_modified: 2022-02-21 13:25:03
 content_type: text/csv
 
 Payload
-[...]
+...
 "2022-02-21 15:05:41","1.2.3.4","443","online","2022-02-21","SomeBot"
 "2022-02-21 15:05:35","55.66.77.88","995","online","2022-02-21","SomeBot"
-...
 ...
 "2021-01-17 07:44:46","101.102.103.104","4321","online","2022-02-21","Foo Bar"
 ```
@@ -172,11 +171,11 @@ The server reported 635 messages remaining.
 
 Exchange: event
 Routing Key: event.parsed.cert-pl.shield
-[...]
+...
 delivery_mode: 2
 
 Payload
-[...]
+...
 {"category": "cnc", "confidence": "medium", "restriction": "public", 
 "rid": "4cb234876abc76ef9a876ef2765aef82", "source": "cert-pl.shield", 
 "address": [{"ip": "55.66.77.88"}], "dport": 995, "name": "somebot", 

@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2023 NASK. All rights reserved.
+# Copyright (c) 2019-2025 NASK. All rights reserved.
 
 import sys
 import threading
@@ -9,11 +9,9 @@ from collections.abc import (
 from typing import Optional
 
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.exc import NoResultFound
 
 from n6lib.auth_db import models
 from n6lib.auth_db.config import SQLAuthDBConnector
-from n6lib.const import ADMINS_SYSTEM_GROUP_NAME
 from n6lib.context_helpers import force_exit_on_any_remaining_entered_contexts
 from n6lib.log_helpers import get_logger
 from n6lib.typing_helpers import KwargsDict
@@ -135,26 +133,6 @@ class BaseBrokerAuthManager:
         # may be relevant to any view
         return (self.user_obj is not None)
 
-    @property
-    def user_is_admin(self) -> bool:
-        if not self.user_verified:
-            return False
-        assert self.user_obj is not None
-        self._check_presence_of_db_session()
-        admins_group = self._get_admins_group()
-        if admins_group is not None:
-            return admins_group in self.user_obj.system_groups
-        return False
-
-    def _get_admins_group(self) -> Optional[models.SystemGroup]:
-        assert self.db_session is not None
-        try:
-            return self.db_session.query(models.SystemGroup).filter(
-                models.SystemGroup.name == ADMINS_SYSTEM_GROUP_NAME).one()
-        except NoResultFound:
-            LOGGER.error('System group %a not found in auth db!', ADMINS_SYSTEM_GROUP_NAME)
-            return None
-
     #
     # Abstract methods (*must* be implemented in concrete subclasses)
 
@@ -170,10 +148,6 @@ class BaseBrokerAuthManager:
         raise NotImplementedError
 
     # * Authorization methods:
-
-    def apply_privileged_access_rules(self) -> bool:
-        """Whether general "superuser" access should be granted (may be related to any view)."""
-        raise NotImplementedError
 
     def apply_vhost_rules(self) -> bool:
         """Whether vhost access should be granted (related to the *vhost_path* view)."""

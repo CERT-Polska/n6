@@ -13,9 +13,11 @@ dynamic = [
 description = "Data-processing-pipeline components of *n6*"
 requires-python = ">=3.9, <3.12"
 dependencies = [
+    # inner *n6* dependencies:
     "n6lib",
     "n6sdk",
 
+    # external dependencies:
     "dnspython",
     "geoip2",
     "intelmq",
@@ -38,7 +40,10 @@ keywords = [
     "n6", "security", "incident", "data pipeline",
 ]
 classifiers = [
+    "Environment :: Console",
+    "Environment :: Other Environment",
     "Operating System :: POSIX :: Linux",
+    "Private :: Do Not Upload",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
     "Topic :: Security",

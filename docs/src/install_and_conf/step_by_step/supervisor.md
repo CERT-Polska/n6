@@ -13,7 +13,7 @@ processes' state under UNIX-like systems (such as Linux-based ones).
 This turns out to be very useful for managing *n6 pipeline* components.
 
 
-## Where are we?
+## Where Are We?
 
 Again, before any operations, ensure the current working directory is
 the home directory of `dataman` (which is supposed to be the user in
@@ -23,8 +23,9 @@ whose shell you execute all commands):
 cd ~
 ```
 
-Also, make sure the Python *virtual environment* in which *n6* [has been
-installed](installation.md#actual-installation) is active:
+Also, make sure the Python *virtual environment* [in
+which](installation.md#new-virtual-environment) *n6* has been
+[installed](installation.md#actual-installation) is active:
 
 ```bash
 source ./env_py3k/bin/activate

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2024 NASK. All rights reserved.
+# Copyright (c) 2014-2025 NASK. All rights reserved.
 
 import collections
 import copy
@@ -18,6 +18,7 @@ from n6sdk.data_spec.fields import (
     SHA256Field,
     UnicodeEnumField,
     UnicodeLimitedField,
+    UnicodeLimitedByHypotheticalUTF8BytesLengthField,
     UnicodeRegexField,
     SourceField,
     IPv4Field,
@@ -65,8 +66,10 @@ class FieldTestMixin(TestCaseMixin):
             f = self.CLASS(**init_kwargs)
             if isinstance(expected, type) and issubclass(
                   expected, BaseException):
-                with self.assertRaises(expected):
+                with self.assertRaises(expected) as cm:
                     f.clean_param_value(given)
+                self.assertIs(type(cm.exception), expected,
+                              f"{repr(cm.exception)=!s}; {str(cm.exception)=!s}")
             else:
                 cleaned_value = f.clean_param_value(given)
                 self.assertEqualIncludingTypes(cleaned_value, expected)
@@ -78,8 +81,10 @@ class FieldTestMixin(TestCaseMixin):
             f = self.CLASS(**init_kwargs)
             if isinstance(expected, type) and issubclass(
                   expected, BaseException):
-                with self.assertRaises(expected):
+                with self.assertRaises(expected) as cm:
                     f.clean_result_value(given)
+                self.assertIs(type(cm.exception), expected,
+                              f"{repr(cm.exception)=!s}; {str(cm.exception)=!s}")
             else:
                 cleaned_value = f.clean_result_value(given)
                 self.assertEqualIncludingTypes(cleaned_value, expected)
@@ -345,7 +350,7 @@ class TestFlagField(FieldTestMixin, unittest.TestCase):
         yield case(
             init_kwargs={'enable_empty_param_as_true': False},
             given='',
-            expected=ValueError,  # [sic]
+            expected=FieldValueError,
         )
 
     def cases__clean_result_value(self):
@@ -467,6 +472,10 @@ class TestUnicodeField(FieldTestMixin, unittest.TestCase):
             expected='kąŧ¹²³',
         )
         yield case(
+            given='nń\uabcd\U00010000',
+            expected='nń\uabcd\U00010000',
+        )
+        yield case(
             given='123abc   '*100000,
             expected='123abc   '*100000,
         )
@@ -488,25 +497,79 @@ class TestUnicodeField(FieldTestMixin, unittest.TestCase):
             given='',
             expected=FieldValueError,
         )
+        yield case(
+            init_kwargs={'disallow_empty': True},
+            given=' ',
+            expected=' ',
+        )
         some_chars = ''.join(map(chr, (list(range(1000)) + list(range(2 ** 16, 2 ** 16 + 1000)))))
         yield case(
             given=some_chars,
             expected=some_chars,
         )
+        # (`encoding` and `decode_error_handling` are irrelevant to `str` input)
         yield case(
-            init_kwargs={'encoding': 'utf-8'},  # note: `encoding` is irrelevant to `str` input
+            init_kwargs={'encoding': 'utf-8'},
             given='fąfara',
             expected='fąfara',
         )
         yield case(
-            init_kwargs={'encoding': 'ascii'},  # note: `encoding` is irrelevant to `str` input
+            init_kwargs={'encoding': 'ascii'},
             given='fąfara',
             expected='fąfara',
         )
         yield case(
-            init_kwargs={'encoding': 'utf-8'},  # note: `encoding` is irrelevant to `str` input
+            init_kwargs={'encoding': 'utf-8'},
             given='dd\udcdd\udcee',
             expected='dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given='ąń',
+            expected='ąń',
+        )
+        yield case(
+            given='\U00010000',
+            expected='\U00010000',
+        )
+        yield case(
+            given='\ud800\udc00',  # valid surrogate pair
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given='\ud800\udc00',
+            expected='\U00010000',
+        )
+        yield case(
+            given='\udc00\ud800',  # not a valid surrogate pair
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given='\udc00\ud800',
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False},
+            given='\udcdd \U00010000',
+            expected='\udcdd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given='\udcdd \U00010000',
+            expected='\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False},
+            given='\udcdd \ud800\udc00',
+            expected='\udcdd \ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given='\udcdd \ud800\udc00',
+            expected='\ufffd \U00010000',
         )
 
     def cases__clean_result_value(self):
@@ -533,6 +596,18 @@ class TestUnicodeField(FieldTestMixin, unittest.TestCase):
         yield case(
             given=bytearray(b'k\xc4\x85\xc5\xa7\xc2\xb9\xc2\xb2\xc2\xb3'),
             expected='kąŧ¹²³',
+        )
+        yield case(
+            given='nń\uabcd\U00010000',
+            expected='nń\uabcd\U00010000',
+        )
+        yield case(
+            given=b'n\xc5\x84\xea\xaf\x8d\xf0\x90\x80\x80',
+            expected='nń\uabcd\U00010000',
+        )
+        yield case(
+            given=bytearray(b'n\xc5\x84\xea\xaf\x8d\xf0\x90\x80\x80'),
+            expected='nń\uabcd\U00010000',
         )
         yield case(
             given='123abc   '*100000,
@@ -600,6 +675,21 @@ class TestUnicodeField(FieldTestMixin, unittest.TestCase):
             given=bytearray(b''),
             expected=FieldValueError,
         )
+        yield case(
+            init_kwargs={'disallow_empty': True},
+            given=' ',
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'disallow_empty': True},
+            given=b' ',
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'disallow_empty': True},
+            given=bytearray(b' '),
+            expected=' ',
+        )
         some_chars = ''.join(map(chr, (list(range(1000)) + list(range(2 ** 16, 2 ** 16 + 1000)))))
         yield case(
             given=some_chars,
@@ -613,21 +703,23 @@ class TestUnicodeField(FieldTestMixin, unittest.TestCase):
             given=bytearray(some_chars.encode('utf-8')),
             expected=some_chars,
         )
+        # `encoding` is irrelevant to `str` input...
         yield case(
-            init_kwargs={'encoding': 'utf-8'},    # note: `encoding` is irrelevant to `str` input
+            init_kwargs={'encoding': 'utf-8'},
             given='fąfara',
             expected='fąfara',
         )
         yield case(
-            init_kwargs={'encoding': 'ascii'},    # note: `encoding` is irrelevant to `str` input
+            init_kwargs={'encoding': 'ascii'},
             given='fąfara',
             expected='fąfara',
         )
         yield case(
-            init_kwargs={'encoding': 'ascii'},    # note: `encoding` is irrelevant to `str` input
+            init_kwargs={'encoding': 'ascii'},
             given='dd\udcdd\udcee',
             expected='dd\udcdd\udcee',
         )
+        # ...but it *is relevant* to binary input...
         yield case(
             init_kwargs={'encoding': 'utf-8'},
             given=b'f\xc4\x85fara',
@@ -658,6 +750,7 @@ class TestUnicodeField(FieldTestMixin, unittest.TestCase):
             given=bytearray(b'f\xc4\x85fara'),
             expected=FieldValueError,
         )
+        # ...and `decode_error_handling` is also *relevant* to binary input
         yield case(
             init_kwargs={'encoding': 'ascii', 'decode_error_handling': 'replace'},
             given=b'f\xc4\x85fara',
@@ -779,6 +872,352 @@ class TestUnicodeField(FieldTestMixin, unittest.TestCase):
                          'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
             given=bytearray(b'dd\xed\xb3\x9d\xed\xb3\xae'),   # quasi-UTF-8 with lone surrogates
             expected='dd\udcdd\udcee',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii',                 # (as noted above, `encoding`
+                         'decode_error_handling': 'ignore'},  # and `decode_error_handling`
+            given='ąń',                                       # are irrelevant to `str` input...)
+            expected='ąń',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii',                 # (...but, of course, they are
+                         'decode_error_handling': 'ignore'},  # *relevant* to binary input)
+            given=b'\xc4\x85\xc5\x84',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=bytearray(b'\xc4\x85\xc5\x84'),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=b'\xc4\x85\xc5\x84',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=bytearray(b'\xc4\x85\xc5\x84'),
+            expected=FieldValueError,
+        )
+        yield case(
+            given='\U00010000',
+            expected='\U00010000',
+        )
+        yield case(
+            given=b'\xf0\x90\x80\x80',
+            expected='\U00010000',
+        )
+        yield case(
+            given=bytearray(b'\xf0\x90\x80\x80'),
+            expected='\U00010000',
+        )
+        yield case(
+            given='\ud800\udc00',  # valid surrogate pair
+            expected='\ud800\udc00',
+        )
+        yield case(
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given='\ud800\udc00',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected='\U00010000',
+        )
+        yield case(
+            given='\udc00\ud800',  # not a valid surrogate pair
+            expected='\udc00\ud800',
+        )
+        yield case(
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given='\udc00\ud800',
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False},
+            given='\udcdd \U00010000',
+            expected='\udcdd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False},
+            given=b'\xed\xb3\x9d \xf0\x90\x80\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb3\x9d \xf0\x90\x80\x80'),
+            expected='\udcdd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xed\xb3\x9d \xf0\x90\x80\x80',
+            expected='\udced\udcb3\udc9d \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xed\xb3\x9d \xf0\x90\x80\x80'),
+            expected='\udcdd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False},
+            given=bytearray(b'\xdd \xf0\x90\x80\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xdd \xf0\x90\x80\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xdd \xf0\x90\x80\x80'),
+            expected='\udcdd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xdd \xf0\x90\x80\x80',
+            expected='\udcdd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given='\udcdd \U00010000',
+            expected='\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given=b'\xed\xb3\x9d \xf0\x90\x80\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb3\x9d \xf0\x90\x80\x80'),
+            expected='\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xed\xb3\x9d \xf0\x90\x80\x80',
+            expected='\ufffd\ufffd\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xed\xb3\x9d \xf0\x90\x80\x80'),
+            expected='\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given=bytearray(b'\xdd \xf0\x90\x80\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xdd \xf0\x90\x80\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xdd \xf0\x90\x80\x80'),
+            expected='\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xdd \xf0\x90\x80\x80',
+            expected='\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False},
+            given='\udcdd \ud800\udc00',
+            expected='\udcdd \ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False},
+            given=bytearray(b'\xed\xb3\x9d \xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb3\x9d \xed\xa0\x80\xed\xb0\x80',
+            expected='\udcdd \ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xed\xb3\x9d \xed\xa0\x80\xed\xb0\x80'),
+            expected='\udced\udcb3\udc9d \udced\udca0\udc80\udced\udcb0\udc80',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xed\xb3\x9d \xed\xa0\x80\xed\xb0\x80',
+            expected='\udcdd \ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False},
+            given=b'\xdd \xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xdd \xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xdd \xed\xa0\x80\xed\xb0\x80',
+            expected='\udcdd \udced\udca0\udc80\udced\udcb0\udc80',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xdd \xed\xa0\x80\xed\xb0\x80'),
+            expected='\udcdd \ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given='\udcdd \ud800\udc00',
+            expected='\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given=bytearray(b'\xed\xb3\x9d \xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb3\x9d \xed\xa0\x80\xed\xb0\x80',
+            expected='\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xed\xb3\x9d \xed\xa0\x80\xed\xb0\x80'),
+            expected='\ufffd\ufffd\ufffd \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xed\xb3\x9d \xed\xa0\x80\xed\xb0\x80',
+            expected='\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True},
+            given=b'\xdd \xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xdd \xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xdd \xed\xa0\x80\xed\xb0\x80',
+            expected='\ufffd \ufffd\ufffd\ufffd\ufffd\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xdd \xed\xa0\x80\xed\xb0\x80'),
+            expected='\ufffd \U00010000',
         )
         yield case(
             given=123,
@@ -1648,6 +2087,11 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
 
     def cases__clean_param_value(self):
         yield case(
+            init_kwargs={'max_length': 1},
+            given='a',
+            expected='a',
+        )
+        yield case(
             init_kwargs={'max_length': 3},
             given='abc',
             expected='abc',
@@ -1659,21 +2103,16 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             init_kwargs={'max_length': 3000},
-            given='*^&'*1000,
-            expected='*^&'*1000,
+            given='*\uabcd&'*1000,
+            expected='*\uabcd&'*1000,
         )
         yield case(
             init_kwargs={'max_length': 3000},
-            given='*^&'*1000 + '*',
+            given='*\uabcd&'*1000 + '*',
             expected=FieldValueTooLongError,
         )
         yield case(
             init_kwargs={'max_length': 3},
-            given='',
-            expected='',
-        )
-        yield case(
-            init_kwargs={'max_length': 3, 'disallow_empty': False},
             given='',
             expected='',
         )
@@ -1683,19 +2122,29 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
             expected=FieldValueError,
         )
         yield case(
-            init_kwargs={'max_length': 4},
-            given='ąść',
-            expected='ąść',
+            init_kwargs={'max_length': 1, 'disallow_empty': False},
+            given='',
+            expected='',
         )
         yield case(
-            init_kwargs={'max_length': 3},
-            given='ąść',
-            expected='ąść',
+            init_kwargs={'max_length': 1, 'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
         )
         yield case(
-            init_kwargs={'max_length': 2},
-            given='ąść',
+            init_kwargs={'max_length': 1, 'disallow_empty': True},
+            given=' ',
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given='  ',
             expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given='ą',
+            expected='ą',
         )
         yield case(
             init_kwargs={'max_length': 3},
@@ -1709,15 +2158,15 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             init_kwargs={'max_length': 3},
-            given='\udcdd \udcee',
-            expected='\udcdd \udcee',
+            given='ąść',
+            expected='ąść',
         )
         yield case(
             init_kwargs={'max_length': 2},
-            given='\udcdd \udcee',
+            given='ąść',
             expected=FieldValueTooLongError,
         )
-        # (`encoding` is irrelevant to `str` input)
+        # (`encoding` and `decode_error_handling` are irrelevant to `str` input)
         yield case(
             init_kwargs={'max_length': 3, 'encoding': 'iso-8859-2'},
             given='ąść',
@@ -1728,9 +2177,99 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
             given='ąść',
             expected=FieldValueTooLongError,
         )
+        yield case(
+            init_kwargs={'max_length': 3, 'replace_surrogates': False},
+            given='\udcdd \udcee',
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_length': 2, 'replace_surrogates': False},
+            given='\udcdd \udcee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3, 'replace_surrogates': True},
+            given='\udcdd \udcee',
+            expected='\ufffd \ufffd',
+        )
+        yield case(
+            init_kwargs={'max_length': 2, 'replace_surrogates': True},
+            given='\udcdd \udcee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given='\U00010000',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given='\ud800\udc00',  # valid surrogate pair
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given='\ud800\udc00',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'replace_surrogates': True},
+            given='\ud800\udc00',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given='\udc00\ud800',  # not a valid surrogate pair
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given='\udc00\ud800',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2, 'replace_surrogates': True},
+            given='\udc00\ud800',
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'replace_surrogates': True},
+            given='\udc00\ud800',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=' \uabcd ',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given='\uabcd\uabcd',
+            expected='\uabcd\uabcd',
+        )
 
     def cases__clean_result_value(self):
         yield case(
+            init_kwargs={'max_length': 1},
+            given='a',
+            expected='a',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=b'a',
+            expected='a',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=bytearray(b'a'),
+            expected='a',
+        )
+        yield case(
             init_kwargs={'max_length': 3},
             given='abc',
             expected='abc',
@@ -1762,32 +2301,32 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             init_kwargs={'max_length': 3000},
-            given='*^&'*1000,
-            expected='*^&'*1000,
+            given='*\uabcd&'*1000,
+            expected='*\uabcd&'*1000,
         )
         yield case(
             init_kwargs={'max_length': 3000},
-            given=b'*^&'*1000,
-            expected='*^&'*1000,
+            given=b'*\xea\xaf\x8d&'*1000,
+            expected='*\uabcd&'*1000,
         )
         yield case(
             init_kwargs={'max_length': 3000},
-            given=bytearray(b'*^&'*1000),
-            expected='*^&'*1000,
+            given=bytearray(b'*\xea\xaf\x8d&'*1000),
+            expected='*\uabcd&'*1000,
         )
         yield case(
             init_kwargs={'max_length': 3000},
-            given='*^&'*1000 + '*',
+            given='*\uabcd&'*1000 + '*',
             expected=FieldValueTooLongError,
         )
         yield case(
             init_kwargs={'max_length': 3000},
-            given=b'*^&'*1000 + b'*',
+            given=b'*\xea\xaf\x8d&'*1000 + b'*',
             expected=FieldValueTooLongError,
         )
         yield case(
             init_kwargs={'max_length': 3000},
-            given=bytearray(b'*^&'*1000 + b'*'),
+            given=bytearray(b'*\xea\xaf\x8d&'*1000 + b'*'),
             expected=FieldValueTooLongError,
         )
         yield case(
@@ -1806,21 +2345,6 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
             expected='',
         )
         yield case(
-            init_kwargs={'max_length': 3, 'disallow_empty': False},
-            given='',
-            expected='',
-        )
-        yield case(
-            init_kwargs={'max_length': 3, 'disallow_empty': False},
-            given=b'',
-            expected='',
-        )
-        yield case(
-            init_kwargs={'max_length': 3, 'disallow_empty': False},
-            given=bytearray(b''),
-            expected='',
-        )
-        yield case(
             init_kwargs={'max_length': 3, 'disallow_empty': True},
             given='',
             expected=FieldValueError,
@@ -1834,6 +2358,81 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
             init_kwargs={'max_length': 3, 'disallow_empty': True},
             given=bytearray(b''),
             expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'disallow_empty': False},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'disallow_empty': False},
+            given=b'',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'disallow_empty': False},
+            given=bytearray(b''),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'disallow_empty': True},
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'disallow_empty': True},
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'disallow_empty': True},
+            given=' ',
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'disallow_empty': True},
+            given=b' ',
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'max_length': 1, 'disallow_empty': True},
+            given=bytearray(b' '),
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given='  ',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=b'  ',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=bytearray(b'  '),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given='ą',
+            expected='ą',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=b'\xc4\x85',
+            expected='ą',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=bytearray(b'\xc4\x85'),
+            expected='ą',
         )
         yield case(
             init_kwargs={'max_length': 3},
@@ -1864,21 +2463,6 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
             init_kwargs={'max_length': 2},
             given=bytearray(b'\x0c\r\x0e'),
             expected=FieldValueTooLongError,
-        )
-        yield case(
-            init_kwargs={'max_length': 4},
-            given='ąść',
-            expected='ąść',
-        )
-        yield case(
-            init_kwargs={'max_length': 4},
-            given='ąść'.encode('utf-8'),
-            expected='ąść',
-        )
-        yield case(
-            init_kwargs={'max_length': 4},
-            given=bytearray('ąść'.encode('utf-8')),
-            expected='ąść',
         )
         yield case(
             init_kwargs={'max_length': 3},
@@ -1912,14 +2496,14 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
         )
         # `encoding` is irrelevant to `str` input...
         yield case(
-            init_kwargs={'max_length': 2, 'encoding': 'iso-8859-2'},
-            given='ąść',
-            expected=FieldValueTooLongError,
-        )
-        yield case(
             init_kwargs={'max_length': 3, 'encoding': 'iso-8859-2'},
             given='ąść',
             expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_length': 2, 'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected=FieldValueTooLongError,
         )
         # ...but it *is relevant* to binary input
         yield case(
@@ -1947,88 +2531,505 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
             given='ąść'.encode('utf-8'),
             expected='\xc4\x85\u0139\x9b\xc4\x87',
         )
-        b = b'\xdd \xee'
-        ba = bytearray(b)
-        s = '\udcdd \udcee'
         # `decode_error_handling` is irrelevant to `str` input...
         yield case(
             init_kwargs={'max_length': 3},
-            given=s,
-            expected=s,
+            given='\udcdd \udcee',
+            expected='\udcdd \udcee',
         )
         yield case(
             init_kwargs={'max_length': 2},
-            given=s,
+            given='\udcdd \udcee',
             expected=FieldValueTooLongError,
         )
         # ...but it *is relevant* to binary input
         yield case(
-            init_kwargs={'max_length': 2},
-            given=b,
-            expected=FieldValueError,
-        )
-        yield case(
-            init_kwargs={'max_length': 2},
-            given=ba,
-            expected=FieldValueError,
-        )
-        yield case(
-            init_kwargs={'max_length': 2,
-                         'decode_error_handling': 'surrogateescape'},
-            given=b,
-            expected=FieldValueTooLongError,
-        )
-        yield case(
-            init_kwargs={'max_length': 2,
-                         'decode_error_handling': 'surrogateescape'},
-            given=ba,
-            expected=FieldValueTooLongError,
-        )
-        yield case(
-            init_kwargs={'max_length': 2,
-                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
-            given=b,
-            expected=FieldValueTooLongError,
-        )
-        yield case(
-            init_kwargs={'max_length': 2,
-                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
-            given=ba,
-            expected=FieldValueTooLongError,
-        )
-        yield case(
             init_kwargs={'max_length': 3},
-            given=b,
+            given=b'\xdd \xee',
             expected=FieldValueError,
         )
         yield case(
             init_kwargs={'max_length': 3},
-            given=ba,
+            given=bytearray(b'\xdd \xee'),
             expected=FieldValueError,
         )
         yield case(
             init_kwargs={'max_length': 3,
                          'decode_error_handling': 'surrogateescape'},
-            given=b,
-            expected=s,
+            given=b'\xdd \xee',
+            expected='\udcdd \udcee',
         )
         yield case(
             init_kwargs={'max_length': 3,
                          'decode_error_handling': 'surrogateescape'},
-            given=ba,
-            expected=s,
+            given=bytearray(b'\xdd \xee'),
+            expected='\udcdd \udcee',
         )
         yield case(
             init_kwargs={'max_length': 3,
                          'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
-            given=b,
-            expected=s,
+            given=b'\xdd \xee',
+            expected='\udcdd \udcee',
         )
         yield case(
             init_kwargs={'max_length': 3,
                          'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
-            given=ba,
-            expected=s,
+            given=bytearray(b'\xdd \xee'),
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=b'\xdd \xee',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=bytearray(b'\xdd \xee'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xdd \xee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xdd \xee'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xdd \xee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xdd \xee'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': False},
+            given='\udcdd \udcee',
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': False},
+            given=b'\xdd \xed\xb3\xae',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': False},
+            given=bytearray(b'\xed\xb3\x9d \xee'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xdd \xed\xb3\xae',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xed\xb3\x9d \xee'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xdd \xed\xb3\xae',
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xed\xb3\x9d \xee'),
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': False},
+            given='\udcdd \udcee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': False},
+            given=b'\xdd \xed\xb3\xae',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': False},
+            given=bytearray(b'\xed\xb3\x9d \xee'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xdd \xed\xb3\xae',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xed\xb3\x9d \xee'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': True},
+            given='\udcdd \udcee',
+            expected='\ufffd \ufffd',
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xdd \xed\xb3\xae'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': True},
+            given=b'\xed\xb3\x9d \xee',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xdd \xed\xb3\xae'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xed\xb3\x9d \xee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xdd \xed\xb3\xae'),
+            expected='\ufffd \ufffd',
+        )
+        yield case(
+            init_kwargs={'max_length': 3,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xed\xb3\x9d \xee',
+            expected='\ufffd \ufffd',
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': True},
+            given='\udcdd \udcee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xdd \xed\xb3\xae'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': True},
+            given=b'\xed\xb3\x9d \xee',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xdd \xed\xb3\xae'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xed\xb3\x9d \xee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given='\U00010000',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=b'\xf0\x90\x80\x80',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=bytearray(b'\xf0\x90\x80\x80'),
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given='\ud800\udc00',  # valid surrogate pair
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given='\ud800\udc00',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'replace_surrogates': True},
+            given='\ud800\udc00',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'replace_surrogates': True},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given='\udc00\ud800',  # not a valid surrogate pair
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given='\udc00\ud800',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': True},
+            given='\udc00\ud800',
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': True},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'replace_surrogates': True},
+            given='\udc00\ud800',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'replace_surrogates': True},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 1,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=' \uabcd ',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=b' \xea\xaf\x8d ',
+            expected='  ',
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=bytearray(b' \xea\xaf\x8d '),
+            expected='  ',
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given='\uabcd\uabcd',
+            expected='\uabcd\uabcd',
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=b'\xea\xaf\x8d\xea\xaf\x8d',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_length': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=bytearray(b'\xea\xaf\x8d\xea\xaf\x8d'),
+            expected=FieldValueError,
         )
         yield case(
             init_kwargs={'max_length': 6},
@@ -2037,6 +3038,1186 @@ class TestUnicodeLimitedField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             init_kwargs={'max_length': 6},
+            given=None,
+            expected=TypeError,
+        )
+
+
+# TODO: add __init__ method test
+class TestUnicodeLimitedByHypotheticalUTF8BytesLengthField(FieldTestMixin, unittest.TestCase):
+
+    CLASS = UnicodeLimitedByHypotheticalUTF8BytesLengthField
+
+    def cases__clean_param_value(self):
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given='a',
+            expected='a',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given='abc',
+            expected='abc',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given='abc',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3000},
+            given='\uabcd'*1000,
+            expected='\uabcd'*1000,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3000},
+            given='\uabcd'*1000 + '*',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3, 'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': False},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': True},
+            given=' ',
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given='  ',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given='ą',
+            expected='ą',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given='ą',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given='\x0c\r\x0e',
+            expected='\x0c\r\x0e',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given='\x0c\r\x0e',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given='ąść',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4},
+            given='ąść',
+            expected=FieldValueTooLongError,
+        )
+        # (`encoding` and `decode_error_handling` are irrelevant to `str` input)
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6, 'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5, 'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given='\u2013',
+            expected='\u2013',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given='\u2013',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7, 'replace_surrogates': False},
+            given='\udcdd \udcee',
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6, 'replace_surrogates': False},
+            given='\udcdd \udcee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7, 'replace_surrogates': True},
+            given='\udcdd \udcee',
+            expected='\ufffd \ufffd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6, 'replace_surrogates': True},
+            given='\udcdd \udcee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4},
+            given='\U00010000',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given='\U00010000',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given='\ud800\udc00',  # valid surrogate pair
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given='\ud800\udc00',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4, 'replace_surrogates': True},
+            given='\ud800\udc00',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3, 'replace_surrogates': True},
+            given='\ud800\udc00',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given='\udc00\ud800',  # not a valid surrogate pair
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given='\udc00\ud800',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6, 'replace_surrogates': True},
+            given='\udc00\ud800',
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5, 'replace_surrogates': True},
+            given='\udc00\ud800',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 10},
+            given='\udcdd \ud800\udc00',
+            expected='\udcdd \ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 9},
+            given='\udcdd \ud800\udc00',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 8, 'replace_surrogates': True},
+            given='\udcdd \ud800\udc00',
+            expected='\ufffd \U00010000',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7, 'replace_surrogates': True},
+            given='\udcdd \ud800\udc00',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=' \uabcd ',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=' \uabcd',
+            expected=' \uabcd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given='\uabcd',
+            expected='\uabcd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given='\uabcd',
+            expected=FieldValueError,  # (not `FieldValueTooLongError` here...!)
+        )
+
+    def cases__clean_result_value(self):
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given='a',
+            expected='a',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given=b'a',
+            expected='a',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given=bytearray(b'a'),
+            expected='a',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given='abc',
+            expected='abc',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given=b'abc',
+            expected='abc',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given=bytearray(b'abc'),
+            expected='abc',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given='abc',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given=b'abc',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given=bytearray(b'abc'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3000},
+            given='\uabcd'*1000,
+            expected='\uabcd'*1000,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3000},
+            given=b'\xea\xaf\x8d'*1000,
+            expected='\uabcd'*1000,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3000},
+            given=bytearray(b'\xea\xaf\x8d'*1000),
+            expected='\uabcd'*1000,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3000},
+            given='\uabcd'*1000 + '*',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3000},
+            given=b'\xea\xaf\x8d'*1000 + b'*',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3000},
+            given=bytearray(b'\xea\xaf\x8d'*1000 + b'*'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given=b'',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given=bytearray(b''),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3, 'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3, 'disallow_empty': True},
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3, 'disallow_empty': True},
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': False},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': False},
+            given=b'',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': False},
+            given=bytearray(b''),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': True},
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': True},
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': True},
+            given=' ',
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': True},
+            given=b' ',
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1, 'disallow_empty': True},
+            given=bytearray(b' '),
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given='  ',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given=b'  ',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given=bytearray(b'  '),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given='ą',
+            expected='ą',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given=b'\xc4\x85',
+            expected='ą',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given=bytearray(b'\xc4\x85'),
+            expected='ą',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given='ą',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given=b'\xc4\x85',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1},
+            given=bytearray(b'\xc4\x85'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given='\x0c\r\x0e',
+            expected='\x0c\r\x0e',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given=b'\x0c\r\x0e',
+            expected='\x0c\r\x0e',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given=bytearray(b'\x0c\r\x0e'),
+            expected='\x0c\r\x0e',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given='\x0c\r\x0e',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given=b'\x0c\r\x0e',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given=bytearray(b'\x0c\r\x0e'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7},
+            given='ąść'.encode('utf-8'),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given='ąść'.encode('utf-8'),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given='ąść',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given='ąść'.encode('utf-8'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4},
+            given='ąść',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4},
+            given='ąść'.encode('utf-8'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected=FieldValueTooLongError,
+        )
+        # `encoding` is irrelevant to `str` input...
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6, 'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected='ąść',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5, 'encoding': 'iso-8859-2'},
+            given='ąść',
+            expected=FieldValueTooLongError,
+        )
+        # ...but it *is relevant* to binary input
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2, 'encoding': 'iso-8859-2'},
+            given='ąść'.encode('utf-8'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3, 'encoding': 'iso-8859-2'},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 10, 'encoding': 'iso-8859-2'},
+            given='ąść'.encode('utf-8'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 11, 'encoding': 'iso-8859-2'},
+            given=bytearray('ąść'.encode('utf-8')),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 12, 'encoding': 'iso-8859-2'},
+            given='ąść'.encode('utf-8'),
+            expected='\xc4\x85\u0139\x9b\xc4\x87',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given='\u2013',
+            expected='\u2013',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given=b'\xe2\x80\x93',
+            expected='\u2013',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given=bytearray(b'\xe2\x80\x93'),
+            expected='\u2013',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given='\u2013',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given=b'\xe2\x80\x93',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2},
+            given=bytearray(b'\xe2\x80\x93'),
+            expected=FieldValueTooLongError,
+        )
+        # `decode_error_handling` is irrelevant to `str` input...
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7},
+            given='\udcdd \udcee',
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given='\udcdd \udcee',
+            expected=FieldValueTooLongError,
+        )
+        # ...but it *is relevant* to binary input
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7},
+            given=b'\xdd \xee',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7},
+            given=bytearray(b'\xdd \xee'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xdd \xee',
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xdd \xee'),
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given=b'\xdd \xee',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given=bytearray(b'\xdd \xee'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xdd \xee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xdd \xee'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': False},
+            given='\udcdd \udcee',
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': False},
+            given=b'\xdd \xed\xb3\xae',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': False},
+            given=bytearray(b'\xed\xb3\x9d \xee'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xdd \xed\xb3\xae',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xed\xb3\x9d \xee'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xdd \xed\xb3\xae',
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xed\xb3\x9d \xee'),
+            expected='\udcdd \udcee',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': False},
+            given='\udcdd \udcee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': False},
+            given=b'\xdd \xed\xb3\xae',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': False},
+            given=bytearray(b'\xed\xb3\x9d \xee'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xdd \xed\xb3\xae',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': False,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xed\xb3\x9d \xee'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': True},
+            given='\udcdd \udcee',
+            expected='\ufffd \ufffd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xdd \xed\xb3\xae'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': True},
+            given=b'\xed\xb3\x9d \xee',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogateescape'},
+            given=bytearray(b'\xdd \xed\xb3\xae'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogateescape'},
+            given=b'\xed\xb3\x9d \xee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xdd \xed\xb3\xae'),
+            expected='\ufffd \ufffd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 7,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xed\xb3\x9d \xee',
+            expected='\ufffd \ufffd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': True},
+            given='\udcdd \udcee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xdd \xed\xb3\xae'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': True},
+            given=b'\xed\xb3\x9d \xee',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=bytearray(b'\xdd \xed\xb3\xae'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'utf8_surrogatepass_and_surrogateescape'},
+            given=b'\xed\xb3\x9d \xee',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4},
+            given='\U00010000',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4},
+            given=b'\xf0\x90\x80\x80',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4},
+            given=bytearray(b'\xf0\x90\x80\x80'),
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given='\U00010000',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given=b'\xf0\x90\x80\x80',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3},
+            given=bytearray(b'\xf0\x90\x80\x80'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given='\ud800\udc00',  # valid surrogate pair
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected='\ud800\udc00',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given='\ud800\udc00',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'replace_surrogates': True},
+            given='\ud800\udc00',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'replace_surrogates': True},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected='\U00010000',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3,
+                         'replace_surrogates': True},
+            given='\ud800\udc00',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3,
+                         'replace_surrogates': True},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xa0\x80\xed\xb0\x80',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xa0\x80\xed\xb0\x80'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given='\udc00\ud800',  # not a valid surrogate pair
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected='\udc00\ud800',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given='\udc00\ud800',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': True},
+            given='\udc00\ud800',
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': True},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected='\ufffd\ufffd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5,
+                         'replace_surrogates': True},
+            given='\udc00\ud800',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5,
+                         'replace_surrogates': True},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5,
+                         'replace_surrogates': True},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=b'\xed\xb0\x80\xed\xa0\x80',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 5,
+                         'replace_surrogates': True,
+                         'decode_error_handling': 'surrogatepass'},
+            given=bytearray(b'\xed\xb0\x80\xed\xa0\x80'),
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=' \uabcd ',
+            expected=FieldValueTooLongError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=b' \xea\xaf\x8d ',
+            expected='  ',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=bytearray(b' \xea\xaf\x8d '),
+            expected='  ',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=' \uabcd',
+            expected=' \uabcd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 4,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=bytearray(b' \xea\xaf\x8d'),
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 1,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=b' \xea\xaf\x8d',
+            expected=' ',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given='\uabcd',
+            expected='\uabcd',
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=bytearray(b'\xea\xaf\x8d'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 3,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=b'\xea\xaf\x8d',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given='\uabcd',
+            expected=FieldValueError,  # (not `FieldValueTooLongError` here...!)
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=bytearray(b'\xea\xaf\x8d'),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 2,
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=b'\xea\xaf\x8d',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
+            given=123,
+            expected=TypeError,
+        )
+        yield case(
+            init_kwargs={'max_utf8_bytes': 6},
             given=None,
             expected=TypeError,
         )
@@ -2085,6 +4266,44 @@ class TestUnicodeRegexField(FieldTestMixin, unittest.TestCase):
             given='',
             expected=FieldValueError,
         )
+        yield case(
+            init_kwargs={'regex': r'\A\Z'},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z', 'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z'},
+            given=' ',
+            expected=FieldValueError,
+        )
+        # (`encoding` and `decode_error_handling` are irrelevant to `str` input)
+        yield case(
+            init_kwargs={'regex': r'axc',
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given='ax\uabcdc',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z',
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given='\uabcd',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z',
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given='\uabcd',
+            expected=FieldValueError,
+        )
 
     def cases__clean_result_value(self):
         yield case(
@@ -2196,6 +4415,117 @@ class TestUnicodeRegexField(FieldTestMixin, unittest.TestCase):
         yield case(
             init_kwargs={'regex': r'(foo)?', 'disallow_empty': True},
             given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z'},
+            given='',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z'},
+            given=b'',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z'},
+            given=bytearray(b''),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z', 'disallow_empty': True},
+            given='',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z', 'disallow_empty': True},
+            given=b'',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z', 'disallow_empty': True},
+            given=bytearray(b''),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z'},
+            given=' ',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z'},
+            given=b' ',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z'},
+            given=bytearray(b' '),
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'axc',
+                         'encoding': 'ascii',                 # `encoding` and
+                         'decode_error_handling': 'ignore'},  # `decode_error_handling` are
+            given='ax\uabcdc',                                # irrelevant to `str` input...
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'axc',
+                         'encoding': 'ascii',                 # ...but, of course, they are
+                         'decode_error_handling': 'ignore'},  # *relevant* to binary input
+            given=b'ax\xea\xaf\x8dc',
+            expected='axc',
+        )
+        yield case(
+            init_kwargs={'regex': r'axc',
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=bytearray(b'ax\xea\xaf\x8dc'),
+            expected='axc',
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z',
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given='\uabcd',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z',
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=b'\xea\xaf\x8d',
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z',
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore'},
+            given=bytearray(b'\xea\xaf\x8d'),
+            expected='',
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z',
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given='\uabcd',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z',
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=b'\xea\xaf\x8d',
+            expected=FieldValueError,
+        )
+        yield case(
+            init_kwargs={'regex': r'\A\Z',
+                         'encoding': 'ascii',
+                         'decode_error_handling': 'ignore',
+                         'disallow_empty': True},
+            given=bytearray(b'\xea\xaf\x8d'),
             expected=FieldValueError,
         )
         yield case(
@@ -5861,7 +8191,7 @@ class TestEmailSimplifiedField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given='foo@abx' + '.c' * 124,
-            expected=FieldValueError,
+            expected=FieldValueTooLongError,
         )
         yield case(
             given=' foo@example.com',
@@ -5947,15 +8277,15 @@ class TestEmailSimplifiedField(FieldTestMixin, unittest.TestCase):
         )
         yield case(
             given='foo@abx' + '.c' * 124,
-            expected=FieldValueError,
+            expected=FieldValueTooLongError,
         )
         yield case(
             given=b'foo@abx' + b'.c' * 124,
-            expected=FieldValueError,
+            expected=FieldValueTooLongError,
         )
         yield case(
             given=bytearray(b'foo@abx' + b'.c' * 124),
-            expected=FieldValueError,
+            expected=FieldValueTooLongError,
         )
         yield case(
             given=' foo@example.com',
@@ -6140,12 +8470,12 @@ class TestListOfDictsField(FieldTestMixin, unittest.TestCase):
         yield case(
             init_kwargs={'key_to_subfield_factory': {None: IPv4Field}},
             given=[{'bar': 'łódź'.encode('utf-8')}],
-            expected=ValueError,  # 'łódź'.encode('utf-8') is not a valid IPv4 address
+            expected=FieldValueError,  # 'łódź'.encode('utf-8') is not a valid IPv4 address
         )
         yield case(
             init_kwargs={'key_to_subfield_factory': {'foo': IPv4Field, None: IPv4Field}},
             given=[{'foo': b'12.23.45.56', 'bar': 'łódź'.encode('utf-8')}],
-            expected=ValueError,  # 'łódź'.encode('utf-8') is not a valid IPv4 address
+            expected=FieldValueError,  # 'łódź'.encode('utf-8') is not a valid IPv4 address
         )
         yield case(
             init_kwargs={'key_to_subfield_factory': {None: UnicodeField}},

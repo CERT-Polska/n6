@@ -34,8 +34,8 @@ class Report(object):
     def section_summary(self, section_no, errors=False):
         if errors:
             self._summary += (
-                "Problem in section {} ({}). Please refer to n6sdk docs: "
-                "http://n6sdk.readthedocs.org\n".format(
+                "Problem in section {} ({}). Please "
+                "refer to n6sdk docs...\n".format(
                     section_no, self._sections[section_no].get('title')))
         else:
             self._summary += (

@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2024 NASK. All rights reserved.
+# Copyright (c) 2018-2025 NASK. All rights reserved.
 
 import datetime
 import string
@@ -24,13 +24,11 @@ from sqlalchemy import (
     text as sqla_text,
 )
 from sqlalchemy.dialects import mysql
-from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.ext.declarative import (
     DeclarativeMeta,
     declarative_base,
 )
 from sqlalchemy.orm import (
-    backref,
     column_property,
     relationship,
     validates,
@@ -46,9 +44,6 @@ from n6lib.auth_db import (
     MYSQL_CHARSET,
     MYSQL_COLLATE,
 
-    CLIENT_CA_PROFILE_NAME,
-    SERVICE_CA_PROFILE_NAME,
-
     ORG_REQUEST_STATUS_NEW,
     ORG_REQUEST_STATUS_BEING_PROCESSED,
     ORG_REQUEST_STATUS_ACCEPTED,
@@ -59,8 +54,6 @@ from n6lib.auth_db import (
     WEB_TOKEN_TYPE_FOR_MFA_CONFIG,
     WEB_TOKEN_TYPES,
 
-    MAX_LEN_OF_CA_LABEL,
-    MAX_LEN_OF_CERT_SERIAL_HEX,
     MAX_LEN_OF_COUNTRY_CODE,
     MAX_LEN_OF_DOMAIN_NAME,
     MAX_LEN_OF_EMAIL,
@@ -71,7 +64,6 @@ from n6lib.auth_db import (
     MAX_LEN_OF_ORG_ID,
     MAX_LEN_OF_PASSWORD_HASH,
     MAX_LEN_OF_SOURCE_ID,
-    MAX_LEN_OF_SYSTEM_GROUP_NAME,
     MAX_LEN_OF_URL,
     MAX_LEN_OF_UUID4,
 )
@@ -304,19 +296,6 @@ org_org_group_link = Table(
     Column(
         'org_group_id',
         ForeignKey('org_group.org_group_id', onupdate='CASCADE', ondelete='CASCADE'),
-        primary_key=True),
-    **mysql_opts())
-
-# user <-> system_group
-user_system_group_link = Table(
-    'user_system_group_link', Base.metadata,
-    Column(
-        'user_id',
-        ForeignKey('user.id', onupdate='CASCADE', ondelete='CASCADE'),
-        primary_key=True),
-    Column(
-        'system_group_name',
-        ForeignKey('system_group.name', onupdate='CASCADE', ondelete='CASCADE'),
         primary_key=True),
     **mysql_opts())
 
@@ -1839,27 +1818,6 @@ class User(_ExternalInterfaceMixin, _PassEncryptMixin, Base):
         nullable=False)
     org = rel('Org', back_populates='users')
 
-    system_groups = rel(
-        'SystemGroup',
-        secondary=user_system_group_link,
-        back_populates='users')
-
-    owned_certs = rel(
-        'Cert',
-        passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
-        back_populates='owner',
-        foreign_keys='Cert.owner_login')
-    created_certs = rel(
-        'Cert',
-        passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
-        back_populates='created_by',
-        foreign_keys='Cert.created_by_login')
-    revoked_certs = rel(
-        'Cert',
-        passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
-        back_populates='revoked_by',
-        foreign_keys='Cert.revoked_by_login')
-
     tokens = rel(
         'WebToken',
         back_populates='user',
@@ -1988,38 +1946,6 @@ class UserSpentMFACode(Base):
     __repr__ = attr_repr('id', 'spent_on', 'user_login')
 
     _columns_to_validate = ['spent_on']
-
-
-class Component(_ExternalInterfaceMixin, _PassEncryptMixin, Base):
-
-    __tablename__ = 'component'
-    __table_args__ = mysql_opts()
-
-    login = col(String(MAX_LEN_OF_DOMAIN_NAME), primary_key=True)
-    password = col(String(MAX_LEN_OF_PASSWORD_HASH))
-
-    owned_certs = rel(
-        'Cert',
-        passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
-        back_populates='owner_component',
-        foreign_keys='Cert.owner_component_login')
-    created_certs = rel(
-        'Cert',
-        passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
-        back_populates='created_by_component',
-        foreign_keys='Cert.created_by_component_login')
-    revoked_certs = rel(
-        'Cert',
-        passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
-        back_populates='revoked_by_component',
-        foreign_keys='Cert.revoked_by_component_login')
-
-    def __str__(self):
-        return 'Component "{}"'.format(self.login)
-
-    __repr__ = attr_repr('login')
-
-    _columns_to_validate = ['login']
 
 
 class IgnoreList(Base):
@@ -2198,26 +2124,6 @@ class CriteriaContainer(Base):
     _columns_to_validate = ['label']
 
 
-class SystemGroup(_ExternalInterfaceMixin, Base):
-
-    __tablename__ = 'system_group'
-    __table_args__ = mysql_opts()
-
-    name = col(String(MAX_LEN_OF_SYSTEM_GROUP_NAME), primary_key=True)
-
-    users = rel(
-        'User',
-        secondary=user_system_group_link,
-        back_populates='system_groups')
-
-    def __str__(self):
-        return 'System group "{}"'.format(self.name)
-
-    __repr__ = attr_repr('name')
-
-    _columns_to_validate = ['name']
-
-
 class Agreement(_ExternalInterfaceMixin, Base):
 
     __tablename__ = 'agreement'
@@ -2251,174 +2157,6 @@ class Agreement(_ExternalInterfaceMixin, Base):
     _columns_to_validate = ['label', 'en', 'pl', 'url_en', 'url_pl']
 
     __repr__ = attr_repr('label', 'en')
-
-
-class Cert(_ExternalInterfaceMixin, Base):
-
-    __tablename__ = 'cert'
-    __table_args__ = mysql_opts()
-
-    ca_cert_label = col(
-        String(MAX_LEN_OF_CA_LABEL),
-        ForeignKey('ca_cert.ca_label', onupdate='CASCADE',
-                   ondelete='RESTRICT'),
-        primary_key=True)
-    ca_cert = rel('CACert', back_populates='certs')
-    serial_hex = col(
-        String(MAX_LEN_OF_CERT_SERIAL_HEX),
-        primary_key=True)
-
-    # TODO: determine whether certificate records are required
-    #       to have their owner users or components; if they are
-    #       some mechanism should ensure that *exactly one* of
-    #       {`owner_login`,`owner_component_login`} is not null
-    owner_login = col(
-        String(MAX_LEN_OF_EMAIL),
-        ForeignKey('user.login', onupdate='CASCADE',
-                   ondelete='RESTRICT'))
-    owner = rel(
-        'User',
-        back_populates='owned_certs',
-        foreign_keys=owner_login.expression)
-
-    owner_component_login = col(
-        String(MAX_LEN_OF_DOMAIN_NAME),
-        ForeignKey('component.login', onupdate='CASCADE',
-                   ondelete='RESTRICT'))
-    owner_component = rel(
-        'Component',
-        back_populates='owned_certs',
-        foreign_keys=owner_component_login.expression)
-
-    # TODO: some mechanism should ensure that: `certificate` is a valid PEM of a user certificate;
-    #       `csr`, if any, is a valid CSR + matches `certificate`; fields that reflect certificate
-    #       content really match it (concerns: `serial_hex`, `owner_login`/`owner_component_login`,
-    #       `valid_from`, `expires_on`, `is_client_cert`, `is_server_cert`
-    #       and related CACert's `certificate`)
-    certificate = col(Text, nullable=False)
-    csr = col(Text, nullable=True)
-
-    valid_from = col(DateTime, nullable=False)
-    expires_on = col(DateTime, nullable=False)
-
-    is_client_cert = col(Boolean, default=False, nullable=False)
-    is_server_cert = col(Boolean, default=False, nullable=False)
-
-    created_on = col(DateTime, nullable=False)
-    creator_details = col(Text)
-
-    # TODO: some mechanism should ensure that *exactly one* of
-    #       {`created_by_login`,`created_by_component_login`} is not null
-    created_by_login = col(
-        String(MAX_LEN_OF_EMAIL),
-        ForeignKey('user.login', onupdate='CASCADE',
-                   ondelete='RESTRICT'))
-    created_by = rel(
-        'User',
-        back_populates='created_certs',
-        foreign_keys=created_by_login.expression)
-
-    created_by_component_login = col(
-        String(MAX_LEN_OF_DOMAIN_NAME),
-        ForeignKey('component.login', onupdate='CASCADE',
-                   ondelete='RESTRICT'))
-    created_by_component = rel(
-        'Component',
-        back_populates='created_certs',
-        foreign_keys=created_by_component_login.expression)
-
-    # TODO: some mechanism should ensure that:
-    #       *if* certificate is revoked
-    #       *then*
-    #          * `revoked_on` is not null
-    #          * and `revocation_comment` is not null
-    #          * and *exactly one* of {`revoked_by_login`,`revoked_by_component_login`} is not null
-    #       *else*
-    #          * *all* of these four fields are null
-    revoked_on = col(DateTime)
-    revocation_comment = col(Text)
-
-    revoked_by_login = col(
-        String(MAX_LEN_OF_EMAIL),
-        ForeignKey('user.login', onupdate='CASCADE',
-                   ondelete='RESTRICT'))
-    revoked_by = rel(
-        'User',
-        back_populates='revoked_certs',
-        foreign_keys=revoked_by_login.expression)
-
-    revoked_by_component_login = col(
-        String(MAX_LEN_OF_DOMAIN_NAME),
-        ForeignKey('component.login', onupdate='CASCADE',
-                   ondelete='RESTRICT'))
-    revoked_by_component = rel(
-        'Component',
-        back_populates='revoked_certs',
-        foreign_keys=revoked_by_component_login.expression)
-
-    # the attribute is a reference to `ca_cert.profile`
-    ca_profile = association_proxy('ca_cert', 'profile')
-
-    @property
-    def is_revoked(self):
-        return any((self.revoked_on,
-                    self.revoked_by_login,
-                    self.revoked_by_component_login,
-                    self.revocation_comment))
-
-    def __str__(self):
-        revocation_marker_prefix = ('[revoked] ' if self.is_revoked else '')
-        return '{}Cert #{} (@{})'.format(revocation_marker_prefix,
-                                         self.serial_hex,
-                                         self.ca_cert)
-
-    __repr__ = attr_repr('serial_hex', 'ca_cert_label', 'ca_profile', 'revoked_on')
-
-    _columns_to_validate = [
-        'serial_hex',
-        'certificate',
-        'csr',
-        'creator_details',
-        'created_on',
-        'valid_from',
-        'expires_on',
-        'revoked_on',
-        'revocation_comment',
-    ]
-
-
-class CACert(_ExternalInterfaceMixin, Base):
-
-    __tablename__ = 'ca_cert'
-    __table_args__ = mysql_opts()
-
-    ca_label = col(String(MAX_LEN_OF_CA_LABEL), primary_key=True)
-    parent_ca_label = col(
-        String(MAX_LEN_OF_CA_LABEL),
-        ForeignKey(ca_label.expression, onupdate='CASCADE',
-                   ondelete='RESTRICT'))
-    children_ca = rel(
-        'CACert',
-        passive_deletes='all',  # let other side's `ondelete='RESTRICT'` do its job...
-        backref=backref('parent_ca', remote_side=ca_label.expression))
-
-    profile = col(mysql.ENUM(CLIENT_CA_PROFILE_NAME, SERVICE_CA_PROFILE_NAME), nullable=True)
-    # TODO: add validation ensuring that `certificate` is a valid PEM of a CA certificate
-    certificate = col(Text, nullable=False)
-    # TODO: add validation ensuring that `ssl_config` is a valid *.ini-like config
-    ssl_config = col(Text, nullable=False)
-
-    certs = rel('Cert', back_populates='ca_cert')
-
-    def __str__(self):
-        profile_marker_suffix = (' - {}'.format(self.profile) if self.profile
-                                 else '')
-        return 'CACert "{}"{}'.format(self.ca_label,
-                                      profile_marker_suffix)
-
-    __repr__ = attr_repr('ca_label', 'profile', 'parent_ca_label')
-
-    _columns_to_validate = ['ca_label', 'certificate', 'ssl_config']
 
 
 class Entity(Base):

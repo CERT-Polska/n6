@@ -84,9 +84,6 @@ from n6lib.auth_db.audit_log import AuditLog
 from n6lib.auth_db.config import SQLAuthDBConfigMixin
 from n6lib.auth_db.models import (
     Agreement,
-    CACert,
-    Cert,
-    Component,
     CriteriaASN,
     CriteriaCC,
     CriteriaContainer,
@@ -129,7 +126,6 @@ from n6lib.auth_db.models import (
     Source,
     Subsource,
     SubsourceGroup,
-    SystemGroup,
     User,
 )
 from n6lib.baddomains_api_client import (
@@ -460,11 +456,6 @@ class _ExtendStaticFilesMixinBase:
             setattr(self, attr_name, [url])
 
 
-class _ExtraCSSMixin(_ExtendStaticFilesMixinBase):
-
-    extra_css_filename = 'cert.css'
-
-
 class ApiLookupExtraFilesMixin(_ExtendStaticFilesMixinBase):
 
     """
@@ -532,12 +523,6 @@ class UserInlineFormAdmin(_PasswordFieldHandlerMixin,
         'api_key_id_modified_on',
         'delete_api_key_id',
         'generate_new_api_key_id',
-
-        'system_groups',
-
-        'created_certs',
-        'owned_certs',
-        'revoked_certs',
     ]
 
 
@@ -1025,7 +1010,7 @@ class UserView(_PasswordFieldHandlerMixin,
         'login': 'User\'s login (and e-mail address).',
         'is_active': 'Is user NOT blocked? (this is negated "Is Blocked" field).',
     }
-    column_list = ['login', 'org', 'system_groups', 'is_active']
+    column_list = ['login', 'org', 'is_active']
     form_columns = [
         'is_blocked',
         'login',
@@ -1043,24 +1028,6 @@ class UserView(_PasswordFieldHandlerMixin,
         'generate_new_api_key_id',
 
         'org',
-        'system_groups',
-
-        'created_certs',
-        'owned_certs',
-        'revoked_certs',
-    ]
-
-
-class ComponentView(_PasswordFieldHandlerMixin, N6ModelView):
-
-    column_list = ['login']
-    form_columns = [
-        'login',
-        'password',
-        'delete_password',
-        'created_certs',
-        'owned_certs',
-        'revoked_certs',
     ]
 
 
@@ -1102,65 +1069,6 @@ class SourceView(CustomWithInlineFormsModelView, CustomColumnListView):
 
     inline_models = [
         Subsource,
-    ]
-
-
-class CertView(_ExtraCSSMixin, N6ModelView):
-
-    list_template = 'wrapped_list.html'
-
-    column_searchable_list = ['owner_login', 'owner_component_login']
-
-    column_list = [
-        'ca_cert',
-        'serial_hex',
-
-        'owner',
-        'owner_component',
-
-        'is_client_cert',
-        'is_server_cert',
-
-        'valid_from',
-        'expires_on',
-        'revoked_on',
-    ]
-    form_columns = [
-        'ca_cert',
-        'serial_hex',
-
-        'owner',
-        'owner_component',
-
-        'certificate',
-        'csr',
-
-        'valid_from',
-        'expires_on',
-
-        'is_client_cert',
-        'is_server_cert',
-
-        'created_on',
-        'created_by',
-        'created_by_component',
-        'creator_details',
-
-        'revoked_by',
-        'revoked_by_component',
-        'revoked_on',
-        'revocation_comment',
-    ]
-
-
-class CACertView(_ExtraCSSMixin, CustomColumnListView):
-
-    column_searchable_list = ['ca_label', 'profile']
-
-    column_list = [
-        'ca_label',
-        'profile',
-        'parent_ca',
     ]
 
 
@@ -1491,11 +1399,7 @@ class AdminPanel(ConfigMixin):
         (Subsource, CustomColumnAutoPKView),
         (CriteriaContainer, CriteriaContainerView),
         (OrgGroup, CustomColumnListView),
-        (SystemGroup, CustomColumnListView),
         (SubsourceGroup, CustomColumnListView),
-        (Component, ComponentView),
-        (CACert, CACertView),
-        (Cert, CertView),
         (RegistrationRequest, RegistrationRequestView),
         (Entity, EntityView),
         (EntitySector, CustomColumnListView),

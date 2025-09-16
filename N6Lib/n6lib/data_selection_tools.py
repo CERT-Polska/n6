@@ -4504,8 +4504,8 @@ class CondVisitor(Generic[_VisitorOutput], Callable[..., _VisitorOutput]):
     def __call__(self, cond: Cond, *args, **kwargs) -> _VisitorOutput:
         for cond_superclass in cond.__class__.__mro__:
             visit_method_name = 'visit_' + cond_superclass.__qualname__
-            visit_method = getattr(self, visit_method_name, None)
             visit_method: Optional[Callable[..., _VisitorOutput]]
+            visit_method = getattr(self, visit_method_name, None)
             if visit_method is not None:
                 return visit_method(cond, *args, **kwargs)
         raise NotImplementedError(ascii_str(

@@ -184,7 +184,7 @@ def main(global_config, **settings):
     return N6ConfigHelper(
         settings=settings,
         data_backend_api_class=N6DataBackendAPI,
-        component_module_name='n6web',
+        component_module_name='n6restapi',
         auth_api_class=AuthAPIWithPrefetching,  # <- XXX: legacy stuff, to be removed in the future
         auth_manage_api=AuthManageAPI(settings),
         authentication_policy=APIKeyOrSSLUserAuthenticationPolicy(settings),
@@ -196,7 +196,7 @@ def main_test_api(global_config, **settings):
     return N6ConfigHelper(
         settings=settings,
         data_backend_api_class=N6TestDataBackendAPI,
-        component_module_name='n6web',
+        component_module_name='n6restapi',
         auth_api_class=AuthAPIWithPrefetching,  # <- XXX: legacy stuff, to be removed in the future
         auth_manage_api=AuthManageAPI(settings),
         authentication_policy=APIKeyOrSSLUserAuthenticationPolicy(settings),

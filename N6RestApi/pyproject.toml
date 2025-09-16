@@ -5,14 +5,16 @@
 
 [project]
 
-name = "n6web"  # Historical name (TODO later: rename to "n6restapi"...)
+name = "n6restapi"
 dynamic = ["version"]
 description = "The *n6 REST API* web application"
 requires-python = ">=3.9, <3.12"
 dependencies = [
+    # inner *n6* dependencies:
     "n6lib",
     "n6sdk",
 
+    # external dependencies:
     "pyramid",
     "sqlalchemy",
 ]
@@ -26,8 +28,10 @@ keywords = [
     "n6", "security", "incident", "rest", "api", "web",
 ]
 classifiers = [
+    "Environment :: Web Environment",
     "Framework :: Pyramid",
     "Operating System :: POSIX :: Linux",
+    "Private :: Do Not Upload",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
     "Topic :: Security",
@@ -35,6 +39,7 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = [
+    # varia:
     "coverage",
     "invoke",
     "mkdocs",
@@ -45,6 +50,7 @@ dev = [
     "pytest-cov",
     "unittest-expander",
 
+    # web-specific:
     "pyramid-debugtoolbar",
     "waitress",
 ]
@@ -63,8 +69,8 @@ Issues = "https://github.com/CERT-Polska/n6/issues"
 Changelog = "https://github.com/CERT-Polska/n6/blob/master/CHANGELOG.md"
 
 [project.entry-points."paste.app_factory"]
-main = "n6web:main"
-main_test_api = "n6web:main_test_api"
+main = "n6restapi:main"
+main_test_api = "n6restapi:main_test_api"
 
 
 #

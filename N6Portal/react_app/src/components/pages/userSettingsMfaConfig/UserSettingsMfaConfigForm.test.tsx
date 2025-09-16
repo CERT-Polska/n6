@@ -86,7 +86,8 @@ describe('<UserSettingsMfaConfigForm />', () => {
         label: dictionary['en']['login_mfa_config_input_label'],
         maxLength: '8',
         validate: validateMfaCode,
-        dataTestId: 'user-settings-mfa-config-input'
+        dataTestId: 'user-settings-mfa-config-input',
+        autoComplete: 'off'
       },
       {}
     );

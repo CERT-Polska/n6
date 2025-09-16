@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2021 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 from n6lib.auth_api import (
     ACCESS_ZONES,
@@ -267,28 +267,6 @@ class _Cri(_AbstractSearchRawItem):
     dn_pattern = 'cn={0},ou=criteria,dc=n6,dc=cert,dc=pl'
     integer_prefix = 'c'
     obj_classes = ['n6CriteriaContainer']
-
-
-
-class _Comp(_AbstractSearchRawItem):
-
-    """
-    For component entries.
-    """
-
-    dn_pattern = 'n6login={0},ou=components,dc=n6,dc=cert,dc=pl'
-    obj_classes = ['n6Component']
-
-
-
-class _SysGr(_AbstractSearchRawItem):
-
-    """
-    For system group entries.
-    """
-
-    dn_pattern = 'cn={0},ou=system-groups,dc=n6,dc=cert,dc=pl'
-    obj_classes = ['n6SystemGroup']
 
 
 

@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2023 NASK. All rights reserved.
+# Copyright (c) 2019-2025 NASK. All rights reserved.
 
 import logging
 from collections.abc import (
@@ -110,9 +110,6 @@ class _N6BrokerAuthViewBase(SingleParamValuesViewMixin, AbstractViewBase):
     def allow_response(self) -> Response:
         return self.text_response('allow')
 
-    def allow_administrator_response(self) -> Response:
-        return self.text_response('allow administrator')
-
     def deny_response(self) -> Response:
         return self.text_response('deny')
 
@@ -189,8 +186,6 @@ class N6BrokerAuthUserView(_N6BrokerAuthViewBase):
                 need_authentication=True) as auth_manager:
             assert isinstance(auth_manager, BaseBrokerAuthManager)
             if auth_manager.user_verified:
-                if auth_manager.user_is_admin:
-                    return self.allow_administrator_response()
                 return self.allow_response()
         return self.deny_response()
 
@@ -207,8 +202,6 @@ class N6BrokerAuthVHostView(_N6BrokerAuthViewBase):
     def make_auth_response(self) -> Response:
         with self.auth_manager_maker(self.params) as auth_manager:
             assert isinstance(auth_manager, BaseBrokerAuthManager)
-            if auth_manager.apply_privileged_access_rules():
-                return self.allow_response()
             if auth_manager.apply_vhost_rules():
                 return self.allow_response()
         return self.deny_response()
@@ -223,8 +216,6 @@ class N6BrokerAuthResourceView(_N6BrokerAuthResourceViewBase):
     def make_auth_response(self) -> Response:
         with self.auth_manager_maker(self.params) as auth_manager:
             assert isinstance(auth_manager, BaseBrokerAuthManager)
-            if auth_manager.apply_privileged_access_rules():
-                return self.allow_response()
             if self.params['resource'] == 'exchange' and auth_manager.apply_exchange_rules():
                 return self.allow_response()
             if self.params['resource'] == 'queue' and auth_manager.apply_queue_rules():
@@ -243,8 +234,6 @@ class N6BrokerAuthTopicView(_N6BrokerAuthResourceViewBase):
     def make_auth_response(self) -> Response:
         with self.auth_manager_maker(self.params) as auth_manager:
             assert isinstance(auth_manager, BaseBrokerAuthManager)
-            if auth_manager.apply_privileged_access_rules():
-                return self.allow_response()
             if auth_manager.apply_topic_rules():
                 return self.allow_response()
         return self.deny_response()

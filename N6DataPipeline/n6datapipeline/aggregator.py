@@ -1,21 +1,40 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import collections
-import pickle
 import datetime
+import contextlib
+import functools
+import io
+import itertools
 import json
 import os
 import os.path
+import pickle
+import signal
+import tempfile
+import weakref
 import zlib
-from typing import Union
+from collections.abc import Callable
+from pathlib import Path
+from typing import (
+    BinaryIO,
+    ClassVar,
+    Union,
+)
+
+from pika.exceptions import AMQPError
+from typing_extensions import Self
 
 from n6datapipeline.base import (
     LegacyQueuedBase,
+    n6AMQPCommunicationError,
     n6QueueProcessingException,
 )
+from n6lib.class_helpers import attr_repr
 from n6lib.common_helpers import (
+    ascii_str,
+    get_unseen_cause_or_context_exc,
     make_exc_ascii_str,
-    open_file,
 )
 from n6lib.config import (
     ConfigError,
@@ -25,12 +44,16 @@ from n6lib.datetime_helpers import (
     timestamp_from_datetime,
     parse_iso_datetime_to_utc,
 )
+from n6lib.file_helpers import (
+    AnyPath,
+    FileAccessor,
+    as_path,
+)
 from n6lib.log_helpers import (
     get_logger,
     logging_configured,
 )
 from n6lib.record_dict import RecordDict
-from n6lib.typing_helpers import KwargsDict
 
 
 LOGGER = get_logger(__name__)
@@ -45,6 +68,317 @@ SOURCE_INACTIVITY_TIMEOUT = datetime.timedelta(hours=24)
 # in seconds, tick between checks of inactive sources
 TICK_TIMEOUT = 3600
 
+# pickle protocol version (used to store the aggregator's state...)
+STATE_PICKLE_PROTOCOL = 5
+
+
+class AggregatorStateIntegrityError(Exception):
+
+    """
+    To be raised when it seems that the aggregator state files might be
+    corrupted/desynchronized.
+    """
+
+    @staticmethod
+    @contextlib.contextmanager
+    def causing_fatal_exit():
+        try:
+            yield
+        except AggregatorStateIntegrityError as exc:
+            error_msg = (
+                f'Aggregator state integrity error ({ascii_str(exc)}), '
+                f'concerning the data stored in the aggregator data '
+                f'file and/or the payload storage file! Sorry, you may '
+                f'need to deal with the problem manually! (it may even '
+                f'mean, in the worst case, that the only option is to '
+                f'delete the aggregator state data files to let them '
+                f'be re-created from scratch, accepting that the '
+                f'previous aggregation state has been lost)')
+            with contextlib.suppress(Exception):
+                LOGGER.critical(error_msg)
+            raise SystemExit(error_msg) from exc
+
+
+class PayloadHandle:
+
+    __slots__ = ('offset', 'size')
+
+    # * Interface for `PayloadStorage` (it sets/gets these instance attrs):
+
+    offset: int
+    size: int
+
+    # * Public interface (mainly for `HiFreqEventData`):
+
+    @classmethod
+    def from_payload(cls, payload: dict) -> Self:
+        payload_bytes = cls._bytes_from_payload(payload)
+        return cls(payload_bytes)
+
+    @classmethod
+    def from_payload_bytes(cls, payload_bytes: bytes) -> Self:
+        # It is used to handle the legacy *aggregator data* file format...
+        if not payload_bytes:
+            raise AggregatorStateIntegrityError('empty payload bytes?!')
+        return cls(payload_bytes)
+
+    def load(self) -> dict:
+        payload_storage = PayloadStorage.get_existing_instance()
+        payload_bytes = payload_storage.load_payload_bytes(self)
+        return self._payload_from_bytes(payload_bytes)
+
+    # * Non-public initializer:
+
+    def __init__(self, payload_bytes: bytes):
+        payload_storage = PayloadStorage.get_existing_instance()
+        payload_storage.save_payload_bytes(self, payload_bytes)
+        assert hasattr(self, 'offset')
+        assert hasattr(self, 'size')
+
+    # * Pickle hooks:
+
+    def __getstate__(self) -> tuple[int, int]:
+        return self.offset, self.size
+
+    def __setstate__(self, state: tuple[int, int]) -> None:
+        self.offset, self.size = state
+
+    # * Private helpers:
+
+    @staticmethod
+    def _bytes_from_payload(payload: dict, *,
+                            # (param below: just a micro-optimization hack...)
+                            __pickle=functools.partial(
+                                pickle.dumps,
+                                protocol=STATE_PICKLE_PROTOCOL,
+                            )) -> bytes:
+        return b'P' + __pickle(payload)
+
+    @staticmethod
+    def _payload_from_bytes(payload_bytes: bytes, *,
+                            # (params below: just a micro-optimization hack...)
+                            __startswith=bytes.startswith,
+                            __decompress=zlib.decompress,
+                            __unpickle=pickle.loads) -> dict:
+        if __startswith(payload_bytes, b'C'):                           # noqa
+            # Handling the legacy *compressed* payload bytes format...
+            payload_bytes = __decompress(payload_bytes[1:])
+        assert __startswith(payload_bytes, b'P')                        # noqa
+        return __unpickle(payload_bytes[1:])
+
+
+class PayloadStorage:
+
+    # (see `PayloadHandle._bytes_from_payload()`/`._payload_from_bytes()`...)
+    _PAYLOAD_BYTES_PREFIXES = (b'P', b'C')
+
+    _get_instance: ClassVar[
+        Callable[[], Union[Self, None]]
+    ] = staticmethod(lambda: None)
+
+    _payload_storage_path: Path
+    _payload_storage_file: io.BufferedRandom
+    _payload_handles: list[PayloadHandle]
+
+    # * Public interface:
+
+    def __init__(self, payload_storage_path: AnyPath) -> None:
+        cls = self.__class__
+        if cls._get_instance() is not None:
+            raise RuntimeError(
+                f'active instance of {cls.__qualname__} already exists',
+            )
+        actual_path = as_path(payload_storage_path)
+        actual_path.touch(0o600, exist_ok=True)
+        self._payload_storage_path = actual_path
+        self._payload_storage_file = actual_path.open('r+b')
+        self._payload_handles = []
+        cls._get_instance = weakref.ref(self)
+
+    @classmethod
+    def get_existing_instance(cls) -> Self:
+        inst = cls._get_instance()
+        if inst is None:
+            raise RuntimeError(f'no active instance of {cls.__qualname__}')
+        return inst
+
+    def associate_with_aggr_data(self, aggr_data: 'AggregatorData') -> bool:
+        # Because of certain gory details related to the legacy
+        # *aggregator data* format, the instance of `PayloadStorage`
+        # must already exist when the instance of `AggregatorData` is
+        # being unpickled. But once the `AggregatorData` instance is
+        # ready (unpickled or created from scratch), this method needs
+        # to be invoked -- in particular, to get the unpickled list of
+        # *payload handles* from that `AggregatorData` instance...
+        # TODO later: simplify the stuff once we can stop supporting the legacy format...
+
+        # Note: `self` and `aggr_data` always need to share
+        # the same *payload handles* list (the same object!).
+        if hasattr(aggr_data, 'payload_handles'):
+            assert not self._payload_handles
+            self._payload_handles = aggr_data.payload_handles
+            shall_shrink = True
+        else:
+            # Just handling the legacy *aggregator data* file format...
+            # Note: in this case, `self._payload_handles` was already
+            # populated (during unpickling the aggregator data file).
+            aggr_data.payload_handles = self._payload_handles
+            shall_shrink = False
+        return shall_shrink
+
+    def shrink_disk_space(self,
+                          new_payload_storage_writer: BinaryIO,
+                          aggr_data: 'AggregatorData') -> None:
+
+        # This method, if used, needs to be invoked *within*
+        # the `new_payload_storage_writer`'s *with* block...
+        # After that, *beyond* that *with* block, the method
+        # `reopen_payload_storage_file()` needs to be invoked
+        # (see: `AggregatorDataManager.maintain_state()`).
+
+        old_payload_storage_file = self._payload_storage_file
+        read = self._read_payload_bytes
+
+        assert self._payload_handles is aggr_data.payload_handles
+        old_payload_handle_list = self._payload_handles
+        old_payload_handle_list.reverse()
+
+        still_relevant_payload_handles = frozenset(
+            event.payload_handle
+            for sd in aggr_data.sources.values()
+                for event in itertools.chain(sd.groups.values(), sd.buffer.values()))
+
+        prev_old_offset = -1
+        prev_size = 1
+
+        new_payload_storage_writer.seek(0)
+        new_payload_handle_list = []
+        new_offset = 0
+
+        while True:
+            try:
+                payload_handle = old_payload_handle_list.pop()
+            except IndexError:
+                break
+
+            if payload_handle not in still_relevant_payload_handles:
+                continue
+
+            old_offset, size = payload_handle.offset, payload_handle.size
+
+            if not (old_offset >= (prev_old_offset + prev_size) > prev_old_offset):
+                raise AggregatorStateIntegrityError(
+                    f'payload-storage-related data corruption or '
+                    f'desynchronization?! [{old_offset=}, '
+                    f'{prev_old_offset=}, {prev_size=}]',
+                )
+            old_payload_storage_file.seek(old_offset)
+            payload_bytes = read(old_payload_storage_file, size)
+
+            new_payload_storage_writer.write(payload_bytes)
+            new_payload_handle_list.append(payload_handle)
+            payload_handle.offset = new_offset
+
+            prev_old_offset, prev_size = old_offset, size
+            new_offset += size
+
+        new_payload_storage_writer_pos = new_payload_storage_writer.tell()
+        if new_payload_storage_writer_pos != new_offset:
+            raise AggregatorStateIntegrityError(
+                f'payload-storage-related data corruption or '
+                f'desynchronization?! [{new_offset=}, '
+                f'{new_payload_storage_writer_pos=}]',
+            )
+
+        assert self._payload_handles is aggr_data.payload_handles is old_payload_handle_list
+        self._payload_handles = aggr_data.payload_handles = new_payload_handle_list
+
+    def reopen_payload_storage_file(self) -> None:
+        # This method needs to be invoked *after* `shrink_disk_space()`
+        # -- *beyond* the `new_payload_storage_writer`'s *with* block!
+        # (see: `AggregatorDataManager.maintain_state()`)
+        self._payload_storage_file.close()
+        self._payload_storage_file = self._payload_storage_path.open('r+b')
+
+    def load_payload_bytes(self, payload_handle: PayloadHandle) -> bytes:
+        # Note: this method is invoked in `PayloadHandle.load()`.
+        self._payload_storage_file.seek(payload_handle.offset)
+        return self._read_payload_bytes(self._payload_storage_file, payload_handle.size)
+
+    def save_payload_bytes(self, payload_handle: PayloadHandle, payload_bytes: bytes) -> None:
+        # Note: this method is invoked in `PayloadHandle.__init__()`.
+        assert payload_bytes
+        payload_storage_file = self._payload_storage_file
+        payload_storage_file.seek(0, 2)  # (jump to the end of the file)
+        try:
+            size = payload_storage_file.write(payload_bytes)
+        except Exception as exc:
+            raise AggregatorStateIntegrityError(
+                f'an exception occurred when writing '
+                f'to the payload storage file! '
+                f'[{make_exc_ascii_str(exc)}]'
+            ) from exc
+        offset = payload_storage_file.tell() - size
+        payload_handle_list = self._payload_handles
+        if payload_handle_list:
+            prev_offset = payload_handle_list[-1].offset
+            prev_size = payload_handle_list[-1].size
+            if not (offset >= (prev_offset + prev_size) > prev_offset):
+                raise AggregatorStateIntegrityError(
+                    f'payload-storage-related data corruption or '
+                    f'desynchronization?! [newest {offset=}, '
+                    f'{prev_offset=}, {prev_size=}]',
+                )
+        assert size > 0
+        payload_handle.offset = offset
+        payload_handle.size = size
+        payload_handle_list.append(payload_handle)
+
+    def clear(self) -> None:
+        self._payload_storage_file.truncate(0)
+        self._payload_handles.clear()
+
+    def close(self) -> None:
+        try:
+            cls = self.__class__
+            if cls._get_instance() is self:
+                cls._get_instance = staticmethod(lambda: None)   # noqa
+        finally:
+            self._payload_storage_file.close()
+
+    # * Private helpers:
+
+    @classmethod
+    def _read_payload_bytes(cls, payload_storage_file: BinaryIO, size: int) -> bytes:
+        assert size > 0
+        payload_bytes = payload_storage_file.read(size)
+        if len(payload_bytes) != size or not payload_bytes.startswith(cls._PAYLOAD_BYTES_PREFIXES):
+            raise AggregatorStateIntegrityError(
+                f'payload-storage-related data corruption or '
+                f'desynchronization?! [{payload_bytes[:1]=}, '
+                f'{len(payload_bytes)=}, expected {size=}]',
+            )
+        return payload_bytes
+
+    # * Tests-only interface (*not* a part of the public interface):
+
+    @classmethod
+    def _make_for_tests(cls, path=None, aggr_data=None) -> Self:
+        if path is None:
+            tmp_dir = tempfile.TemporaryDirectory(prefix='n6aggregator-ps-test-')
+            path = f'{tmp_dir.name}/test.payload-storage'
+        else:
+            tmp_dir = None
+
+        instance = cls(path)
+        if aggr_data is not None:
+            instance.associate_with_aggr_data(aggr_data)
+        if tmp_dir is not None:
+            # (keep this `TemporaryDirectory` object alive, preventing
+            # it from removing the temporary directory prematurely)
+            instance.__tmp_dir = tmp_dir
+        return instance
+
 
 class HiFreqEventData:
 
@@ -56,12 +390,12 @@ class HiFreqEventData:
     `SourceData.process_event()` method et consortes...). Huge numbers
     of `HiFreqEventData` instances need to be kept in memory, so an
     effort has been made to reduce their memory consumption as much as
-    possible (in particular, an on-the-fly compression and decompression
-    are employed to achieve that; see the implementation...).
+    possible (see the implementation...).
 
     The following example demonstrates the operations the
     `HiFreqEventData`'s public interface exposes:
 
+    >>> payload_storage = PayloadStorage._make_for_tests()  # (needs to exist)
     >>> payload = {
     ...     'time': '2023-03-04 05:06:07',
     ...     'address': [{'ip': '10.20.30.40'}, {'ip': '10.20.123.124', 'cc': 'PL', 'asn': 54321}],
@@ -110,31 +444,11 @@ class HiFreqEventData:
 
     ***
 
-    Below, we check unpickling from a pickled representation made with
-    an older implementation:
+    Below, we examine a property intended to be used only by the
+    `PayloadStorage`'s stuff (and, therefore, *not* being a part
+    of the public interface):
 
-    >>> event_pickled_by_old_impl = (
-    ...     b'\x80\x04\x95?\x01\x00\x00\x00\x00\x00\x00\x8c\x19n6datapipeline'
-    ...     b'.aggregator\x94\x8c\x0fHiFreqEventData\x94\x93\x94)\x81\x94}\x94'
-    ...     b'(\x8c\x05until\x94\x8c\x08datetime\x94\x8c\x08datetime\x94\x93'
-    ...     b'\x94C\n\x07\xe7\x03\x05\x06\x06/\x00\x00\x00\x94\x85\x94R\x94'
-    ...     b'\x8c\x05first\x94h\x08C\n\x07\xe7\x03\x04\x05\x06\x07\x00\x00'
-    ...     b'\x00\x94\x85\x94R\x94\x8c\x05count\x94K{\x8c\x07payload\x94}'
-    ...     b'\x94(\x8c\x04time\x94\x8c\x132023-03-04 05:06:07\x94\x8c\x07'
-    ...     b'address\x94]\x94(}\x94\x8c\x02ip\x94\x8c\x0b10.20.30.40\x94s}'
-    ...     b'\x94(h\x18\x8c\r10.20.123.124\x94\x8c\x02cc\x94\x8c\x02PL\x94'
-    ...     b'\x8c\x03asn\x94M1\xd4ue\x8c\x04name\x94\x8c\x0bAla ma kota\x94'
-    ...     b'\x8c\x06_group\x94\x8c\x17Ala ma kota_10.20.30.40\x94uub.')
-    >>> event_unpickled_from_old = pickle.loads(event_pickled_by_old_impl)
-    >>> event_unpickled_from_old.first
-    datetime.datetime(2023, 3, 4, 5, 6, 7)
-    >>> event_unpickled_from_old.until
-    datetime.datetime(2023, 3, 5, 6, 6, 47)
-    >>> event_unpickled_from_old.count
-    123
-    >>> event_unpickled_from_old.to_dict() == expected_dict
-    True
-    >>> event_unpickled_from_old._initial_payload == payload
+    >>> isinstance(event.payload_handle, PayloadHandle)
     True
 
     ***
@@ -147,37 +461,35 @@ class HiFreqEventData:
 
     ***
 
-    Below, we check some gory internal details (*not* being a part of
-    the public interface!):
-
-    >>> event._payload_bytes.startswith(b'C')    # case of compressed pickle
-    True
-    >>> event2 = HiFreqEventData({'time': '2023-03-04 05:06:07'})
-    >>> event2._payload_bytes.startswith(b'P')   # case of non-compressed pickle (too short)
-    True
+    >>> payload_storage.close()
     """
 
-    __slots__ = ('_first_ts', '_until_ts', '_payload_bytes', 'count')
-
-    # * Public constructor:
-
-    def __init__(self, payload: dict):
-        # Note: storing `float` and `bytes` objects, rather that
-        # `datetime` and `dict` objects, lets us save a significant
-        # amount of memory.
-        first_timestamp = self._timestamp_from_iso_formatted_dt(payload['time'])
-        self._first_ts = first_timestamp
-        self._until_ts = first_timestamp
-        self._payload_bytes = self._bytes_from_payload(payload)
-        self.count = 1  # XXX: see ticket #6243
+    __slots__ = ('_first_ts', '_until_ts', '_payload_handle', 'count')
 
     _first_ts: float
     _until_ts: float
-    _payload_bytes: bytes
+    _payload_handle: PayloadHandle
 
-    # * Public interface of instances:
+    # * Interface for `PayloadStorage` only:
+
+    @property
+    def payload_handle(self) -> PayloadHandle:
+        return self._payload_handle
+
+    # * Public interface:
 
     count: int
+
+    def __init__(self, payload: dict):
+        # Note: keeping `float` and `bytes` objects, rather that
+        # `datetime` and `dict` objects, lets us save a significant
+        # amount of memory. Even more is saved thanks to saving the
+        # pickled payload in an on-disk storage...
+        first_timestamp = self._timestamp_from_iso_formatted_dt(payload['time'])
+        self._first_ts = first_timestamp
+        self._until_ts = first_timestamp
+        self._payload_handle = PayloadHandle.from_payload(payload)
+        self.count = 1  # XXX: see ticket #6243
 
     @property
     def first(self, *,
@@ -198,8 +510,9 @@ class HiFreqEventData:
         self._until_ts = __timestamp_from_dt(until_dt)
 
     def to_dict(self, *,
+                # (param below: just a micro-optimization hack...)
                 __str=datetime.datetime.__str__) -> dict:
-        result = self._payload_from_bytes(self._payload_bytes)
+        result = self._payload_handle.load()
         result['count'] = self.count
         result['until'] = __str(self.until)                             # noqa
         result['_first_time'] = __str(self.first)                       # noqa
@@ -207,19 +520,15 @@ class HiFreqEventData:
 
     # * Pickle hooks:
 
-    def __getstate__(self) -> tuple[float, float, bytes, int]:
-        return self._first_ts, self._until_ts, self._payload_bytes, self.count
+    def __getstate__(self) -> tuple:
+        return self._first_ts, self._until_ts, self._payload_handle, self.count
 
-    def __setstate__(self, state: Union[KwargsDict, tuple[float, float, bytes, int]]) -> None:
-        if isinstance(state, dict):
-            # Legacy state (from older implementation of `HiFreqEventData`):
-            assert state.keys() >= {'payload', 'first', 'until', 'count'}, state
-            self._first_ts = timestamp_from_datetime(state['first'])
-            self._until_ts = timestamp_from_datetime(state['until'])
-            self._payload_bytes = self._bytes_from_payload(state['payload'])
-            self.count = state['count']
-        else:
-            self._first_ts, self._until_ts, self._payload_bytes, self.count = state
+    def __setstate__(self, state: tuple) -> None:
+        self._first_ts, self._until_ts, payload_handle, self.count = state
+        if isinstance(payload_handle, bytes):
+            # The legacy *aggregator data* file format: with payload bytes.
+            payload_handle = PayloadHandle.from_payload_bytes(payload_handle)
+        self._payload_handle = payload_handle
 
     # * Private helpers:
 
@@ -231,33 +540,11 @@ class HiFreqEventData:
                                          ) -> float:
         return __timestamp_from_dt(__parse_iso_formatted_dt(iso_formatted_dt))
 
-    @staticmethod
-    def _bytes_from_payload(payload: dict, *,
-                            # (params below: just a micro-optimization hack...)
-                            __pickle=pickle.dumps,
-                            __compress=zlib.compress,
-                            __len=bytes.__len__) -> bytes:
-        payload_bytes = b'P' + __pickle(payload)
-        compressed = b'C' + __compress(payload_bytes)
-        if __len(compressed) < __len(payload_bytes):                    # noqa
-            payload_bytes = compressed
-        return payload_bytes
-
-    @staticmethod
-    def _payload_from_bytes(payload_bytes: bytes, *,
-                            # (params below: just a micro-optimization hack...)
-                            __unpickle=pickle.loads,
-                            __decompress=zlib.decompress,
-                            __startswith=bytes.startswith) -> dict:
-        if __startswith(payload_bytes, b'C'):                           # noqa
-            payload_bytes = __decompress(payload_bytes[1:])
-        return __unpickle(payload_bytes[1:])
-
-    # * Unit-tests-only interface (*not* a part of the public interface):
+    # * Tests-only interface (*not* a part of the public interface):
 
     @property
     def _initial_payload(self) -> dict:
-        return self._payload_from_bytes(self._payload_bytes)
+        return self._payload_handle.load()
 
 
 class SourceData:
@@ -361,24 +648,25 @@ class SourceData:
             del self.buffer[k]
 
     def generate_suppressed_events_after_inactive(self):
-        for _, v in self.buffer.items():
+        for v in self.buffer.values():
             # XXX: see ticket #6243 (check whether here is OK or also will need to be changed)
             yield 'suppressed', v.to_dict() if v.count > 1 else None
-        for _, v in self.groups.items():
+        for v in self.groups.values():
             # XXX: see ticket #6243 (check whether here is OK or also will need to be changed)
             yield 'suppressed', v.to_dict() if v.count > 1 else None
         self.groups.clear()
         self.buffer.clear()
         self.last_active = datetime.datetime.utcnow()
 
-    def __repr__(self):
-        return repr(self.groups)
+    __repr__ = attr_repr('groups', 'buffer')
 
 
 class AggregatorData:
 
     def __init__(self):
+        # These data attributes are to be pickled:
         self.sources = {}
+        self.payload_handles = []  # <- Shared with the `PayloadStorage` instance.
 
     def get_or_create_sourcedata(self,
                                  event,
@@ -396,56 +684,169 @@ class AggregatorData:
         # is run before `generate_suppressed_events_for_source(data)`.
         return self.sources[event['source']]
 
-    def __repr__(self):
-        return repr(self.sources)
+    __repr__ = attr_repr('sources')
 
 
-class AggregatorDataWrapper:
-
-    _STATE_PICKLE_PROTOCOL = 4
+class AggregatorDataManager:
 
     def __init__(self,
                  dbpath,
                  time_tolerance,
                  time_tolerance_per_source):
+
+        self.aggr_data_fac = FileAccessor(dbpath)
+        self.payload_storage_fac = FileAccessor(
+            self.aggr_data_fac.path.with_suffix('.payload-storage'),
+        )
         self.aggr_data = None
-        self.dbpath = dbpath
+        self.payload_storage = None
+
         self.time_tolerance = time_tolerance
         self.time_tolerance_per_source = time_tolerance_per_source
-        self.restore_state()
 
+        shall_shrink = self.restore_state()
+        self.maintain_state(shall_shrink)
+
+    @AggregatorStateIntegrityError.causing_fatal_exit()
     def restore_state(self):
+        assert self.aggr_data is None
+        assert self.payload_storage is None
+
+        # TODO later: make the creation of the `PayloadStorage` instance be done
+        #             *after* unpickling/creating the `AggregatorData` instance,
+        #             and merge `PayloadStorage.associate_with_aggr_data()` into
+        #             `PayloadStorage.__init__()` + get rid of `shall_shrink`!
+        #             (once we can stop supporting the legacy format...)
+        self.payload_storage = PayloadStorage(self.payload_storage_fac.path)
         try:
-            with open_file(self.dbpath, 'rb') as f:
-                self.aggr_data = pickle.load(f)
+            with self.aggr_data_fac.binary_reader() as aggr_data_reader:
+                self.aggr_data = pickle.load(aggr_data_reader)
         except FileNotFoundError as exc:
             LOGGER.warning(
-                'Could not load the aggregator state (%s). '
+                'The aggregator data file does not exist (%s). '
                 'Initializing a new empty state...',
                 make_exc_ascii_str(exc))
             self.aggr_data = AggregatorData()
-        except Exception as exc:
-            LOGGER.error(
-                'Could not load the aggregator state from %a (%s). '
-                'You may need to deal with the problem manually!',
-                self.dbpath, make_exc_ascii_str(exc))
+            shall_shrink = self.payload_storage.associate_with_aggr_data(self.aggr_data)
+            self.payload_storage.clear()
+        except BaseException as exc:
+            with contextlib.suppress(Exception):
+                LOGGER.error(
+                    'Failed to restore the aggregator state from %a '
+                    '(%s). Depending on the problem, you may need '
+                    'to deal with it manually!',
+                    str(self.aggr_data_fac.path),
+                    make_exc_ascii_str(exc))
             raise
         else:
-            LOGGER.info('Loaded the aggregator state from %a.', self.dbpath)
+            LOGGER.info(
+                'Restored the aggregator state from %a.',
+                str(self.aggr_data_fac.path),
+            )
+            shall_shrink = self.payload_storage.associate_with_aggr_data(self.aggr_data)
+        return shall_shrink
 
-    def store_state(self):
+    @AggregatorStateIntegrityError.causing_fatal_exit()
+    def maintain_state(self, shall_shrink):
+        assert self.aggr_data is not None
+        assert self.payload_storage is not None
+
+        if not shall_shrink:
+            # TODO later: get rid of the `shall_shrink` arg and this `if` block!
+            #             (once we can stop supporting the legacy format...)
+            try:
+                with self.aggr_data_fac.binary_atomic_writer() as aggr_data_writer:
+                    pickle.dump(self.aggr_data, aggr_data_writer, STATE_PICKLE_PROTOCOL)  # noqa
+            except BaseException as exc:
+                with contextlib.suppress(Exception):
+                    LOGGER.error(
+                        'Most probably, failed to update the aggregator '
+                        'state in %a (%a). However, the old saved state, '
+                        'if any, should be kept intact.',
+                        str(self.aggr_data_fac.path),
+                        make_exc_ascii_str(exc))
+                raise
+            else:
+                LOGGER.info(
+                    'Updated the aggregator state in %a.',
+                    str(self.aggr_data_fac.path),
+                )
+                self.payload_storage.reopen_payload_storage_file()
+            return
+
+        sigint_handler = signal.getsignal(signal.SIGINT)
+        exc_causing_integrity_problem = False
         try:
-            with open_file(self.dbpath, 'wb') as f:
-                pickle.dump(self.aggr_data, f, self._STATE_PICKLE_PROTOCOL)
-        except OSError as exc:
-            LOGGER.error(
-                'Failed to save the aggregator state to %a (%s). '
-                'Proceeding without having it saved, but the '
-                'component may not work correctly anymore!',
-                self.dbpath, make_exc_ascii_str(exc))
-            # XXX: Should we still proceed despite this error?
+            with self.payload_storage_fac.binary_atomic_writer() as payload_storage_writer:
+                with self.aggr_data_fac.binary_atomic_writer() as aggr_data_writer:
+                    self.payload_storage.shrink_disk_space(payload_storage_writer, self.aggr_data)
+                    pickle.dump(self.aggr_data, aggr_data_writer, STATE_PICKLE_PROTOCOL)  # noqa
+                    # Let's block Ctrl+C for this critical short moment...
+                    sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+                exc_causing_integrity_problem = True
+            exc_causing_integrity_problem = False
+            signal.signal(signal.SIGINT, sigint_handler)
+        except BaseException as exc:
+            if exc_causing_integrity_problem:
+                with contextlib.suppress(Exception):
+                    LOGGER.error(
+                        'Most probably, failed to update *consistently* '
+                        'the aggregator state in %a and %a (%a). You '
+                        'may need to deal with this problem manually!',
+                        str(self.aggr_data_fac.path),
+                        str(self.payload_storage_fac.path),
+                        make_exc_ascii_str(exc))
+                raise AggregatorStateIntegrityError(
+                    f'state consistency problem: the aggregator data file '
+                    f'{str(self.aggr_data_fac.path)!a} (over)written '
+                    f'successfully, while an exception occurred when '
+                    f'trying to (over)write the payload storage file '
+                    f'{str(self.payload_storage_fac.path)!a}! '
+                    f'[{make_exc_ascii_str(exc)}]'
+                ) from exc
+            else:
+                with contextlib.suppress(Exception):
+                    LOGGER.error(
+                        'Most probably, failed to update the aggregator '
+                        'state in %a and %a (%a). However, the old saved '
+                        'state should be kept intact.',
+                        str(self.aggr_data_fac.path),
+                        str(self.payload_storage_fac.path),
+                        make_exc_ascii_str(exc))
+                raise
         else:
-            LOGGER.info('Saved the aggregator state to %a.', self.dbpath)
+            LOGGER.info(
+                'Updated the aggregator state in %a and %a.',
+                str(self.aggr_data_fac.path),
+                str(self.payload_storage_fac.path),
+            )
+            self.payload_storage.reopen_payload_storage_file()
+        finally:
+            signal.signal(signal.SIGINT, sigint_handler)
+
+    @AggregatorStateIntegrityError.causing_fatal_exit()
+    def store_state(self):
+        assert self.aggr_data is not None
+        assert self.payload_storage is not None
+
+        self.payload_storage.close()
+        try:
+            with self.aggr_data_fac.binary_atomic_writer() as aggr_data_writer:
+                pickle.dump(self.aggr_data, aggr_data_writer, STATE_PICKLE_PROTOCOL)    # noqa
+        except BaseException as exc:
+            with contextlib.suppress(Exception):
+                LOGGER.error(
+                    'Most probably, failed to save the aggregator '
+                    'state to %a (%a). However, the old saved state '
+                    'should be kept intact.',
+                    str(self.aggr_data_fac.path),
+                    make_exc_ascii_str(exc))
+            raise
+        else:
+            LOGGER.info(
+                'Saved the aggregator state to %a.',
+                str(self.aggr_data_fac.path),
+            )
 
     def process_new_message(self, data):
         """
@@ -513,10 +914,16 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
         dbpath
         time_tolerance :: int
         time_tolerance_per_source = {} :: py_namespaces_dict
+
+        # approximate number of processed aggregation groups that causes
+        # restart of the aggregator machinery -- to shrink the disk space
+        # occupied by the payload storage file (and, possibly, to perform
+        # other necessary maintenance operations...)
+        finished_groups_count_triggering_restart = 10_000_000 :: int
     '''
 
     def __init__(self, **kwargs):
-        config = self.get_config_section()
+        config = self.config = self.get_config_section()
         config['dbpath'] = os.path.expanduser(config['dbpath'])
         dbpath_dirname = os.path.dirname(config['dbpath'])
         try:
@@ -534,12 +941,13 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
             raise Exception(f'stopping the aggregator - write access '
                             f'to the state directory needed; its path: '
                             f'{config["dbpath"]!a}')
-        self.db = AggregatorDataWrapper(
+        self.db = AggregatorDataManager(
             config['dbpath'],
             time_tolerance=datetime.timedelta(seconds=config['time_tolerance']),
             time_tolerance_per_source=self._prepare_time_tolerance_per_source(config),
         )
         self.timeout_id = None   # id of the 'tick' timeout that executes source cleanup
+        self._finished_groups_count = 0
 
     def _prepare_time_tolerance_per_source(self, config):
         try:
@@ -549,6 +957,36 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
         except Exception as exc:
             raise ConfigError('problem with option `time_tolerance_per_source`') from exc
 
+    def run(self):
+        try:
+            super().run()
+        except BaseException as exc:
+            if self._is_caused_by_sigint_or_amqp_problem(exc):
+                self.db.store_state()
+                try:
+                    self.stop()
+                except Exception as e:
+                    LOGGER.error(
+                        f'Suppressing an exception from {self.stop.__qualname__} (%s). '
+                        f'Note that the aggregator state has already been saved anyway.',
+                        make_exc_ascii_str(e), exc_info=True)
+            else:
+                LOGGER.error(
+                    f'Exiting because of an unexpected exception (%s). '
+                    f'The aggregator state will *not* be saved!',
+                    make_exc_ascii_str(exc))
+            raise
+        else:
+            self.db.store_state()
+
+    def _is_caused_by_sigint_or_amqp_problem(self, exc):
+        seen_exceptions = set()
+        while (isinstance(exc, SystemExit) and
+               (c := get_unseen_cause_or_context_exc(exc, seen_exceptions)) is not None):
+            exc = c
+        return isinstance(exc, (KeyboardInterrupt, AMQPError, n6AMQPCommunicationError))
+
+    @AggregatorStateIntegrityError.causing_fatal_exit()
     def input_callback(self, routing_key, body, properties):
         record_dict = RecordDict.from_json(body)
         with self.setting_error_event_info(record_dict):
@@ -556,6 +994,9 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
             if '_group' not in data:
                 raise n6QueueProcessingException("Hi-frequency source missing '_group' field.")
             self.process_event(data)
+
+        if self._should_restart():
+            self.trigger_inner_stop_trying_gracefully_shutting_input_then_output()
 
     def process_event(self, data):
         """
@@ -570,6 +1011,7 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
         for event_type, event in self.db.generate_suppressed_events_for_source(data):
             if event is not None:
                 self.publish_event((event_type, event))
+            self._finished_groups_count += 1
 
     def start_publishing(self):
         """
@@ -583,12 +1025,22 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
         LOGGER.debug('Setting tick timeout')
         self.timeout_id = self._connection.add_timeout(TICK_TIMEOUT, self.on_timeout)
 
+    @AggregatorStateIntegrityError.causing_fatal_exit()
     def on_timeout(self):
         LOGGER.debug('Tick passed')
         for event_type, event in self.db.generate_suppressed_events_after_timeout():
             if event is not None:
                 self.publish_event((event_type, event))
-        self.set_timeout()
+            self._finished_groups_count += 1
+
+        if self._should_restart():
+            self.trigger_inner_stop_trying_gracefully_shutting_input_then_output(immediately=True)
+        else:
+            self.set_timeout()
+
+    def _should_restart(self):
+        count_triggering_restart = self.config['finished_groups_count_triggering_restart']
+        return self._finished_groups_count >= count_triggering_restart > 0
 
     def publish_event(self, data):
         """Publish the given event to the output AMQP exchange."""
@@ -618,10 +1070,6 @@ class Aggregator(ConfigMixin, LegacyQueuedBase):
 
         return cleaned_payload
 
-    def stop(self):
-        self.db.store_state()
-        super(Aggregator, self).stop()
-
 
 def main():
     with logging_configured():
@@ -631,12 +1079,10 @@ def main():
             import sys
             LOGGER.setLevel(logging.DEBUG)
             LOGGER.addHandler(logging.StreamHandler(stream=sys.__stdout__))
-        a = Aggregator()
-        try:
+
+        while True:
+            a = Aggregator()
             a.run()
-        except KeyboardInterrupt:
-            a.stop()
-            raise
 
 
 if __name__ == '__main__':

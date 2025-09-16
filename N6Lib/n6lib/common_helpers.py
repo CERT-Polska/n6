@@ -36,6 +36,7 @@ from collections.abc import (
     Mapping,
     MutableMapping,
     MutableSequence,
+    MutableSet,
     Reversible,
     Set,
 )
@@ -6267,6 +6268,47 @@ def int_id_to_hex(int_id, min_digit_num=0):
     # pad with zeroes if necessary
     hex_id = hex_id.rjust(min_digit_num, '0')
     return hex_id
+
+
+def get_unseen_cause_or_context_exc(
+    exc: BaseException,
+    seen: MutableSet[BaseException],
+    *,
+    accept_suppressed_context: bool = False,
+) -> Union[BaseException, None]:
+    """
+    Try to get the exception being the given exception's
+    *cause*/*context*, provided that it was not seen yet.
+
+    More previsely, given an exception (`exc`) and a (possibly empty)
+    set of exceptions (`seen`):
+
+    * if the given exception's `__cause__` is not `None` and the given
+      set does not contain it, return it, first adding it to the set;
+
+    * otherwise, if the given exception's `__context__` is not `None` and
+      the given set does not contain it, return it, first adding it to
+      the set -- provided that the given exception's `__suppress_context__`
+      is not true or the `accept_suppressed_context` keyword argument is
+      true;
+
+    * otherwise, return `None`.
+
+    Note that, typically, if the given exception's `__cause__` is *not*
+    `None`, the given exception's `__suppress_context__` is `True`.
+    """
+    seen.add(exc)
+    cause = exc.__cause__
+    if cause is not None and cause not in seen:
+        seen.add(cause)
+        return cause
+    context = (
+        exc.__context__ if accept_suppressed_context or not exc.__suppress_context__
+        else None)
+    if context is not None and context not in seen:
+        seen.add(context)
+        return context
+    return None
 
 
 def make_exc_ascii_str(exc=None):

@@ -59,11 +59,6 @@ class DomainNameCustomizedField(DomainNameField):
     max_length = MAX_LEN_OF_DOMAIN_NAME
 
 
-class ComponentLoginField(DomainNameCustomizedField):
-
-    error_msg_template = '"{}" is not a valid component login - a domain name is expected'
-
-
 class OrgIdField(DomainNameCustomizedField):
 
     max_length = MAX_LEN_OF_ORG_ID

@@ -44,8 +44,9 @@ whose shell you execute all commands):
 cd ~
 ```
 
-Also, make sure the Python *virtual environment* in which *n6* [has been
-installed](installation.md#actual-installation) is active:
+Also, make sure the Python *virtual environment* [in
+which](installation.md#new-virtual-environment) *n6* has been
+[installed](installation.md#actual-installation) is active:
 
 ```bash
 source ./env_py3k/bin/activate
@@ -54,8 +55,8 @@ source ./env_py3k/bin/activate
 
 ## Configuring *n6 Pipeline*
 
-Configuration files for *n6 Pipeline* components is to be placed in the
-`.n6` subdirectory of the `dataman` user's home directory.
+Configuration files for the *n6 Pipeline* components are to be placed in
+the `.n6` subdirectory of the `dataman` user's home directory.
 
 ### Copying Configuration Prototypes
 
@@ -77,21 +78,21 @@ ls -l /home/dataman/.n6/
 ```
 -rw-r--r-- 1 dataman dataman  1868 Jun 20 13:41 00_global.conf
 -rw-r--r-- 1 dataman dataman  1152 Jun 20 13:41 00_pipeline.conf
-[...]
+...
 -rw-r--r-- 1 dataman dataman   625 Jun 20 13:41 05_enrich.conf
 -rw-r--r-- 1 dataman dataman   710 Jun 20 13:41 07_aggregator.conf
 -rw-r--r-- 1 dataman dataman   396 Jun 20 13:41 07_comparator.conf
 -rw-r--r-- 1 dataman dataman  1887 Jun 20 13:41 09_auth_db.conf
-[...]
+...
 -rw-r--r-- 1 dataman dataman  1106 Jun 20 13:41 21_recorder.conf
 -rw-r--r-- 1 dataman dataman   204 Jun 20 13:41 23_filter.conf
-[...]
+...
 -rw-r--r-- 1 dataman dataman  1311 Jun 20 13:41 60_abuse_ch.conf
 -rw-r--r-- 1 dataman dataman  3539 Jun 20 13:41 60_amqp.conf
 -rw-r--r-- 1 dataman dataman   328 Jun 20 13:41 60_cert_pl.conf
 -rw-r--r-- 1 dataman dataman   462 Jun 20 13:41 60_cesnet_cz.conf
 -rw-r--r-- 1 dataman dataman   313 Jun 20 13:41 60_dan_tv.conf
-[...]
+...
 -rw-r--r-- 1 dataman dataman 15320 Jun 20 13:41 admin_panel.conf
 -rw-r--r-- 1 dataman dataman  4033 Jun 20 13:41 logging.conf
 ```
@@ -99,15 +100,14 @@ ls -l /home/dataman/.n6/
 !!! info
 
     All those configuration files are in the popular
-    *[INI](https://en.wikipedia.org/wiki/INI_file)-like*
-    [format](https://docs.python.org/3/library/configparser.html).
+    [*INI*](https://en.wikipedia.org/wiki/INI_file)-like format.
 
     Generally, each *n6 pipeline* component tries to load -- from the
-    `/etc/n6/` and `~/.n6/` directories (in this order; concerning this
-    guide, only the latter is present) -- all configuration files whose
-    names match the pattern `<two decimal digits>_<whatever>.conf`. Within
-    each of these two directories (if it exists), the files are loaded in
-    the order resulting from sorting the filenames alphabetically.
+    `/etc/n6/` and `~/.n6/` directories (in this order; although, concerning
+    this guide, only the latter is present) -- all configuration files whose
+    names match the pattern `<two decimal digits>_<whatever>.conf`. In the
+    case of each of those two directories (if it exists), the files are
+    loaded in the order resulting from sorting the filenames alphabetically.
 
     Note that configuration sections and options *may* be repeated. In such
     cases, the option value encountered later "wins" (so the loading order
@@ -118,9 +118,10 @@ ls -l /home/dataman/.n6/
 
 !!! note
 
-    What is important for each component are names of configuration
+    What is important for each component are *names* of configuration
     *sections* and *options* -- *not* names of configuration files (apart
-    from the loading order discussed in the *Info* box above).
+    from the required `<two decimal digits>_<whatever>.conf` format and
+    the loading order discussed in the *Info* box above).
 
     Nevertheless, the names of the configuration files from `n6/etc/` do
     suggest which components their contents apply to. In particular, these
@@ -134,8 +135,8 @@ ls -l /home/dataman/.n6/
     * `21_recorder.conf` -- to the `n6recorder` component
     * `23_filter.conf` -- to the `n6filter` component
     * any `60_*.conf` files -- to respective *collectors* and *parsers*, i.e.,
-      particular `n6collector_*` and `n6parser_*` components that implement
-      dealing with particular external *data sources*
+      particular `n6collector_*` and `n6parser_*` components supposed to deal
+      with respective external *data sources*
 
     !!! note ""
     
@@ -160,7 +161,7 @@ configuration options in a few files need to be adjusted...
 
 #### RabbitMQ Connectivity
 
-Edit the `.n6/00_global.conf` configuration file to ensure that the
+Edit the `~/.n6/00_global.conf` configuration file to ensure that the
 `host`, `password_auth`, `username` and `password` options in the
 `[rabbitmq]` section are set as follows:
 
@@ -174,13 +175,14 @@ username = guest
 password = guest
 ```
 
-(Make sure that these options are *not* commented out with leading `;`)
+(Make sure that these options are *not* commented out with a leading `;`
+character)
 
 Keep the remaining options in that file intact.
 
 #### *Event DB* Connectivity (`n6recorder`)
 
-Edit the `.n6/21_recorder.conf` configuration file to ensure that the
+Edit the `~/.n6/21_recorder.conf` configuration file to ensure that the
 `uri` option in the `[recorder]` section is set as follows:
   
 ```ini
@@ -193,7 +195,7 @@ uri = mysql://root:password@localhost/n6
 
 #### *Auth DB* Connectivity
 
-Edit the `.n6/09_auth_db.conf` configuration file to ensure that the
+Edit the `~/.n6/09_auth_db.conf` configuration file to ensure that the
 `url` option in the `[auth_db]` section is set as follows:
   
 ```ini
@@ -221,13 +223,11 @@ ssl_key = none
 
 (And keep the remaining options in that file intact.) 
 
-#### Optionally: Logging Settings...
+#### Logging Settings
 
-Edit the special configuration file `.n6/logging.conf` to customize the
-general *n6 pipeline*'s configuration of logging (the
-[possibilities](https://docs.python.org/3/library/logging.config.html#configuration-file-format)
-are wide...). In particular, modify the content of the `[logger_root]`
-section to make it look like this:
+Edit the special configuration file `~/.n6/logging.conf` to adjust the
+general *n6 pipeline*'s configuration of logging, by modifying the
+content of the `[logger_root]` section -- to make it look like this:
 
 ```ini
 [logger_root]
@@ -235,22 +235,22 @@ level = INFO
 handlers = file
 ```
 
-The rest of the *n6 REST API*'s logging settings should be OK for the
-purposes of this guide.
-
+The rest of the settings in `~/.n6/logging.conf` should be OK for the
+purposes of this guide. Of course, you can customize some of them if you
+like (the
+[possibilities](https://docs.python.org/3/library/logging.config.html#configuration-file-format)
+are wide...).
 
 #### Optionally: Other Settings...
 
 You may also want to adjust some other configuration options, relevant
 to various *n6 pipeline* components -- customizable by editing various
-`.n6/*.conf` configuration files...
+`~/.n6/*.conf` configuration files... See the *Note* box near the end of
+the *[Copying Configuration Prototypes](#copying-configuration-prototypes)*
+section earlier in this chapter.
 
-See the *Note* box near the end of the *[Copying Configuration
-Prototypes](#copying-configuration-prototypes)* section earlier in this
-chapter.
-
-Also, see the helpful comments you can find in many of the configuration
-files.
+Also, see the helpful comments you can find in many of those
+configuration files.
 
 
 ## Initializing *n6's Databases*
@@ -328,7 +328,7 @@ newly created user (see below...), and then adds the following data to
   access *subsources* (i.e., definitions of data feeds to which client
   organizations can have access)
 * a new client organization --
-    * whose identifier (`org_id`) is: `example.com`
+    * whose identifier (`org_id`) is `example.com`
     * which has access to:
         * the `inside` access zone (*[n6 REST API]*'s resource `report/inside`),
           with the aforementioned *subsources* enabled
@@ -337,13 +337,22 @@ newly created user (see below...), and then adds the following data to
         * the `search` access zone (*[n6 REST API]*'s resource `search/events`),
           with the aforementioned *subsources* enabled
 * a new *n6* user --
-    * whose identifier (`login`) is: `login@example.com`
-    * the password is _**what you just entered interactively**_
-      (remember it, as it will be needed [later...](check.md#first-log-in))
+    * whose identifier (`login`) is `login@example.com`
+    * whose password is _**what you just entered interactively**_
+      (remember it, as it will be needed [later...](check.md#first-time-on-n6-portal))
     * which belongs to the aforementioned `example.com` organization
       (with all its access rights)
 
-Near the end of the command's output the following line should appear:
+!!! info
+
+    The identifier of an organization (`org_id`) is supposed to be a DNS
+    domain of that organization.
+
+    The identifier of a user (`login` *aka* `user_id`) is supposed to be
+    an e-mail address of that user.
+
+Near the end of the above `n6populate_auth_db` command's output the
+following line should appear:
 
 ```
 * The 'n6populate_auth_db' script exits gracefully.
@@ -374,7 +383,7 @@ Near the end of the command's output the following line should appear:
 
     In this tutorial, for the sake of simplicity, some of the *n6* web
     components' configuration prototype files (shipped with the *n6* source
-    code) are (ab)used as *actual* configuration files (i.e., you will edit
+    code) are (ab)used as *actual configuration files* (i.e., you will edit
     them in-place, without copying).
 
 ### *n6 Portal*
@@ -423,12 +432,12 @@ auth_db.url = mysql://root:password@localhost/auth_db
 
 !!! info
 
-    E-mail messages are sent to users when something related to them or
-    their organization happens, e.g., a *password reset* is requested, an
+    E-mail messages are sent to users of *n6* when something related to them
+    or their organization happens, e.g., a *password reset* is requested, an
     *organization configuration update request* is submitted by any of the
     organization's users, etc.
 
-    This feature is called *mail notices*. In production, it is rather
+    This feature is called *mail notices*. In production, it is definitely
     necessary (without it the service would be hardly usable), but for the
     purposes of this guide you can disable it.
 
@@ -456,13 +465,13 @@ mail_notices_api.active = false
 
     * install the [*MailDump* fake SMTP
       server](https://pypi.org/project/maildump/) by executing the command:
-      `pip install maildump`; then run it in the background by executing the
-      command: `maildump -p maildump.pidfile` (it listens for SMTP connections
-      on port 1025; see also: `maildump --help`).
+      `pip install maildump`, and then run it in the background by executing
+      the command: `maildump -p maildump.pidfile` (it will start listening
+      for SMTP connections on port 1025; see also: `maildump --help`).
 
     From now on, you can use a web browser to visit
     [http://localhost:1080](http://localhost:1080) to interactively explore
-    any e-mail *notices* sent by the *n6 Portal* component...
+    any e-mail *notices* sent by *n6 Portal*.
 
 
 #### Logging Settings
@@ -509,8 +518,9 @@ sudo cp -a \
 ```
 
 Then edit the new `/etc/apache2/sites-available/n6-portal.conf` file to
-replace the existing `WSGIDaemonProcess` directive, consisting of 5 lines,
-with its new version, consisting of the following 3 lines:
+replace the existing `WSGIDaemonProcess` directive, consisting of
+several lines, with its new version, consisting of the following three
+lines:
 
 ```
     WSGIDaemonProcess n6-portal \
@@ -519,6 +529,11 @@ with its new version, consisting of the following 3 lines:
 ```
 
 Do not forget to set the appropriate file access permissions:
+
+```bash
+sudo chmod 644 /etc/apache2/sites-available/000-default.conf \
+  && sudo chown root:root /etc/apache2/sites-available/000-default.conf
+```
 
 ```bash
 sudo chmod 644 /etc/apache2/sites-available/n6-portal.conf \
@@ -547,13 +562,13 @@ The command's output should include:
 Enabling site n6-portal.
 ```
 
-Finally, start serving *n6 Portal*!
+Finally, start serving your own *n6 Portal*!
 
 ```bash
 sudo service apache2 restart
 ```
 
-*n6 Portal* should be now available. Try to visit it using a web browser
+*n6 Portal* should now be available. Try to visit it using a web browser
 at [https://localhost/](https://localhost/). You should see the *n6
 Portal*'s log-in page.
 
@@ -631,8 +646,9 @@ sudo cp -a \
 ```
 
 Then edit the new `/etc/apache2/sites-available/n6-restapi.conf` file to
-replace the existing `WSGIDaemonProcess` directive, consisting of 5 lines,
-with its new version, consisting of the following 3 lines:
+replace the existing `WSGIDaemonProcess` directive, consisting of
+several lines, with its new version, consisting of the following three
+lines:
 
 ```
    WSGIDaemonProcess n6-restapi \
@@ -669,30 +685,31 @@ The command's output should include:
 Enabling site n6-restapi.
 ```
 
-Finally, start serving *n6 REST API*!
+Finally, start serving your own *n6 REST API*!
 
 ```bash
 sudo service apache2 restart
 ```
 
-*n6 REST API* should be now available. Try to visit it using a web
-browser at [https://localhost:4443/](https://localhost:4443/). You
-should see an *401 Unauthorized* error page (HTTP status 401); that's OK
-for now!
+*n6 REST API* should now be available.
+Try to visit one of its endpoints using a web browser:
+[https://localhost:4443/report/inside.json](https://localhost:4443/report/inside.json).
+You should see an *401 Unauthorized* error page (HTTP status 401);
+that's OK for now!
 
 !!! note
 
     Because of the use of the *insecure example certificate* shipped with
     the *n6* source code, any modern web browser is expected to warn you
     that the connection is not secure. **Before the browser agrees to
-    display the site, you may need to confirm that you accept the risk.**
+    display anything, you may need to confirm that you accept the risk.**
 
 
 ### *n6 Admin Panel*
 
 #### *Auth DB* Connectivity
 
-Edit the `.n6/admin_panel.conf` configuration file (one of those you
+Edit the `~/.n6/admin_panel.conf` configuration file (one of those you
 created when preparing the *n6 pipeline* configuration) to ensure that
 the `url` option in the `[auth_db]` section is set as follows:
 
@@ -715,7 +732,7 @@ ssl_key = none
 
 #### RabbitMQ Connectivity
 
-Edit the same `.n6/admin_panel.conf` configuration file to ensure that the
+Edit the same `~/.n6/admin_panel.conf` configuration file to ensure that the
 `host`, `password_auth`, `username` and `password` options in the
 `[rabbitmq]` section are set as follows:
 
@@ -729,22 +746,22 @@ username = guest
 password = guest
 ```
 
-(Make sure that these options are *not* commented out with leading `;`)
+(Make sure that these options are *not* commented out with a leading `;`
+character)
 
 #### Disabling (or Configuring) *Mail Notices*
 
 !!! info
 
-    E-mail messages are sent to users when something related to them or
-    their organization happens, e.g., an *organization configuration update
-    request* is accepted or rejected by an administrator, etc.
+    E-mail messages are sent to users of *n6* when something related to them
+    or their organization happens, e.g., an *organization configuration
+    update request* is accepted or rejected by an administrator, etc.
 
-    This feature is called *mail notices*. In production, it is rather
-    necessary (without it the service would be hardly usable), but for the
-    purposes of this guide you can disable it.
+    This feature is called *mail notices*. In production, it is definitely
+    necessary, but for the purposes of this guide you can disable it.
 
 To disable the *mail notices* feature in *n6 Admin Panel*, edit the
-`.n6/admin_panel.conf` configuration file to modify the `active` option
+`~/.n6/admin_panel.conf` configuration file to modify the `active` option
 in the `[mail_notices_api]` section, so that it is set to `false`:
 
 ```ini
@@ -758,7 +775,7 @@ active = false
     On the other hand, you may want to keep this feature enabled -- to test
     it using a fake SMTP (e-mail) server. If you decide to do so, then just:
 
-    * edit the same `.n6/admin_panel.conf` configuration file,
+    * edit the same `~/.n6/admin_panel.conf` configuration file,
       specifically its section `[mail_sending_api]`, to modify the `smtp_host`
       option in by setting it to `localhost` and ensure that the `smtp_port`
       option is set to `1025` (of course, keeping the aforementioned `active`
@@ -766,25 +783,26 @@ active = false
 
     * if you haven't already done so when configuring *n6 Portal*, install the
       [*MailDump* fake SMTP server](https://pypi.org/project/maildump/) by
-      executing the command: `pip install maildump`; then run it in the
+      executing the command: `pip install maildump`, and then run it in the
       background by executing the command: `maildump -p maildump.pidfile` (it
-      listens for SMTP connections on port 1025; see also: `maildump --help`).
+      will start listening for SMTP connections on port 1025; see also:
+      `maildump --help`).
 
     From now on, you can use a web browser to visit
     [http://localhost:1080](http://localhost:1080) to interactively explore
-    any e-mail *notices* sent by the *n6 Admin Panel* component...
+    any e-mail *notices* sent by *n6 Admin Panel*.
 
 
 #### Logging Settings
 
 Unlike other *web* components, *n6 Admin Panel* shares its logging
-settings with all *n6 pipeline* components -- see the [relevant
-section](#optionally-logging-settings) earlier in this chapter...
+settings with the *n6 pipeline* components -- see the [relevant
+section](#logging-settings) earlier in this chapter...
 
 #### Optionally: Other Settings...
 
 You may also want to customize some other configuration options in
-various parts of the same `.n6/admin_panel.conf` file. See the helpful
+various parts of the `~/.n6/admin_panel.conf` file. See the helpful
 comments you can find in it...
 
 #### Prepare, Enable, Start!
@@ -797,9 +815,10 @@ sudo cp -a \
     /etc/apache2/sites-available/
 ```
 
-Then edit the new `/etc/apache2/sites-available/n6-adminpanel.conf` file to
-replace the existing `WSGIDaemonProcess` directive, consisting of 6 lines,
-with its new version, consisting of the following 6 lines:
+Then edit the new `/etc/apache2/sites-available/n6-adminpanel.conf` file
+to replace the existing `WSGIDaemonProcess` directive, consisting of
+several lines, with its new version, consisting of the following six
+lines:
 
 ```
     WSGIDaemonProcess n6-adminpanel \
@@ -835,13 +854,13 @@ The command's output should include:
 Enabling site n6-adminpanel.
 ```
 
-Finally, start serving *n6 Admin Panel*!
+Finally, start serving the *Admin Panel* app:
 
 ```bash
 sudo service apache2 restart
 ```
 
-*n6 Admin Panel* should be now available. Try to visit it using a web
+*n6 Admin Panel* should now be available. Try to visit it using a web
 browser at [https://localhost:4444/](https://localhost:4444/). You
 should see the *n6 Admin Panel* home page.
 
@@ -858,8 +877,8 @@ should see the *n6 Admin Panel* home page.
 
     Unlike other *web* components of *n6*, the *n6 Admin Panel* application
     by itself does not have any authentication mechanism! (So, in
-    particular, never make it public, unless it is protected with some
-    external authentication stuff...)
+    particular, never make it public, unless you protect it with some
+    external authentication layer...)
 
 
 ## Summary of Available HTTP/HTTPS Services

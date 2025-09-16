@@ -138,6 +138,7 @@ export interface ICustomResponse {
   dns_version?: string;
   email?: string;
   enriched?: string;
+  expired?: string;
   facebook_id?: string;
   filename?: string;
   first_seen?: string;
@@ -167,6 +168,7 @@ export interface ICustomResponse {
   rt?: string;
   sender?: string;
   snitch_uuid?: string;
+  status?: string;
   subject_common_name?: string;
   sysdesc?: string;
   tags?: string;

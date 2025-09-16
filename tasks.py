@@ -78,7 +78,7 @@ import do_setup
 
 InstallKind: TypeAlias = (
     str |  # Either an *extra* str, as from _get_all_n6_package_extras(),
-    None   # or None denoting the *production* kind of installation.
+    None   # or None denoting *basic* installation (without any *extras*).
 )
 
 
@@ -90,7 +90,7 @@ InstallKind: TypeAlias = (
 EXTRA_DEV = do_setup.EXTRA_DEV
 
 class StaticallyKnownInstallKind:
-    PROD: InstallKind = None
+    BASIC: InstallKind = None
     DEV: InstallKind = EXTRA_DEV
 
 ALL_CORE_REQUIREMENTS_DIRNAME = (
@@ -495,7 +495,7 @@ def sync_dev(
             quo(PosixPath(n6_pkg_dirname) / _get_n6_pkg_requirements_filename(kind))
             for n6_pkg_dirname in _list_n6_package_dirnames()
             for kind in [
-                StaticallyKnownInstallKind.PROD,
+                StaticallyKnownInstallKind.BASIC,
                 StaticallyKnownInstallKind.DEV,
             ]
         )
@@ -951,7 +951,7 @@ def _get_n6_pkg_input_deps_filename(kind: InstallKind) -> str:
 
 def _get_kind_specific_filename_stem_suffix(kind: InstallKind) -> str:
     match kind:
-        case StaticallyKnownInstallKind.PROD:
+        case StaticallyKnownInstallKind.BASIC:
             stem_suffix = ''
         case extra if extra in _get_all_n6_package_extras():
             stem_suffix = f'-{extra}'
@@ -1387,18 +1387,18 @@ def _get_parsed_pyproject(n6_pkg_dirname: str) -> Mapping[str, Any]:
 @functools.cache
 def _list_install_kinds() -> Sequence[InstallKind]:
     install_kinds = [
-        StaticallyKnownInstallKind.PROD,
+        StaticallyKnownInstallKind.BASIC,
         *sorted(
             _get_all_n6_package_extras(),
         ),
     ]
     assert set(install_kinds) >= {
-        StaticallyKnownInstallKind.PROD,
+        StaticallyKnownInstallKind.BASIC,
         StaticallyKnownInstallKind.DEV,
     }
     assert all(
         (
-            kind is None is StaticallyKnownInstallKind.PROD
+            kind is None is StaticallyKnownInstallKind.BASIC
             or (isinstance(kind, str) and kind.isascii() and kind.isalnum())
         )
         for kind in install_kinds

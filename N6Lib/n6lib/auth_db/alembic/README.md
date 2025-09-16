@@ -65,28 +65,3 @@ For **other Alembic commands** and related information -- see:
 * `$ alembic --help`
 * `$ alembic HERE_PARTICULAR_COMMAND --help`
 * https://alembic.sqlalchemy.org/
-
-
-## Preparing a legacy Auth DB for Alembic migrations
-
-If the schema of your Auth DB is old enough it may be necessary to
-prepare the database before you will be able to run successfully any
-Alembic migrations.  The `n6prepare_legacy_auth_db_for_alembic` script
-is the tool that serves this purpose.
-
-**Prerequisites** are the same as for migration to the newest Alembic
-revision (see the previous section).
-
-**The command** to be run (**caution:** please read carefully any
-warnings printed by the script, *before* answering with `yes` to the
-script's confirmation prompt):
-
-```bash
-$ n6prepare_legacy_auth_db_for_alembic
-```
-
-See also:
-
-```bash
-$ n6prepare_legacy_auth_db_for_alembic --help
-```

@@ -36,7 +36,7 @@ from n6lib.unit_test_helpers import (
     MethodProxy,
     RequestHelperMixin,
 )
-from n6web import (
+from n6restapi import (
     DATA_RESOURCES,
     RestAPIViewBase,
 )
@@ -757,7 +757,7 @@ class TestRestAPIViewBase(unittest.TestCase):
             mock,
             class_attrs=['SAFE_ACTIVE_MIN_DELTA', '_get_redirect_url'])
 
-        with patch('n6web.utcnow', return_value=self.UTC_NOW):
+        with patch('n6restapi.utcnow', return_value=self.UTC_NOW):
             actual_redirect_url = meth.get_redirect_url_if_no_time_min(
                 cleaned_param_dict,
                 self.DEFAULT_DELTA)

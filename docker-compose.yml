@@ -27,6 +27,8 @@ services:
     build:
       context: .
       dockerfile: docker/worker/Dockerfile
+      additional_contexts:
+        n6_base: "service:base"
     depends_on:
         - base
     container_name: n6
@@ -41,6 +43,8 @@ services:
     build:
       context: .
       dockerfile: docker/web/Dockerfile
+      additional_contexts:
+        n6_base: "service:base"
     depends_on:
         - base
     hostname: apache
