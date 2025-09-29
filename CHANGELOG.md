@@ -25,22 +25,31 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [4.31.3] (2025-09-29)
+
+#### General Audience Stuff
+
+- [docs] Minor updates to the main `README.md` file and the
+  [documentation](https://n6.readthedocs.io/)'s home page as well as
+  minor fixes to this changelog.
+
+
 ## [4.31.0] (2025-09-16)
 
 #### General Audience Stuff
 
-- [data sources, config, etc/docker] Recent upstream changes to the
-  `cert-pl.shield` source (causing, in particular, that now the
-  available dataset is always limited to the last 6 months) forced us to
-  **remove the `row_count_mismatch_is_fatal` and `url` configuration
-  options for this particular collector (`CertPlShieldCollector`)**,
-  which means that now -- for this data source -- setting any of them
-  causes `ConfigError`. Apart from that, due to the *changed date+time
-  format*, we added a **new parser: `CertPlShield202505Parser`** (and
-  the collector gained `raw_format_version_tag = '202505'`).
+- [data sources, config, etc/docker] Due to recent upstream changes to
+  the `cert-pl.shield` data source (causing, in particular, that now the
+  available dataset is always limited to the last 6 months), we **removed
+  the `row_count_mismatch_is_fatal` and `url` configuration options for
+  this particular collector (`CertPlShieldCollector`)**, which means that
+  now -- for this data source -- setting any of them causes `ConfigError`.
+  Apart from that, due to the *changed date+time format*, we added a **new
+  parser: `CertPlShield202505Parser`**, and the afotementioend collector
+  gained `raw_format_version_tag = '202505'`.
 
-- [data sources] The `turris-cz.graylist-csv` source now updates its
-  data every 24h; accordingly, changed the `expires` interval to 1 day.
+- [data sources] The `turris-cz.graylist-csv` source now updates its data
+  every 24h; accordingly, we changed the `expires` interval to 1 day.
 
 - [data pipeline] Made a few improvements/changes/fixes regarding
   certain pipeline components; in particular, `n6aggregator` uses
@@ -58,7 +67,8 @@ Some features of this document's layout were inspired by
   `N6Lib/n6lib/auth_db/alembic/README.md`). Also, changed the related
   **Broker Auth API**'s stuff by **getting rid of the notion of
   _privileged access_ and _administrator users_**.
-  (See also: the relevant notes in the *Programming* section below...)
+  (See also: the relevant notes in the *Programming-Only* section
+  below...)
 
 - [portal, rest api, stream api, data pipeline, data sources, lib] Added
   a new event field (available for all users): `long_description` -- a
@@ -78,7 +88,8 @@ Some features of this document's layout were inspired by
 - [portal] Improved/rearranged/fixed several UI views or their elements
   (including some texts/translations).
 
-- [docs] Restored and revamped+updated the *Step-by-Step Installation*
+- [docs] Restored and revamped+updated the [*Step-by-Step
+  Installation*](https://n6.readthedocs.io/install_and_conf/step_by_step/)
   guide.
 
 - [docs] A bunch of documentation improvements/adjustments/updates/fixes
@@ -98,7 +109,7 @@ Some features of this document's layout were inspired by
   packages); rewrote (practically from scratch, in a backward incompatible
   way) the `do_setup.py` installation script (see its new docstring and
   `--help` text...) -- among others, introducing the use of the *uv* tool
-  and modern versions of *setuptools* (installation of *n6* is now *orders
+  and modern versions of *setuptools* (installation of *n6* is *orders
   of magnitude faster* than formerly) as well as making a *virtual
   environment* required to install anything; introduced `invoke` as
   the main tool to run dependency-management-related tasks (including
@@ -112,8 +123,8 @@ Some features of this document's layout were inspired by
 
 - [data sources, config, etc/docker] The `etc/n6/60_openphish.conf`
   configuration prototype file: updated the value of `url` in the
-  `OpenphishWebBlCollector` collector's section. You may want to update
-  this option accordingly in your actual configuration file.
+  `OpenphishWebBlCollector` collector's section. You may want to
+  **update this option** accordingly in your actual configuration file.
 
 - [data pipeline] `n6aggregator`: an old format of pickled aggregator
   state data (with `dict`-based state of `HiFreqEventData` instances) --
@@ -135,12 +146,12 @@ Some features of this document's layout were inspired by
   `finished_groups_count_triggering_restart` (integer; default
   value: `10_000_000`). (See the next bullet point...)
 
-- [data pipeline] `n6aggregator`: to save RAM, changed how the
-  aggregated events' payloads are dealt with: they are no longer
-  kept in the program memory and pickled together with other aggregator
-  state data. From now on, they are (immediately after being obtained)
-  **stored on disk, in the (so called) *payload storage* file**
-  (separate from the *aggregator data* file), **and loaded from
+- [data pipeline] `n6aggregator`: to significantly reduce RAM usage,
+  changed how the aggregated events' payloads are dealt with: they are
+  no longer kept in the program memory and pickled together with other
+  aggregator state data. From now on, they are (immediately after being
+  obtained) **stored on disk, in the (so called) *payload storage*
+  file** (separate from the *aggregator data* file), **and loaded from
   there only when necessary** (i.e., when the respective suppressed
   event is to be published). The *payload storage* file needs to be
   periodically *maintained*/*reorganized* (to reduce its size, not
@@ -170,13 +181,14 @@ Some features of this document's layout were inspired by
 
 - [data pipeline] `n6aggregator`: improved exception handling when
   saving and restoring state as well as exiting; in particular, from now
-  on, more exceptions are handled (including non-`Exception`-ones, such
-  as `KeyboardInterrupt`) and exceptions that signal real error/breakage
-  conditions are consequently propagated or replaced with another
-  exception (previously, in some cases, they were unnecessarily
-  suppressed). When it comes to exiting, an important change is that,
-  from now on, the state is saved also when exiting due to an
-  AMQP-communication-related exception (not just `KeyboardInterrupt`).
+  on, more exceptions from the saving/restoring procedures are handled
+  (including non-`Exception`-ones, such as `KeyboardInterrupt`), and
+  exceptions that signal real error/breakage conditions are consequently
+  propagated or replaced with another exception (previously, in some
+  cases, they were unnecessarily suppressed). When it comes to exiting,
+  an important change is that, from now on, the state is saved also when
+  exiting due to an AMQP-communication-related exception (not just
+  `KeyboardInterrupt`).
 
 - [data pipeline, lib] `n6recorder`: fixed `IntegrityError` that might
   erroneously bubble up from the `Recorder`'s methods `blacklist_update()`
@@ -200,7 +212,7 @@ Some features of this document's layout were inspired by
   names and other log entry elements (including, e.g., routing keys used
   by our AMQP-based logging handler) in which the package name `n6web`
   appeared (including also Audit Log ones) are affected as well: now,
-  the `n6restapi` name is used everywhere, instead of `n6web`.
+  the `n6restapi` name is used everywhere instead of `n6web`.
 
 - [auth db, lib, setup/cli] Removed the `n6lib.auth_db._before_alembic`
   subpackage and the related `n6lib`'s console script
@@ -221,23 +233,20 @@ Some features of this document's layout were inspired by
   `AggregatorStateIntegrityError`,
   `PayloadHandle`,
   `PayloadStorage`.
-  Also, renamed `AggregatorDataManager` to `AggregatorDataManager`.
+  Also, renamed `AggregatorDataWrapper` to `AggregatorDataManager`.
 
 - [data pipeline, lib] A new instance attribute of
   `n6datapipeline.aggregator.AggregatorData`:
   `payload_handles` (a list of `PayloadHandle` objects).
 
 - [data pipeline, lib] New method and instance attributes of
-  `n6datapipeline.aggregator.AggregatorDataManager`
-  (formerly: `n6datapipeline.aggregator.AggregatorDataWrapper`):
+  `n6datapipeline.aggregator.AggregatorDataManager` (formerly:
+  `n6datapipeline.aggregator.AggregatorDataWrapper`):
   `maintain_state()`,
   `aggr_data_fac` (a `FileAccessor` object),
   `payload_storage_fac` (a `FileAccessor` object),
-  `payload_storage` (a `PayloadStorage` object or `None`).
-
-- [data pipeline, lib] Removed the `dbpath` instance attribute of
-  `n6datapipeline.aggregator.AggregatorDataManager`
-  (formerly: `n6datapipeline.aggregator.AggregatorDataWrapper`).
+  `payload_storage` (a `PayloadStorage` object or `None`);
+  and removed the `dbpath` instance attribute.
 
 - [data pipeline, lib] A new instance attribute of
   `n6datapipeline.aggregator.Aggregator`:
@@ -258,7 +267,7 @@ Some features of this document's layout were inspired by
   the method is available for subclasses. It triggers a new experimental
   procedure: *graceful shutdown* (contrasting with the "brutal" nature
   of the existing mechanism of `inner_stop()`): first the AMQP *input*
-  channel is gracefully shut down, and only then the existing *iterative
+  channel is gracefully shut down, and then the existing *iterative
   publishing* machinery is employed, to make it possible to shut down
   the AMQP *output* channel in a relatively safe and graceful way. The
   new method accepts an optional argument: `immediately` (its default
@@ -292,7 +301,10 @@ Some features of this document's layout were inspired by
   with the argument `replace_unpaired_surrogates_with_fffd=True` will be
   applied to the value being cleaned, when the value is (already) a `str`.
 
-- [lib] Removed `n6lib.const.TOPLEVEL_N6_PACKAGES`.
+- [lib] Removed the following constants from `n6lib.const`:
+  `ADMINS_SYSTEM_GROUP_NAME`,
+  `CERTIFICATE_SERIAL_NUMBER_HEXDIGIT_NUM`,
+  `TOPLEVEL_N6_PACKAGES`.
 
 - [lib] `n6lib.log_helpers`: `get_logger()` is now an alias for
   `logging.getLogger()` (got rid of a custom implementation of
@@ -314,19 +326,17 @@ Some features of this document's layout were inspired by
   `ComponentLoginField` class from `n6lib.auth_db.fields`; the constants
   from `n6lib.auth_db`: `CLIENT_CA_PROFILE_NAME`,
   `SERVICE_CA_PROFILE_NAME`, `MAX_LEN_OF_CA_LABEL`,
-  `MAX_LEN_OF_CERT_SERIAL_HEX`, `MAX_LEN_OF_SYSTEM_GROUP_NAME`; the
-  constants from `n6lib.const`: `CERTIFICATE_SERIAL_NUMBER_HEXDIGIT_NUM`
-  and `ADMINS_SYSTEM_GROUP_NAME`. Adjusted/reduced the related stuff in
-  `n6lib.ldap_api_replacement` (indirectly adjusting also the shape of
-  some data obtained by the *Auth API* machinery -- by getting rid of
-  some keys...), and removed the `_Comp` and `_SysGr` classes from
-  `n6lib.ldap_related_test_helpers`. Removed the related Admin Panel's
-  views and elements of views, defined in `n6adminpanel.app`: all
-  `AdminPanel.table_views` items corresponding to the removed Auth DB
-  models (mentioned above) and the `ComponentView`, `CertView`,
-  `CACertView` and `_ExtraCSSMixin` classes (the last one together with
-  the `N6AdminPanel/n6adminpanel/static/cert.css` file), and the related
-  fields/columns of `UserInlineFormAdmin` and `UserView`:
+  `MAX_LEN_OF_CERT_SERIAL_HEX`, `MAX_LEN_OF_SYSTEM_GROUP_NAME`.
+  Adjusted/reduced the related stuff in `n6lib.ldap_api_replacement`
+  (indirectly adjusting also the shape of some data obtained using the
+  *Auth API* machinery -- by getting rid of some keys...), and removed the
+  `_Comp` and `_SysGr` classes from `n6lib.ldap_related_test_helpers`.
+  Removed the related Admin Panel's views and elements of views, defined
+  in `n6adminpanel.app`: all `AdminPanel.table_views` items corresponding
+  to the removed Auth DB models (mentioned above) and the `ComponentView`,
+  `CertView`, `CACertView` and `_ExtraCSSMixin` classes (the last one
+  together with the `N6AdminPanel/n6adminpanel/static/cert.css` file), and
+  the related fields/columns of `UserInlineFormAdmin` and `UserView`:
   `system_groups`, `created_certs`, `owned_certs` and `revoked_certs`.
 
 - [broker auth api, lib] For the purposes of the aforementioned
@@ -1383,6 +1393,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **The first public release of *n6*.**
 
 
+[4.31.3]: https://github.com/CERT-Polska/n6/compare/v4.31.0...v4.31.3
 [4.31.0]: https://github.com/CERT-Polska/n6/compare/v4.23.10...v4.31.0
 [4.23.10]: https://github.com/CERT-Polska/n6/compare/v4.23.0...v4.23.10
 [4.23.0]: https://github.com/CERT-Polska/n6/compare/v4.22.0...v4.23.0

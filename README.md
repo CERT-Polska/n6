@@ -39,4 +39,6 @@ file in the root directory of the source code repository). If not, see
 [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
 
 
-![Co-financed by the Connecting Europe Facility of the European Union](cef_logo.png)
+## Co-funding
+
+![Co-funded by the European Union. Co-financed by the Connecting Europe Facility of the European Union.](eu_fund.png)
