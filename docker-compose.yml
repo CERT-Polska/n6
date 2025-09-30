@@ -1,19 +1,19 @@
 # docker-compose for public n6
 
 # Basic Commands
-# docker-compose build
-# docker-compose up
+# docker compose build
+# docker compose up
 
 # Prepare Auth DB
-# docker-compose run --rm worker n6/docker/bin/wait-for-services.sh
-# docker-compose run --rm worker n6create_and_initialize_auth_db -D -y
-# docker-compose run --rm worker n6populate_auth_db -F -i -t -s -p example.com login@example.com
+# docker compose run --rm worker n6/docker/bin/wait-for-services.sh
+# docker compose run --rm worker n6create_and_initialize_auth_db -D -y
+# docker compose run --rm worker n6populate_auth_db -F -i -t -s -p example.com login@example.com
 
 # On MySQL Changes - restart web cache
-# docker-compose exec web apache2ctl restart
+# docker compose exec web apache2ctl restart
 
 # Cleanup
-# docker-compose down -v
+# docker compose down -v
 
 version: "3.7"
 services:
