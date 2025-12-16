@@ -5,8 +5,19 @@ export interface IMfaConfig {
   };
 }
 
+export interface IOIDCParams {
+  auth_url: string;
+  state: string;
+}
+
 export interface ILogin extends IMfaConfig {
   token: string;
+}
+
+export interface ICallbackKeycloak {
+  access_token: string;
+  refresh_token: string;
+  id_token: string;
 }
 
 export interface ILoginKeycloak {

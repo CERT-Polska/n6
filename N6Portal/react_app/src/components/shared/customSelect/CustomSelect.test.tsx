@@ -135,4 +135,57 @@ describe('<CustomSelect />', () => {
     await userEvent.click(removeButtons[0]);
     expect(selectContainer.childNodes).toHaveLength(3);
   }, 10000); // 10s timeout
+
+  it('allows to provide users own options if provided with both "isMulti" and "isCreatable" param', async () => {
+    const options: SelectOption<string>[] = [
+      { value: 'test_value_1', label: 'test_label_1' },
+      { value: 'test_value_2', label: 'test_label_2' },
+      { value: 'test_value_3', label: 'test_label_3' }
+    ];
+
+    const handleChangeMock = jest.fn();
+    const placeholder = 'test_placeholder';
+
+    const { container } = render(
+      <CustomSelect options={options} placeholder={placeholder} handleChange={handleChangeMock} isMulti isCreatable />
+    );
+
+    const selectContainer = container.firstChild?.firstChild as HTMLElement;
+    const dropdownIcon = container.querySelector('svg-arrow-ico-mock');
+
+    // clicking for input field, providing and deleting users own option
+    const typedOption = 'text_typed_option';
+    const inputElement = screen.getByRole('textbox');
+    await userEvent.type(inputElement, typedOption);
+    expect(screen.getByText(typedOption).className).not.toContain('custom-select-button__multi-value__label'); // not registered as option, only input field
+    expect(inputElement).toHaveValue(typedOption);
+
+    await userEvent.type(inputElement, '{enter}');
+    expect(selectContainer.childNodes).toHaveLength(3); // registering input opens menu
+    expect(screen.getByText(typedOption).className).toContain('custom-select-button__multi-value__label'); // registered as option for multiSelect
+    expect(inputElement).toHaveValue('');
+
+    let optionRemoveButton = container.querySelector('path');
+    await userEvent.click(optionRemoveButton as Element);
+    expect(screen.queryByText(typedOption)).toBe(null);
+    expect(screen.getByText(placeholder)).toBeInTheDocument();
+    expect(selectContainer.childNodes).toHaveLength(3); // menu is still opened for selection
+
+    // clicking and removing preexisting option
+    await userEvent.click(screen.getByText(options[1].label));
+    expect(selectContainer.childNodes).toHaveLength(2); // dropdown folded
+    optionRemoveButton = container.querySelector('path');
+
+    await userEvent.click(optionRemoveButton as Element);
+    expect(selectContainer.childNodes).toHaveLength(2); // this time removing only option doesn't unfold the menu with placeholder as option
+
+    // multisource options (both selected and typed)
+    await userEvent.click(dropdownIcon as Element);
+    await userEvent.click(screen.getByText(options[1].label)); // select option
+    await userEvent.type(inputElement, `${typedOption}{enter}`); // type and register new option
+    expect(screen.getByText(options[1].label).className).toContain('custom-select-button__multi-value__label'); // both registered as options
+    expect(screen.getByText(typedOption).className).toContain('custom-select-button__multi-value__label');
+    await userEvent.click(screen.getByText(options[0].label)); // select option from still opened menus
+    expect(screen.getByText(options[0].label).className).toContain('custom-select-button__multi-value__label');
+  });
 });

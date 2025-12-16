@@ -15,15 +15,6 @@ jest.mock('react-router', () => ({
 const RedirectMock = Redirect as jest.Mock;
 
 describe('<LoginKeycloakSummary />', () => {
-  it('redirects to login page if user has keycloak disabled', () => {
-    render(
-      <LanguageProviderTestWrapper>
-        <LoginKeycloakSummary />
-      </LanguageProviderTestWrapper>
-    );
-    expect(RedirectMock).toHaveBeenCalledWith({ to: routeList.login }, {});
-  });
-
   it.each([
     { availableResources: ['/report/inside', '/report/threats', '/search/events'], to: routeList.incidents },
     { availableResources: ['/report/inside', '/report/threats'], to: routeList.organization },
@@ -35,23 +26,24 @@ describe('<LoginKeycloakSummary />', () => {
     ({ availableResources, to }) => {
       const resetAuthStateMock = jest.fn();
       const keycloakContext = {
-        enabled: true,
         isAuthenticated: true,
         additionalStatus: null
-      } as IKeycloakAuthContext;
+      } as unknown as IKeycloakAuthContext;
       const authContext = {
         isAuthenticated: true,
         availableResources: availableResources,
         resetAuthState: resetAuthStateMock
       } as unknown as IAuthContext;
       render(
-        <LanguageProviderTestWrapper>
-          <KeycloakContext.Provider value={keycloakContext}>
-            <AuthContext.Provider value={authContext}>
-              <LoginKeycloakSummary />
-            </AuthContext.Provider>
-          </KeycloakContext.Provider>
-        </LanguageProviderTestWrapper>
+        <BrowserRouter>
+          <LanguageProviderTestWrapper>
+            <KeycloakContext.Provider value={keycloakContext}>
+              <AuthContext.Provider value={authContext}>
+                <LoginKeycloakSummary />
+              </AuthContext.Provider>
+            </KeycloakContext.Provider>
+          </LanguageProviderTestWrapper>
+        </BrowserRouter>
       );
       expect(resetAuthStateMock).toHaveBeenCalled();
       expect(RedirectMock).toHaveBeenCalledWith({ to: to }, {});
@@ -67,7 +59,6 @@ describe('<LoginKeycloakSummary />', () => {
     const CustomButtonSpy = jest.spyOn(CustomButtonModule.default, 'render');
     const resetAuthStateMock = jest.fn();
     const keycloakContext = {
-      enabled: true,
       isAuthenticated: true,
       additionalStatus: 'user_created'
     } as IKeycloakAuthContext;
@@ -108,7 +99,6 @@ describe('<LoginKeycloakSummary />', () => {
     const CustomButtonSpy = jest.spyOn(CustomButtonModule.default, 'render');
     const resetAuthStateMock = jest.fn();
     const keycloakContext = {
-      enabled: true,
       isAuthenticated: true,
       additionalStatus: additionalStatus
     } as IKeycloakAuthContext;
@@ -132,10 +122,11 @@ describe('<LoginKeycloakSummary />', () => {
     expect(RedirectMock).not.toHaveBeenCalled();
     expect(container.querySelector('svg-check-ico-mock')).toBe(null);
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(msg);
+    const expectedTest = additionalStatus === 'some_other_status' ? dictionary['en']['noAccess_btn_text'] : 'Login';
     expect(CustomButtonSpy).toHaveBeenCalledWith(
       {
         to: routeList.login,
-        text: 'Login',
+        text: expectedTest,
         variant: 'primary'
       },
       null

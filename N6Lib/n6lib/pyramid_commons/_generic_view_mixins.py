@@ -1,4 +1,4 @@
-# Copyright (c) 2021-2022 NASK. All rights reserved.
+# Copyright (c) 2021-2025 NASK. All rights reserved.
 
 from collections.abc import (
     Callable,
@@ -25,12 +25,16 @@ from n6lib.auth_db.api import (
     AuthManageAPI,
 )
 from n6lib.class_helpers import attr_required
-from n6lib.common_helpers import ascii_str
+from n6lib.common_helpers import (
+    ascii_str,
+    memoized,
+)
 from n6lib.config import Config
 from n6lib.data_backend_api import N6DataBackendAPI
 from n6lib.log_helpers import get_logger
 from n6lib.mail_notices_api import MailNoticesAPI
 from n6lib.oidc_provider_api import OIDCProviderAPI
+from n6lib.pyramid_commons.knowledge_base_helpers import build_knowledge_base_data
 from n6lib.rt_client_api import RTClientAPI
 from n6lib.typing_helpers import (
     AccessInfo,
@@ -52,6 +56,7 @@ LOGGER = get_logger(__name__)
 #
 # Private (module-local-only) helpers
 #
+
 
 _APIS_MIXIN_CLASS_NAME = 'EssentialAPIsViewMixin'
 
@@ -76,6 +81,7 @@ def _api_property(api_name):
 #
 # Actual mixins provided by this module
 #
+
 
 class EssentialAPIsViewMixin(object):
 
@@ -117,9 +123,22 @@ class EssentialAPIsViewMixin(object):
                            self.user_id, self.org_id, access_zone)
             raise HTTPForbidden(u'Access not allowed.')
         assert access_info is not None
+        assert access_zone in access_info['access_zone_conditions']
         access_filtering_conditions = access_info['access_zone_conditions'][access_zone]
         assert access_filtering_conditions
         return access_filtering_conditions
+    
+    def get_access_zone_source_ids(self, access_zone: AccessZone) -> list[str]:
+        access_info: AccessInfo = self.auth_api.get_access_info(self.auth_data)
+        if not self.is_access_zone_available(access_info, access_zone):
+            LOGGER.warning('User %a (org_id=%a) is trying to list sources '
+                           'available to them for access zone %a - but is not '
+                           'authorized to get any data from that access zone',
+                           self.user_id, self.org_id, access_zone)
+            raise HTTPForbidden('Access not allowed.')
+        assert access_info is not None
+        assert access_zone in access_info['access_zone_source_ids']
+        return access_info['access_zone_source_ids'][access_zone]
 
     def is_event_data_resource_available(self,
                                          access_info: Optional[AccessInfo],
@@ -137,9 +156,14 @@ class EssentialAPIsViewMixin(object):
               or resource_id not in access_info['rest_api_resource_limits']
               or not access_info['access_zone_conditions'].get(access_zone)):
             return False
-        # Note: the result of the following `.get_user_ids_to_org_ids()`
-        # call might be cached by `auth_api`. *We want that* because we
-        # want that result to be in sync with the rest of the (cached)
+
+        user_id = self.user_id
+        org_id = self.org_id
+        assert org_id in self.auth_api.get_org_ids_to_access_infos()
+
+        # *Note*: the results of the following invocations of methods of
+        # `auth_api` might be cached by `auth_api`. *We do want that*, as
+        # we want the results to be in sync with the rest of the (cached)
         # authorization information from `auth_api` -- in particular, to
         # avoid granting to a user any undue access to event data that
         # were designated to be accessible to the present organization
@@ -148,7 +172,22 @@ class EssentialAPIsViewMixin(object):
         # belonged to another organization (these cases, especially the
         # latter, would be quite hypothetical but not impossible).
         nonblocked_user_org_mapping = self.auth_api.get_user_ids_to_org_ids()
-        return (nonblocked_user_org_mapping.get(self.user_id) == self.org_id)
+        if user_id in self.auth_api.get_all_user_ids_including_blocked():
+            return (nonblocked_user_org_mapping.get(user_id) == org_id)
+        assert user_id not in nonblocked_user_org_mapping
+
+        # A special, yet important, case (especially if OIDC is used):
+        # when the *Auth API* machinery was caching the authorization
+        # information, the user did *not* exist (but the organization
+        # *did*); since then, the user might have been created (e.g.,
+        # using the OIDC-based machinery) -- so that, now, the user
+        # *does* exist, *belongs to the organization* and is *not
+        # blocked* (and, apparently, has managed to log in). *If* that
+        # is the case, let us *not* make the user wait for the *Auth
+        # API* machinery to refresh its cache, but let us allow the
+        # user to access the organization's resources immediately.
+        with self.auth_manage_api as api:
+            return api.do_nonblocked_user_and_org_exist_and_match(user_id, org_id)
 
 
     def send_mail_notice_to_user(self, /,
@@ -247,6 +286,39 @@ class ConfigFromPyramidSettingsViewMixin(object):
     @classmethod
     def prepare_config_custom_converters(cls) -> dict[str, Callable[[str], Any]]:
         return {}
+
+
+class KnowledgeBaseRelatedViewMixin(ConfigFromPyramidSettingsViewMixin):
+
+    config_spec = '''
+        [knowledge_base]
+        active = false :: bool
+        base_dir = ~/.n6_knowledge_base :: path
+    '''
+
+    @classmethod
+    def concrete_view_class(cls, **kwargs):
+        view_class = super().concrete_view_class(**kwargs)
+        view_class._provide_knowledge_base_data()
+        return view_class
+
+    @classmethod
+    def is_knowledge_base_enabled(cls) -> bool:
+        return cls._knowledge_base_data is not None
+
+    @classmethod
+    def _provide_knowledge_base_data(cls) -> None:
+        assert cls.config_full is not None
+        if cls.config_full['knowledge_base']['active']:
+            base_dir = str(cls.config_full['knowledge_base']['base_dir'])
+            cls._knowledge_base_data = cls._get_knowledge_base_data(base_dir)
+        else:
+            cls._knowledge_base_data = None
+
+    @staticmethod
+    @memoized(max_size=1)
+    def _get_knowledge_base_data(base_dir: str) -> dict:
+        return build_knowledge_base_data(base_dir)
 
 
 class WithDataSpecsViewMixin(object):

@@ -355,7 +355,7 @@ function execKnowledgeBaseTests(user: MockedUser) {
         await expect(page.getByTestId('kb-article-markdown')).toBeVisible();
         const titleElement = await page.getByText('ArticleTitleMarkdown');
         await expect(titleElement).toBeVisible();
-        await expect(titleElement.evaluate((el) => el.tagName)).resolves.toBe('H1');
+        await expect(titleElement.evaluate((el) => el.tagName)).resolves.toBe('A');
         const contentElement = page.getByText('ArticleContentMarkdown');
         await expect(contentElement).toBeVisible();
         await expect(contentElement.evaluate((el) => el.tagName)).resolves.toBe('P');

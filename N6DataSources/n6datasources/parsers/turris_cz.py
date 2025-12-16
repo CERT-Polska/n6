@@ -23,7 +23,7 @@ class TurrisCzGreylistCsv202401Parser(BlackListParser):
         'category': 'scanning',
     }
 
-    EXPIRES_DAYS = 1
+    EXPIRES_DAYS = 2
     TIMESTRING_FORMAT = "%Y-%m-%d %H:%M:%S"
 
     def parse(self, data):

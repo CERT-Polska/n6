@@ -8,12 +8,8 @@ import { isRequired } from 'components/forms/validation/validators';
 import SignUpButtons from 'components/pages/signUp/SignUpButtons';
 import { TTosVersions } from 'components/pages/signUp/SignUp';
 import { signup_terms } from 'dictionary';
-
-interface ITosJSON {
-  terms: string;
-  checkboxLabel: string;
-  version: string;
-}
+import termsEn from 'config/terms_en';
+import termsPl from 'config/terms_pl';
 
 interface IStepOneForm {
   consent: boolean;
@@ -23,8 +19,6 @@ interface IProps {
   changeStep: Dispatch<SetStateAction<number>>;
   changeTosVersions: Dispatch<SetStateAction<TTosVersions>>;
 }
-
-const tosContent = process.env.REACT_APP_TOS || '';
 
 const SignUpStepOne: FC<IProps> = ({ changeStep, changeTosVersions }) => {
   const { messages, locale } = useTypedIntl();
@@ -40,11 +34,10 @@ const SignUpStepOne: FC<IProps> = ({ changeStep, changeTosVersions }) => {
   let signUpTerms: string;
   let checkboxLabel: string | MessageFormatElement[];
   try {
-    const parsedTos = JSON.parse(tosContent);
-    const currentLocaleTos: ITosJSON = parsedTos[locale];
-    signUpTerms = currentLocaleTos.terms;
-    checkboxLabel = currentLocaleTos.checkboxLabel;
-    versions.current = { en: parsedTos.en.version, pl: parsedTos.pl.version };
+    const current = locale === 'en' ? termsEn : termsPl;
+    signUpTerms = current.content;
+    checkboxLabel = current.meta?.checkboxLabel || messages.signup_terms_checkbox_label;
+    versions.current = { en: termsEn.meta?.version || '', pl: termsPl.meta?.version || '' };
   } catch {
     signUpTerms = signup_terms[locale].content;
     checkboxLabel = messages.signup_terms_checkbox_label;

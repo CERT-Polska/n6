@@ -80,7 +80,8 @@ describe('<FormSelect />', () => {
           options: options,
           // unexpected?: no way to provide other defaultPlaceholder regardless of props
           placeholder: placeholder ? placeholder : dictionary['en']['customSelect_placeholder'],
-          value: defaultValue
+          value: defaultValue,
+          isCreatable: false
         },
         {}
       );

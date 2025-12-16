@@ -10,7 +10,6 @@ import FormRadio from 'components/forms/FormRadio';
 import { TTosVersions } from 'components/pages/signUp/SignUp';
 import CustomFieldArray, { TFieldArray } from 'components/shared/CustomFieldArray';
 import SignUpButtons from 'components/pages/signUp/SignUpButtons';
-import { isRequired } from 'components/forms/validation/validators';
 import {
   validateEmail,
   validateText,
@@ -25,6 +24,7 @@ import Tooltip from 'components/shared/Tooltip';
 import { postRegister } from 'api/register';
 import { getParsedRegisterData } from 'utils/parseRegisterData';
 import { IAgreement } from 'api/services/agreements';
+import { isRequired } from 'components/forms/validation/validators';
 
 export interface IStepTwoForm {
   org_id: string;

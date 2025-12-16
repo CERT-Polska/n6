@@ -3,16 +3,18 @@
 import contextlib
 import copy
 import datetime
-import os.path as osp
 import uuid
 from functools import partial
 from typing import Optional
 
+from authlib.integrations.base_client import OAuthError
+from authlib.oauth2.client import OAuth2Error
 from pyramid.httpexceptions import (
     HTTPBadRequest,
     HTTPConflict,
     HTTPForbidden,
     HTTPNotFound,
+    HTTPServiceUnavailable,
     HTTPUnauthorized,
 )
 from pyramid.authentication import AuthTktAuthenticationPolicy
@@ -24,6 +26,7 @@ from pyramid.security import (
     remember,
 )
 from pyramid.tweens import EXCVIEW
+from requests.exceptions import RequestException
 
 from n6lib.auth_api import (
     EVENT_DATA_RESOURCE_IDS,
@@ -44,7 +47,6 @@ from n6lib.common_helpers import (
     make_condensed_debug_msg,
     make_exc_ascii_str,
     make_hex_id,
-    memoized,
     str_to_bool,
 )
 from n6lib.config import (
@@ -57,7 +59,11 @@ from n6lib.const import (
     WSGI_SSL_USER_ID_FIELD,
 )
 from n6lib.log_helpers import get_logger
-from n6lib.oidc_provider_api import TokenValidationError
+from n6lib.oidc_provider_api import (
+    IdPServerResponseError,
+    StateValidationError,
+    TokenValidationError,
+)
 from n6lib.pyramid_commons import mfa_helpers
 from n6lib.pyramid_commons import web_token_helpers
 from n6lib.pyramid_commons._config_converters import (
@@ -70,6 +76,7 @@ from n6lib.pyramid_commons._config_converters import (
 from n6lib.pyramid_commons._generic_view_mixins import (
     ConfigFromPyramidSettingsViewMixin,
     EssentialAPIsViewMixin,
+    KnowledgeBaseRelatedViewMixin,
     WithDataSpecsAlsoForRequestParamsViewMixin,
 )
 from n6lib.pyramid_commons.data_spec_fields import (
@@ -78,16 +85,14 @@ from n6lib.pyramid_commons.data_spec_fields import (
     KnowledgeBaseSearchQueryField,
     MFACodeField,
     MFASecretConfigField,
-    OrgIdField,
+    OIDCCallbackQueryField,
+    OIDCRefreshTokenField,
     PasswordToBeSetField,
     PasswordToBeTestedField,
     UserLoginField,
     WebTokenField,
 )
-from n6lib.pyramid_commons.knowledge_base_helpers import (
-    build_knowledge_base_data,
-    search_in_knowledge_base,
-)
+from n6lib.pyramid_commons.knowledge_base_helpers import search_in_knowledge_base
 from n6lib.pyramid_commons.mfa_helpers import DELAY_TO_BE_SURE_THAT_MFA_CODE_EXPIRES
 from n6lib.pyramid_commons.renderers import (
     # by importing that submodule we ensure that
@@ -106,6 +111,7 @@ from n6lib.pyramid_commons.renderers import (
 from n6lib.pyramid_commons.web_token_helpers import WEB_TOKEN_DATA_KEY_OF_TOKEN_ID
 from n6lib.typing_helpers import (
     AccessInfo,
+    AccessZone,
     AuthData,
     JsonableDict,
     MFAConfigData,
@@ -351,38 +357,9 @@ class _AbstractClientFormalitiesView(EssentialAPIsViewMixin, AbstractViewBase):
 
 
 class _AbstractKnowledgeBaseRelatedView(WithDataSpecsAlsoForRequestParamsViewMixin,
-                                        ConfigFromPyramidSettingsViewMixin,
+                                        KnowledgeBaseRelatedViewMixin,
                                         AbstractViewBase):
-
-    config_spec = '''
-        [knowledge_base]
-        active = false :: bool
-        base_dir = ~/.n6_knowledge_base/ :: str
-    '''
-
-    @classmethod
-    def concrete_view_class(cls, **kwargs):
-        view_class = super().concrete_view_class(**kwargs)
-        view_class._provide_knowledge_base_data()
-        return view_class
-
-    @classmethod
-    def is_knowledge_base_enabled(cls) -> bool:
-        return cls._knowledge_base_data is not None
-
-    @classmethod
-    def _provide_knowledge_base_data(cls) -> None:
-        assert cls.config_full is not None
-        if cls.config_full['knowledge_base']['active']:
-            base_dir = osp.expanduser(cls.config_full['knowledge_base']['base_dir'])
-            cls._knowledge_base_data = cls._get_knowledge_base_data(base_dir)
-        else:
-            cls._knowledge_base_data = None
-
-    @staticmethod
-    @memoized(max_size=1)
-    def _get_knowledge_base_data(base_dir: str) -> dict:
-        return build_knowledge_base_data(base_dir)
+    pass
 
 
 class N6InfoView(PreparingNoParamsViewMixin,
@@ -482,6 +459,69 @@ class N6InfoConfigView(PreparingNoParamsViewMixin, _AbstractClientFormalitiesVie
                                           for min_ip, max_ip in info['ip_min_max_seq']]
             yield 'inside_criteria', info
 
+
+class N6AvailableSourcesView(EssentialAPIsViewMixin, PreparingNoParamsViewMixin, AbstractViewBase):
+
+    _SOURCES_RESOURCE_ID_TO_ACCESS_ZONE: dict[str, AccessZone] = {
+        '/report/inside/sources': 'inside',
+        '/report/threats/sources': 'threats',
+        '/search/events/sources': 'search',
+    }
+
+    @classmethod
+    def get_default_http_methods(cls):
+        return 'GET'
+
+    def make_response(self):
+        sources = self._obtain_available_sources()
+        return self.json_response(sources)
+
+    def _obtain_available_sources(self) -> list[str]:
+        assert self.resource_id in self._SOURCES_RESOURCE_ID_TO_ACCESS_ZONE
+        access_zone = self._SOURCES_RESOURCE_ID_TO_ACCESS_ZONE[self.resource_id]
+        return self.get_access_zone_source_ids(access_zone)
+
+
+class N6OIDCInfoView(EssentialAPIsViewMixin, AbstractViewBase):
+
+    """
+    Get info about the OAuth2- and OpenID Connect-based authentication.
+
+    The view returns details whether authentication is configured
+    and enabled, along with the OpenID Connect authorization URL
+    to which the user will be redirected after selecting the option
+    to sign in to N6Portal using OAuth2-based single sign-on,
+    and the `state` parameter used to protect against CSRF attacks.
+    """
+
+    def get_default_http_methods(cls):
+        return 'GET', 'POST'
+
+    def make_response(self):
+        if not self.oidc_provider_api.is_connection_active:
+            # check if IdP server has started in the meantime
+            self.oidc_provider_api.enable_oidc_service()
+        if self.request.method == 'GET':
+            return self.json_response(
+                dict(
+                    enabled=self.oidc_provider_api.is_connection_active,
+                    logout_uri=self.oidc_provider_api.get_end_session_uri(),
+                    logout_redirect_uri=self.oidc_provider_api.get_end_session_redirect_uri(),
+                )
+            )
+        if self.oidc_provider_api.is_connection_active:
+            return self._make_post_response()
+        raise HTTPServiceUnavailable
+
+    def _make_post_response(self):
+        # TODO: set the expiration time of the `state` parameter,
+        # fetch it not until the user clicks the 'Sign in
+        # via OpenID Connect IdP' button
+        body = dict()
+        (body['auth_url'],
+         body['state']) = self.oidc_provider_api.create_auth_url_and_state()
+        return self.oidc_provider_api.json_response_with_state_cookie(self.json_response(body),
+                                                                      state=body['state'])
 
 # noinspection PyAbstractClass
 class _AbstractPortalAuthRelatedView(WithDataSpecsAlsoForRequestParamsViewMixin,
@@ -926,13 +966,73 @@ class N6LoginMFAConfigConfirmView(_AbstractPortalMFARelatedView):
         return self.json_response({}, headerlist=logged_in_response_headerlist)
 
 
+class N6OIDCCallbackView(_AbstractPortalMFARelatedView):
+
+    @classmethod
+    def prepare_field_specs(cls) -> dict[str, Field]:
+        return dict(
+            super().prepare_field_specs(),
+
+            query = OIDCCallbackQueryField(
+                in_params='required',
+                single_param=True,
+            ),
+        )
+
+    @classmethod
+    def prepare_data_specs(cls):
+        return dict(
+            super().prepare_data_specs(),
+
+            request_params=cls.make_data_spec(
+                query=cls.field_specs['query'],
+            ),
+        )
+
+    def make_response(self):
+        if not self.oidc_provider_api.is_connection_active:
+            LOGGER.warning('User tried to log in with external identity provider, '
+                           'but the logging option is disabled')
+            raise HTTPForbidden('Authentication with external identity provider is disabled')
+        if self.request.auth_data is not None:
+            raise HTTPConflict('User is already authenticated')
+        query = self.params['query']
+        try:
+            orig_state = self.oidc_provider_api.decode_state_cookie(self.request.cookies)
+        except StateValidationError as exc:
+            LOGGER.error('Failed to decode the \'state\' parameter value from the cookie: %s',
+                         make_exc_ascii_str(exc))
+            raise HTTPForbidden('Failed to validate the \'state\' parameter')
+        try:
+            token_resp = self.oidc_provider_api.exchange_code_for_access_token(query, orig_state)
+        except (IdPServerResponseError, OAuthError, OAuth2Error) as exc:
+            error, desc = self._get_oauth_exc_attrs_or_placeholders(exc)
+            LOGGER.error('Failed to exchange the authorization code for an access token using '
+                         'the parameters from the callback request URL (%a): %a; '
+                         'error description: %s', ascii_str(query), error, desc)
+            raise HTTPForbidden('Failed to exchange the authorization code for an access token')
+        except RequestException as exc:
+            LOGGER.error('Connection error while exchanging the authorization code for '
+                         'an access token using the parameters from the callback '
+                         'request URL (%a): %s', ascii_str(query), make_exc_ascii_str(exc))
+            raise HTTPForbidden('Failed to exchange the authorization code for an access token')
+        json_response = self.json_response(token_resp.to_dict())
+        return self.oidc_provider_api.json_response_with_cookie_deletion(json_response)
+
+    @staticmethod
+    def _get_oauth_exc_attrs_or_placeholders(exc: Exception):
+        error = getattr(exc, 'error', '-')
+        desc = getattr(exc, 'description', str(exc))
+        return ascii_str(error), ascii_str(desc)
+
+
 class N6LoginOIDCView(EssentialAPIsViewMixin, AbstractViewBase):
 
     class UserCreateFailure(Exception):
         pass
 
     def make_response(self):
-        if not self.oidc_provider_api.is_active:
+        if not self.oidc_provider_api.is_connection_active:
             LOGGER.warning('User tried to log in with external identity provider, '
                            'but the logging option is disabled')
             raise HTTPForbidden('Authentication through external identity provider is disabled')
@@ -942,7 +1042,7 @@ class N6LoginOIDCView(EssentialAPIsViewMixin, AbstractViewBase):
         if user_id is None or org_uuid is None:
             LOGGER.warning('Failed to create the new account for OpenID Connect user, '
                            'because none or not all temporary credentials have been saved')
-            raise HTTPForbidden
+            return self.json_response(dict(status='not_logged_in'), status_code=403)
 
         LOGGER.info('User ID %a and organization UUID %a have been saved, so their new '
                     'account will be created if it does not exist', user_id, org_uuid)
@@ -996,6 +1096,35 @@ class N6LoginOIDCView(EssentialAPIsViewMixin, AbstractViewBase):
         if user_db.is_blocked:
             return 'their account has been blocked'
         return 'their user record exists in the AuthDB, but could not be authenticated'
+
+
+class N6OIDCRefreshTokenView(_AbstractPortalAuthRelatedView):
+
+    @classmethod
+    def prepare_field_specs(cls) -> dict[str, Field]:
+        return dict(
+            super().prepare_field_specs(),
+
+            refresh_token = OIDCRefreshTokenField(
+                in_params='required',
+                single_param=True,
+            ),
+        )
+
+    @classmethod
+    def prepare_data_specs(cls):
+        return dict(
+            super().prepare_data_specs(),
+
+            request_params=cls.make_data_spec(
+                refresh_token=cls.field_specs['refresh_token'],
+            ),
+        )
+
+    def make_response(self):
+        refresh_token = self.params['refresh_token']
+        token_resp = self.oidc_provider_api.refresh_token(refresh_token)
+        return self.json_response(token_resp.to_dict())
 
 
 class N6MFAConfigView(_AbstractPortalMFARelatedView):
@@ -1774,7 +1903,7 @@ class BaseUserAuthenticationPolicy(BaseAuthenticationPolicy):
             org_id, user_id = unauthenticated_userid.split(',')
             with request.registry.auth_manage_api as api:
                 if api.do_nonblocked_user_and_org_exist_and_match(user_id, org_id):
-                    auth_data = dict(
+                    auth_data: AuthData = dict(
                         org_id=org_id,
                         user_id=user_id,  # aka *login*
                     )
@@ -1951,18 +2080,18 @@ class OIDCUserAuthenticationPolicy(_AuthorizationHeaderAuthenticationPolicyMixin
     OIDC_LOGIN_ENDPOINT = "/login/oidc"
 
     @staticmethod
-    def get_temporary_auth_data(request, user_id=None, org_uuid=None):
+    def get_temporary_auth_data(_request, user_id=None, org_uuid=None):
         return {'user_id': user_id, 'org_uuid': org_uuid}
 
     def unauthenticated_userid(self, request):
-        if request.registry.oidc_provider_api.is_active:
+        if request.registry.oidc_provider_api.is_connection_active:
             access_token = self.get_authorization_header_value(request)
             if access_token:
                 return f'access_token:{access_token}'
         return super().unauthenticated_userid(request)
 
     def effective_principals(self, request):
-        if (request.registry.oidc_provider_api.is_active
+        if (request.registry.oidc_provider_api.is_connection_active
                 and self.HTTP_AUTH_HEADER in request.headers):
             return BaseUserAuthenticationPolicy.effective_principals(self, request)
         return super().effective_principals(request)
@@ -1975,7 +2104,7 @@ class OIDCUserAuthenticationPolicy(_AuthorizationHeaderAuthenticationPolicyMixin
         # method may be called twice if `get_auth_data()`
         # from superclass is called
         cls._log_access_token_details_for_oidc_login(request)
-        if (request.registry.oidc_provider_api.is_active
+        if (request.registry.oidc_provider_api.is_connection_active
                 and unauthenticated_userid
                 and unauthenticated_userid.startswith('access_token:')):
             access_token = unauthenticated_userid.split(':', 1)[1]
@@ -1989,7 +2118,7 @@ class OIDCUserAuthenticationPolicy(_AuthorizationHeaderAuthenticationPolicyMixin
     def _log_access_token_details_for_oidc_login(cls, request):
         if request.route_url(cls.OIDC_LOGIN_ENDPOINT) != request.url:
             return
-        if not request.registry.oidc_provider_api.is_active:
+        if not request.registry.oidc_provider_api.is_connection_active:
             LOGGER.warning("Request to OpenID Connect login endpoint has been sent, "
                            "but the OpenID Connect Provider API is inactive")
         elif cls.HTTP_AUTH_HEADER not in request.headers:
@@ -2001,16 +2130,20 @@ class OIDCUserAuthenticationPolicy(_AuthorizationHeaderAuthenticationPolicyMixin
     @classmethod
     def _get_auth_data_from_token(cls, access_token, request):
         try:
-            json_web_key = cls._get_json_web_key(access_token, request)
+            json_web_key = cls._get_json_web_key(access_token, request.registry.oidc_provider_api)
         except TokenValidationError:
             return None
+        token_validator = request.registry.oidc_provider_api.token_validator
+        is_oidc_login_route = (request.route_url(cls.OIDC_LOGIN_ENDPOINT) == request.url
+                               and request.method.upper() == 'POST')
         try:
             claims = request.registry.auth_api.authenticate_with_oidc_access_token(
-                    access_token,
-                    json_web_key,
-                    required_claims=cls.ACCESS_TOKEN_REQUIRED_CLAIMS,
-                    decoding_options=request.registry.oidc_provider_api.decoding_options,
-                    audience=cls._get_required_audience(request),
+                token_validator,
+                access_token,
+                json_web_key,
+                request.method,
+                required_claims=cls.ACCESS_TOKEN_REQUIRED_CLAIMS,
+                audience=cls._get_required_audience(request),
             )
         except AuthAPIUnauthenticatedError:
             return None
@@ -2030,7 +2163,7 @@ class OIDCUserAuthenticationPolicy(_AuthorizationHeaderAuthenticationPolicyMixin
                         user_id=user_id,
                     )
                     return auth_data
-                elif request.route_url(cls.OIDC_LOGIN_ENDPOINT) == request.url:
+                elif is_oidc_login_route:
                     # save unauthenticated credentials from the token,
                     # so they can be used to create user account
                     # in the `N6LoginOIDCView`
@@ -2048,9 +2181,9 @@ class OIDCUserAuthenticationPolicy(_AuthorizationHeaderAuthenticationPolicyMixin
         return config_audience
 
     @classmethod
-    def _get_json_web_key(cls, access_token, request):
+    def _get_json_web_key(cls, access_token, oidc_provider_api):
         try:
-            return request.registry.oidc_provider_api.get_signing_key_from_token(access_token)
+            return oidc_provider_api.get_signing_key_from_token(access_token)
         except TokenValidationError as exc:
             LOGGER.error("Failed to get a signing key from external identity provider's API, "
                          "based on access token's headers. %s", exc)

@@ -1,7 +1,11 @@
 import { render, renderHook, screen } from '@testing-library/react';
 import IncidentsFilter from './IncidentsFilter';
 import { allFilters, TFilter } from './utils';
-import { FormProviderTestWrapper, LanguageProviderTestWrapper } from 'utils/testWrappers';
+import {
+  FormProviderTestWrapper,
+  LanguageProviderTestWrapper,
+  QueryClientProviderTestWrapper
+} from 'utils/testWrappers';
 import { useForm } from 'react-hook-form';
 import * as FormFilterInputWrapperModule from 'components/forms/FormFilterInput';
 import * as FormSelectWrapperModule from 'components/forms/FormSelect';
@@ -11,28 +15,36 @@ import { dictionary } from 'dictionary';
 import {
   validateAsnNumberRequired,
   validateDatePicker,
+  validateSourceOptionsRequired,
   validateTimeRequired
 } from 'components/forms/validation/validationSchema';
 import userEvent from '@testing-library/user-event';
 import { isRequired } from 'components/forms/validation/validators';
 import { format } from 'date-fns';
+import * as useAvailableSourcesModule from 'api/services/options';
+import { TAvailableResources } from 'api/services/info/types';
+import { UseQueryResult } from 'react-query';
+import { AxiosError } from 'axios';
 
 describe('<IncidentsFilter />', () => {
   it('renders appropriate form select option depending on filter data type (case input)', async () => {
     const ASNfilter: TFilter = allFilters.filter((filter) => filter.name === 'asn')[0];
     expect(ASNfilter.label).toBe('incidents_form_asn');
     const removeFilter = jest.fn();
+    const currentTab: TAvailableResources = '/report/inside';
 
     const FormFilterInputSpy = jest.spyOn(FormFilterInputWrapperModule, 'default');
 
     const useFormRender = renderHook(() => useForm());
     const formMethods = useFormRender.result.current;
     render(
-      <FormProviderTestWrapper formMethods={formMethods}>
-        <LanguageProviderTestWrapper>
-          <IncidentsFilter filter={ASNfilter} removeFilter={removeFilter} />
-        </LanguageProviderTestWrapper>
-      </FormProviderTestWrapper>
+      <QueryClientProviderTestWrapper>
+        <FormProviderTestWrapper formMethods={formMethods}>
+          <LanguageProviderTestWrapper>
+            <IncidentsFilter filter={ASNfilter} removeFilter={removeFilter} currentTab={currentTab} />
+          </LanguageProviderTestWrapper>
+        </FormProviderTestWrapper>
+      </QueryClientProviderTestWrapper>
     );
     expect(FormFilterInputSpy).toHaveBeenCalledWith(
       {
@@ -56,21 +68,74 @@ describe('<IncidentsFilter />', () => {
     expect(removeFilter).toHaveBeenCalledWith([ASNfilter.name]);
   });
 
+  it('renders appropriate form select option depending on filter data type (case source@selectableInput)', async () => {
+    const mockedAvailableSourcesData = ['test.source1', 'test.source2'];
+    const useAvailableSourcesSpy = jest
+      .spyOn(useAvailableSourcesModule, 'useAvailableSources')
+      .mockReturnValue({ data: mockedAvailableSourcesData } as UseQueryResult<string[], AxiosError>);
+
+    const SourceFilter: TFilter = allFilters.filter((filter) => filter.name === 'source')[0];
+    expect(SourceFilter.label).toBe('incidents_form_source');
+    const removeFilter = jest.fn();
+    const currentTab: TAvailableResources = '/report/inside';
+
+    const FormFilterSelectSpy = jest.spyOn(FormSelectWrapperModule, 'default');
+
+    const useFormRender = renderHook(() => useForm());
+    const formMethods = useFormRender.result.current;
+    render(
+      <QueryClientProviderTestWrapper>
+        <FormProviderTestWrapper formMethods={formMethods}>
+          <LanguageProviderTestWrapper>
+            <IncidentsFilter filter={SourceFilter} removeFilter={removeFilter} currentTab={currentTab} />
+          </LanguageProviderTestWrapper>
+        </FormProviderTestWrapper>
+      </QueryClientProviderTestWrapper>
+    );
+    expect(useAvailableSourcesSpy).toHaveBeenCalledWith(currentTab, { enabled: true });
+    expect(FormFilterSelectSpy).toHaveBeenLastCalledWith(
+      {
+        name: SourceFilter.name,
+        label: `${dictionary['en'][SourceFilter.label as keyof (typeof dictionary)['en']]}`,
+        validate: validateSourceOptionsRequired,
+        helperText: 'incidents_form_selectable_input_helper_text',
+        dataTestId: 'incidents-filter-source-input',
+        isCreatable: true,
+        isMulti: true,
+        placeholder: '',
+        options: mockedAvailableSourcesData.map((option) => ({ label: option, value: option }))
+      },
+      {}
+    );
+    const removeFilterButton = screen.getByRole('button');
+    expect(removeFilterButton).toHaveAttribute(
+      'aria-label',
+      `${dictionary['en']['incidents_remove_filter_ariaLabel']}${
+        dictionary['en'][SourceFilter.label as keyof (typeof dictionary)['en']]
+      }`
+    );
+    await userEvent.click(removeFilterButton);
+    expect(removeFilter).toHaveBeenCalledWith([SourceFilter.name]);
+  });
+
   it('renders appropriate form select option depending on filter data type (case select)', async () => {
     const ProtoFilter: TFilter = allFilters.filter((filter) => filter.name === 'proto')[0];
     expect(ProtoFilter.label).toBe('incidents_form_proto');
     const removeFilter = jest.fn();
+    const currentTab: TAvailableResources = '/report/inside';
 
     const FormSelectSpy = jest.spyOn(FormSelectWrapperModule, 'default');
 
     const useFormRender = renderHook(() => useForm());
     const formMethods = useFormRender.result.current;
     render(
-      <FormProviderTestWrapper formMethods={formMethods}>
-        <LanguageProviderTestWrapper>
-          <IncidentsFilter filter={ProtoFilter} removeFilter={removeFilter} />
-        </LanguageProviderTestWrapper>
-      </FormProviderTestWrapper>
+      <QueryClientProviderTestWrapper>
+        <FormProviderTestWrapper formMethods={formMethods}>
+          <LanguageProviderTestWrapper>
+            <IncidentsFilter filter={ProtoFilter} removeFilter={removeFilter} currentTab={currentTab} />
+          </LanguageProviderTestWrapper>
+        </FormProviderTestWrapper>
+      </QueryClientProviderTestWrapper>
     );
     if ('options' in ProtoFilter) {
       // type shenanigans
@@ -82,7 +147,7 @@ describe('<IncidentsFilter />', () => {
           isMulti: true,
           options: ProtoFilter.options,
           placeholder: '',
-          dateTestId: 'incidents-filter-proto-input'
+          dataTestId: 'incidents-filter-proto-input'
         },
         {}
       );
@@ -102,6 +167,7 @@ describe('<IncidentsFilter />', () => {
     const EndDateFilter: TFilter = allFilters.filter((filter) => filter.name === 'endDate')[0];
     expect(EndDateFilter.label).toBe('incidents_form_end_date');
     const removeFilter = jest.fn();
+    const currentTab: TAvailableResources = '/report/inside';
 
     const FormTimeInputSpy = jest.spyOn(FormTimeInputModule, 'default');
     const DatePickerSpy = jest.spyOn(DatePickerWrapperModule, 'default');
@@ -112,11 +178,13 @@ describe('<IncidentsFilter />', () => {
     const currDate = new Date();
     jest.useFakeTimers().setSystemTime(currDate);
     render(
-      <FormProviderTestWrapper formMethods={formMethods}>
-        <LanguageProviderTestWrapper>
-          <IncidentsFilter filter={EndDateFilter} removeFilter={removeFilter} />
-        </LanguageProviderTestWrapper>
-      </FormProviderTestWrapper>
+      <QueryClientProviderTestWrapper>
+        <FormProviderTestWrapper formMethods={formMethods}>
+          <LanguageProviderTestWrapper>
+            <IncidentsFilter filter={EndDateFilter} removeFilter={removeFilter} currentTab={currentTab} />
+          </LanguageProviderTestWrapper>
+        </FormProviderTestWrapper>
+      </QueryClientProviderTestWrapper>
     );
     jest.useRealTimers();
     expect(DatePickerSpy).toHaveBeenCalledWith(
@@ -154,9 +222,11 @@ describe('<IncidentsFilter />', () => {
 
   it('returns nothing if provided filter is not of type input, select or date', () => {
     const { container } = render(
-      <LanguageProviderTestWrapper>
-        <IncidentsFilter filter={{} as TFilter} removeFilter={jest.fn()} />
-      </LanguageProviderTestWrapper>
+      <QueryClientProviderTestWrapper>
+        <LanguageProviderTestWrapper>
+          <IncidentsFilter filter={{} as TFilter} removeFilter={jest.fn()} currentTab="/report/inside" />
+        </LanguageProviderTestWrapper>
+      </QueryClientProviderTestWrapper>
     );
     expect(container).toBeEmptyDOMElement();
   });

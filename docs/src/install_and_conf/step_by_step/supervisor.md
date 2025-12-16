@@ -46,7 +46,7 @@ Then, create directories for Supervisor's configuration and log files.
 mkdir -p supervisord/{log,programs}
 ```
 
-Now, create a configuration file in `~/supervisor/supervisord.conf`,
+Now, create a configuration file in `~/supervisord/supervisord.conf`,
 basing it on the example configuration from the *n6* source code
 repository:
 

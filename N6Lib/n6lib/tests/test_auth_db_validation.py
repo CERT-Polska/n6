@@ -15,6 +15,7 @@ from unittest_expander import (
 from n6lib.auth_db.fields import CategoryCustomizedField
 from n6lib.auth_db.models import (
     Agreement,
+    AuxiliaryCacheEntry,
     CriteriaASN,
     CriteriaCategory,
     CriteriaCC,
@@ -800,6 +801,7 @@ class TestValidators(unittest.TestCase):
         param(model=User, tested_arg='mfa_key_base_modified_on'),
         param(model=WebToken, tested_arg='created_on'),
         param(model=UserSpentMFACode, tested_arg='spent_on'),
+        param(model=AuxiliaryCacheEntry, tested_arg='updated_at'),
     )
     @foreach(
         param(
@@ -868,6 +870,7 @@ class TestValidators(unittest.TestCase):
         param(model=WebToken, tested_arg='created_on'),
         param(model=UserSpentMFACode, tested_arg='spent_on'),
         param(model=RecentWriteOpCommit, tested_arg='made_at'),
+        param(model=AuxiliaryCacheEntry, tested_arg='updated_at'),
     )
     @foreach(
         param(val=datetime.datetime(1810, 1, 1, 0, 0, 0)),
@@ -889,6 +892,7 @@ class TestValidators(unittest.TestCase):
         param(model=WebToken, tested_arg='created_on'),
         param(model=UserSpentMFACode, tested_arg='spent_on'),
         param(model=RecentWriteOpCommit, tested_arg='made_at'),
+        param(model=AuxiliaryCacheEntry, tested_arg='updated_at'),
     )
     @foreach(
         param(val='1970-01-01TT01:59:59.999999+01:00'),
@@ -923,6 +927,7 @@ class TestValidators(unittest.TestCase):
         param(model=SubsourceGroup, tested_arg='label'),
         param(model=IgnoreList, tested_arg='label'),
         param(model=Agreement, tested_arg='label'),
+        param(model=AuxiliaryCacheEntry, tested_arg='key'),
     )
     def test_ascii_only_fields_with_illegal_chars(self, model, tested_arg, val):
         expected_msg_pattern = r'\bcontains non-ASCII characters\b'

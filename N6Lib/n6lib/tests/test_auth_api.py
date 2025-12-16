@@ -509,6 +509,69 @@ class TestAuthAPI_get_user_ids_to_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
         self.assertEqual(LOGGER_error_mock.call_count, 2)  # <- two error messages logged
 
 
+class TestAuthAPI_get_all_user_ids_including_blocked(_AuthAPILdapDataBasedMethodTestMixIn,
+                                                     unittest.TestCase):
+
+    search_flat_return_values__and__expected_results = [
+        (
+            [
+                ('o=o1,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+                ('o=o2,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+                ('o=o3,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+                ('o=o4,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+                ('o=o42,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+
+                ('n6login=login1@foo.bar,o=o1,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+                ('n6login=login2@foo.bar,o=o2,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+                ('n6login=login3@foo.bar,o=o3,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+                ('n6login=login4@foo.bar,o=o4,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+                ('n6login=login5@foo.bar,o=o1,ou=orgs,dc=n6,dc=cert,dc=pl', {}),
+                ('n6login=login6@foo.bar,o=o4,ou=orgs,dc=n6,dc=cert,dc=pl', {
+                    'n6blocked': ['FALSE'],
+                }),
+                ('n6login=blocked-guy@foo.bar,o=o4,ou=orgs,dc=n6,dc=cert,dc=pl', {
+                    'n6blocked': ['TRUE'],
+                }),
+            ],
+            frozenset({
+                'login1@foo.bar',
+                'login2@foo.bar',
+                'login3@foo.bar',
+                'login4@foo.bar',
+                'login5@foo.bar',
+                'login6@foo.bar',
+                'blocked-guy@foo.bar',
+            }),
+        ),
+    ]
+
+
+    @patch('n6lib.auth_api.LOGGER.error', new_callable=_make_LOGGER_error_mock)
+    def test(self, LOGGER_error_mock):
+        for (search_flat_return_value,
+             expected_result) in self.search_flat_return_values__and__expected_results:
+            with self.standard_context(search_flat_return_value):
+
+                actual_result = self.auth_api.get_all_user_ids_including_blocked()
+
+                self.assertEqual(actual_result, expected_result)
+                self.assertIs(type(actual_result), type(expected_result))
+        self.assertEqual(LOGGER_error_mock.call_count, 0)
+
+
+    @patch('n6lib.auth_api.LOGGER.error', new_callable=_make_LOGGER_error_mock)
+    def test_error_logging(self, LOGGER_error_mock):
+        search_flat_return_value = [
+            # two user logins will be doubled...
+            (dn.replace('login4', 'login3').replace('login6', 'login5'), attrs)
+            for dn, attrs in self.search_flat_return_values__and__expected_results[0][0]]
+        with self.standard_context(search_flat_return_value):
+
+            self.auth_api.get_all_user_ids_including_blocked()
+
+        self.assertEqual(LOGGER_error_mock.call_count, 2)   # <- two error messages logged
+
+
 class TestAuthAPI_get_org_ids(_AuthAPILdapDataBasedMethodTestMixIn,
                               unittest.TestCase):
 
@@ -765,6 +828,9 @@ class TestAuthAPI_get_access_info(unittest.TestCase):
         example_access_info = {
             'access_zone_conditions': {
                 'inside': sen.list_of_conditions,
+            },
+            'access_zone_source_ids': {
+                'inside': sen.list_of_source_ids,
             },
             'rest_api_resource_limits': {
                 '/report/inside': sen.dict_of_res_limits

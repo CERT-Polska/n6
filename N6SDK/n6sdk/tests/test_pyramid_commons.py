@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import unittest
 from unittest.mock import (
@@ -236,6 +236,9 @@ class TestDefaultStreamViewBase_call_api(unittest.TestCase):
 
         self.obj = self.cls(sen.context, self.request)
 
+        self.postprocessed_cleaned_results = []
+        self.obj.postprocess_cleaned_result = self.postprocessed_cleaned_results.append
+
     def _fake_backend_iter(self):
         max_num_of = len(self.not_produced_at_all)
         assert max_num_of == 3, 'internal test assumption'
@@ -286,6 +289,7 @@ class TestDefaultStreamViewBase_call_api(unittest.TestCase):
         self.assertEqual(self.results, [
             sen.cleaned_result_dict_1,
         ])
+        self.assertEqual(self.results, self.postprocessed_cleaned_results)
         self.assertEqual(self.not_produced_at_all, [
             sen.result_dict_3,
         ])
@@ -306,6 +310,7 @@ class TestDefaultStreamViewBase_call_api(unittest.TestCase):
             sen.cleaned_result_dict_2,
             sen.cleaned_result_dict_3,
         ])
+        self.assertEqual(self.results, self.postprocessed_cleaned_results)
 
     def test_skipping_result_when_it_is_None(self):
         self.cleaned_list[1] = None
@@ -323,6 +328,7 @@ class TestDefaultStreamViewBase_call_api(unittest.TestCase):
             sen.cleaned_result_dict_1,
             sen.cleaned_result_dict_3,
         ])
+        self.assertEqual(self.results, self.postprocessed_cleaned_results)
 
     def test_breaking_on_Exception(self):
         self.cls.call_api_method.side_effect = Exception
@@ -335,6 +341,7 @@ class TestDefaultStreamViewBase_call_api(unittest.TestCase):
         self.cls.call_api_method.assert_called_once_with(sen.api_method)
         self.assertEqual(self.data_spec.clean_result_dict.call_count, 0)
         self.assertEqual(self.results, [])
+        self.assertEqual(self.results, self.postprocessed_cleaned_results)
         self.assertEqual(self.not_produced_at_all, [
             sen.result_dict_1,
             sen.result_dict_2,
@@ -365,6 +372,7 @@ class TestDefaultStreamViewBase_call_api(unittest.TestCase):
             sen.cleaned_result_dict_1,
             sen.cleaned_result_dict_3,
         ])
+        self.assertEqual(self.results, self.postprocessed_cleaned_results)
 
     def test_breaking_on_another_Exception_if_flag_is_true(self):
         self._test_exc_in_the_middle(ZeroDivisionError)

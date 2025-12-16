@@ -1,6 +1,6 @@
 import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
-import { getInfo, getInfoConfig, useInfo, useInfoConfig } from './index';
-import { IInfo, IInfoConfig } from './types';
+import { getInfo, getInfoConfig, getInfoOIDC, useInfo, useInfoConfig, useInfoOIDC } from './index';
+import { IInfo, IInfoConfig, IInfoOIDC } from './types';
 import { renderHook, waitFor } from '@testing-library/react';
 import { controllers, customAxios, dataController } from 'api';
 
@@ -87,5 +87,51 @@ describe('useInfoConfig', () => {
     expect(customAxios.get).toHaveBeenCalledWith(`${dataController}${controllers.services.infoConfig}`);
     expect(useInfoConfigRenderingResult.result.current.isSuccess).toBe(true);
     expect(useInfoConfigRenderingResult.result.current.data).toStrictEqual(useInfoConfigMockedData);
+  });
+});
+
+describe('getInfoOIDC', () => {
+  it('calls /info/oidc GET method and returns payloads data', async () => {
+    const getInfoOIDCMockedData: IInfoOIDC = {
+      enabled: false,
+      auth_url: 'test_auth_url',
+      state: 'test_state',
+      logout_uri: 'http://localhost:1234/logout',
+      logout_redirect_uri: 'https://localhost'
+    };
+    jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: getInfoOIDCMockedData }));
+    const payloadData: Promise<IInfoOIDC> = getInfoOIDC();
+    waitFor(() => {
+      expect(payloadData).not.toBe(null);
+    });
+    expect(payloadData).resolves.toStrictEqual(getInfoOIDCMockedData);
+    expect(customAxios.get).toHaveBeenCalledWith(`${dataController}${controllers.services.infoOIDC}`);
+  });
+
+  it('throws error upon breaking a try-catch clause', async () => {
+    const err = new Error('test error message');
+    jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.reject(err));
+    const payloadData: Promise<IInfoOIDC> = getInfoOIDC();
+    waitFor(() => {
+      expect(payloadData).not.toBe(null);
+    });
+    expect(payloadData).rejects.toStrictEqual(err);
+  });
+});
+
+describe('useInfoOIDC', () => {
+  it('returns reactQuery containing backend data regarding org OIDC', async () => {
+    const useInfoOIDCMockedData: IInfoOIDC[] = [];
+
+    jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve({ data: useInfoOIDCMockedData }));
+
+    const useInfoOIDCRenderingResult = renderHook(() => useInfoOIDC(), { wrapper: QueryClientProviderTestWrapper });
+    await waitFor(() => {
+      expect(useInfoOIDCRenderingResult.result.current.isSuccess).toBe(true);
+    });
+
+    expect(customAxios.get).toHaveBeenCalledWith(`${dataController}${controllers.services.infoOIDC}`);
+    expect(useInfoOIDCRenderingResult.result.current.isSuccess).toBe(true);
+    expect(useInfoOIDCRenderingResult.result.current.data).toStrictEqual(useInfoOIDCMockedData);
   });
 });

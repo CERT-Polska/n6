@@ -21,7 +21,9 @@ interface IProps {
   disabled?: boolean;
   defaultValue?: SelectOption<string | boolean | number> | null;
   validate?: Record<string, Validate<SelectOption<string | boolean | number> | null>>;
-  dateTestId?: string;
+  dataTestId?: string;
+  isCreatable?: boolean;
+  helperText?: string;
 }
 
 const FormSelect: FC<IProps & FormContextProps> = memo(
@@ -32,13 +34,15 @@ const FormSelect: FC<IProps & FormContextProps> = memo(
     defaultPlaceholder,
     placeholder,
     className,
+    helperText,
     isInvalid,
     isMulti = false,
     disabled,
     defaultValue = null,
     formState: { errors },
     validate,
-    dateTestId
+    dataTestId,
+    isCreatable = false
   }) => (
     <Form.Group className={className}>
       <div className="input-wrapper">
@@ -50,7 +54,7 @@ const FormSelect: FC<IProps & FormContextProps> = memo(
             const isValueObject = isObject(value);
             return (
               <CustomSelect
-                dateTestId={dateTestId}
+                dataTestId={dataTestId}
                 label={label}
                 placeholder={placeholder || defaultPlaceholder}
                 disabled={disabled}
@@ -60,11 +64,12 @@ const FormSelect: FC<IProps & FormContextProps> = memo(
                 handleMenuClose={onBlur}
                 handleChange={onChange}
                 className={classnames('form-select', { 'is-invalid': isInvalid })}
+                isCreatable={isCreatable}
               />
             );
           }}
         />
-        <FormRenderErrorMsg isInvalid={isInvalid} fieldError={errors[name]} />
+        <FormRenderErrorMsg isInvalid={isInvalid} fieldError={errors[name]} helperText={helperText} />
       </div>
     </Form.Group>
   ),

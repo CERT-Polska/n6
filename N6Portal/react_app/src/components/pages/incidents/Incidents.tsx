@@ -1,11 +1,11 @@
-import { FC, useEffect, useMemo, useState, useRef } from 'react';
+import { FC, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { AxiosError } from 'axios';
-import { Col, Dropdown, Row } from 'react-bootstrap';
+import { Button, Col, Dropdown, Modal, Row } from 'react-bootstrap';
 import classNames from 'classnames';
 import { useMutation } from 'react-query';
 import { CellProps, Column, IdType, useFlexLayout, useSortBy, useTable } from 'react-table';
 import { useTypedIntl } from 'utils/useTypedIntl';
-import { IRequestParams, IResponseTableData, ICustomResponse } from 'api/services/globalTypes';
+import { ICustomResponse, INameDetails, IRequestParams, IResponseTableData } from 'api/services/globalTypes';
 import { getSearch, IFilterResponse } from 'api/services/search';
 import useAuthContext from 'context/AuthContext';
 import Table from 'components/shared/Table';
@@ -19,7 +19,9 @@ import IncidentsNoResources from 'components/pages/incidents/IncidentsNoResource
 import { parseResponseData } from 'utils/parseResponseData';
 import { storageAvailable } from 'utils/storageAvailable';
 import { ReactComponent as Chevron } from 'images/chevron.svg';
+import { ReactComponent as LightbulbIcon } from 'images/lightbulb.svg';
 import { TAvailableResources } from 'api/services/info/types';
+import { EnrichmentModalContent } from 'components/pages/incidents/EnrichmentModalContent';
 
 interface IColumnAddedProps {
   className?: string;
@@ -76,6 +78,7 @@ const customResponseKeys = new Set<keyof ICustomResponse>([
   'internal_ip',
   'ip_network',
   'ipmi_version',
+  'long_description',
   'mac_address',
   'method',
   'min_amplification',
@@ -150,10 +153,10 @@ const buildColumn = (
     ...baseColumn,
     className: extraClass || 'td-truncated td-break',
     trimmedLength,
-    Cell: ({ value, row }: CellProps<any>) => (
+    Cell: ({ value, row }: CellProps<IResponseTableData>) => (
       <TrimmedUrl id={`${row.id}${key}`} value={value} trimmedLength={trimmedLength} />
     )
-  } as ColumnWithProps;
+  } as unknown as ColumnWithProps;
 };
 
 export const getColumnsWithProps = (messages: Record<string, string>, fullAccess = false) => {
@@ -316,6 +319,8 @@ const Incidents: FC = () => {
   const { availableResources, fullAccess } = useAuthContext();
   const [currentTab, setCurrentTab] = useState(availableResources[0]);
   const [colRef, colWidth] = useContainerWidth<HTMLDivElement>();
+  const [showEnrichmentModal, setShowEnrichmentModal] = useState(false);
+  const [nameDetailsData, setNameDetailsData] = useState<INameDetails | null>(null);
 
   const {
     mutateAsync,
@@ -335,6 +340,15 @@ const Incidents: FC = () => {
   const isCustomMode = isLocalStorageAvailable && localStorage.getItem('userCustomizedColumns') === 'true';
   const userHiddenColumns = isCustomMode && storedColumns ? JSON.parse(storedColumns) : [];
 
+  const handleEnrichmentClick = useCallback(
+    (e: React.MouseEvent, rowData: IResponseTableData) => {
+      e.stopPropagation();
+      setNameDetailsData(rowData.name_details || null);
+      setShowEnrichmentModal(true);
+    },
+    [setNameDetailsData, setShowEnrichmentModal]
+  );
+
   useEffect(() => {
     if (isLocalStorageAvailable && !storedColumns) {
       localStorage.setItem(STORED_COLUMNS_KEY, JSON.stringify(defaultHiddenColumnsSet));
@@ -343,6 +357,51 @@ const Incidents: FC = () => {
 
   const mergedColumns = useMemo(() => getMergedColumns(messages, data, fullAccess), [messages, data]);
   const adjustedColumns = useMemo(() => adjustColumnsWidth(mergedColumns, data), [mergedColumns, data]);
+  const columnsWithEnrichment = useMemo<ColumnWithProps[]>(() => {
+    return adjustedColumns.map((column) => {
+      if (column.accessor !== 'name') {
+        return column;
+      }
+
+      const colWithProps = column as ColumnWithProps;
+      const originalCell = (colWithProps as any).Cell as
+        | ((props: CellProps<IResponseTableData>) => JSX.Element | null)
+        | undefined;
+      const trimmedLength = typeof colWithProps.trimmedLength === 'number' ? colWithProps.trimmedLength : 20;
+
+      const EnrichedNameCell = (cellProps: CellProps<IResponseTableData>) => {
+        const { value, row } = cellProps;
+        const rowData = row.original as IResponseTableData;
+        const hasEnrichment = !!rowData.name_details;
+
+        return (
+          <div className="d-flex align-items-center justify-content-between incident-name-row-table">
+            {originalCell ? (
+              originalCell(cellProps)
+            ) : (
+              <TrimmedUrl id={`${row.id}name`} value={value} trimmedLength={trimmedLength} />
+            )}
+            {hasEnrichment && (
+              <div className="lightbulb-icon-layout">
+                <button
+                  type="button"
+                  className="lightbulb-icon-button"
+                  onClick={(e) => handleEnrichmentClick(e, rowData)}
+                >
+                  <LightbulbIcon className="lightbulb-icon-incident" />
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      };
+      return {
+        ...colWithProps,
+        Cell: EnrichedNameCell
+      } as unknown as ColumnWithProps;
+    });
+  }, [adjustedColumns, setNameDetailsData, setShowEnrichmentModal]);
+
   const visibleColumnsAccessors = useMemo(
     () => getVisibleColumnsAccessors(adjustedColumns, availableWidth),
     [adjustedColumns, availableWidth]
@@ -359,7 +418,7 @@ const Incidents: FC = () => {
 
   const tableInstance = useTable(
     {
-      columns: adjustedColumns,
+      columns: columnsWithEnrichment,
       data,
       defaultColumn: { width: 120 },
       initialState: {
@@ -395,92 +454,112 @@ const Incidents: FC = () => {
     }
   }, [dynamicHiddenColumns, isCustomMode, tableInstance, isLocalStorageAvailable]);
 
-  if (!availableResources.length) return <IncidentsNoResources />;
+  if (!availableResources.length) {
+    return <IncidentsNoResources />;
+  }
 
   return (
-    <div className="incidents-wrapper d-flex flex-column flex-grow-1">
-      <div className="w-100">
-        <Row className="g-0">
-          <Col xs="12" md="8">
-            <div className="incidents-header-left d-flex align-items-center">
-              <ul className="incidents-header-buttons w-100 m-0 ps-0 d-flex">
-                {availableResources.map((resource) => (
-                  <li
-                    key={resource}
-                    className={classNames('h-100 d-inline-flex', { selected: currentTab === resource })}
-                    data-testid={`${resource}_tab_parent`}
-                  >
-                    <button
-                      data-testid={`${resource}_tab`}
-                      onClick={() => handleChangeTab(resource)}
-                      className="incidents-header-button font-weight-medium px-0"
-                      aria-label={`${messages.incidents_header_pick_resource_aria_label}`}
-                    >
-                      {messages[`account_resources_${resource}`]}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </Col>
-          <Col xs="12" md="4">
-            <div className="incidents-header-right d-flex align-items-center">
-              <div className="d-flex me-5">
-                <ColumnFilter
-                  columns={tableInstance.allColumns}
-                  customOnClick={storeColumnsOnToggle}
-                  resetColumns={resetColumns}
-                />
-              </div>
-              <Dropdown className="incidents-export-dropdown">
-                <Dropdown.Toggle
-                  data-testid="export-dropdown-btn"
-                  id="incidents-export-dropdown"
-                  bsPrefix="export-dropdown-toggle"
-                >
-                  <span className="font-smaller font-weight-medium column-filter-dropdown-title me-2">
-                    {messages.incidents_export_dropdown_title}
-                  </span>
-                  <Chevron className="dropdown-chevron" />
-                </Dropdown.Toggle>
-                <Dropdown.Menu className="export-dropdown-menu py-3">
-                  <ExportCSV data={mutationData?.data || []} resource={mutationData?.target} />
-                  <ExportJSON data={mutationData?.data || []} resource={mutationData?.target} />
-                </Dropdown.Menu>
-              </Dropdown>
-            </div>
-          </Col>
-        </Row>
-      </div>
-      <IncidentsForm dataLength={data.length} refetchData={mutateAsync} currentTab={currentTab} />
-      <div
-        ref={colRef}
-        style={{ width: '100%', height: 0, overflow: 'hidden', position: 'absolute', top: 0, left: 0 }}
-      />
-      {mutationStatus === 'idle' ? (
-        <div className="content-wrapper">
-          <p className="text-center mt-5">{messages.incidents_loader_idle}</p>
-        </div>
-      ) : (
-        <ApiLoader status={mutationStatus} error={error}>
-          {!!data.length && finalHiddenColumns ? (
-            <Table
-              getTableProps={tableInstance.getTableProps}
-              getTableBodyProps={tableInstance.getTableBodyProps}
-              headerGroups={tableInstance.headerGroups}
-              rows={tableInstance.rows}
-              prepareRow={tableInstance.prepareRow}
-              dataTestId="incidents-table"
-            />
-          ) : (
-            <div className="content-wrapper">
-              <p className="text-center mt-5">{messages.incidents_search_no_data}</p>
-            </div>
-          )}
-        </ApiLoader>
+    <>
+      {showEnrichmentModal && (
+        <Modal show={showEnrichmentModal} onHide={() => setShowEnrichmentModal(false)} centered={true}>
+          <Modal.Header closeButton={false}>
+            <Modal.Title>
+              <b>{messages.incidents_extended_name_info_header}</b>
+            </Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <EnrichmentModalContent nameDetailsData={nameDetailsData} />
+          </Modal.Body>
+          <Modal.Footer>
+            <Button type="button" variant="primary" onClick={() => setShowEnrichmentModal(false)}>
+              {messages.incidents_extended_name_modal_button}
+            </Button>
+          </Modal.Footer>
+        </Modal>
       )}
-    </div>
+      <div className="incidents-wrapper d-flex flex-column flex-grow-1">
+        <div className="w-100">
+          <Row className="g-0">
+            <Col xs="12" md="8">
+              <div className="incidents-header-left d-flex align-items-center">
+                <ul className="incidents-header-buttons w-100 m-0 ps-0 d-flex">
+                  {availableResources.map((resource) => (
+                    <li
+                      key={resource}
+                      className={classNames('h-100 d-inline-flex', { selected: currentTab === resource })}
+                      data-testid={`${resource}_tab_parent`}
+                    >
+                      <button
+                        data-testid={`${resource}_tab`}
+                        onClick={() => handleChangeTab(resource)}
+                        className="incidents-header-button font-weight-medium px-0"
+                        aria-label={`${messages.incidents_header_pick_resource_aria_label}`}
+                      >
+                        {messages[`account_resources_${resource}`]}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </Col>
+            <Col xs="12" md="4">
+              <div className="incidents-header-right d-flex align-items-center">
+                <div className="d-flex me-5">
+                  <ColumnFilter
+                    columns={tableInstance.allColumns}
+                    customOnClick={storeColumnsOnToggle}
+                    resetColumns={resetColumns}
+                  />
+                </div>
+                <Dropdown className="incidents-export-dropdown">
+                  <Dropdown.Toggle
+                    data-testid="export-dropdown-btn"
+                    id="incidents-export-dropdown"
+                    bsPrefix="export-dropdown-toggle"
+                  >
+                    <span className="font-smaller font-weight-medium column-filter-dropdown-title me-2">
+                      {messages.incidents_export_dropdown_title}
+                    </span>
+                    <Chevron className="dropdown-chevron" />
+                  </Dropdown.Toggle>
+                  <Dropdown.Menu className="export-dropdown-menu py-3">
+                    <ExportCSV data={mutationData?.data || []} resource={mutationData?.target} />
+                    <ExportJSON data={mutationData?.data || []} resource={mutationData?.target} />
+                  </Dropdown.Menu>
+                </Dropdown>
+              </div>
+            </Col>
+          </Row>
+        </div>
+        <IncidentsForm dataLength={data.length} refetchData={mutateAsync} currentTab={currentTab} />
+        <div
+          ref={colRef}
+          style={{ width: '100%', height: 0, overflow: 'hidden', position: 'absolute', top: 0, left: 0 }}
+        />
+        {mutationStatus === 'idle' ? (
+          <div className="content-wrapper">
+            <p className="text-center mt-5">{messages.incidents_loader_idle}</p>
+          </div>
+        ) : (
+          <ApiLoader status={mutationStatus} error={error}>
+            {!!data.length && finalHiddenColumns ? (
+              <Table
+                getTableProps={tableInstance.getTableProps}
+                getTableBodyProps={tableInstance.getTableBodyProps}
+                headerGroups={tableInstance.headerGroups}
+                rows={tableInstance.rows}
+                prepareRow={tableInstance.prepareRow}
+                dataTestId="incidents-table"
+              />
+            ) : (
+              <div className="content-wrapper">
+                <p className="text-center mt-5">{messages.incidents_search_no_data}</p>
+              </div>
+            )}
+          </ApiLoader>
+        )}
+      </div>
+    </>
   );
 };
-
 export default Incidents;

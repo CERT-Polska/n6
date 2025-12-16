@@ -16,6 +16,7 @@ export const categoryColor: Record<TCategory, string> = {
   'dns-query': '#c3f6dd',
   'dos-attacker': '#d1157c',
   'dos-victim': '#0ba7f7',
+  exposed: '#24721a',
   flow: '#1b2939',
   'flow-anomaly': '#cbe655',
   fraud: '#a16174',

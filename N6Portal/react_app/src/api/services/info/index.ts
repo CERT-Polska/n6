@@ -1,7 +1,7 @@
 import { AxiosError } from 'axios';
 import { useQuery, UseQueryOptions, UseQueryResult } from 'react-query';
 import { controllers, customAxios, dataController } from 'api';
-import { IInfo, IInfoConfig } from 'api/services/info/types';
+import { IInfo, IInfoConfig, IInfoOIDC } from 'api/services/info/types';
 
 export const getInfo = async (): Promise<IInfo> => {
   try {
@@ -21,6 +21,15 @@ export const getInfoConfig = async (): Promise<IInfoConfig> => {
   }
 };
 
+export const getInfoOIDC = async (): Promise<IInfoOIDC> => {
+  try {
+    const response = await customAxios.get<IInfoOIDC>(`${dataController}${controllers.services.infoOIDC}`);
+    return response.data;
+  } catch (reason) {
+    throw reason;
+  }
+};
+
 export const useInfo = (
   options?: Omit<UseQueryOptions<IInfo, AxiosError>, 'queryKey' | 'queryFn'>
 ): UseQueryResult<IInfo, AxiosError> => {
@@ -31,4 +40,10 @@ export const useInfoConfig = (
   options?: Omit<UseQueryOptions<IInfoConfig, AxiosError>, 'queryKey' | 'queryFn'>
 ): UseQueryResult<IInfoConfig, AxiosError> => {
   return useQuery('infoConfig', (): Promise<IInfoConfig> => getInfoConfig(), options);
+};
+
+export const useInfoOIDC = (
+  options?: Omit<UseQueryOptions<IInfoOIDC, AxiosError>, 'queryKey' | 'queryFn'>
+): UseQueryResult<IInfoOIDC, AxiosError> => {
+  return useQuery('infoOIDC', (): Promise<IInfoOIDC> => getInfoOIDC(), options);
 };

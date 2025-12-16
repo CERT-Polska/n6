@@ -15,6 +15,7 @@ dependencies = [
 
     # external dependencies:
     "alembic",
+    "authlib",
     "bcrypt",
     "docker",
     "importlib-resources",

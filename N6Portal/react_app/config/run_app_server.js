@@ -134,17 +134,11 @@ app.post('/saveConfig', (req, res) => {
 app.post('/saveOidc', (req, res) => {
   const ERR_MSG_MAP = {
     REACT_APP_OIDC_BUTTON_LABEL_EN: 'Single Sign-on Log-in Button Label - English',
-    REACT_APP_OIDC_BUTTON_LABEL_PL: 'Single Sign-on Log-in Button Label - Polish',
-    OIDC_CONFIG: 'OpenID Connect Adapter Configuration'
+    REACT_APP_OIDC_BUTTON_LABEL_PL: 'Single Sign-on Log-in Button Label - Polish'
   };
   if (req.body) {
     for (const key in ERR_MSG_MAP) {
-      if (key === 'OIDC_CONFIG') {
-        if (req.body['REACT_APP_OIDC_AUTH_ENABLED'] && !req.body['OIDC_CONFIG'].trim()) {
-          res.status(400).send(`OpenID Connect SSO is enabled but ${ERR_MSG_MAP[key]} is empty`);
-          return;
-        }
-      } else if (!req.body[key]) {
+      if (!req.body[key]) {
         res.status(400).send(`Invalid value of ${ERR_MSG_MAP[key]}`);
         return;
       }
@@ -163,9 +157,6 @@ app.post('/saveOidc', (req, res) => {
         REACT_APP_OIDC_AUTH_ENABLED: oidcEnabled,
         REACT_APP_OIDC_BUTTON_LABEL: JSON.stringify(buttonLabels)
       });
-      if (oidcEnabled) {
-        oidc.saveConfig(req.body['OIDC_CONFIG']);
-      }
     } catch (e) {
       res.status(e.code).send(e.message);
       return;

@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import datetime
 import functools
@@ -689,6 +689,7 @@ class DefaultStreamViewBase(CommaSeparatedParamValuesViewMixin, AbstractViewBase
                             'to the cleaning error: %a', exc)
                     else:
                         if cleaned_result is not None:
+                            self.postprocess_cleaned_result(cleaned_result)
                             yield cleaned_result
             finally:
                 close = getattr(result_iterable, 'close', None)
@@ -714,6 +715,8 @@ class DefaultStreamViewBase(CommaSeparatedParamValuesViewMixin, AbstractViewBase
     def get_extra_api_kwargs(self):
         return {}
 
+    def postprocess_cleaned_result(self, cleaned_result):
+        pass
 
 
 class HttpResource(object):

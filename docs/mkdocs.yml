@@ -78,6 +78,7 @@ theme:
 
 markdown_extensions:
   - admonition
+  - footnotes
   - meta
   - smarty
   - toc:

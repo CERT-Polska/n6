@@ -2388,3 +2388,21 @@ class RecentWriteOpCommit(Base):
     __repr__ = attr_repr('id', 'made_at')
 
     _columns_to_validate = ['made_at']
+
+
+class AuxiliaryCacheEntry(Base):
+
+    __tablename__ = 'auxiliary_cache_entry'
+    __table_args__ = mysql_opts()
+
+    key = col(String(MAX_LEN_OF_GENERIC_ONE_LINE_STRING), primary_key=True)
+    raw_content = col(mysql.MEDIUMBLOB)
+    updated_at = col(
+        DateTime,
+        nullable=False,
+        default=datetime.datetime.utcnow,
+        onupdate=datetime.datetime.utcnow)
+
+    __repr__ = attr_repr('key', 'updated_at')
+
+    _columns_to_validate = ['key', 'updated_at']

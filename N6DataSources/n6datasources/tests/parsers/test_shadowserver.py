@@ -47,6 +47,7 @@ from n6datasources.parsers.shadowserver import (
     ShadowserverSinkholeHttp202203Parser,
     ShadowserverSinkhole202203Parser,
     ShadowserverDarknet202203Parser,
+    ShadowserverDeviceInfo202510Parser,
     ShadowserverIcs202204Parser,
     ShadowserverCoap202204Parser,
     ShadowserverUbiquiti202204Parser,
@@ -1307,7 +1308,7 @@ class TestShadowserverSslFreak201412Parser(ParserTestMixin, unittest.TestCase):
             [
                 dict(
                     time='2015-09-20 00:45:47',
-                    address=[{'ip': '1.1.1.1'}, ],
+                    address=[{'ip': '1.1.1.1'}],
                     proto='tcp',
                     dport=443,
                     handshake='TLSv1.0',
@@ -1316,7 +1317,7 @@ class TestShadowserverSslFreak201412Parser(ParserTestMixin, unittest.TestCase):
                 ),
                 dict(
                     time='2015-09-20 00:45:41',
-                    address=[{'ip': '3.3.3.3'}, ],
+                    address=[{'ip': '3.3.3.3'}],
                     proto='tcp',
                     dport=443,
                     handshake='TLSv1.0',
@@ -1325,7 +1326,7 @@ class TestShadowserverSslFreak201412Parser(ParserTestMixin, unittest.TestCase):
                 ),
                 dict(
                     time='2015-09-20 00:45:47',
-                    address=[{'ip': '2.2.2.2'}, ],
+                    address=[{'ip': '2.2.2.2'}],
                     proto='tcp',
                     dport=443,
                     handshake='TLSv1.0',
@@ -1373,19 +1374,19 @@ class TestShadowserverNtpMonitor201412Parser(ParserTestMixin, unittest.TestCase)
             [
                 dict(
                     time='2015-09-23 06:09:24',
-                    address=[{'ip': '1.1.1.1'}, ],
+                    address=[{'ip': '1.1.1.1'}],
                     proto='udp',
                     dport=123,
                 ),
                 dict(
                     time='2015-09-23 06:09:27',
-                    address=[{'ip': '2.2.2.2'}, ],
+                    address=[{'ip': '2.2.2.2'}],
                     proto='udp',
                     dport=123,
                 ),
                 dict(
                     time='2015-09-23 06:09:46',
-                    address=[{'ip': '3.3.3.3'}, ],
+                    address=[{'ip': '3.3.3.3'}],
                     proto='udp',
                     dport=123,
                 ),
@@ -1402,7 +1403,7 @@ class TestShadowserverNtpMonitor201412Parser(ParserTestMixin, unittest.TestCase)
             [
                 dict(
                     time='2015-09-23 06:09:24',
-                    address=[{'ip': '1.1.1.1'}, ],
+                    address=[{'ip': '1.1.1.1'}],
                     proto='udp',
                     dport=123,
                 ),
@@ -1410,7 +1411,7 @@ class TestShadowserverNtpMonitor201412Parser(ParserTestMixin, unittest.TestCase)
                     category='vulnerable',
                     name='cve-2000-11111',
                     time='2015-09-23 06:09:24',
-                    address=[{'ip': '1.1.1.1'}, ],
+                    address=[{'ip': '1.1.1.1'}],
                     proto='udp',
                     dport=123,
                 ),
@@ -1468,7 +1469,7 @@ class TestShadowserverPortmapper201412Parser(ParserTestMixin, unittest.TestCase)
                     category='amplifier',
                     name='portmapper',
                     time='2015-10-03 04:11:31',
-                    address=[{'ip': '1.1.1.1'}, ],
+                    address=[{'ip': '1.1.1.1'}],
                     proto='udp',
                     dport=111,
                 ),
@@ -1476,7 +1477,7 @@ class TestShadowserverPortmapper201412Parser(ParserTestMixin, unittest.TestCase)
                     category='amplifier',
                     name='portmapper',
                     time='2015-10-03 04:11:31',
-                    address=[{'ip': '2.2.2.2'}, ],
+                    address=[{'ip': '2.2.2.2'}],
                     proto='udp',
                     dport=111,
                 ),
@@ -1484,7 +1485,7 @@ class TestShadowserverPortmapper201412Parser(ParserTestMixin, unittest.TestCase)
                     category='amplifier',
                     name='portmapper',
                     time='2015-10-03 04:11:32',
-                    address=[{'ip': '4.4.4.4'}, ],
+                    address=[{'ip': '4.4.4.4'}],
                     proto='udp',
                     dport=111,
                 ),
@@ -1492,7 +1493,7 @@ class TestShadowserverPortmapper201412Parser(ParserTestMixin, unittest.TestCase)
                     category='vulnerable',
                     name='cve-2000-444444',
                     time='2015-10-03 04:11:32',
-                    address=[{'ip': '4.4.4.4'}, ],
+                    address=[{'ip': '4.4.4.4'}],
                     proto='udp',
                     dport=111,
                 ),
@@ -1500,7 +1501,7 @@ class TestShadowserverPortmapper201412Parser(ParserTestMixin, unittest.TestCase)
                     category='amplifier',
                     name='portmapper',
                     time='2015-10-03 04:11:32',
-                    address=[{'ip': '5.5.5.5'}, ],
+                    address=[{'ip': '5.5.5.5'}],
                     proto='udp',
                     dport=111,
                 ),
@@ -1508,7 +1509,7 @@ class TestShadowserverPortmapper201412Parser(ParserTestMixin, unittest.TestCase)
                     category='vulnerable',
                     name='cve-2000-555555',
                     time='2015-10-03 04:11:32',
-                    address=[{'ip': '5.5.5.5'}, ],
+                    address=[{'ip': '5.5.5.5'}],
                     proto='udp',
                     dport=111,
                 ),
@@ -1573,7 +1574,7 @@ class TestShadowserverMdns201412Parser(ParserTestMixin, unittest.TestCase):
                     category='amplifier',
                     name='mdns',
                     time='2016-03-21 07:38:48',
-                    address=[{'ip': '2.2.2.2'}, ],
+                    address=[{'ip': '2.2.2.2'}],
                     proto='udp',
                     dport=5353,
                 ),
@@ -1581,7 +1582,7 @@ class TestShadowserverMdns201412Parser(ParserTestMixin, unittest.TestCase):
                     category='vulnerable',
                     name='cve-2000-222222',
                     time='2016-03-21 07:38:48',
-                    address=[{'ip': '2.2.2.2'}, ],
+                    address=[{'ip': '2.2.2.2'}],
                     proto='udp',
                     dport=5353,
                 ),
@@ -1589,7 +1590,7 @@ class TestShadowserverMdns201412Parser(ParserTestMixin, unittest.TestCase):
                     category='amplifier',
                     name='mdns',
                     time='2016-03-21 07:38:48',
-                    address=[{'ip': '3.3.3.3'}, ],
+                    address=[{'ip': '3.3.3.3'}],
                     proto='udp',
                     dport=5353,
                 ),
@@ -1597,7 +1598,7 @@ class TestShadowserverMdns201412Parser(ParserTestMixin, unittest.TestCase):
                     category='vulnerable',
                     name='cve-2000-333333',
                     time='2016-03-21 07:38:48',
-                    address=[{'ip': '3.3.3.3'}, ],
+                    address=[{'ip': '3.3.3.3'}],
                     proto='udp',
                     dport=5353,
                 ),
@@ -2198,13 +2199,13 @@ class TestShadowserverVnc201412Parser(ParserTestMixin, unittest.TestCase):
             [
                 dict(
                     time='2017-08-14 12:42:17',
-                    address=[{'ip': '1.1.1.1'}, ],
+                    address=[{'ip': '1.1.1.1'}],
                     dport=5900,
                     product="Example Protocol 1.1",
                 ),
                 dict(
                     time='2017-08-14 12:42:17',
-                    address=[{'ip': '2.2.2.2'}, ],
+                    address=[{'ip': '2.2.2.2'}],
                     dport=5900,
                     product="Example Protocol 1.2",
                 ),
@@ -2240,7 +2241,7 @@ class TestShadowserverSinkholeHttp202203Parser(ParserTestMixin, unittest.TestCas
             [
                 dict(
                     time='2021-06-03 00:00:00',
-                    address=[{'ip': '1.1.1.1'}, ],
+                    address=[{'ip': '1.1.1.1'}],
                     dport=1111,
                     sport=2222,
                     dip='2.2.2.2',
@@ -2278,7 +2279,7 @@ class TestShadowserverSinkhole202203Parser(ParserTestMixin, unittest.TestCase):
             [
                 dict(
                     time='2021-05-18 00:00:00',
-                    address=[{'ip': '1.1.1.1'}, ],
+                    address=[{'ip': '1.1.1.1'}],
                     dport=1111,
                     sport=2222,
                     dip='2.2.2.2',
@@ -2315,11 +2316,62 @@ class TestShadowserverDarknet202203Parser(ParserTestMixin, unittest.TestCase):
             [
                 dict(
                     time='2021-04-27 00:00:00',
-                    address=[{'ip': '1.1.1.1'}, ],
+                    address=[{'ip': '1.1.1.1'}],
                     dport=1111,
                     dip='2.2.2.2',
                     proto='tcp',
                     name='mirai',
+                ),
+            ]
+        )
+
+
+class TestShadowserverDeviceInfo202510Parser(ParserTestMixin, unittest.TestCase):
+    PARSER_SOURCE = 'shadowserver.device-info'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202510'
+    PARSER_CLASS = ShadowserverDeviceInfo202510Parser
+    PARSER_BASE_CLASS = BaseParser
+    PARSER_CONSTANT_ITEMS = {
+        'restriction': 'need-to-know',
+        'confidence': 'medium',
+        'category': 'exposed',
+    }
+
+    def cases(self):
+        yield (
+            b'"timestamp","severity","ip","protocol","port","hostname","tag",'
+            b'"asn","geo","region","city","naics","hostname_source","sector",'
+            b'"device_vendor","device_type","device_model","device_version"\n'
+
+            b'"2025-10-08 00:01:41","info","1.1.1.1","tcp",80,"1.1.1.1example.com","http",'
+            b'11111,"PL","EXAMPLEREGION1","EXAMPLECITY1",111111,"ptr",'
+            b'"Communications, Service Provider, and Hosting Service",'
+            b'"some-server-proj","other-software","Web Server default site","1.18.0"\n'
+
+            b'"2025-10-08 00:01:41","info","2.2.2.2","tcp",80,"2.2.2.2example.com","http;iot",'
+            b'99999,"PL","EXAMPLEREGION2","EXAMPLECITY2",222222,"ptr","Information",'
+            b'"Example Producer","router",,\n'
+            ,
+            [
+                dict(
+                    time='2025-10-08 00:01:41',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=80,
+                    proto='tcp',
+                    name='http,some-server-proj,other-software,Web Server default site,1.18.0',
+                    device_vendor='some-server-proj',
+                    device_type='other-software',
+                    device_model='Web Server default site',
+                    device_version='1.18.0',
+                ),
+                dict(
+                    time='2025-10-08 00:01:41',
+                    address=[{'ip': '2.2.2.2'}],
+                    dport=80,
+                    proto='tcp',
+                    name='http;iot,Example Producer,router',
+                    device_vendor='Example Producer',
+                    device_type='router',
                 ),
             ]
         )
@@ -2348,7 +2400,7 @@ class TestShadowserverIcs202204Parser(ParserTestMixin, unittest.TestCase):
             [
                 dict(
                     time='2022-03-15 01:06:47',
-                    address=[{'ip': '1.1.1.1'}, ],
+                    address=[{'ip': '1.1.1.1'}],
                     dport=1111,
                     proto='tcp',
                     name='fox',

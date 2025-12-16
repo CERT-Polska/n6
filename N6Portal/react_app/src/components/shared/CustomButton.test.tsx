@@ -48,11 +48,11 @@ describe('<CustomButton />', () => {
   });
 
   it.each([
-    { loading: false, disabled: true, variant: 'link' },
-    { loading: true, disabled: true, variant: 'primary' },
-    { loading: false, disabled: false, variant: 'outline' },
-    { loading: true, disabled: false, variant: 'filter' }
-  ])('accepts multiple HTMLButtonElement and custom props', async ({ loading, disabled, variant }) => {
+    { loading: false, disabled: true, variant: 'link', openInNewTab: true },
+    { loading: true, disabled: true, variant: 'primary', openInNewTab: false },
+    { loading: false, disabled: false, variant: 'outline', openInNewTab: false },
+    { loading: true, disabled: false, variant: 'filter', openInNewTab: true }
+  ])('accepts multiple HTMLButtonElement and custom props', async ({ loading, disabled, variant, openInNewTab }) => {
     BootstrapButtonMock.mockImplementation(({ children }) => <div className="bootstrap-button">{children}</div>);
     const LoadingSpinnerSpy = jest
       .spyOn(LoadingSpinnerModule, 'default')
@@ -78,6 +78,7 @@ describe('<CustomButton />', () => {
         disabled={disabled}
         to={to}
         href={href}
+        openInNewTab={openInNewTab}
       />
     );
 
@@ -96,7 +97,7 @@ describe('<CustomButton />', () => {
         href: href,
         onClick: undefined,
         rel: 'noopener noreferrer',
-        target: '_blank',
+        target: openInNewTab ? '_blank' : undefined,
         to: to,
         type: undefined, // because of href attribute
         variant: '' // regardless of given variant

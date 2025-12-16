@@ -10,6 +10,7 @@ describe('isCategory', () => {
     expect(isCategory('dns-query')).toBe(true);
     expect(isCategory('dos-attacker')).toBe(true);
     expect(isCategory('dos-victim')).toBe(true);
+    expect(isCategory('exposed')).toBe(true);
     expect(isCategory('flow')).toBe(true);
     expect(isCategory('flow-anomaly')).toBe(true);
     expect(isCategory('fraud')).toBe(true);

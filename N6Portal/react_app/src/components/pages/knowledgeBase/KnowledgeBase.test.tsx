@@ -10,6 +10,13 @@ import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import routeList from 'routes/routeList';
 
 jest.mock('remark-gfm', () => () => {}); // to resolve styling module import error
+jest.mock('rehype-autolink-headings', () => () => {});
+jest.mock('unist-util-visit', () => ({
+  visit: jest.fn()
+}));
+jest.mock('hast-util-to-string', () => ({
+  toString: jest.fn()
+}));
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
   Redirect: jest.fn()

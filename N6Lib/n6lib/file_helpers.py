@@ -1,4 +1,6 @@
-# Copyright (c) 2024 NASK. All rights reserved.
+# Copyright (c) 2024-2025 NASK. All rights reserved.
+
+from __future__ import annotations
 
 import contextlib
 import dataclasses
@@ -12,20 +14,36 @@ import secrets
 import shutil
 import tempfile
 import time
+import weakref
 from collections.abc import (
     Callable,
     Generator,
+    Iterable,
+    Iterator,
+    Mapping,
 )
-from pathlib import Path
+from pathlib import (
+    Path,
+    PosixPath,
+    PurePath,
+)
 from typing import (
+    Any,
     BinaryIO,
     ContextManager,
     Final,
     IO,
+    Literal,
     Optional,
     TextIO,
     Union,
     cast,
+    final,
+)
+
+from typing_extensions import (
+    MutableMapping,
+    Self,
 )
 
 from n6lib.class_helpers import attr_repr
@@ -63,12 +81,14 @@ __all__ = [
 # Static typing helpers
 #
 
+
 AnyPath = Union[str, bytes, os.PathLike[str], os.PathLike[bytes]]
 
 
 #
 # The *file accessor* family of tools
 #
+
 
 class FileAccessor:
 
@@ -2151,6 +2171,195 @@ class SignedStampedFileAccessor(StampedFileAccessor):
 #
 # Other helpers
 #
+
+
+@final
+class FilesystemPathMapping(
+    PosixPath,
+    MutableMapping[AnyPath, Union[PosixPath, 'FilesystemPathMapping']],
+):
+
+    """
+    TODO: doc, tests...
+    """
+
+    class FilesystemPathKeyError(KeyError, FileNotFoundError):
+
+        """
+        A `KeyError` subclass, being also a `FileNotFoundError` subclass,
+        raised by `FilesystemPathMapping`'s `__getitem__()`, `__delitem__()`
+        and `pop()` to indicate that the file or directory referred to by
+        the specified key is missing.
+        """
+
+        def __str__(self):
+            if len(self.args) == 1 and isinstance(self.args[0], PurePath):
+                return repr(str(self.args[0]))
+            return super().__str__()
+
+    # * Public constructor:
+
+    def __new__(
+        cls,
+        path: AnyPath | Literal['temp'] = 'temp',
+        *,
+        create: bool | Literal['auto'] = 'auto',
+        create_mode: int = 0o700,
+        populate_with: _Subtree = (),
+    ):
+        inst = (
+            cls.__new_with_temp_path() if path == 'temp'
+            else cls.__new_with_specified_path(path, create, create_mode))
+        inst.update(populate_with)
+        assert inst.is_dir() and inst.is_absolute()
+        return inst
+
+    def as_posix_path(self) -> PosixPath:
+        return PosixPath(str(self))
+
+    # * Context manager interface
+    #   (just to clean temporary dir if `path` was "temp"):
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self.__tmp_finalizer is not None:
+            self.__tmp_finalizer()
+
+    # * `MutableMapping` interface
+    #   (implemented not only here, as several mixin methods are inherited):
+
+    def __setitem__(self, subpath: AnyPath, value: _SubtreeOrFileContent, /) -> None:
+        subpath = self.__normalize_subpath(subpath)
+        subpath.parent.mkdir(parents=True, exist_ok=True)
+        # Note: we do *not* allow to remove or overwrite *anything* just
+        # by performing the `__setitem__()` operation (or `update()`, or
+        # a similar one...). That could be too risky. First, make use of
+        # `__delitem__()` (or `clear()`, or `pop()`, or `popitem()`), as
+        # necessary.
+        if isinstance(value, str):
+            with subpath.open(mode='xt', encoding='utf-8') as f:
+                f.write(value)
+        elif isinstance(value, (bytes, bytearray, memoryview)):
+            with subpath.open(mode='xb') as f:
+                f.write(memoryview(value))
+        else:
+            self.__class__(path=subpath, create=True, populate_with=value)
+
+    def __delitem__(self, subpath: AnyPath, /) -> None:
+        subpath = self.__normalize_subpath(subpath)
+        # Note: we do *not* allow to remove an *entire subtree* by
+        # performing any mapping (`dict`-like) operation. That would
+        # be definitely too risky.
+        if subpath.is_dir() and not subpath.is_symlink():
+            # (Note: a directory can be removed only if it is empty!)
+            subpath.rmdir()
+        else:
+            try:
+                subpath.unlink()
+            except FileNotFoundError as exc:
+                raise self.FilesystemPathKeyError(subpath) from exc
+
+    def __getitem__(self, subpath: AnyPath, /) -> PosixPath | Self:
+        subpath = self.__normalize_subpath(subpath)
+        if subpath.is_dir():
+            return self.__class__(path=subpath, create=False)
+        if subpath.exists():
+            return subpath
+        raise self.FilesystemPathKeyError(subpath)
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+    def __iter__(self) -> Iterator[PosixPath]:
+        return self.__as_posix_path(self).iterdir()
+
+    # * Pickle support
+    #   (note: during unpickling, no files or directories are created,
+    #   and at least the instance's own directory must already exist!)
+
+    def __reduce__(self) -> tuple:
+        return (
+            self.__new_from_segments_of_existing_path,
+            *super().__reduce__()[1:],
+        )
+
+    # * Private helpers:
+
+    __tmp_dir: tempfile.TemporaryDirectory | None
+    __tmp_finalizer: Callable[[], Any] | None
+
+    @classmethod
+    def __new_from_segments_of_existing_path(
+        cls,
+        *path_segments: str | os.PathLike[str],
+    ) -> Self:
+        return cls.__new_with_specified_path(
+            PosixPath(*path_segments),
+            create=False,
+        )
+
+    @classmethod
+    def __new_with_specified_path(
+        cls,
+        path: AnyPath,
+        create: bool | Literal['auto'],
+        create_mode: int = 0o700,
+    ) -> Self:
+        path = cls.__as_posix_path(path)
+        if not path.is_absolute():
+            raise ValueError(f'path {str(path)!a} is not absolute')
+        if create:
+            path.mkdir(mode=create_mode, parents=True, exist_ok=(create == 'auto'))
+        if not path.exists():
+            raise FileNotFoundError(f'directory {str(path)!a} does not exist')
+        if not path.is_dir():
+            raise NotADirectoryError(f'{str(path)!a} is not a directory')
+        inst = super().__new__(cls, str(path))
+        inst.__tmp_dir = None
+        inst.__tmp_finalizer = None
+        return inst
+
+    @classmethod
+    def __new_with_temp_path(cls) -> Self:
+        tmp_dir = tempfile.TemporaryDirectory(prefix=f'n6-{cls.__name__}-')
+        try:
+            inst = super().__new__(cls, tmp_dir.name)
+            inst.__tmp_dir = tmp_dir
+            inst.__tmp_finalizer = weakref.finalize(inst, tmp_dir.cleanup)
+        except:  # noqa
+            tmp_dir.cleanup()
+            raise
+        return inst
+
+    def __normalize_subpath(self, subpath: AnyPath) -> PosixPath:
+        subpath = self.__as_posix_path(subpath)
+        if subpath.is_absolute():
+            subpath = subpath.relative_to(self.__as_posix_path(self))
+        return self.__as_posix_path(self) / subpath
+
+    @staticmethod
+    def __as_posix_path(path: AnyPath) -> PosixPath:
+        # Note: in a way, this method definition is redundant, as it is
+        # equivalent (on Linux, at runtime) to the `as_path()` function
+        # defined below. But, just for type consistency, let us use --
+        # throughout the definition of this class -- this method (rather
+        # than that function).
+        return PosixPath(os.fsdecode(path))
+
+_Subtree = Union[
+    Mapping[AnyPath, '_SubtreeOrFileContent'],
+    Iterable[tuple[AnyPath, '_SubtreeOrFileContent']],
+]
+_SubtreeOrFileContent = Union[
+    _Subtree,
+    str,
+    bytes,
+    bytearray,
+    memoryview,
+]
+
 
 def as_path(path: AnyPath) -> Path:
     """

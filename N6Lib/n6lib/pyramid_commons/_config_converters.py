@@ -1,4 +1,4 @@
-#  Copyright (c) 2021-2022 NASK. All rights reserved.
+#  Copyright (c) 2021-2025 NASK. All rights reserved.
 
 from typing import Any
 
@@ -19,6 +19,13 @@ from n6lib.structured_data_conversion.exceptions import DataConversionError
 #
 # Actual converters provided by this module
 #
+
+
+# TODO: some of them are quite generic =>
+#       could be moved to a more suitable place...
+
+# TODO: tests...
+
 
 def conv_int_only_positive(opt_value: str) -> int:
     n = Config.BASIC_CONVERTERS['int'](opt_value)
@@ -61,6 +68,7 @@ def conv_web_url(opt_value: str) -> str:
 #
 # Private (module-local-only) constants and helpers
 #
+
 
 _LEGAL_WEB_URL_PREFIXES = ('https://', 'http://')
 

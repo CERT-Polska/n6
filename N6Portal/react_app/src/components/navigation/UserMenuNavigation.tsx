@@ -6,8 +6,8 @@ import { Link, useHistory } from 'react-router-dom';
 import routeList from 'routes/routeList';
 import { getLogout } from 'api/auth';
 import { useTypedIntl } from 'utils/useTypedIntl';
-import useKeycloakContext from 'context/KeycloakContext';
 import useAuthContext from 'context/AuthContext';
+import useKeycloakContext from 'context/KeycloakContext';
 import LanguagePicker from 'components/shared/LanguagePicker';
 
 import { ReactComponent as User } from 'images/user.svg';
@@ -28,17 +28,16 @@ const UserMenuNavigation: FC = () => {
   const keycloakContext = useKeycloakContext();
 
   const handleLogout = async () => {
-    if (keycloakContext.isAuthenticated) {
-      history.push(routeList.login);
-      keycloakContext.logout();
-    } else {
-      try {
+    try {
+      if (keycloakContext.isAuthenticated) {
+        keycloakContext.logout();
+      } else {
         await logoutFn.mutateAsync();
         resetAuthState();
         history.push(routeList.login);
-      } catch (error) {
-        setHasError(true);
       }
+    } catch (error) {
+      setHasError(true);
     }
   };
 

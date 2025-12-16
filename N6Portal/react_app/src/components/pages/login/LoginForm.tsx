@@ -5,8 +5,9 @@ import { Link } from 'react-router-dom';
 import { useForm, FormProvider, SubmitHandler } from 'react-hook-form';
 import { useMutation } from 'react-query';
 import { useTypedIntl } from 'utils/useTypedIntl';
-import { postLogin } from 'api/auth';
+import { postLogin, postOIDCInfo } from 'api/auth';
 import { ILogin } from 'api/auth/types';
+import { useInfoOIDC } from 'api/services/info';
 import routeList from 'routes/routeList';
 import useAuthContext, { PermissionsStatus } from 'context/AuthContext';
 import Loader from 'components/loading/Loader';
@@ -17,6 +18,7 @@ import CustomButton from 'components/shared/CustomButton';
 import useKeycloakContext from 'context/KeycloakContext';
 import useLoginContext from 'context/LoginContext';
 import FormFeedback from 'components/forms/FormFeedback';
+import appResources from 'config/locale/app_resources.json';
 
 type TLoginForm = {
   login: string;
@@ -25,6 +27,7 @@ type TLoginForm = {
 
 const LoginForm: FC = () => {
   const [authError, toggleAuthError] = useState(false);
+  const [oidcEnabled, setOIDCEnabled] = useState(false);
   const { messages, locale } = useTypedIntl();
   const { updateLoginState } = useLoginContext();
   const keycloakContext = useKeycloakContext();
@@ -33,9 +36,17 @@ const LoginForm: FC = () => {
   const methods = useForm<TLoginForm>({ mode: 'onBlur', defaultValues: { login: '', password: '' } });
   const { handleSubmit } = methods;
 
+  useInfoOIDC({
+    onSuccess: ({ enabled, logout_uri, logout_redirect_uri }) => {
+      setOIDCEnabled(enabled);
+      keycloakContext.setInfo(logout_uri, logout_redirect_uri);
+    }
+  });
+
   const { mutateAsync: login, status: loginStatus } = useMutation<ILogin, AxiosError, TLoginForm>((data) =>
     postLogin(data)
   );
+  const postOIDCParamsMutation = useMutation('post_oidc_params', postOIDCInfo);
 
   if (contextStatus === PermissionsStatus.initial || useInfoFetching) {
     return <Loader />;
@@ -62,12 +73,10 @@ const LoginForm: FC = () => {
   if (isAuthenticated) return <Redirect to={routeList.incidents} />;
 
   let oidcBtnLabel = messages.login_oidc_button;
-  try {
-    const envLabel = process.env.REACT_APP_OIDC_BUTTON_LABEL;
-    if (typeof envLabel === 'string') {
-      oidcBtnLabel = JSON.parse(envLabel)[locale];
-    }
-  } catch {}
+  const oidcLabels = appResources && appResources.locale && appResources.locale.oidc_button_label;
+  if (oidcLabels) {
+    oidcBtnLabel = oidcLabels[locale] || oidcLabels['en'] || oidcBtnLabel;
+  }
 
   return (
     <section className="login-container">
@@ -112,11 +121,15 @@ const LoginForm: FC = () => {
           </FormProvider>
           {authError && <FormFeedback response="error" message={`${messages.errApiLoader_header}`} />}
         </div>
-        {keycloakContext.enabled && (
+        {oidcEnabled && (
           <CustomButton
             dataTestId="login-keycloak-btn"
-            onClick={keycloakContext.login}
             type="button"
+            onClick={async () => {
+              const data = await postOIDCParamsMutation.mutateAsync();
+              window.location.replace(data.auth_url);
+            }}
+            openInNewTab={false}
             className="w-100 login-oidc-button"
             text={`${oidcBtnLabel}`}
             variant="primary"

@@ -15,6 +15,7 @@ interface IProps extends ButtonHTMLAttributes<Element> {
   loading?: boolean;
   to?: string;
   href?: string;
+  openInNewTab?: boolean;
   dataTestId?: string;
 }
 
@@ -33,6 +34,7 @@ const CustomButton: FC<IProps> = forwardRef(
       type = 'button',
       to = '',
       href,
+      openInNewTab,
       dataTestId
     },
     ref: Ref<HTMLAnchorElement>
@@ -50,7 +52,7 @@ const CustomButton: FC<IProps> = forwardRef(
         as={to ? Link : undefined}
         to={to}
         href={href}
-        target={href ? '_blank' : undefined}
+        target={href ? (openInNewTab ? '_blank' : undefined) : undefined}
         rel={href ? 'noopener noreferrer' : undefined}
         aria-label={ariaLabel}
         variant=""

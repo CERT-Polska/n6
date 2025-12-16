@@ -15,6 +15,7 @@ from n6lib.auth_db.fields import (
     DateTimeCustomizedField,
     OrgIdField,
     NoWhitespaceSecretField,
+    URLSimpleField,
     UserLoginField,
     UUID4SecretField,
 )
@@ -281,6 +282,23 @@ class MFACodeField(IntegerField):
 
     def clean_result_value(self, value):
         raise TypeError("it's a param-only field")
+
+
+class OIDCCallbackQueryField(URLSimpleField):
+
+    error_msg_template = '{} is not a valid OpenID Connect callback query'
+
+
+class OIDCRefreshTokenField(UnicodeLimitedField, UnicodeRegexField):
+
+    sensitive = True
+    disallow_empty = True
+
+    default_error_msg_if_sensitive = 'not a valid web token'
+    error_msg_template = '{} is not a valid OpenID Connect refresh token'
+
+    max_length = 10000
+    regex = JWT_ROUGH_REGEX
 
 
 class KnowledgeBaseLangField(UnicodeEnumField):

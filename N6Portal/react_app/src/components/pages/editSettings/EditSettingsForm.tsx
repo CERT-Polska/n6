@@ -21,7 +21,7 @@ import {
   validateTextNotRequired,
   validateTime
 } from 'components/forms/validation/validationSchema';
-import { isRequired, maxLength } from 'components/forms/validation/validators';
+import { maxLength } from 'components/forms/validation/validators';
 import CustomFieldArray from 'components/shared/CustomFieldArray';
 import { prepareDefaultValues, prepareUpdatedValues, parseSubmitData } from 'components/pages/editSettings/utils';
 import { TApiResponse } from 'components/forms/utils';
@@ -222,7 +222,6 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
                 className={classnames('edit-settings-form-radio', {
                   'update-info': updatedValues && 'notification_language' in updatedValues
                 })}
-                validate={{ isRequired }}
               />
               <Tooltip
                 content={`${messages.signup_lang_tooltip}`}

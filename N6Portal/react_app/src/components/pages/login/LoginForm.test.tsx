@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, screen, render, waitFor } from '@testing-library/react';
 import LoginForm from './LoginForm';
 import { LanguageProviderTestWrapper, QueryClientProviderTestWrapper } from 'utils/testWrappers';
 import * as LoaderModule from 'components/loading/Loader';
@@ -11,6 +11,10 @@ import * as postLoginModule from 'api/auth';
 import { mustBeLoginEmail } from 'components/forms/validation/validators';
 import { ILoginContext, LoginContext } from 'context/LoginContext';
 import { KeycloakContext, IKeycloakAuthContext } from 'context/KeycloakContext';
+import * as getInfoOIDCModule from 'api/services/info';
+import * as postOIDCInfoModule from 'api/auth';
+import { IInfoOIDC } from 'api/services/info/types';
+import { IOIDCParams } from 'api/auth/types';
 
 jest.mock('react-router', () => ({
   ...jest.requireActual('react-router'),
@@ -18,35 +22,51 @@ jest.mock('react-router', () => ({
 }));
 const RedirectMock = Redirect as jest.Mock;
 
+const replaceMock = jest.fn();
+Object.defineProperty(window, 'location', {
+  value: { replace: replaceMock }
+});
+
 describe('<LoginForm />', () => {
-  it('renders Loader if in initial AuthContext status', () => {
+  it('renders Loader if in initial AuthContext status', async () => {
     const loaderSpy = jest.spyOn(LoaderModule, 'default').mockReturnValue(<></>);
-    const { container } = render(
-      <QueryClientProviderTestWrapper>
-        <LanguageProviderTestWrapper>
-          <LoginForm />
-        </LanguageProviderTestWrapper>
-      </QueryClientProviderTestWrapper>
-    );
-    expect(container).toBeEmptyDOMElement();
-    expect(loaderSpy).toHaveBeenCalled();
+    patchOIDCInfoRequest();
+    await act(async () => {
+      const { container } = render(
+        <QueryClientProviderTestWrapper>
+          <LanguageProviderTestWrapper>
+            <LoginForm />
+          </LanguageProviderTestWrapper>
+        </QueryClientProviderTestWrapper>
+      );
+      await waitFor(() => expect(container).toBeEmptyDOMElement());
+    });
+    await waitFor(() => expect(loaderSpy).toHaveBeenCalled());
   });
 
-  it('renders Loader if authContext still fetches information', () => {
+  it('renders Loader if authContext still fetches information', async () => {
+    jest.spyOn(getInfoOIDCModule, 'getInfoOIDC').mockResolvedValue({
+      enabled: true,
+      logout_uri: 'https://localhost',
+      logout_redirect_uri: 'http://localhost:1234/logout'
+    } as IInfoOIDC);
     const loaderSpy = jest.spyOn(LoaderModule, 'default').mockReturnValue(<></>);
-    const { container } = render(
-      <QueryClientProviderTestWrapper>
-        <LanguageProviderTestWrapper>
-          <AuthContext.Provider
-            value={{ useInfoFetching: true, contextStatus: PermissionsStatus.fetched } as IAuthContext}
-          >
-            <LoginForm />
-          </AuthContext.Provider>
-        </LanguageProviderTestWrapper>
-      </QueryClientProviderTestWrapper>
-    );
-    expect(container).toBeEmptyDOMElement();
-    expect(loaderSpy).toHaveBeenCalled();
+    patchOIDCInfoRequest();
+    await act(async () => {
+      const { container } = render(
+        <QueryClientProviderTestWrapper>
+          <LanguageProviderTestWrapper>
+            <AuthContext.Provider
+              value={{ useInfoFetching: true, contextStatus: PermissionsStatus.fetched } as IAuthContext}
+            >
+              <LoginForm />
+            </AuthContext.Provider>
+          </LanguageProviderTestWrapper>
+        </QueryClientProviderTestWrapper>
+      );
+      await waitFor(() => expect(container).toBeEmptyDOMElement());
+    });
+    await waitFor(() => expect(loaderSpy).toHaveBeenCalled());
   });
 
   it.each([
@@ -56,26 +76,29 @@ describe('<LoginForm />', () => {
     { availableResources: [], to: routeList.incidents }
   ])(
     'redirects to proper page if user is authenticated depending on availableResources',
-    ({ availableResources, to }) => {
+    async ({ availableResources, to }) => {
       const authContext = {
         useInfoFetching: false,
         contextStatus: PermissionsStatus.fetched,
         isAuthenticated: true,
         availableResources: availableResources
       } as IAuthContext;
+      patchOIDCInfoRequest();
 
-      render(
-        <BrowserRouter>
-          <QueryClientProviderTestWrapper>
-            <LanguageProviderTestWrapper>
-              <AuthContext.Provider value={authContext}>
-                <LoginForm />
-              </AuthContext.Provider>
-            </LanguageProviderTestWrapper>
-          </QueryClientProviderTestWrapper>
-        </BrowserRouter>
-      );
-      expect(RedirectMock).toHaveBeenCalledWith({ to: to }, {});
+      act(() => {
+        render(
+          <BrowserRouter>
+            <QueryClientProviderTestWrapper>
+              <LanguageProviderTestWrapper>
+                <AuthContext.Provider value={authContext}>
+                  <LoginForm />
+                </AuthContext.Provider>
+              </LanguageProviderTestWrapper>
+            </QueryClientProviderTestWrapper>
+          </BrowserRouter>
+        );
+      });
+      await waitFor(() => expect(RedirectMock).toHaveBeenCalledWith({ to: to }, {}));
     }
   );
 
@@ -91,6 +114,7 @@ describe('<LoginForm />', () => {
     expect(mustBeLoginEmail(testUsername)).toBe(true);
     const mockedLoginResponse = { token: 'test_token' };
 
+    patchOIDCInfoRequest();
     const postLoginSpy = jest.spyOn(postLoginModule, 'postLogin').mockResolvedValue(mockedLoginResponse);
     const updateLoginStateMock = jest.fn();
 
@@ -107,6 +131,7 @@ describe('<LoginForm />', () => {
         </QueryClientProviderTestWrapper>
       </BrowserRouter>
     );
+
     expect(container.querySelector('svg-logo-n6-mock')).toBeInTheDocument();
     expect(screen.getByText(dictionary['en']['login_title'])).toHaveRole('paragraph');
 
@@ -115,7 +140,9 @@ describe('<LoginForm />', () => {
     const passwordInput = screen.getByLabelText(dictionary['en']['login_password_label']); // for some reason RTL struggles with password inputs
     expect(passwordInput).toHaveAttribute('autocomplete', 'current-password');
 
-    const forgotPasswordLink = screen.getByRole('link', { name: dictionary['en']['login_forgot_password_btn_label'] });
+    const forgotPasswordLink = screen.getByRole('link', {
+      name: dictionary['en']['login_forgot_password_btn_label']
+    });
     expect(forgotPasswordLink).toHaveAttribute('href', routeList.forgotPassword);
 
     expect(screen.getByText(dictionary['en']['login_create_account_title'])).toHaveRole('paragraph');
@@ -133,10 +160,14 @@ describe('<LoginForm />', () => {
     expect(updateLoginStateMock).toHaveBeenCalledWith('2fa', mockedLoginResponse);
   });
 
-  it('renders additional button to register using OIDC if keycloak is enabled', async () => {
+  it('renders additional button to register using OIDC if /info/oidc GET response enables OIDC login', async () => {
     const testUsername = 'testusername@example.com';
     const testPassword = 'test_password';
     expect(mustBeLoginEmail(testUsername)).toBe(true);
+
+    const authUrl = 'test_auth_url';
+    patchOIDCInfoRequest();
+    jest.spyOn(postOIDCInfoModule, 'postOIDCInfo').mockResolvedValue({ auth_url: authUrl } as IOIDCParams);
 
     const authContext = {
       useInfoFetching: false,
@@ -144,28 +175,43 @@ describe('<LoginForm />', () => {
       isAuthenticated: false,
       availableResources: []
     } as unknown as IAuthContext;
-    const keycloakLoginMock = jest.fn();
-    const keycloakContext = { enabled: true, login: keycloakLoginMock } as unknown as IKeycloakAuthContext;
+    const keycloakSetInfoMock = jest.fn();
+    const keycloakContext = { setInfo: keycloakSetInfoMock } as unknown as IKeycloakAuthContext;
+    // NOTE: keycloakContext doesn't need to enable login, since data is overridden by /info/oidc endpoint
 
-    render(
-      <BrowserRouter>
-        <QueryClientProviderTestWrapper>
-          <LanguageProviderTestWrapper>
-            <AuthContext.Provider value={authContext}>
-              <KeycloakContext.Provider value={keycloakContext}>
-                <LoginForm />
-              </KeycloakContext.Provider>
-            </AuthContext.Provider>
-          </LanguageProviderTestWrapper>
-        </QueryClientProviderTestWrapper>
-      </BrowserRouter>
-    );
+    await act(async () => {
+      render(
+        <BrowserRouter>
+          <QueryClientProviderTestWrapper>
+            <LanguageProviderTestWrapper>
+              <AuthContext.Provider value={authContext}>
+                <KeycloakContext.Provider value={keycloakContext}>
+                  <LoginForm />
+                </KeycloakContext.Provider>
+              </AuthContext.Provider>
+            </LanguageProviderTestWrapper>
+          </QueryClientProviderTestWrapper>
+        </BrowserRouter>
+      );
+    });
+
+    expect(keycloakSetInfoMock).toHaveBeenLastCalledWith('https://localhost', 'http://localhost:1234/logout');
     const keycloakLoginButton = screen.getByRole('button', { name: dictionary['en']['login_oidc_button'] });
     const usernameInput = screen.getByRole('textbox', { name: dictionary['en']['login_username_label'] });
     const passwordInput = screen.getByLabelText(dictionary['en']['login_password_label']);
     await userEvent.type(usernameInput, testUsername);
     await userEvent.type(passwordInput, testPassword);
     await userEvent.click(keycloakLoginButton);
-    expect(keycloakLoginMock).toHaveBeenCalled();
+    expect(replaceMock).toHaveBeenCalledWith(authUrl);
   });
 });
+
+function patchOIDCInfoRequest() {
+  jest.spyOn(getInfoOIDCModule, 'getInfoOIDC').mockImplementation(async () => {
+    return {
+      enabled: true,
+      logout_uri: 'https://localhost',
+      logout_redirect_uri: 'http://localhost:1234/logout'
+    } as IInfoOIDC;
+  });
+}

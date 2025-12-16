@@ -76,6 +76,7 @@ def jwt_decode(token: StrOrBinary,
                options: Optional[dict] = None,
                required_claims: Union[Iterable[str], dict[str, type]] = (),
                required_audience: Optional[str] = None,
+               issuer: Optional[str] = None,
                ) -> dict[str, Any]:
     try:
         token = as_unicode(token)
@@ -86,7 +87,8 @@ def jwt_decode(token: StrOrBinary,
             crypto_key,
             algorithms=sorted(accepted_algorithms),
             options=options,
-            audience=required_audience)
+            audience=required_audience,
+            issuer=issuer)
     except Exception as exc:
         raise JWTDecodeError(exc) from None   # (Because we don't want to reveal too much...)
     assert JWT_ROUGH_REGEX.search(token)

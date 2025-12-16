@@ -15,6 +15,7 @@
 * `shadowserver.cwmp`
 * `shadowserver.darknet`
 * `shadowserver.db2`
+* `shadowserver.device-info`
 * `shadowserver.dvr-dhcpdiscover`
 * `shadowserver.elasticsearch`
 * `shadowserver.exchange`
@@ -990,6 +991,54 @@ class ShadowserverDarknet202203Parser(_BaseShadowserverParser):
         'proto': 'protocol',
         'name': 'infection',
     }
+
+
+class ShadowserverDeviceInfo202510Parser(BaseParser):
+
+    default_binding_key = 'shadowserver.device-info.202510'
+    constant_items = {
+        'restriction': 'need-to-know',
+        'confidence': 'medium',
+        'category': 'exposed',
+    }
+
+    delimiter = ','
+    quotechar = '"'
+
+    def parse(self, data):
+        rows = csv.DictReader(
+            data['csv_raw_rows'],
+            delimiter=self.delimiter,
+            quotechar=self.quotechar,
+        )
+        for row in rows:
+            with self.new_record_dict(data) as parsed:
+                parsed['time'] = row['timestamp']
+                parsed['address'] = {'ip': row['ip']}
+                parsed['dport'] = row['port']
+                parsed['proto'] = row['protocol']
+                if device_vendor := row['device_vendor']:
+                    parsed['device_vendor'] = device_vendor
+                if device_type := row['device_type']:
+                    parsed['device_type'] = device_type
+                if device_model := row['device_model']:
+                    parsed['device_model'] = device_model
+                if device_version := row['device_version']:
+                    parsed['device_version'] = device_version
+                if name := self._parse_name(row):
+                    parsed['name'] = name
+                yield parsed
+
+    def _parse_name(self, row: dict) -> str:
+        name_combined = (
+            row.get('tag'),
+            row.get('device_vendor'),
+            row.get('device_type'),
+            row.get('device_model'),
+            row.get('device_version'),
+        )
+        name = ','.join(filter(None, name_combined))
+        return name
 
 
 class ShadowserverIcs202204Parser(_BaseShadowserverParser):

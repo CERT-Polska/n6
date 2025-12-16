@@ -1,10 +1,16 @@
 # Copyright (c) 2019-2025 NASK. All rights reserved.
 
-from collections.abc import Iterable
+from __future__ import annotations
+
+import contextlib
 import datetime
 import operator
 import re
 import sys
+from collections.abc import (
+    Generator,
+    Iterable,
+)
 from typing import (
     Optional,
     TypeVar,
@@ -26,6 +32,7 @@ from n6lib.auth_db import (
     MAX_LEN_OF_GENERIC_ONE_LINE_STRING,
     ORG_REQUEST_STATUS_NEW,
 )
+from n6lib.auth_db.auxiliary_cache import AuxiliaryCacheEntryHandle
 from n6lib.auth_db.config import SQLAuthDBConnector
 from n6lib.auth_db.fields import (
     DomainNameCustomizedField,
@@ -704,7 +711,7 @@ class AuthManageAPI(_AuthDatabaseAPI):
                 url_pl=agreement.url_pl,
             ) 
         return [as_dict(agreement) for agreement in agreements]
-        
+
         
     @cleaning_kwargs_as_params_with_data_spec(
         org_id=OrgIdField(
@@ -1049,6 +1056,34 @@ class AuthManageAPI(_AuthDatabaseAPI):
                     user.is_blocked = True
                     msg(f'User {login!a} has been blocked (and their '
                         f'authentication stuff has been purged).')
+
+    @contextlib.contextmanager
+    def working_on_auxiliary_cache_entry(self, key: str) -> Generator[AuxiliaryCacheEntryHandle]:
+        query = (
+            self._db_session.query(models.AuxiliaryCacheEntry)
+            .filter(models.AuxiliaryCacheEntry.key == key)
+            .with_for_update()
+        )
+        entry_in_db: models.AuxiliaryCacheEntry | None = query.one_or_none()
+        handle = (
+            AuxiliaryCacheEntryHandle() if entry_in_db is None
+            else AuxiliaryCacheEntryHandle(entry_in_db.raw_content, entry_in_db.updated_at)
+        )
+
+        yield handle
+
+        new_raw_content = handle.get_newly_prescribed_raw_content_or_none()
+        if new_raw_content is None:
+            # No changes in db
+            return
+        if entry_in_db is None:
+            # INSERT
+            entry_in_db = models.AuxiliaryCacheEntry(key=key, raw_content=new_raw_content)
+            self._db_session.add(entry_in_db)
+        else:
+            # UPDATE
+            entry_in_db.raw_content = new_raw_content
+        self._db_session.flush()
 
 
 def _pure_data_from_org_config_update_request(req):

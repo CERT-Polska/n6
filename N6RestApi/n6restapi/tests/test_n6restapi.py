@@ -813,13 +813,22 @@ class TestRestAPIViewBase_prepare_params(RequestHelperMixin, unittest.TestCase):
             'access_zone_conditions': {
                 'search': sen.search_conds,
             },
+            'access_zone_source_ids': {
+                'search': sen.search_source_ids
+            }
         }
         self._config = self.prepare_pyramid_unittesting()
-        self._config.registry.auth_api = Mock()
-        self._config.registry.auth_api.get_access_info.return_value = access_info_dict
-        self._config.registry.auth_api.get_user_ids_to_org_ids.return_value = {
+        auth_api_mock = self._config.registry.auth_api = Mock()
+        auth_api_mock.get_access_info.return_value = access_info_dict
+        auth_api_mock.get_org_ids_to_access_infos.return_value = {
+            self.__ORG_ID: sen.access_infos,
+        }
+        auth_api_mock.get_user_ids_to_org_ids.return_value = {
             self.__USER_ID: self.__ORG_ID,
         }
+        auth_api_mock.get_all_user_ids_including_blocked.return_value = frozenset({
+            self.__USER_ID,
+        })
 
     def test_prepare_params__with_time_min(self):
         request = self.create_request(RestAPIViewBase, **{'time.min': '2020-01-01T12:00:00'})

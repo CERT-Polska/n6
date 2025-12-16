@@ -4,6 +4,7 @@
   "private": true,
   "dependencies": {
     "@babel/core": "^7.16.0",
+    "@braintree/sanitize-url": "^7.1.1",
     "@fontsource/roboto": "^4.5.3",
     "@pmmmwh/react-refresh-webpack-plugin": "^0.5.3",
     "@svgr/webpack": "^8.1.0",
@@ -30,10 +31,11 @@
     "focus-visible": "^5.2.0",
     "fs-extra": "^11.3.0",
     "get-user-locale": "^2.3.2",
+    "gray-matter": "^4.0.3",
+    "hast-util-to-string": "^3.0.1",
     "html-webpack-plugin": "^5.5.0",
     "identity-obj-proxy": "^3.0.0",
     "jwt-decode": "^4.0.0",
-    "keycloak-js": "25.0.6",
     "mini-css-extract-plugin": "^2.4.5",
     "object-hash": "^3.0.0",
     "postcss": "^8.5.3",
@@ -66,6 +68,7 @@
     "react-use": "^17.2.4",
     "react-virtualized-auto-sizer": "^1.0.5",
     "react-window": "^1.8.6",
+    "rehype-autolink-headings": "^7.1.0",
     "remark-gfm": "^3.0.1",
     "resolve": "^1.20.0",
     "resolve-url-loader": "^5.0.0",
@@ -76,6 +79,7 @@
     "style-loader": "^4.0.0",
     "tailwindcss": "^4.0.8",
     "terser-webpack-plugin": "^5.2.5",
+    "unist-util-visit": "^5.0.0",
     "use-lilius": "^1.1.1",
     "validator": "^13.6.0",
     "web-vitals": "^2.1.2",
@@ -85,8 +89,10 @@
   },
   "scripts": {
     "start": "env-cmd -f ./.env.json node scripts/start.js",
-    "build": "env-cmd -f ./.env.json node scripts/build.js",
-    "build-prod": "GENERATE_SOURCEMAP=false env-cmd -f ./.env.json node scripts/build.js",
+    "update-tos": "node scripts/update_tos.js",
+    "emit-tos": "node scripts/emit_tos.js",
+    "build": "env-cmd --no-override -f ./.env.json node scripts/build.js",
+    "build-prod": "GENERATE_SOURCEMAP=false env-cmd --no-override -f ./.env.json node scripts/build.js",
     "config": "node config/run_app_server.js",
     "test": "jest",
     "test-ci": "jest --silent --ci",
@@ -235,6 +241,7 @@
     "@testing-library/react": "15.0.7",
     "@testing-library/user-event": "^14.5.2",
     "@types/file-saver": "^2.0.5",
+    "@types/hast": "^3.0.4",
     "@types/jest": "^29.5.12",
     "@types/node": "^16.11.13",
     "@types/qrcode": "^1.4.0",
@@ -291,5 +298,6 @@
     "@types/react-router-dom": "5.3.3",
     "prismjs": "1.30.0",
     "http-proxy-middleware": "2.0.8"
-  }
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

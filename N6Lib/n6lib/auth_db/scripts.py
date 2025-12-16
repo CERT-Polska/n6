@@ -495,6 +495,7 @@ class PopulateAuthDB(BaseAuthDBScript):
         'shadowserver.cwmp',
         'shadowserver.darknet',
         'shadowserver.db2',
+        'shadowserver.device-info',
         'shadowserver.dvr-dhcpdiscover',
         'shadowserver.elasticsearch',
         'shadowserver.exchange',

@@ -1,4 +1,4 @@
-# Copyright (c) 2019-2024 NASK. All rights reserved.
+# Copyright (c) 2019-2025 NASK. All rights reserved.
 
 import contextlib
 import datetime
@@ -38,7 +38,10 @@ from typing import (
     Union,
 )
 
-from n6lib.auth_db.models import Base
+from n6lib.auth_db.models import (
+    AuxiliaryCacheEntry,
+    Base,
+)
 from n6lib.common_helpers import (
     DictWithSomeHooks,
     dump_condensed_debug_msg,
@@ -169,21 +172,28 @@ class AuditLog:
       }
       ```
 
-    Additionally, successful Auth DB transaction commits traced by Audit
-    Log are also, transiently, "registered" in a dedicated Auth DB table:
-    `recent_write_op_commit` (see: `.models.RecentWriteOpCommit`). That
-    table has two columns: `id` (auto-incremented positive integer) and
-    `made_at` (UTC date+time with microsecond resolution).
+    * All successful Auth DB transaction commits traced by Audit Log are
+      also, transiently, "registered" in a dedicated Auth DB table:
+      `recent_write_op_commit` (see: `.models.RecentWriteOpCommit`).
+      That table has two columns: `id` (auto-incremented positive
+      integer) and `made_at` (UTC date+time with microsecond resolution).
 
-    Note that `recent_write_op_commit` records:
+      Any `recent_write_op_commit` records:
 
-    * may be automatically deleted after they become 24 hours old (with
-      the exception that at least one record -- the newest one -- will
-      always be kept until a newer record is added);
+      * may be automatically deleted after they become 24 hours old (with
+        the exception that at least one record -- the newest one -- will
+        always be kept until a newer record is added);
 
-    * are inserted/deleted just by the Audit Log's internal machinery --
-      and such changes are, themselves, exempted from being traced and
-      logged by that machinery.
+      * are inserted/deleted just by the Audit Log's internal machinery --
+        and such insertions/deletions are, obviously, exempted from being
+        traced and logged by that machinery.
+
+    * Changes engaging the `.models.AuxiliaryCacheEntry` model (regarding
+      the `auxiliary_cache_entry` column's content) are *exempted* from
+      being traced and logged by the Audit Log machinery, and from being
+      registered in the `recent_write_op_commit` table (see the previous
+      bullet point).
+
     """
 
     #
@@ -288,6 +298,8 @@ class AuditLog:
 
     # * Handling SQLAlchemy Core/ORM events:
 
+    _EXCLUDED_MODEL_CLASSES = (AuxiliaryCacheEntry,)
+
     def _after_transaction_create(self, session, transaction):
         assert isinstance(session, self._relevant_session_type)
         self._verify_and_get_session_bind(session)
@@ -330,6 +342,8 @@ class AuditLog:
     def _after_write_operation(self, mapper, model_instance, prepare_entry_builder):
         assert (isinstance(mapper, Mapper) and
                 isinstance(model_instance, Base))
+        if isinstance(model_instance, self._EXCLUDED_MODEL_CLASSES):
+            return
         session = self._get_session_from_model_instance(model_instance)
         if isinstance(session, self._relevant_session_type):
             model_instance_wrapper = self._wrap_model_instance(mapper, model_instance)

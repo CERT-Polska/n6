@@ -1,8 +1,9 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import argparse
 import contextlib
 import copy
+import datetime
 import errno
 import functools
 import json
@@ -21,21 +22,24 @@ from collections.abc import (
     Iterable,
     Sequence,
 )
+from contextlib import contextmanager
 from typing import (
     Optional,
     Union,
 )
 
 import pyramid.testing
-from unittest.mock import (
-    MagicMock,
-    Mock,
-    sentinel,
-)
+from requests.exceptions import HTTPError
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm.exc import (
     MultipleResultsFound,
     NoResultFound,
+)
+from unittest.mock import (
+    MagicMock,
+    Mock,
+    patch,
+    sentinel,
 )
 from webob.multidict import MultiDict
 
@@ -54,6 +58,7 @@ from n6sdk.tests._generic_helpers import TestCaseMixin as SDKTestCaseMixin
 # Packing/unpacking test helpers
 #
 
+
 def zip_data_in_memory(filename, data):
     buff_file = io.BytesIO()
     zip_archive = zipfile.ZipFile(buff_file, mode="w")
@@ -66,6 +71,7 @@ def zip_data_in_memory(filename, data):
 # Mocks for whom attribute access, mock calls
 # and `reset_mock()` calls are thread-safe
 #
+
 
 _rlock_for_rlocked_mocks = threading.RLock()
 
@@ -116,6 +122,7 @@ rlocked_patch.multiple = __rlocked_patching_func(mock.patch.multiple)
 #
 # Generic tests helpers
 #
+
 
 def _patching_method(method_name, patcher_maker, target_autocompletion=True):
 
@@ -1268,9 +1275,17 @@ class MethodProxy(object):
                 obj is inspect.getattr_static(cls, name, None))  # *not* a staticmethod or what...
 
 
+def dt_seconds_ago(seconds: int, without_microseconds=False) -> datetime.datetime:  # noqa
+    dt = datetime.datetime.utcnow() - datetime.timedelta(seconds=seconds)
+    if without_microseconds:
+        dt = dt.replace(microsecond=0)
+    return dt
+
+
 #
 # Test helpers related to SQLAlchemy and/or `n6lib.auth_db`
 #
+
 
 class DBSessionMock(mock.MagicMock):
 
@@ -1293,6 +1308,7 @@ class QueryMock(mock.MagicMock):
         m = mock.Mock()
         m.one.side_effect = lambda: self._one_from_db(self.table, col_val_pairs)
         m.one_or_none.side_effect = lambda: self._one_from_db(self.table, col_val_pairs, none=True)
+        m.with_for_update.side_effect = lambda: m
         return m
 
     def all(self):
@@ -1438,8 +1454,79 @@ class DBConnectionPatchMixin(TestCaseMixin):
 
 
 #
+# Test helpers related to `n6lib.oidc_provider_api`
+#
+
+
+class OIDCProviderPatchMixin:
+    """
+    A class mixin that provides basic patches for instantiating
+    the `n6lib.oidc_provider_api.OIDCProviderAPI`, implemented as
+    a single context manager that applies all patches on entry.
+    """
+
+    SAMPLE_SERVER_URL = 'https://keycloak:8000'
+    SAMPLE_REALM_NAME = 'test_realm'
+    SAMPLE_OIDC_PROVIDER_CONFIG = {
+        'oidc_provider_api': {
+            'enabled': 'true',
+            'server_url': SAMPLE_SERVER_URL,
+            'realm_name': SAMPLE_REALM_NAME,
+        },
+    }
+    SAMPLE_RESPONSE_DATA = {
+        'authorization_endpoint': f'{SAMPLE_SERVER_URL}/authorization',
+        'token_endpoint': f'{SAMPLE_SERVER_URL}/token',
+        'introspection_endpoint': f'{SAMPLE_SERVER_URL}/introspection',
+        'end_session_endpoint': f'{SAMPLE_SERVER_URL}/logout',
+        'jwks_uri': f'{SAMPLE_SERVER_URL}/jwks',
+        'issuer': SAMPLE_SERVER_URL,
+    }
+
+    @property
+    def request_session_cls_patch(self):
+        return patch('authlib.integrations.requests_client.oauth2_session.Session')
+
+    @property
+    def request_meth_patch(self):
+        return patch('n6lib.oidc_provider_api.OAuth2Session.request')
+
+    @property
+    def session_mount_meth_patch(self):
+        return patch('n6lib.oidc_provider_api.OAuth2Session.mount')
+
+    @contextmanager
+    def oidc_provider_api_instance_patches(self):
+        with (
+            patch('n6lib.config.Config._load_n6_config_files',
+                  return_value=self.SAMPLE_OIDC_PROVIDER_CONFIG),
+            self.request_session_cls_patch,
+            self.session_mount_meth_patch,
+            self.request_meth_patch as request_meth_patch,
+            patch('n6lib.oidc_provider_api.SignedSerializer'),
+        ):
+            request_meth_patch.side_effect = self._request_side_effect
+            yield
+
+    @staticmethod
+    def token_validator_patch():
+        return patch('n6lib.oidc_provider_api.TokenValidator')
+
+    def _request_side_effect(self, method, url, **kwargs):
+        if method == 'GET':
+            if url.endswith('.well-known/openid-configuration'):
+                ret_val = self.SAMPLE_RESPONSE_DATA
+            else:
+                raise HTTPError
+        else:
+            ret_val = dict()
+        return Mock(json=Mock(return_value=ret_val))
+
+
+#
 # Test helpers related to Pyramid and/or `{n6sdk,n6lib}.pyramid_commons`
 #
+
 
 class RequestHelperMixin(object):
 
@@ -1605,6 +1692,7 @@ class RequestHelperMixin(object):
 #
 # Test running helpers
 #
+
 
 def run_module_doctests(m=None, *args, **kwargs):
     """

@@ -6,6 +6,12 @@ alembic==1.6.5 \
     # via
     #   -c requirements/requirements-ALL.txt
     #   -r N6Lib/pyproject-derived.in
+authlib==1.6.0 \
+    --hash=sha256:4367d32031b7af175ad3a323d571dc7257b7099d55978087ceae4a0d88cd3210 \
+    --hash=sha256:91685589498f79e8655e8a8947431ad6288831d643f11c55c2143ffcc738048d
+    # via
+    #   -c requirements/requirements-ALL.txt
+    #   -r N6Lib/pyproject-derived.in
 bcrypt==3.1.7 \
     --hash=sha256:0258f143f3de96b7c14f762c770f5fc56ccd72f8a1857a451c1cd9a655d9ac89 \
     --hash=sha256:0b0069c752ec14172c5f78208f1863d7ad6755a6fae6fe76ec2c80d13be41e42 \
@@ -130,6 +136,7 @@ cryptography==3.3.2 \
     --hash=sha256:e18e6ab84dfb0ab997faf8cca25a86ff15dfea4027b986322026cc99e0a892da
     # via
     #   -c requirements/requirements-ALL.txt
+    #   authlib
     #   pyjwt
 docker==7.1.0 \
     --hash=sha256:ad8c70e6e3f8926cb8a92619b832b4ea5299e2831c14284663184e200546fa6c \

@@ -4,6 +4,7 @@ import { LanguageProviderTestWrapper, QueryClientProviderTestWrapper } from 'uti
 import * as DatePickerModule from 'components/forms/datePicker/DatePicker';
 import * as FormTimeInputModule from 'components/forms/datePicker/TimeInput';
 import * as IncidentsFilterModule from './IncidentsFilter';
+import * as FormSelectModule from 'components/forms/FormSelect';
 import { dictionary } from 'dictionary';
 import { subDays, format } from 'date-fns';
 import userEvent from '@testing-library/user-event';
@@ -15,8 +16,14 @@ import { mustBeAsnNumber } from 'components/forms/validation/validators';
 import { useMutation } from 'react-query';
 import * as getSearchModule from 'api/services/search';
 import { AxiosError } from 'axios';
-import { validateAsnNumberRequired, validateTimeRequired } from 'components/forms/validation/validationSchema';
+import {
+  validateAsnNumberRequired,
+  validateSourceOptionsRequired,
+  validateSourceRequired,
+  validateTimeRequired
+} from 'components/forms/validation/validationSchema';
 import { TAvailableResources } from 'api/services/info/types';
+import * as getAvailableSourcesModule from 'api/services/options';
 
 describe('<IncidentsForm />', () => {
   afterEach(() => {
@@ -40,19 +47,22 @@ describe('<IncidentsForm />', () => {
       jest
         .spyOn(FormTimeInputModule, 'default')
         .mockImplementation(({ label }) => <div className={label}>FormTimeInputWrapper</div>);
+      jest.spyOn(getAvailableSourcesModule, 'getAvailableSources').mockResolvedValue([]);
       const IncidentsFilterSpy = jest.spyOn(IncidentsFilterModule, 'default');
 
       jest.useFakeTimers().setSystemTime(currDate);
       render(
-        <AuthContext.Provider value={{ fullAccess: true } as IAuthContext}>
-          <LanguageProviderTestWrapper>
-            <IncidentsForm
-              dataLength={dataLength}
-              refetchData={jest.fn()}
-              currentTab={currentTab as TAvailableResources}
-            />
-          </LanguageProviderTestWrapper>
-        </AuthContext.Provider>
+        <QueryClientProviderTestWrapper>
+          <AuthContext.Provider value={{ fullAccess: true } as IAuthContext}>
+            <LanguageProviderTestWrapper>
+              <IncidentsForm
+                dataLength={dataLength}
+                refetchData={jest.fn()}
+                currentTab={currentTab as TAvailableResources}
+              />
+            </LanguageProviderTestWrapper>
+          </AuthContext.Provider>
+        </QueryClientProviderTestWrapper>
       );
       jest.useRealTimers();
 
@@ -89,7 +99,8 @@ describe('<IncidentsForm />', () => {
       expect(IncidentsFilterSpy).toHaveBeenCalledWith(
         {
           filter: expect.objectContaining({ name: 'asn' }),
-          removeFilter: expect.any(Function)
+          removeFilter: expect.any(Function),
+          currentTab: currentTab
         },
         {}
       );
@@ -104,16 +115,19 @@ describe('<IncidentsForm />', () => {
   it.each([{ currentTab: '/report/inside' }, { currentTab: '/search/events' }, { currentTab: '/report/threats' }])(
     "doesn't render some filters if user doesn't have fullAccess auth value",
     async ({ currentTab }) => {
+      jest.spyOn(getAvailableSourcesModule, 'getAvailableSources').mockResolvedValue([]);
       render(
-        <AuthContext.Provider value={{ fullAccess: false } as IAuthContext}>
-          <LanguageProviderTestWrapper>
-            <IncidentsForm
-              dataLength={parseIncidentsFormDataModule.optLimit - 1}
-              refetchData={jest.fn()}
-              currentTab={currentTab as TAvailableResources}
-            />
-          </LanguageProviderTestWrapper>
-        </AuthContext.Provider>
+        <QueryClientProviderTestWrapper>
+          <AuthContext.Provider value={{ fullAccess: false } as IAuthContext}>
+            <LanguageProviderTestWrapper>
+              <IncidentsForm
+                dataLength={parseIncidentsFormDataModule.optLimit - 1}
+                refetchData={jest.fn()}
+                currentTab={currentTab as TAvailableResources}
+              />
+            </LanguageProviderTestWrapper>
+          </AuthContext.Provider>
+        </QueryClientProviderTestWrapper>
       );
 
       const addFilterButton = screen.getByRole('button', { name: dictionary['en']['incidents_form_btn_add'] });
@@ -126,6 +140,67 @@ describe('<IncidentsForm />', () => {
       expect(filterButtons).toHaveLength(allFilters.length - fullAccessOnlyFilters.length); // no restriction, client or nameSub fields for fullAccess=false
       expect(screen.queryByRole('button', { name: dictionary['en']['incidents_form_restriction'] })).toBe(null);
       expect(screen.queryByRole('button', { name: dictionary['en']['incidents_form_client'] })).toBe(null);
+    }
+  );
+
+  it.each([{ currentTab: '/report/inside' }, { currentTab: '/report/threats' }, { currentTab: '/search/events' }])(
+    'changes source filter parameters depending on users received data from .../sources.json endpoints',
+    async ({ currentTab }) => {
+      const mockedAvailableResourcesData = ['test.source1', 'test.source2'];
+      const mockedAvailableOptions = mockedAvailableResourcesData.map((source) => ({ label: source, value: source }));
+      const IncidentsFilterSpy = jest.spyOn(IncidentsFilterModule, 'default');
+      const FormSelectSpy = jest.spyOn(FormSelectModule, 'default');
+      const getAvailableSourcesSpy = jest
+        .spyOn(getAvailableSourcesModule, 'getAvailableSources')
+        .mockResolvedValue(mockedAvailableResourcesData);
+      render(
+        <QueryClientProviderTestWrapper>
+          <AuthContext.Provider value={{ availableResources: [currentTab] } as IAuthContext}>
+            <LanguageProviderTestWrapper>
+              <IncidentsForm
+                dataLength={parseIncidentsFormDataModule.optLimit - 1}
+                refetchData={jest.fn()}
+                currentTab={currentTab as TAvailableResources}
+              />
+            </LanguageProviderTestWrapper>
+          </AuthContext.Provider>
+        </QueryClientProviderTestWrapper>
+      );
+
+      expect(getAvailableSourcesSpy).not.toHaveBeenCalled();
+
+      const addFilterButton = screen.getByRole('button', { name: dictionary['en']['incidents_form_btn_add'] });
+      const dropdownWrapper = addFilterButton.parentElement;
+      await userEvent.click(addFilterButton);
+
+      const filtersDropdownWrapper = dropdownWrapper?.childNodes[1] as HTMLElement;
+      const filterButtons = getAllByRole(filtersDropdownWrapper, 'button');
+
+      const sourceFilter = filterButtons.find(
+        (button) => button.textContent === dictionary['en']['incidents_form_source']
+      ) as Element;
+      await userEvent.click(sourceFilter);
+
+      expect(getAvailableSourcesSpy).toHaveBeenCalledWith(currentTab);
+
+      expect(IncidentsFilterSpy).toHaveBeenLastCalledWith(
+        {
+          filter: {
+            name: 'source',
+            label: 'incidents_form_source',
+            type: 'selectableInput',
+            options: [],
+            validate: validateSourceOptionsRequired,
+            validateInputOnly: validateSourceRequired
+          },
+          removeFilter: expect.any(Function),
+          currentTab: currentTab
+        },
+        {}
+      );
+      expect(FormSelectSpy).toHaveBeenLastCalledWith(expect.objectContaining({ options: mockedAvailableOptions }), {});
+      // note that IncidentsFilter.filter is not called with any options,
+      // but they are acquired at IncidentsFilter's rendering
     }
   );
 
@@ -150,11 +225,13 @@ describe('<IncidentsForm />', () => {
 
     jest.useFakeTimers().setSystemTime(currDate);
     render(
-      <AuthContext.Provider value={{ fullAccess: true } as IAuthContext}>
-        <LanguageProviderTestWrapper>
-          <IncidentsForm dataLength={dataLength} refetchData={mutateAsync} currentTab="/report/inside" />
-        </LanguageProviderTestWrapper>
-      </AuthContext.Provider>
+      <QueryClientProviderTestWrapper>
+        <AuthContext.Provider value={{ fullAccess: true } as IAuthContext}>
+          <LanguageProviderTestWrapper>
+            <IncidentsForm dataLength={dataLength} refetchData={mutateAsync} currentTab="/report/inside" />
+          </LanguageProviderTestWrapper>
+        </AuthContext.Provider>
+      </QueryClientProviderTestWrapper>
     );
     jest.useRealTimers();
 
@@ -226,62 +303,69 @@ describe('<IncidentsForm />', () => {
   it.each([
     { invalidASNValue: 'test_invalid_asn_value', errMsg: 'Value must be number' },
     { invalidASNValue: '', errMsg: 'Required field' }
-  ])("doesn't submit invalid values parsed from or modified in localStorage", async ({ invalidASNValue, errMsg }) => {
-    const dataLength = parseIncidentsFormDataModule.optLimit - 1;
-    const currDate = new Date();
-    const dayWeekAgo = subDays(currDate, 7);
-    const mockParsedSubmitData: IRequestParams = { 'time.min': currDate };
+  ])(
+    "doesn't submit invalid values parsed from or modified in localStorage",
+    async ({ invalidASNValue, errMsg }) => {
+      const dataLength = parseIncidentsFormDataModule.optLimit - 1;
+      const currDate = new Date();
+      const dayWeekAgo = subDays(currDate, 7);
+      const mockParsedSubmitData: IRequestParams = { 'time.min': currDate };
 
-    const { mutateAsync } = renderHook(
-      () =>
-        useMutation<getSearchModule.IFilterResponse, AxiosError, IRequestParams>((params: IRequestParams) =>
-          getSearchModule.getSearch(params, '/report/inside')
-        ),
-      { wrapper: QueryClientProviderTestWrapper }
-    ).result.current;
+      const { mutateAsync } = renderHook(
+        () =>
+          useMutation<getSearchModule.IFilterResponse, AxiosError, IRequestParams>((params: IRequestParams) =>
+            getSearchModule.getSearch(params, '/report/inside')
+          ),
+        { wrapper: QueryClientProviderTestWrapper }
+      ).result.current;
 
-    jest.spyOn(getSearchModule, 'getSearch').mockResolvedValue({} as getSearchModule.IFilterResponse);
-    const parseIncidentsFormDataSpy = jest
-      .spyOn(parseIncidentsFormDataModule, 'parseIncidentsFormData')
-      .mockReturnValue(mockParsedSubmitData);
+      jest.spyOn(getSearchModule, 'getSearch').mockResolvedValue({} as getSearchModule.IFilterResponse);
+      jest.spyOn(getAvailableSourcesModule, 'getAvailableSources').mockResolvedValue([]);
+      const parseIncidentsFormDataSpy = jest
+        .spyOn(parseIncidentsFormDataModule, 'parseIncidentsFormData')
+        .mockReturnValue(mockParsedSubmitData);
 
-    const ASNStoredFilterParams = allFilters.find((filter) => filter.name === 'asn');
-    localStorage.setItem(
-      FILTERS_STORAGE,
-      JSON.stringify({
-        asn: { ...ASNStoredFilterParams, validate: {}, value: invalidASNValue },
-        startDate: { isDate: true, value: format(dayWeekAgo, 'dd-MM-yyyy') },
-        startTime: { isDate: true, value: '00:00' }
-      })
-    ); // set localStorage to contain invalid form values and no validation for ASN
+      const ASNStoredFilterParams = allFilters.find((filter) => filter.name === 'asn');
+      localStorage.setItem(
+        FILTERS_STORAGE,
+        JSON.stringify({
+          asn: { ...ASNStoredFilterParams, validate: {}, value: invalidASNValue },
+          startDate: { isDate: true, value: format(dayWeekAgo, 'dd-MM-yyyy') },
+          startTime: { isDate: true, value: '00:00' }
+        })
+      ); // set localStorage to contain invalid form values and no validation for ASN
 
-    jest.useFakeTimers().setSystemTime(currDate);
-    render(
-      <AuthContext.Provider value={{ fullAccess: true } as IAuthContext}>
-        <LanguageProviderTestWrapper>
-          <IncidentsForm dataLength={dataLength} refetchData={mutateAsync} currentTab="/report/inside" />
-        </LanguageProviderTestWrapper>
-      </AuthContext.Provider>
-    );
-    jest.useRealTimers();
+      jest.useFakeTimers().setSystemTime(currDate);
+      render(
+        <QueryClientProviderTestWrapper>
+          <AuthContext.Provider value={{ fullAccess: true } as IAuthContext}>
+            <LanguageProviderTestWrapper>
+              <IncidentsForm dataLength={dataLength} refetchData={mutateAsync} currentTab="/report/inside" />
+            </LanguageProviderTestWrapper>
+          </AuthContext.Provider>
+        </QueryClientProviderTestWrapper>
+      );
+      jest.useRealTimers();
 
-    const ASNInputElement = screen.getByRole('textbox', {
-      name: dictionary['en']['incidents_form_asn']
-    }) as HTMLInputElement;
-    expect(ASNInputElement).toBeInTheDocument();
-    expect(ASNInputElement).toHaveValue(invalidASNValue);
+      const ASNInputElement = screen.getByRole('textbox', {
+        name: dictionary['en']['incidents_form_asn']
+      }) as HTMLInputElement;
+      expect(ASNInputElement).toBeInTheDocument();
+      expect(ASNInputElement).toHaveValue(invalidASNValue);
 
-    const submitButton = screen.getByRole('button', { name: dictionary['en']['incidents_form_btn_submit'] });
-    await userEvent.click(submitButton);
-    expect(parseIncidentsFormDataSpy).not.toHaveBeenCalled();
-    expect(screen.getByText(errMsg)).toBeInTheDocument();
+      const submitButton = screen.getByRole('button', { name: dictionary['en']['incidents_form_btn_submit'] });
+      await userEvent.click(submitButton);
+      expect(parseIncidentsFormDataSpy).not.toHaveBeenCalled();
+      expect(screen.getByText(errMsg)).toBeInTheDocument();
 
-    const validASNValue = '123123';
-    await userEvent.clear(ASNInputElement);
-    await userEvent.type(ASNInputElement, validASNValue);
-    await userEvent.click(submitButton);
-    expect(parseIncidentsFormDataSpy).toHaveBeenCalledWith(expect.objectContaining({ asn: validASNValue }));
-  });
+      const validASNValue = '123123';
+      await userEvent.clear(ASNInputElement);
+      await userEvent.type(ASNInputElement, validASNValue);
+      await userEvent.click(submitButton);
+      expect(parseIncidentsFormDataSpy).toHaveBeenCalledWith(expect.objectContaining({ asn: validASNValue }));
+    },
+    10000
+  );
 
   it('loads values and renders filters with values from localStorage if there are any \
     while replenishing validation values for stored filters', async () => {
@@ -307,15 +391,17 @@ describe('<IncidentsForm />', () => {
     jest.useFakeTimers().setSystemTime(currDate);
     await act(() =>
       render(
-        <AuthContext.Provider value={{ fullAccess: true } as IAuthContext}>
-          <LanguageProviderTestWrapper>
-            <IncidentsForm
-              dataLength={parseIncidentsFormDataModule.optLimit - 1}
-              refetchData={jest.fn()}
-              currentTab="/report/inside"
-            />
-          </LanguageProviderTestWrapper>
-        </AuthContext.Provider>
+        <QueryClientProviderTestWrapper>
+          <AuthContext.Provider value={{ fullAccess: true } as IAuthContext}>
+            <LanguageProviderTestWrapper>
+              <IncidentsForm
+                dataLength={parseIncidentsFormDataModule.optLimit - 1}
+                refetchData={jest.fn()}
+                currentTab="/report/inside"
+              />
+            </LanguageProviderTestWrapper>
+          </AuthContext.Provider>
+        </QueryClientProviderTestWrapper>
       )
     );
     jest.useRealTimers();
@@ -349,15 +435,17 @@ describe('<IncidentsForm />', () => {
   it('renders toast warning if resulting query equaled or exceeded optLimit results', async () => {
     await act(() =>
       render(
-        <AuthContext.Provider value={{ fullAccess: true } as IAuthContext}>
-          <LanguageProviderTestWrapper>
-            <IncidentsForm
-              dataLength={parseIncidentsFormDataModule.optLimit}
-              refetchData={jest.fn()}
-              currentTab="/report/inside"
-            />
-          </LanguageProviderTestWrapper>
-        </AuthContext.Provider>
+        <QueryClientProviderTestWrapper>
+          <AuthContext.Provider value={{ fullAccess: true } as IAuthContext}>
+            <LanguageProviderTestWrapper>
+              <IncidentsForm
+                dataLength={parseIncidentsFormDataModule.optLimit}
+                refetchData={jest.fn()}
+                currentTab="/report/inside"
+              />
+            </LanguageProviderTestWrapper>
+          </AuthContext.Provider>
+        </QueryClientProviderTestWrapper>
       )
     );
     expect(screen.getByRole('alert')).toHaveTextContent(

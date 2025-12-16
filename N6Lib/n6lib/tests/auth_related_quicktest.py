@@ -577,7 +577,22 @@ def data_maker_for__TestAuthAPI_get_user_ids_to_org_ids(session):
                      users=[models.User(login='login3@foo.bar')])
     yield models.Org(org_id='o4',
                      users=[models.User(login='login4@foo.bar'),
-                            models.User(login='login6@foo.bar')])
+                            models.User(login='login6@foo.bar'),
+                            models.User(login='blocked-guy@foo.bar', is_blocked=True)])
+    yield models.Org(org_id='o42')
+
+def data_maker_for__TestAuthAPI_get_all_user_ids_including_blocked(session):
+    yield models.Org(org_id='o1',
+                     users=[models.User(login='login1@foo.bar'),
+                            models.User(login='login5@foo.bar')])
+    yield models.Org(org_id='o2',
+                     users=[models.User(login='login2@foo.bar')])
+    yield models.Org(org_id='o3',
+                     users=[models.User(login='login3@foo.bar')])
+    yield models.Org(org_id='o4',
+                     users=[models.User(login='login4@foo.bar'),
+                            models.User(login='login6@foo.bar'),
+                            models.User(login='blocked-guy@foo.bar', is_blocked=True)])
     yield models.Org(org_id='o42')
 
 def data_maker_for__TestAuthAPI_get_org_ids(session):

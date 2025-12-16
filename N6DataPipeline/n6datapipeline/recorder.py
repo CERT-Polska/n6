@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2023 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 """
 The *recorder* component -- adds n6 events to the Event DB.
@@ -152,6 +152,8 @@ class Recorder(LegacyQueuedBase):
         self.record_dict = None
         self.records = None
         self.routing_key = None
+        self.integrity_error_occurred = None
+        self.inserting = False
         self.session_db = self._setup_db()
         self.dict_map_fun = {
             "event.filtered": (RecordDict.from_json, self.new_event),
@@ -463,6 +465,11 @@ class Recorder(LegacyQueuedBase):
         return '.'.join(parts_rk)
 
     def input_callback(self, routing_key, body, properties):
+        self.record_dict = None
+        self.records = None
+        self.routing_key = None
+        self.integrity_error_occurred = None
+        self.inserting = False
         try:
             self._input_callback(routing_key, body, properties)
         except Exception as exc:
@@ -527,29 +534,19 @@ class Recorder(LegacyQueuedBase):
                 tmp_rows['client'] = client
                 self.records['client'].append(tmp_rows)
 
-    def insert_new_event(self, items, with_transact=True, recorded=False):
-        """
-        New events and new blacklist add to database,
-        default in the transaction, or the outer transaction(with_transact=False).
-        """
-        try:
-            if with_transact:
-                with transact:
-                    self.session_db.add_all(items)
-            else:
-                assert transact.is_entered
-                self.session_db.add_all(items)
-        except IntegrityError as exc:  # May not be caught here if `with_transact` is false!
-            str_exc = make_exc_ascii_str(exc)
-            LOGGER.warning(str_exc)
-        else:
-            if recorded and not self.cmdline_args.n6recovery:
-                rk = replace_segment(self.routing_key, 1, 'recorded')
-                LOGGER.debug(
-                    'Publish for email notifications '
-                    '-- rk: %a, record_dict: %a',
-                    rk, self.record_dict)
-                self.publish_event(self.record_dict, rk)
+    def insert_new_event_db_records(self, items):
+        assert transact.is_entered
+        self.session_db.add_all(items)
+        self.inserting = True
+
+    def publish_as_recorded(self):
+        assert self.record_dict is not None
+        rk = replace_segment(self.routing_key, 1, 'recorded')
+        LOGGER.debug(
+            'Publish for email notifications '
+            '-- rk: %a, record_dict: %a',
+            rk, self.record_dict)
+        self.publish_event(self.record_dict, rk)
 
     def publish_event(self, data, rk):
         """
@@ -585,7 +582,14 @@ class Recorder(LegacyQueuedBase):
             items.append(client)
 
         LOGGER.debug("insert new events, count.: %a", len(items))
-        self.insert_new_event(items, recorded=True)
+        with self._handling_integrity_error(), \
+             transact:
+            self.insert_new_event_db_records(items)
+
+        assert self.inserting
+        if (not self.cmdline_args.n6recovery and
+              not self.integrity_error_occurred):
+            self.publish_as_recorded()
 
     def blacklist_new(self):
         self.new_event(_is_blacklist=True)
@@ -628,7 +632,12 @@ class Recorder(LegacyQueuedBase):
                 else:
                     LOGGER.debug("bl-change, records with id %a DO NOT EXIST!", id_replaces)
                     LOGGER.debug("inserting new events anyway, count.: %a", len(items))
-                self.insert_new_event(items, with_transact=False, recorded=True)
+                self.insert_new_event_db_records(items)
+
+        assert self.inserting
+        if (not self.cmdline_args.n6recovery and
+              not self.integrity_error_occurred):
+            self.publish_as_recorded()
 
     def blacklist_delist(self):
         """
@@ -708,7 +717,12 @@ class Recorder(LegacyQueuedBase):
                     items.append(client)
                 LOGGER.debug("bl-update, records with id %a DO NOT EXIST!", id_event)
                 LOGGER.debug("insert new events,::count:: %a", len(items))
-                self.insert_new_event(items, with_transact=False)
+                self.insert_new_event_db_records(items)
+
+        if self.inserting and (
+              not self.cmdline_args.n6recovery and
+              not self.integrity_error_occurred):
+            self.publish_as_recorded()
 
     def suppressed_update(self):
         """
@@ -755,16 +769,24 @@ class Recorder(LegacyQueuedBase):
                     items.append(client)
                 LOGGER.warning("suppressed_update, records with id %a DO NOT EXIST!", id_event)
                 LOGGER.debug("insert new events,,::count:: %a", len(items))
-                self.insert_new_event(items, with_transact=False)
+                self.insert_new_event_db_records(items)
 
-    @staticmethod
+        if self.inserting and (
+              not self.cmdline_args.n6recovery and
+              not self.integrity_error_occurred):
+            self.publish_as_recorded()
+
     @contextlib.contextmanager
-    def _handling_integrity_error():
+    def _handling_integrity_error(self):
+        assert self.integrity_error_occurred is None
         try:
             yield
         except IntegrityError as exc:
+            self.integrity_error_occurred = True
             str_exc = make_exc_ascii_str(exc)
             LOGGER.warning(str_exc)
+        else:
+            self.integrity_error_occurred = False
 
 
 def main():

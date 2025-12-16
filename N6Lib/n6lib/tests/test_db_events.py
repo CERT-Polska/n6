@@ -189,7 +189,7 @@ class Test_n6NormalizedData(_SqlaModelTestMixin, unittest.TestCase):
                 'cc': 'cc CHAR(2)',
                 'category': (
                     "category ENUM('amplifier','bots','backdoor','cnc',"
-                    "'deface','dns-query','dos-attacker','dos-victim','flow',"
+                    "'deface','dns-query','dos-attacker','dos-victim','exposed','flow',"
                     "'flow-anomaly','fraud','leak','malurl','malware-action','other','phish',"
                     "'proxy','sandbox-url','scam','scanning','server-exploit','spam',"
                     "'spam-url','tor','vulnerable','webinject') NOT NULL"),

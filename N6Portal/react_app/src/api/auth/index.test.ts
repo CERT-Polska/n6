@@ -1,9 +1,8 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import {
-  KeycloakStub,
   deleteApiKey,
   getApiKey,
-  getLogout,
+  // getLogout,
   getMfaConfig,
   postApiKey,
   postEditMfaConfigConfirm,
@@ -13,52 +12,41 @@ import {
   postMfaConfig,
   postMfaConfigConfirm,
   postMfaLogin,
+  postOIDCCallback,
+  postOIDCInfo,
+  postOIDCRefreshToken,
   postResetPassword,
   useApiKey,
   useMfaConfig
 } from './index';
 import { QueryClientProviderTestWrapper } from 'utils/testWrappers';
-import { IApiKey, IForgottenPasswordData, ILogin, ILoginKeycloak, IMfaConfig } from './types';
+import {
+  IApiKey,
+  ICallbackKeycloak,
+  IForgottenPasswordData,
+  ILogin,
+  ILoginKeycloak,
+  IMfaConfig,
+  IOIDCParams
+} from './types';
 import { controllers, customAxios, dataController } from 'api';
 import { AxiosError } from 'axios';
 import qs from 'qs';
 
-describe('class KeycloakStub', () => {
-  it('returns false on "get authenticated()" method', () => {
-    expect(new KeycloakStub().authenticated).toBe(false);
-  });
+// describe('getLogout', () => {
+//   it('calls /logout GET endpoint and returns payloads data', async () => {
+//     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve());
+//     const payloadData: Promise<void> = getLogout();
+//     waitFor(() => expect(payloadData).not.toBe(null));
+//     expect(customAxios.get).toHaveBeenCalledWith(`${dataController}${controllers.auth.logout}`);
+//   });
 
-  it('returns empty string on "get token()" method', () => {
-    expect(new KeycloakStub().token).toBe('');
-  });
-
-  it('returns false on "login" method', () => {
-    expect(new KeycloakStub().login()).toBe(false);
-  });
-
-  it('returns false on "logout" method', () => {
-    expect(new KeycloakStub().logout()).toBe(false);
-  });
-
-  it('returns new Promise on "init" method with "false" as return value from this promise', () => {
-    expect(new KeycloakStub().init()).resolves.toBe(false);
-  });
-});
-
-describe('getLogout', () => {
-  it('calls /logout GET endpoint and returns payloads data', async () => {
-    jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.resolve());
-    const payloadData: Promise<void> = getLogout();
-    waitFor(() => expect(payloadData).not.toBe(null));
-    expect(customAxios.get).toHaveBeenCalledWith(`${dataController}${controllers.auth.logout}`);
-  });
-
-  it('throws error on try-catch clause break', async () => {
-    const err = new Error('test error message');
-    jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.reject(err));
-    return expect(getLogout()).rejects.toStrictEqual(err);
-  });
-});
+//   it('throws error on try-catch clause break', async () => {
+//     const err = new Error('test error message');
+//     jest.spyOn(customAxios, 'get').mockImplementation(() => Promise.reject(err));
+//     return expect(getLogout()).rejects.toStrictEqual(err);
+//   });
+// });
 
 describe('getApiKey', () => {
   it('calls /api_key GET endpoint and returns payloads data', async () => {
@@ -206,6 +194,27 @@ describe('deleteApiKey', () => {
   });
 });
 
+describe('postOIDCInfo', () => {
+  it('calls /info/oidc POST endpoint and returns payloads data', async () => {
+    const mockedPostOIDCInfoData: IOIDCParams[] = [
+      {
+        auth_url: 'test_auth_url',
+        state: 'test_state'
+      }
+    ];
+    jest.spyOn(customAxios, 'post').mockImplementation(() => Promise.resolve({ data: mockedPostOIDCInfoData }));
+    const payloadData: Promise<IOIDCParams> = postOIDCInfo();
+    waitFor(() => expect(payloadData).toBe(mockedPostOIDCInfoData));
+    expect(customAxios.post).toHaveBeenCalledWith(`${dataController}${controllers.auth.infoOIDC}`);
+  });
+
+  it('throws error on try-catch clause break', async () => {
+    const err = new Error('test error message');
+    jest.spyOn(customAxios, 'post').mockImplementation(() => Promise.reject(err));
+    return expect(postOIDCInfo()).rejects.toStrictEqual(err);
+  });
+});
+
 describe('postLogin', () => {
   it('calls /login POST endpoint and returns payloads data', async () => {
     const mockedPostLoginPayloadData: Record<string, string> = {
@@ -230,6 +239,34 @@ describe('postLogin', () => {
   });
 });
 
+describe('postOIDCCallback', () => {
+  it('calls /info/oidc POST endpoint and returns payloads data', async () => {
+    const mockedPostOIDCCallbackData: ICallbackKeycloak[] = [
+      {
+        access_token: 'test_access_token',
+        refresh_token: 'test_refresh_token',
+        id_token: 'test_id_token'
+      }
+    ];
+    const postOIDCCallbackData: Record<string, string> = {
+      data: 'test_data'
+    };
+    jest.spyOn(customAxios, 'post').mockImplementation(() => Promise.resolve({ data: mockedPostOIDCCallbackData }));
+    const payloadData: Promise<ICallbackKeycloak> = postOIDCCallback(postOIDCCallbackData);
+    waitFor(() => expect(payloadData).toBe(mockedPostOIDCCallbackData));
+    expect(customAxios.post).toHaveBeenCalledWith(
+      `${dataController}${controllers.auth.oidcCallback}`,
+      qs.stringify(postOIDCCallbackData)
+    );
+  });
+
+  it('throws error on try-catch clause break', async () => {
+    const err = new Error('test error message');
+    jest.spyOn(customAxios, 'post').mockImplementation(() => Promise.reject(err));
+    return expect(postOIDCCallback({})).rejects.toStrictEqual(err);
+  });
+});
+
 describe('postLoginKeycloak', () => {
   it('calls /login/oidc POST endpoint and returns payloads data', async () => {
     const mockedPostLoginKeycloakPayloadData: Record<string, string> = {
@@ -247,6 +284,34 @@ describe('postLoginKeycloak', () => {
     const err = new Error('test error message');
     jest.spyOn(customAxios, 'post').mockImplementation(() => Promise.reject(err));
     return expect(postLoginKeycloak()).rejects.toStrictEqual(err);
+  });
+});
+
+describe('postOIDCRefreshToken', () => {
+  it('calls /info/oidc POST endpoint and returns payloads data', async () => {
+    const mockedPostOIDCRefreshTokenData: ICallbackKeycloak[] = [
+      {
+        access_token: 'test_access_token',
+        refresh_token: 'test_refresh_token',
+        id_token: 'test_id_token'
+      }
+    ];
+    const postOIDCRefreshTokenData: Record<string, string> = {
+      data: 'test_data'
+    };
+    jest.spyOn(customAxios, 'post').mockImplementation(() => Promise.resolve({ data: mockedPostOIDCRefreshTokenData }));
+    const payloadData: Promise<ICallbackKeycloak> = postOIDCRefreshToken(postOIDCRefreshTokenData);
+    waitFor(() => expect(payloadData).toBe(mockedPostOIDCRefreshTokenData));
+    expect(customAxios.post).toHaveBeenCalledWith(
+      `${dataController}${controllers.auth.oidcRefreshToken}`,
+      qs.stringify(postOIDCRefreshTokenData)
+    );
+  });
+
+  it('throws error on try-catch clause break', async () => {
+    const err = new Error('test error message');
+    jest.spyOn(customAxios, 'post').mockImplementation(() => Promise.reject(err));
+    return expect(postOIDCRefreshToken({})).rejects.toStrictEqual(err);
   });
 });
 

@@ -4117,18 +4117,17 @@ def memoized(func: Union[Callable, None] = None,
                             else _get_expiry_time())
                         gen_cache_reg = (
                             item._replace(expiry_time=expiry_time)
-                            for item in cache_register)
+                            for item in iter_drain_from_deque(cache_register))
                     else:
                         gen_cache_reg = (
                             item._replace(expiry_time=item.expiry_time + expires_after_diff)
-                            for item in cache_register)
+                            for item in iter_drain_from_deque(cache_register))
             if new_max_size is not _UNCHANGED:
                 max_size = new_max_size
                 if gen_cache_reg is None:
-                    gen_cache_reg = iter(cache_register)
+                    gen_cache_reg = iter_drain_from_deque(cache_register)
             if gen_cache_reg is not None:
-                cache_register = collections.deque(maxlen=max_size)
-                cache_register.extend(gen_cache_reg)
+                cache_register = collections.deque(gen_cache_reg, maxlen=max_size)
 
     change_cache_settings.__qualname__ = f'{__qualname}.{change_cache_settings.__name__}'
     __change_cache_settings_fullqualname = f'{__module}.{change_cache_settings.__qualname__}'
@@ -4532,6 +4531,88 @@ def merge_mappings_recursively(*args, **kwargs):
     target_dict = {}
     update_mapping_recursively(target_dict, *args, **kwargs)
     return target_dict
+
+
+def iter_drain_from_deque(d: collections.deque[T]) -> Iterator[T]:
+    """
+    Get an iterator that pops and yields, one by one, all items of the
+    given instance of `collections.deque` (from its left end), until it
+    is empty.
+
+    >>> d = collections.deque([1, 42, 3])
+    >>> d
+    deque([1, 42, 3])
+    >>> list(iter_drain_from_deque(d))
+    [1, 42, 3]
+    >>> d
+    deque([])
+
+    Let's take a closer look at the returned iterator's behavior:
+
+    >>> deq = collections.deque('abc')
+    >>> it = iter_drain_from_deque(deq)
+    >>> isinstance(it, Iterator)
+    True
+    >>> deq
+    deque(['a', 'b', 'c'])
+    >>> next(it)
+    'a'
+    >>> deq
+    deque(['b', 'c'])
+    >>> next(it)
+    'b'
+    >>> deq
+    deque(['c'])
+    >>> deq.append('d')
+    >>> deq
+    deque(['c', 'd'])
+    >>> next(it)
+    'c'
+    >>> deq
+    deque(['d'])
+    >>> next(it)
+    'd'
+    >>>                   # No items left in the deque, but the iterator
+    >>> deq               # has *not* raised StopIteration yet.
+    deque([])
+    >>> deq.append('e')   # Therefore, any new items added to the deque...
+    >>> deq
+    deque(['e'])
+    >>> next(it)          # ...can still be popped & yielded by the iterator:
+    'e'
+    >>> deq
+    deque([])
+    >>> next(it)                            # doctest: +IGNORE_EXCEPTION_DETAIL
+    Traceback (most recent call last):
+      ...
+    StopIteration: ...
+
+    Now that the iterator has raised a `StopIteration`, it will continue
+    raising `StopIteration` (instead of yielding anything), and it will
+    never again pop any items from the deque (even if new items are added
+    to the deque):
+
+    >>> deq.append('f')
+    >>> deq
+    deque(['f'])
+    >>> list(it)
+    []
+    >>> deq
+    deque(['f'])
+
+    Of course, a new independent iterator can always be created and used
+    to pop items from the same deque:
+
+    >>> it2 = iter_drain_from_deque(deq)
+    >>> deq
+    deque(['f'])
+    >>> list(it2)
+    ['f']
+    >>> deq
+    deque([])
+    """
+    while d:
+        yield d.popleft()
 
 
 def deep_copying_result(func):

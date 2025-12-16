@@ -24,6 +24,7 @@ import {
   searchRegex
 } from 'components/forms/validation/validationRegexp';
 import isObject from 'utils/isObject';
+import { SelectOption } from 'components/shared/customSelect/CustomSelect';
 
 type ValidationFormState = {
   isTouched: boolean;
@@ -41,10 +42,16 @@ export const validateField = ({
   (isSubmitted && !isSubmitSuccessful && hasErrors);
 
 export const validateMultivalues: TValidateMultiValues = (validateFn) => (value) => {
-  if (!value) return validateFn(value);
-  if (typeof value !== 'string') return false;
-  const splitValues = value.split(',');
-  if (value.endsWith(',')) splitValues.pop();
+  if (!value || (Array.isArray(value) && !value.length)) return validateFn(value);
+  let splitValues;
+  if (typeof value === 'string') {
+    splitValues = value.split(',');
+    if (value.endsWith(',')) splitValues.pop();
+  } else if (Array.isArray(value)) {
+    splitValues = value;
+  } else {
+    return false;
+  }
   const validateResults: Array<ValidateResult | Promise<ValidateResult>> = splitValues.map((singleVal) =>
     validateFn(singleVal)
   );
@@ -129,6 +136,13 @@ export const mustBeOrgDomain: Validate<FormFieldValue> = (value) =>
 
 export const mustBeSource: Validate<FormFieldValue> = (value) =>
   !value || (typeof value === 'string' && value.match(sourceRegex)) ? true : 'validation_mustBeSource';
+
+export const mustBeSourceOption: Validate<FormFieldValue> = (option) => {
+  const value = (option as SelectOption<string> | null)?.value;
+  return !option || !value || (typeof value === 'string' && value.match(sourceRegex))
+    ? true
+    : 'validation_mustBeSourceOption';
+};
 
 export const mustBeCountryCode: Validate<FormFieldValue> = (value) =>
   !value || (typeof value === 'string' && value.match(countryCodeRegex)) ? true : 'validation_mustBeCountryCode';

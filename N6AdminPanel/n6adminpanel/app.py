@@ -18,6 +18,7 @@ from flask import (
     flash,
     g,
     request,
+    Request,
 )
 from flask_admin import (
     Admin,
@@ -1307,6 +1308,14 @@ class _AuthManageAPIAdapter(AuthManageAPI):
         return err
 
 
+class ExtendedFormRequest(Request):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args,**kwargs)
+        self.max_form_parts = 10_000
+        # default value to change in case of `EntityTooLarge` exception occurred.
+        self.max_form_memory_size = 500_000
+
+
 class AdminPanel(ConfigMixin):
 
     config_spec = '''
@@ -1470,6 +1479,7 @@ class AdminPanel(ConfigMixin):
             # domain share the cookie").
             SESSION_COOKIE_DOMAIN=False,
         )
+        app.request_class = ExtendedFormRequest
         app.before_request(self._before_request)
         signals.message_flashed.connect(self._note_flashing_csrf_error, app)
         signals.before_render_template.connect(self._flash_csrf_errors_if_needed, app)

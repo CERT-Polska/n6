@@ -4,7 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxtHighlighter } from 'react-syntax-highlighter';
 import FileSaver from 'file-saver';
 import remarkGfm from 'remark-gfm';
-
+import rehypeAutolinkHeadings from 'rehype-autolink-headings';
+import rehypeCustomAnchorPlugin from 'utils/rehypeCustomAnchorPlugin';
 import { useTypedIntl } from 'utils/useTypedIntl';
 import { useArticle } from 'api/services/kb';
 import Loader from 'components/loading/Loader';
@@ -30,8 +31,21 @@ const SingleArticle: FC = () => {
   useEffect(() => {
     setDownloadPdfError(false);
     setActiveArticleId(parsedArticleId);
-    scrollToRef.current?.scrollIntoView({ block: 'center' });
+
+    if (!window.location.hash) {
+      scrollToRef.current?.scrollIntoView({ block: 'center' });
+    }
   }, [parsedArticleId, setActiveArticleId]);
+
+  useEffect(() => {
+    if (data && window.location.hash) {
+      const id = window.location.hash.substring(1);
+      const element = document.getElementById(id);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [data]);
 
   if (isLoading) {
     return (
@@ -85,6 +99,7 @@ const SingleArticle: FC = () => {
         <div data-testid="kb-article-markdown">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeCustomAnchorPlugin, [rehypeAutolinkHeadings, { behavior: 'wrap' }]]}
             className="md-content"
             children={data.content[locale]}
             components={{

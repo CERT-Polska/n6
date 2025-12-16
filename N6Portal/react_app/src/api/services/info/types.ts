@@ -34,3 +34,11 @@ export interface IInfoConfig {
     ip_min_max_seq?: IIpMinMaxSeq[];
   };
 }
+
+export interface IInfoOIDC {
+  enabled: boolean;
+  logout_uri: string;
+  logout_redirect_uri: string;
+  auth_url: string;
+  state: string;
+}

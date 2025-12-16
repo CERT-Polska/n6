@@ -24,6 +24,7 @@ import {
   mustBeSearchQuery,
   mustBeSha1,
   mustBeSource,
+  mustBeSourceOption,
   mustBeText,
   mustBeTime,
   mustBeUrl,
@@ -78,13 +79,14 @@ describe('validateField', () => {
 
 describe('validateMultivalues', () => {
   it('performs provided validation function on provided input value. \
-        If value is a comma separated string, it splits it and validates each part.', () => {
+        If value is a comma separated string, it splits it and validates each part. \
+        If value is an Array, it validates each item in the array', () => {
     const validateFnMock = jest.fn().mockReturnValue('return value');
 
     expect(validateMultivalues(validateFnMock)(null)).toBe('return value'); // !value
     expect(validateFnMock).toHaveBeenNthCalledWith(1, null);
 
-    expect(validateMultivalues(validateFnMock)({ value: '', label: '' } as SelectOption<string>)).toBe(false); // non string value
+    expect(validateMultivalues(validateFnMock)({ value: '', label: '' } as SelectOption<string>)).toBe(false); // non string and non array value
     expect(validateFnMock).toHaveBeenCalledTimes(1); // not called for previous value
 
     expect(validateMultivalues(validateFnMock)('test')).toBe('return value');
@@ -113,6 +115,16 @@ describe('validateMultivalues', () => {
     expect(validateFnMock).toHaveNthReturnedWith(10, true);
     expect(validateFnMock).toHaveBeenNthCalledWith(11, 'values');
     expect(validateFnMock).toHaveNthReturnedWith(11, true);
+
+    expect(validateMultivalues(validateFnMock)(['test', { value: 'test_value', label: 'test_label' }, null])).toBe(
+      true
+    );
+    expect(validateFnMock).toHaveBeenNthCalledWith(12, 'test');
+    expect(validateFnMock).toHaveNthReturnedWith(12, true);
+    expect(validateFnMock).toHaveBeenNthCalledWith(13, { value: 'test_value', label: 'test_label' });
+    expect(validateFnMock).toHaveNthReturnedWith(13, true);
+    expect(validateFnMock).toHaveBeenNthCalledWith(14, null);
+    expect(validateFnMock).toHaveNthReturnedWith(14, true);
   });
 });
 
@@ -165,7 +177,8 @@ describe('isRequired', () => {
 
     { value: {} as SelectOption<string>, expected: 'validation_isRequired' },
     { value: '', expected: 'validation_isRequired' },
-    { value: null, expected: 'validation_isRequired' }
+    { value: null, expected: 'validation_isRequired' },
+    { value: [], expected: 'validation_isRequired' }
   ])(
     'returns true if not empty string or object is provided or throws validation_isRequired',
     ({ value, expected }) => {
@@ -432,6 +445,26 @@ describe('mustBeSource', () => {
     { value: 'tęs t123.tęst-123', expected: true }
   ])('returns true if given input matches sourceRegex', ({ value, expected }) => {
     expect(mustBeSource(value)).toBe(expected);
+  });
+});
+
+describe('mustBeSourceOption', () => {
+  it.each([
+    { value: { label: '', value: '' }, expected: true },
+    { value: { label: '', value: 'test' }, expected: 'validation_mustBeSourceOption' },
+    { value: { label: '', value: 'test test' }, expected: 'validation_mustBeSourceOption' },
+    { value: { label: '', value: 'Test123' }, expected: 'validation_mustBeSourceOption' },
+    { value: { label: '', value: 'test.test' }, expected: true },
+    { value: { label: '', value: '.test' }, expected: 'validation_mustBeSourceOption' },
+    { value: { label: '', value: 'test.' }, expected: 'validation_mustBeSourceOption' },
+    { value: { label: '', value: '.' }, expected: 'validation_mustBeSourceOption' },
+    { value: { label: '', value: '"Test.test' }, expected: true },
+    { value: { label: '', value: 'test123.test123' }, expected: true },
+    { value: { label: '', value: '123test.test123' }, expected: true },
+    { value: { label: '', value: 'tęst123.tęst123' }, expected: true },
+    { value: { label: '', value: 'tęs t123.tęst-123' }, expected: true }
+  ])('returns true if given input matches sourceRegex', ({ value, expected }) => {
+    expect(mustBeSourceOption(value)).toBe(expected);
   });
 });
 

@@ -15,7 +15,8 @@ system, such as [*Debian GNU/Linux*](https://www.debian.org/).
 
 !!! important
 
-    This guide assumes that you have installed _**Debian 12**_ (*Bookworm*).
+    This guide assumes that you have installed [_**Debian 12**_
+    (*Bookworm*)](https://www.debian.org/releases/bookworm/).
 
     Installation of other required software is described in respective
     sections of this chapter.

@@ -1,5 +1,5 @@
-import { FC, useEffect } from 'react';
-import { Redirect } from 'react-router';
+import { FC, useEffect, useState } from 'react';
+import { Redirect, useLocation } from 'react-router';
 import { useTypedIntl } from 'utils/useTypedIntl';
 import { ReactComponent as SuccessIcon } from 'images/check-ico.svg';
 import CustomButton from 'components/shared/CustomButton';
@@ -8,9 +8,11 @@ import useKeycloakContext from 'context/KeycloakContext';
 import routeList from 'routes/routeList';
 
 const LoginConfigKeycloakSummary: FC = () => {
+  const [endSessionError, setEndSessionError] = useState(false);
   const { messages } = useTypedIntl();
   const keycloak = useKeycloakContext();
   const { isAuthenticated, availableResources, resetAuthState } = useAuthContext();
+  const { state } = useLocation();
 
   const hasOnlyInsideAccess =
     availableResources.includes('/report/inside') && !availableResources.includes('/search/events');
@@ -27,10 +29,17 @@ const LoginConfigKeycloakSummary: FC = () => {
     resetAuthState();
   }, []);
 
-  if (!keycloak.enabled) return <Redirect to={routeList.login} />;
-
   if (!keycloak.additionalStatus && keycloak.isAuthenticated) {
     return <Redirect to={redirectUrl} />;
+  }
+
+  async function endSession() {
+    const props = state as Record<string, string>;
+    if (props && props.accessToken && props.idToken) {
+      keycloak.logout(props.accessToken, props.idToken);
+    } else {
+      setEndSessionError(true);
+    }
   }
 
   let msgView;
@@ -57,17 +66,33 @@ const LoginConfigKeycloakSummary: FC = () => {
   } else {
     msgView = (
       <>
-        <h1>Failed to authenticate to N6Portal</h1>
-        <CustomButton to={routeList.login} text="Login" variant="primary" />
+        <h1 className="mb-20">Failed to authenticate to N6Portal</h1>
+        {state && (
+          <div>
+            <CustomButton
+              className="mb-20"
+              variant="primary"
+              text={`${messages.logout_oidc_end_session_btn}`}
+              onClick={endSession}
+            />
+          </div>
+        )}
+        <div>
+          <CustomButton to={routeList.login} text={`${messages.noAccess_btn_text}`} variant="primary" />
+        </div>
       </>
     );
   }
 
-  return (
-    <section className="login-container">
-      <div className="login-content mfa-config-summary">{msgView}</div>
-    </section>
-  );
+  if (endSessionError) {
+    return <Redirect to={routeList.login} />;
+  } else {
+    return (
+      <section className="login-container">
+        <div className="login-content mfa-config-summary">{msgView}</div>
+      </section>
+    );
+  }
 };
 
 export default LoginConfigKeycloakSummary;

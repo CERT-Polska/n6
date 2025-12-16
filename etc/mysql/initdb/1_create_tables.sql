@@ -16,7 +16,7 @@ CREATE TABLE n6.event (
     origin ENUM('c2','dropzone','proxy','p2p-crawler','p2p-drone','sinkhole','sandbox','honeypot','darknet','av','ids','waf'),
     restriction ENUM('public','need-to-know','internal') NOT NULL,
     confidence ENUM('low','medium','high') NOT NULL,
-    category ENUM('bots','cnc','dos-victim','malurl','phish','proxy','sandbox-url','scanning','server-exploit','spam','other','spam-url','amplifier','tor','dos-attacker','vulnerable','backdoor','dns-query','flow','flow-anomaly','fraud','leak','webinject','malware-action','deface','scam') NOT NULL,
+    category ENUM('bots','cnc','dos-victim','malurl','phish','proxy','sandbox-url','scanning','server-exploit','spam','other','spam-url','amplifier','tor','dos-attacker','vulnerable','backdoor','dns-query','flow','flow-anomaly','fraud','leak','webinject','malware-action','deface','scam','exposed') NOT NULL,
     time DATETIME NOT NULL,
     name VARCHAR(255),
     md5 BINARY(16),

@@ -77,6 +77,7 @@ class AuthData(TypedDict):
 
 class AccessInfo(TypedDict):      # (see: `n6lib.auth_api.AuthAPI.get_access_info()`)
     access_zone_conditions: AccessZoneConditionsDict
+    access_zone_source_ids: dict[AccessZone, list[str]]
     rest_api_resource_limits: dict[EventDataResourceId, dict]
     rest_api_full_access: bool    # `Org.full_access`
 

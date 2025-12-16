@@ -449,10 +449,11 @@ def get_article_title(structure_elements: dict, article_id: int, lang: str) -> s
     parameter and language given in `lang` parameter ("pl"/"en").
     """
     content = get_article_content(structure_elements, article_id, lang)
-    title = content[:content.find("\n")].strip()
-    while title[0] == "#":
-        title = title[1:]
-    return title.strip()
+    try:
+        title = content[:content.index("\n")]
+    except ValueError:
+        title = content
+    return title.strip().lstrip('#').lstrip()
 
 
 def get_structure_lvl(structure_elements: dict) -> int:
@@ -499,7 +500,7 @@ def get_object_lang(obj_path: str, root: str) -> str:
     """
     Get the language of the object from the path of the object,
     given in the parameter `obj_path`. The parameter `root` helps to
-    identify the level on which the language can be find.
+    identify the level on which the language can be found.
 
     If path does not exist, return the empty string.
     """

@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { LanguageProviderTestWrapper } from 'utils/testWrappers';
 import SignUpStepOne from './SignUpStepOne';
 import { dictionary, signup_terms } from 'dictionary';
+import termsEn from 'config/terms_en';
+import termsPl from 'config/terms_pl';
 import * as ReactMarkdownModule from 'react-markdown';
 import userEvent from '@testing-library/user-event';
 
@@ -11,9 +13,7 @@ describe('<SignUpStepOne', () => {
     async ({ locale }) => {
       const ReactMarkdownSpy = jest.spyOn(ReactMarkdownModule, 'default');
       const changeStepMock = jest.fn();
-      const TOSContent = process.env.REACT_APP_TOS
-        ? JSON.parse(process.env.REACT_APP_TOS)[locale]['terms']
-        : signup_terms[locale]['content'];
+      const TOSContent = (locale === 'en' ? termsEn.content : termsPl.content) || signup_terms[locale]['content'];
       render(
         <LanguageProviderTestWrapper locale={locale}>
           <SignUpStepOne changeStep={changeStepMock} changeTosVersions={jest.fn()} />

@@ -26,6 +26,7 @@ export type TCategory =
   | 'dns-query'
   | 'dos-attacker'
   | 'dos-victim'
+  | 'exposed'
   | 'flow'
   | 'flow-anomaly'
   | 'fraud'
@@ -64,6 +65,14 @@ export interface IAddress {
   cc?: string;
   asn?: number;
 }
+
+export type TNameDetailUrlsBySource = Record<string, string[]>;
+export type TNameDetailCategory = Record<string, TNameDetailUrlsBySource>;
+export type INameDetails = {
+  cve?: TNameDetailCategory;
+  phrase?: TNameDetailUrlsBySource;
+  [key: string]: TNameDetailCategory | TNameDetailUrlsBySource | undefined;
+};
 
 export interface IRequestParams {
   'time.min': Date;
@@ -151,6 +160,7 @@ export interface ICustomResponse {
   internal_ip?: string;
   ip_network?: string;
   ipmi_version?: string;
+  long_description?: string;
   mac_address?: string;
   method?: string;
   min_amplification?: string;
@@ -183,6 +193,7 @@ export interface ICustomResponse {
   x509issuer?: string;
   x509subject?: string;
   adip?: string;
+  name_details?: INameDetails;
 }
 
 // as type because of Table.tsx error: Type 'IResponseTableData' is not assignable to type 'Record<string, unknown>'. Index signature is missing in type 'IResponseTableData'

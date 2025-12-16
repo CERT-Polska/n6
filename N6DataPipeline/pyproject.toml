@@ -23,12 +23,14 @@ dependencies = [
     "intelmq",
     "jinja2",
     "maxminddb",
+    "minio",
     "mysqlclient",
     "pika",
     "pymongo",
     "python-dateutil",
     "redis",
     "sqlalchemy",
+    "urllib3",
 ]
 
 #readme = "README.md"

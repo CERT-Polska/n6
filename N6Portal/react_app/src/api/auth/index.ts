@@ -2,31 +2,15 @@ import { AxiosError } from 'axios';
 import { useQuery, UseQueryOptions, UseQueryResult } from 'react-query';
 import qs from 'qs';
 import { dataController, controllers, customAxios } from 'api';
-import { IApiKey, IForgottenPasswordData, ILogin, ILoginKeycloak, IMfaConfig } from 'api/auth/types';
-
-export class KeycloakStub {
-  get authenticated() {
-    return false;
-  }
-
-  get token() {
-    return '';
-  }
-
-  init() {
-    return new Promise((resolve) => {
-      resolve(false);
-    });
-  }
-
-  login() {
-    return false;
-  }
-
-  logout() {
-    return false;
-  }
-}
+import {
+  IApiKey,
+  ICallbackKeycloak,
+  IForgottenPasswordData,
+  ILogin,
+  ILoginKeycloak,
+  IMfaConfig,
+  IOIDCParams
+} from 'api/auth/types';
 
 export const getLogout = async (): Promise<void> => {
   try {
@@ -89,6 +73,15 @@ export const deleteApiKey = async (): Promise<Record<string, never>> => {
   }
 };
 
+export const postOIDCInfo = async (): Promise<IOIDCParams> => {
+  try {
+    const payload = await customAxios.post(`${dataController}${controllers.auth.infoOIDC}`);
+    return payload.data;
+  } catch (reason) {
+    throw reason;
+  }
+};
+
 export const postLogin = async (data: Record<string, string>): Promise<ILogin> => {
   try {
     const encodedData = qs.stringify(data);
@@ -99,9 +92,29 @@ export const postLogin = async (data: Record<string, string>): Promise<ILogin> =
   }
 };
 
+export const postOIDCCallback = async (data: Record<string, string>): Promise<ICallbackKeycloak> => {
+  try {
+    const encodedData = qs.stringify(data);
+    const payload = await customAxios.post(`${dataController}${controllers.auth.oidcCallback}`, encodedData);
+    return payload.data;
+  } catch (reason) {
+    throw reason;
+  }
+};
+
 export const postLoginKeycloak = async (): Promise<ILoginKeycloak> => {
   try {
     const payload = await customAxios.post(`${dataController}${controllers.auth.loginKeycloak}`);
+    return payload.data;
+  } catch (reason) {
+    throw reason;
+  }
+};
+
+export const postOIDCRefreshToken = async (data: Record<string, string>): Promise<ICallbackKeycloak> => {
+  try {
+    const encodedData = qs.stringify(data);
+    const payload = await customAxios.post(`${dataController}${controllers.auth.oidcRefreshToken}`, encodedData);
     return payload.data;
   } catch (reason) {
     throw reason;

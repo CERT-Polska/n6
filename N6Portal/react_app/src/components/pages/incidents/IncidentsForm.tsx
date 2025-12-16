@@ -39,11 +39,13 @@ export const fullAccessOnlyFilters = ['restriction', 'client', 'nameSub'];
 
 const IncidentsForm: FC<IProps> = ({ dataLength, refetchData, currentTab }) => {
   const { fullAccess } = useAuthContext();
-  const availableFilters: TFilter[] = useMemo(() => {
-    return fullAccess ? allFilters : allFilters.filter((filter) => !fullAccessOnlyFilters.includes(filter.name));
-  }, [fullAccess]);
+
   const { messages, formatMessage } = useTypedIntl();
   const [selectedFilters, setSelectedFilters] = useState<TFilter[]>([]);
+
+  const availableFilters: TFilter[] = useMemo(() => {
+    return fullAccess ? allFilters : allFilters.filter((filter) => !fullAccessOnlyFilters.includes(filter.name));
+  }, [fullAccess, allFilters]);
 
   const methods = useForm<IIncidentsForm>({ mode: 'onBlur', reValidateMode: 'onBlur' });
   const { handleSubmit, unregister, setValue, getValues } = methods;
@@ -140,7 +142,7 @@ const IncidentsForm: FC<IProps> = ({ dataLength, refetchData, currentTab }) => {
     } catch {
       localStorage.removeItem(FILTERS_STORAGE);
     }
-  }, [setValue, isInsideTab]);
+  }, [setValue]);
 
   return (
     <div className="w-100">
@@ -163,7 +165,12 @@ const IncidentsForm: FC<IProps> = ({ dataLength, refetchData, currentTab }) => {
                 />
               </div>
               {selectedFilters.map((filter) => (
-                <IncidentsFilter key={filter.name} filter={filter} removeFilter={removeFilter} />
+                <IncidentsFilter
+                  key={filter.name}
+                  filter={filter}
+                  removeFilter={removeFilter}
+                  currentTab={currentTab}
+                />
               ))}
               <Dropdown>
                 <Dropdown.Toggle

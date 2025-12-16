@@ -16,6 +16,14 @@ import FileSaver from 'file-saver';
 import userEvent from '@testing-library/user-event';
 
 jest.mock('remark-gfm', () => () => {}); // to resolve styling module import error
+jest.mock('utils/rehypeCustomAnchorPlugin', () => () => () => {});
+jest.mock('rehype-autolink-headings', () => () => {});
+jest.mock('unist-util-visit', () => ({
+  visit: jest.fn()
+}));
+jest.mock('hast-util-to-string', () => ({
+  toString: jest.fn()
+}));
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
   useParams: jest.fn()
@@ -23,8 +31,14 @@ jest.mock('react-router-dom', () => ({
 const useParamsMock = useParams as jest.Mock;
 
 describe('<SingleArticle />', () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = jest.fn();
+    delete (window as any).location;
+    (window as any).location = { hash: '' };
+  });
+
   it('renders placeholder article page when no/invalid article ID was provided in location query', () => {
-    const SingleArticlePlaceholderSpy = jest.spyOn(SingleArticlePlaceholderModule, 'default').mockReturnValue(null); // so to check if there is nothing else except placeholder
+    const SingleArticlePlaceholderSpy = jest.spyOn(SingleArticlePlaceholderModule, 'default').mockReturnValue(null);
     useParamsMock.mockReturnValue({ articleId: undefined });
     const { container } = render(
       <BrowserRouter>
@@ -45,7 +59,7 @@ describe('<SingleArticle />', () => {
   });
 
   it('renders placeholder article page when there is no article with provided ID', () => {
-    const SingleArticlePlaceholderSpy = jest.spyOn(SingleArticlePlaceholderModule, 'default').mockReturnValue(null); // so to check if there is nothing else except placeholder
+    const SingleArticlePlaceholderSpy = jest.spyOn(SingleArticlePlaceholderModule, 'default').mockReturnValue(null);
     useParamsMock.mockReturnValue({ articleId: 1 });
 
     const useArticleReturnValue = { isLoading: false } as UseQueryResult<IArticle, AxiosError>;
@@ -91,13 +105,13 @@ describe('<SingleArticle />', () => {
   });
 
   it('renders placeholder article page when error occurs during fetching of data', () => {
-    const SingleArticlePlaceholderSpy = jest.spyOn(SingleArticlePlaceholderModule, 'default').mockReturnValue(null); // so to check if there is nothing else except placeholder
+    const SingleArticlePlaceholderSpy = jest.spyOn(SingleArticlePlaceholderModule, 'default').mockReturnValue(null);
     useParamsMock.mockReturnValue({ articleId: 1 });
 
-    const useArticleReturnValue = { isError: true, error: { response: { status: 404 } } } as UseQueryResult<
-      IArticle,
-      AxiosError
-    >;
+    const useArticleReturnValue = {
+      isError: true,
+      error: { response: { status: 404 } }
+    } as UseQueryResult<IArticle, AxiosError>;
     jest.spyOn(useArticleModule, 'useArticle').mockReturnValue(useArticleReturnValue);
 
     const { container } = render(
@@ -140,7 +154,6 @@ describe('<SingleArticle />', () => {
     const FileSaverSaveAsSpy = jest.spyOn(FileSaver, 'saveAs').mockImplementation(() => {});
     jest.spyOn(useArticleModule, 'useArticle').mockReturnValue(useArticleReturnValue);
     useParamsMock.mockReturnValue({ articleId: articleId });
-    Element.prototype.scrollIntoView = jest.fn();
 
     const { container } = render(
       <BrowserRouter>
@@ -153,12 +166,15 @@ describe('<SingleArticle />', () => {
     );
 
     expect(ReactMarkdownSpy).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         children: exampleContent,
         className: 'md-content',
         remarkPlugins: [remarkGfm],
-        components: { code: expect.any(Function) }
-      },
+        rehypePlugins: expect.any(Array),
+        components: expect.objectContaining({
+          code: expect.any(Function)
+        })
+      }),
       {}
     );
 

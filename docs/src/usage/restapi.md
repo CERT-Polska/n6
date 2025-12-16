@@ -51,8 +51,8 @@ uri = "https://" server "/" resource "." format "?" query
       with other organizations, i.e., not particularly related to the
       client's organization networks/services; can be useful, e.g., for
       blocking rules;
-    - `search/events` -- global search (*note:* this one is not available
-      in the case of the CERT Polska's instance of *n6*).
+    - `search/events` -- global search (*note:* in the case of the CERT
+      Polska's instance of *n6*, this resource is not generally available).
 - **_format_** is the requested format, such as `json`, `sjson` or `csv`.
 - **_query_** (described in the [next subsection](#query)) specifies
   which events are to be retrieved.
@@ -133,11 +133,15 @@ objects' possible attributes (keys) are described in the [*Event
 Attributes*](#event-attributes) section below.
 
 If you expect large responses, we recommend using a "streamed" variant
-of `json`: the `sjson` format -- where the response consists of
+of `json`: the `sjson` format [^sjson] -- where the response consists of
 concatenated top-level objects delimited by newlines (line feed, i.e.,
 ASCII 0x0A). Each top-level object is represented in a single line (no
 pretty-print), which allows to parse results incrementally. Otherwise
 this format is identical with plain `json`.
+
+[^sjson]: For historical reasons, we use the `sjson` abbreviation (for
+"Streamed JSON"). Nowadays, however, this format is often referred to as
+*[JSON Lines](https://jsonlines.org/)* (*aka* `jsonl`).
 
 Retrieved events are always sorted by their `time`, descendingly.
 
@@ -238,6 +242,7 @@ are noted in round brackets.
     - `"dns-query"`: DNS queries and answers (no determination on legitimacy/maliciousness)
     - `"dos-attacker"`: (distributed) denial-of-service attacks -- details related to sources
     - `"dos-victim"`: (distributed) denial-of-service attacks -- details related to victims
+    - `"exposed"`: devices or services exposed to the Internet (not implying vulnerabilities/abuses)
     - `"flow"`: network traffic in layer 3 (no determination on legitimacy/maliciousness)
     - `"flow-anomaly"`: anomalous network activity (not necessarily malicious)
     - `"fraud"`: activities and entities related to financial fraud
@@ -535,6 +540,10 @@ multiple values* of a parameter are allowed).
 
 
 ## API Changelog
+
+### **4.38.0** (2025-12-16)
+
+New possible value of events' `category`: `"exposed"`.
 
 ### **4.31.0** (2025-09-16)
 

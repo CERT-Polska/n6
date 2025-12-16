@@ -1,0 +1,11 @@
+{
+  "apiUrl": "/api",
+  "locale": {
+    "oidc_button_label": {
+      "en": "Log in with External OpenID Connect Identity Provider",
+      "pl": "Zaloguj się u dostawcy tożsamości OpenID Connect"
+    }
+  }
+}
+
+

@@ -16,6 +16,7 @@ describe('getBarChart', () => {
         'dns-query': [],
         'dos-attacker': [],
         'dos-victim': [],
+        exposed: [],
         flow: [],
         'flow-anomaly': [],
         fraud: [],

@@ -25,6 +25,244 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [4.38.0] (2025-12-16)
+
+#### General Audience Stuff
+
+- [data sources, config] A new *Shadowserver* data source:
+  `shadowserver.device-info` (parser). See the relevant additions
+  in the configuration prototype file `etc/n6/60_shadowserver.conf`.
+
+- [data sources] Fixed the `turris-cz.greylist-csv` source by changing the
+  parser's `expires` interval to 48h -- in particular, to be consistent
+  with other blacklist data sources (technically: just changed the value of
+  `n6datasources.parsers.turris_cz.TurrisCzGreylistCsv202401Parser.EXPIRES_DAYS`
+  from `1` to `2`).
+
+- [data sources, data pipeline, event db, portal, rest api, stream api, lib,
+  ...] A new event category: `exposed` – to label events describing a device
+  or service exposed to the Internet (not implying a vulnerability/abuse).
+  **What is important** from the point of view of the administrators of an
+  *n6* instance is that the schema of the production Event DB needs to be
+  manually adjusted to accommodate this enhancement (see the relevant
+  fragment of `etc/mysql/initdb/1_create_tables.sql`).
+
+- [data pipeline, tests] Applied two changes/fixes to `n6recorder`. From
+  now on, it publishes *every* new event to the `n6counter`'s input queue
+  after the successful insertion of that event into the Event DB -- *also*
+  in the cases of "fallback" insertions of `bl-update`/`suppress` events
+  (when no records were found that could be updated), *not only* in the
+  cases of unconditional insertions of `event`, `bl-new` or `bl-change`
+  ones. Also, fixed the bug that -- in the case of an *unsuccessful*
+  (rolled back) insertion of a `bl-change` event (that is, if an
+  event-duplication-caused `IntegrationError` occurred while trying to
+  insert a `bl-change` event into the Event DB) -- caused an undesirable
+  publication of the event to the `n6counter`'s input queue. A side effect
+  of these two changes/fixes is that, from now on, *any* publication to
+  the `n6counter`'s input queue (of an event that has just been inserted
+  to the Event DB) is made by `n6recorder` *only after* committing the
+  Event DB transaction (the one that included the insertion); formerly
+  this was the case only for `event` and `bl-new` events.
+
+- [portal, lib, config] The *n6 Portal*'s *Incidents* page: added a new
+  feature, called by us *Name Details*, which allows users to learn more
+  about certain important details of the searched events' `name` attribute
+  values: from now on -- when showing search results -- some values in the
+  *Name* column may be accompanied by a *light bulb icon*; when you click
+  it, a pop-up window appears, containing links to external sites and/or
+  internal *n6 Knowledge Base* pages describing certain tags and phrases
+  found in the concerned event's `name`, in particular, vulnerability
+  identifiers (CVE numbers), phrases referring to threats (e.g., botnet
+  family names), vulnerable devices or services, bad practices, and so on.
+  The feature is inactive by default; **to configure and activate it, you
+  need to edit your *n6 Portal*'s configuration file** (see the comments in
+  the relevant part of the `etc/web/conf/portal.ini` config prototype file
+  -- you can find that part by searching for `name_details.`-prefixed
+  options). The backend machinery related to the feature is provided by a
+  new class implemented in the `n6portal` module: `N6PortalStreamView`
+  (now the three main *n6 Portal*'s event data endpoints are based on it).
+  A few other pieces of *n6* code are also engaged: `DefaultStreamViewBase`
+  (defined in `n6sdk.pyramid_commons`) provides a new hook method --
+  `postprocess_cleaned_result()`, implemented by `N6PortalStreamView`;
+  another important base class of the `N6PortalStreamView` view class is
+  `n6lib.pyramid_commons.KnowledgeBaseRelatedViewMixin` (a new one, even
+  though it contains just the stuff factored out from the existing class
+  `_AbstractKnowledgeBaseRelatedView`, slightly modified); there are also
+  two new `n6lib` modules, backing up the machinery of determining URLs of
+  advisories related to particular CVEs published by the `moje.cert.pl`
+  website: `n6lib.moje_api_client`, providing the classes: `MojeApiClient`
+  and `MojeCveAdvisoriesFullInfo` (plus `MojeCveAdvisoriesUpdateInfo`),
+  and `n6lib.moje_cve_advisories_retriever`, providing the class
+  `MojeCveAdvisoriesInfoRetriever`. The last of the mentioned classes
+  makes use of the *Auxiliary Cache* facility, described below -- see
+  there for an **important note for system administrators, regarding
+  the necessary migration of the Auth DB schema**.
+
+- [portal, lib] The *n6 Portal*'s *Incidents* page: now the *source*
+  search filter is based on a new type of filter, `selectableInput` --
+  providing the user with a list of all data sources available to that
+  user, depending on the selected access zone. Under the hood, the Portal
+  API gained the following new endpoints: `/report/inside/sources.json`,
+  `/report/threats/sources.json` and `/search/events/sources.json` -- each
+  of which provides a list of identifiers of data sources available to the
+  user's organization (in the corresponding access zone). The identifiers
+  in such a list are anonymized if the user's organization does not have
+  `full_access=True`. The underlying machinery is provided by a new view
+  class, `N6AvailableSourcesView` (exposed by the `n6lib.pyramid_commons`,
+  module, yet implemented in `n6lib.pyramid_commons._pyramid_commons`),
+  together with its (already existing) base class `EssentialAPIsViewMixin`
+  (implemented in `n6lib.pyramid_commons._generic_view_mixins`), which now
+  provides a new method: `get_access_zone_source_ids()`. Another part of
+  the machinery is a modified existing method of `n6lib.auth_api.AuthAPI`
+  /`n6lib.auth_api.AuthAPIWithPrefetching` -- `get_access_info()`: from
+  now on, when it comes to *access info* dicts produced by this method
+  (and also by the `get_org_ids_to_access_infos()` sibling method), each
+  of those dicts has a new key, `"access_zone_source_ids"`, the value of
+  which is a dict that maps *access zone* labels to a list of data source
+  identifiers. Apart from all that, there was an appropriate update of
+  the `AccessInfo` *typed dict* definition in `n6lib.typing_helpers`.
+
+- [portal, config, lib] Made major changes/improvements to the OpenID
+  Connect SSO machinery. Especially, added/modified a few related Portal
+  API endpoints -- obviously, with the view classes that implement them
+  (being provided by the `n6lib.pyramid_commons` module, but implemented in
+  its non-public submodule `_pyramid_commons`), and also revamped the class
+  `n6lib.oidc_provider_api.OIDCProviderAPI`, splitting it into a few more
+  specific classes (the *Authlib* SDK is used to connect to the Identity
+  Provider and extend its session implementation to make requests to IdP
+  endpoints). Now, the Identity Provider service connection status is
+  updated during the *n6 Portal* backend runtime. Also, refined the user
+  session maintenance mechanism. Among added features, the following are
+  also worth mentioning: validation of parameters during the authentication
+  flow, such as *state*, token type and token claims (*issuer*, *audience*,
+  *scope*); a logout mechanism that ends the session both locally and at
+  the Identity Provider (using the Relying-Party-initiated logout); token
+  refreshing; additional validation of access tokens through the IdP API's
+  Introspection Endpoint. The new view classes are: `N6OIDCCallbackView`
+  (a view to which users are redirected) -- its purpose is to exchange
+  the authorization code from redirection request parameters for tokens
+  and to verify the *state* parameter; `N6OIDCInfoView` -- providing basic
+  information about OAuth2/OpenID Connect authentication and returning the
+  signed cookie which is used later to verify the *state* parameter;
+  `N6OIDCRefreshTokenView` -- responsible for the newly added mechanism
+  of token refreshing. Also, modified the implementation and behavior of
+  the classes `N6LoginOIDCView` and `OIDCUserAuthenticationPolicy` (also
+  provided by the `n6lib.pyramid_commons` module); and added new classes
+  to `n6lib.pyramid_commons.data_spec_fields`: `OIDCCallbackQueryField`,
+  `OIDCRefreshTokenField`; and new classes to `n6lib.oidc_provider_api`:
+  `OIDCProviderError` with its subclasses `IdPServerResponseError` and
+  `StateValidationError` (plus, apart from that, the existing class
+  `TokenValidationError` is now also a subclass of `OIDCProviderError`),
+   as well as (to the same module): `OIDCClientSession`, `OIDCPayload`,
+  `TokenResponse`, `TokenValidator` and `IntrospectionValidator`. Apart
+  from all that, changed the interface and behavior of the method
+  `authenticate_with_oidc_access_token()` belonging to the existing
+  `AuthAPI` and `AuthAPIWithPrefetching` classes (in `n6lib.auth_api`).
+  **Important note regarding configuration-related changes and additions**
+  (including backward incompatible ones!): renamed the configuration
+  option `oidc_provider_api.active` to `oidc_provider_api.enabled`, and
+  introduced a bunch of new `oidc_provider_api.*` options (formally, these
+  are not required, but some of them are needed to make use of the OpenID
+  SSO feature); see the relevant fragment of the `etc/web/conf/portal.ini`
+  configuration prototype file.
+
+- [portal, rest api, lib] From now on, a newly created user, if they manage
+  to authenticate *and* really exist in the Auth DB as a non-blocked user
+  belonging to the claimed organization, gain access to the organization's
+  resources immediately, i.e., without the necessity to wait for the *Auth
+  API* machinery to refresh its cache. To implement this change, we modified
+  the behavior of the method `is_access_zone_available()` of all view classes
+  that inherit from the `EssentialAPIsViewMixin` class (which is implemented
+  in `n6lib.pyramid_commons._generic_view_mixins`), and added to the `AuthAPI`
+  and `AuthAPIWithPrefetching` classes (both residing in `n6lib.auth_api`)
+  a new public method: `get_all_user_ids_including_blocked()`. The entire
+  change is especially important when it comes to *n6 Portal* users being
+  added with the *n6*'s OpenID-Connect-based machinery. *Note*: the change
+  does *not* apply to *n6 REST API* users when they authenticate with an
+  API key, as that kind of authentication still requires the user data to
+  be already cached by the *Auth API* machinery.
+
+- [portal] The *Incidents* page: added support for the `long_description`
+  column (this event field itself had already been supported by the backend).
+
+- [portal] Made a few GUI/UX fixes and improvements, in particular: changed
+  handling of trimmed values in table cells: now the full value is shown in
+  a less-intrusive manner (using a pop-over, instead of a button obscuring
+  neighboring cells...).
+
+- [admin panel] `n6adminpanel.app`: introduced a new `Request` subclass,
+  `ExtendedFormRequest`, to work around the `RequestEntityTooLarge` error
+  (in particular, by increasing the `max_form_parts` value from `1000` to
+  `10_000`).
+
+#### System/Configuration/Programming-Only
+
+- [portal, config] From now on, the value of the `knowledge_base.base_dir`
+  configuration option must always be an absolute path (note that paths
+  starting with `~` and `~user` placeholders are OK).
+
+- [lib, cli, ..., setup, etc/docker, tests, docs] Made several updates,
+  adjustments and additions accompanying the changes and additions
+  described above. Also, made various minor, ancillary or internal fixes,
+  changes, additions, adjustments and improvements (including code
+  refactoring and type hint fixes/improvements, as well as adding some
+  external dependencies). Added/improved/adjusted some tests as well as
+  some test helpers and data (also in `n6lib.auth_related_test_helpers`
+  and `n6lib.unit_test_helpers`).
+
+- [portal, setup, tests] Regarding the implementation of the *n6 Portal*'s
+  frontend (*React*-based TS/JS code and related resources...): made a
+  bunch of additions, enhancements, adjustments and fixes. In particular,
+  **reworked the stuff related to configuring the *Terms of Service*
+  document's content** -- by replacing the use of an interactive tool and
+  environment variables with a script-based approach and Markdown files (+
+  moving the `API_URL` and `OIDC_BUTTONS_LABEL` environment variables to a
+  separate JSON file); **from now on, to generate *Terms of Service* the
+  `N6Portal/react_app/scripts/emit_tos.js` script needs to be used.** Some
+  of the other frontend changes and additions are related to the backend
+  changes and additions described above (e.g., the mechanism of displaying
+  *Name Details*, or a new type of incidents filter: `selectableInput`...).
+  Also, added/removed a few external dependencies.
+
+- [lib, auth db] A new programming facility provided by `n6lib`, and (what
+  is important) utilized to implement the *Name Details* feature described
+  above): *Auxiliary Cache* -- a simple, general-purpose, *n6*-wide cache.
+  Provided by a new module, `n6lib.auth_db.auxiliary_cache` -- containing
+  the `AuxiliaryCacheEntryRetriever` and `AuxiliaryCacheEntryHandle` classes
+  (plus one static type variable: `ContentT`). To implement the underlying
+  machinery, a new Auth DB table was added: `auxiliary_cache_entry` (with
+  the corresponding model class: `n6lib.auth_db.modelsAuxiliaryCacheEntry`);
+  also, the class `n6lib.auth_db_api.AuthManageAPI` gained a new instance
+  method: `working_on_auxiliary_cache_entry()`. **What is important** from
+  the point of view of the administrators of an *n6* instance is that the
+  *Alembic migrations machinery* needs to be used to update the schema of
+  the production Auth DB (for the instructions how to do it, see
+  `N6Lib/n6lib/auth_db/alembic/README.md`).
+
+- [lib] `n6lib.common_helpers`: a new helper, `iter_drain_from_deque()`.
+
+- [lib] `n6lib.file_helpers`: a new class, `FilesystemPathMapping()`, making
+  it possible to easily create and manipulate file/directory trees, by using
+  a mapping (`dict`-like) interface.
+
+- [lib] `n6lib.http_helpers`: a new class, `MultiRequestPerformer`, making
+  it possible to send multiple HTTP(S) requests, using the same instance
+  of `request.Session` -- allowing (in particular) to make the stuff more
+  efficient by re-using TCP connections. The new class makes use of an
+  existing one: `RequestPerformer` (provided by the `n6lib.http_helpers`
+  module as well). And `RequestPerformer` itself gained a new method:
+  `set_externally_managed_session()`.
+
+- [lib] `n6lib.jwt_helpers`: the `jwt_decode()` function gained a new
+  optional argument: `issuer`.
+
+- [lib] The following (already existing) class and function are now exposed
+  by the `n6lib.pyramid_commons` module as parts of its public interface:
+  `ConfigFromPyramidSettingsViewMixin` (implemented in the module
+  `n6lib.pyramid_commons._generic_view_mixins`) and `conv_web_url()`
+  (implemented in the module `n6lib.pyramid_commons._config_converters`).
+
+
 ## [4.31.3] (2025-09-29)
 
 #### General Audience Stuff
@@ -45,7 +283,7 @@ Some features of this document's layout were inspired by
   this particular collector (`CertPlShieldCollector`)**, which means that
   now -- for this data source -- setting any of them causes `ConfigError`.
   Apart from that, due to the *changed date+time format*, we added a **new
-  parser: `CertPlShield202505Parser`**, and the afotementioend collector
+  parser: `CertPlShield202505Parser`**, and the aforementioned collector
   gained `raw_format_version_tag = '202505'`.
 
 - [data sources] The `turris-cz.graylist-csv` source now updates its data
@@ -1393,6 +1631,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **The first public release of *n6*.**
 
 
+[4.38.0]: https://github.com/CERT-Polska/n6/compare/v4.31.3...v4.38.0
 [4.31.3]: https://github.com/CERT-Polska/n6/compare/v4.31.0...v4.31.3
 [4.31.0]: https://github.com/CERT-Polska/n6/compare/v4.23.10...v4.31.0
 [4.23.10]: https://github.com/CERT-Polska/n6/compare/v4.23.0...v4.23.10

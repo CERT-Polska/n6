@@ -18,6 +18,7 @@ import {
   mustBeIp,
   mustBeIpNetwork,
   mustBeSource,
+  mustBeSourceOption,
   mustBeCountryCode,
   mustBeUrl,
   mustBeValidDate,
@@ -106,4 +107,5 @@ export const validateFqdnSubRequired = composeValidatorsForMultivalues({ isRequi
 export const validateMd5Required = composeValidatorsForMultivalues({ isRequired, mustBeMd5 });
 export const validateSha1Required = composeValidatorsForMultivalues({ isRequired, mustBeSha1 });
 export const validateSourceRequired = composeValidatorsForMultivalues({ isRequired, mustBeSource });
+export const validateSourceOptionsRequired = composeValidatorsForMultivalues({ isRequired, mustBeSourceOption });
 export const validateCountryCodeRequired = composeValidatorsForMultivalues({ isRequired, mustBeCountryCode });

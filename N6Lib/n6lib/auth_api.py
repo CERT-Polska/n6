@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2024 NASK. All rights reserved.
+# Copyright (c) 2013-2025 NASK. All rights reserved.
 
 import collections
 import bisect
@@ -27,6 +27,8 @@ from typing import (
     Union,
 )
 
+from authlib.common.errors import AuthlibBaseError
+from requests import RequestException
 from sqlalchemy.exc import SQLAlchemyError
 
 from n6lib.api_key_auth_helper import (
@@ -45,6 +47,7 @@ from n6lib.common_helpers import (
     make_exc_ascii_str,
     memoized,
     deep_copying_result,
+    iter_deduplicated,
 )
 from n6lib.config import (
     Config,
@@ -81,7 +84,6 @@ from n6lib.file_helpers import SignedStampedFileAccessor
 from n6lib.jwt_helpers import (
     JWT_ALGO_RSA_SHA256,
     JWTDecodeError,
-    jwt_decode,
 )
 from n6lib.log_helpers import get_logger
 from n6lib.ldap_api_replacement import (
@@ -278,21 +280,40 @@ class AuthAPI(ConfigMixin):
 
     # noinspection PyMethodMayBeStatic
     def authenticate_with_oidc_access_token(self,
+                                            token_validator,
                                             access_token,
                                             json_web_key,
+                                            request_method,
                                             required_claims,
-                                            decoding_options=None,
                                             audience=None):
         try:
-            return jwt_decode(access_token,
-                              json_web_key,
-                              accepted_algorithms=(JWT_ALGO_RSA_SHA256,),
-                              required_claims=required_claims,
-                              options=decoding_options,
-                              required_audience=audience)
+            decoded_token = token_validator.validate_jwt(access_token,
+                                                         json_web_key,
+                                                         accepted_algorithms=(
+                                                             JWT_ALGO_RSA_SHA256,),
+                                                         required_claims=required_claims,
+                                                         required_audience=audience)
         except JWTDecodeError as exc:
             LOGGER.warning(exc)
-            raise AuthAPIUnauthenticatedError
+            raise AuthAPIUnauthenticatedError from exc
+        try:
+            if token_validator.requires_token_introspection(decoded_token, request_method):
+                return token_validator.introspect_token(access_token)
+        except AuthlibBaseError as exc:
+            LOGGER.warning('Failed to introspect the token; error code: %s, description: %s',
+                           ascii_str(exc.error), ascii_str(exc.description))
+            raise AuthAPIUnauthenticatedError from exc
+        except ValueError as exc:
+            LOGGER.warning(make_exc_ascii_str(exc))
+            raise AuthAPIUnauthenticatedError from exc
+        except RequestException as exc:
+            LOGGER.error('Connection error during the token introspection: %s',
+                         make_exc_ascii_str(exc))
+            raise AuthAPIUnauthenticatedError from exc
+        except Exception:
+            LOGGER.exception('Unhandled exception during token validation/retrospection')
+            raise
+        return decoded_token
 
     # (see `self._api_key_auth_helper` initialized in `__init__()`)
     def _authenticate_with_user_id_and_api_key_id(self, user_id, api_key_id):
@@ -335,14 +356,28 @@ class AuthAPI(ConfigMixin):
         return {'user_id': user_id, 'org_id': org_id}
 
     @deep_copying_result  # <- just defensive programming
-    @cached_basing_on_ldap_root_node
     def get_user_ids_to_org_ids(self):
         """
-        Returns the user-id-to-org-id mapping (as a dict).
+        Returns the user-id-to-org-id mapping (as a dict; typically,
+        already cached).
 
         (*Only* non-blocked users are included.)
         """
-        return self._data_preparer.get_user_ids_to_org_ids(
+        return self._get__nonblocked_user_ids_to_org_ids__and__all_user_ids_including_blocked()[0]
+
+    # note: @deep_copying_result is unnecessary here as results are purely immutable
+    def get_all_user_ids_including_blocked(self):
+        """
+        Returns all user ids (as a frozenset; typically, already cached).
+
+        Note: here *both* non-blocked and blocked users are included.
+        """
+        return self._get__nonblocked_user_ids_to_org_ids__and__all_user_ids_including_blocked()[1]
+
+    @cached_basing_on_ldap_root_node
+    def _get__nonblocked_user_ids_to_org_ids__and__all_user_ids_including_blocked(self):
+        dp = self._data_preparer
+        return dp.get__nonblocked_user_ids_to_org_ids__and__all_user_ids_including_blocked(
             self.get_ldap_root_node())
 
     # note: @deep_copying_result is unnecessary here as results are purely immutable
@@ -447,12 +482,16 @@ class AuthAPI(ConfigMixin):
                 or (isinstance(access_info, dict)
                     and access_info.keys() == {
                         'access_zone_conditions',
+                        'access_zone_source_ids',
                         'rest_api_resource_limits',
                         'rest_api_full_access',
                     }
                     and (isinstance(access_info['access_zone_conditions'], dict)
                          and access_info['access_zone_conditions'].keys()
                              <= ACCESS_ZONES)
+                    and (isinstance(access_info['access_zone_source_ids'], dict)
+                         and access_info['access_zone_source_ids'].keys() 
+                             == access_info['access_zone_conditions'].keys())
                     and (isinstance(access_info['rest_api_resource_limits'], dict)
                          and access_info['rest_api_resource_limits'].keys()
                              <= EVENT_DATA_RESOURCE_IDS)
@@ -476,6 +515,13 @@ class AuthAPI(ConfigMixin):
                         <an instance of `n6lib.data_selection_tools.Cond` (or of
                          `sqlalchemy.sql.expression.ColumnElement` in the legacy mode),
                          representing subsources criteria + `full_access` flag etc.>,
+                        ...
+                    ],
+                    ...
+                },
+                'access_zone_source_ids': {
+                    <access zone: 'inside' or 'threats' or 'search'>: [
+                        <source id - anonymized if necessary (str)>,
                         ...
                     ],
                     ...
@@ -511,7 +557,7 @@ class AuthAPI(ConfigMixin):
 
         * The `access_zone_conditions` information includes only access
           zones for whom the given organization does have access to any
-          subsource.
+          subsource. The same applies to `access_zone_source_ids`.
 
         * Only the event data resources of REST API (those identified
           by the resource ids: '/report/inside', '/report/threats',
@@ -1055,7 +1101,7 @@ class AuthAPIWithPrefetching(AuthAPI):
         # Actual implementation
 
         def task_target_func():
-            LOGGER.info('Prefetching task *starts*...')
+            LOGGER.debug('Prefetching task *starts*...')
 
             while True:
                 try:
@@ -1099,38 +1145,38 @@ class AuthAPIWithPrefetching(AuthAPI):
                 _set_sleep(MAX_SLEEP_BETWEEN_RUNS)
 
                 if last_ver == database_ver:
-                    LOGGER.info("The last returned root node is still "
-                                "the fresh one => let's use it again.")
+                    LOGGER.debug("The last returned root node is still "
+                                 "the fresh one => let's use it again.")
                     return last_root_node
                 if last_ver and (last_ver == pickle_ver or not pickle_ver):
                     assert last_ver < database_ver
                     sleep_val = _compute_sleep_if_timestamp_ok(last_ts, recent_job_duration)
                     if sleep_val is not None:
-                        LOGGER.info("The last returned root node is "
-                                    "sufficiently new => let's use it again.")
+                        LOGGER.debug("The last returned root node is "
+                                     "sufficiently new => let's use it again.")
                         _set_sleep(sleep_val)
                         return last_root_node
 
                 if not PICKLE_CACHE_ENABLED:
-                    LOGGER.info("OK, it's time to obtain a fresh root node.")
+                    LOGGER.debug("OK, it's time to obtain a fresh root node.")
                     return _load_fresh_root_node()
 
                 with _catching_and_logging_unpickling_error():
                     if pickle_ver == database_ver:
-                        LOGGER.info("The pickled root node is the "
-                                    "fresh one => let's unpickle it.")
+                        LOGGER.debug("The pickled root node is the "
+                                     "fresh one => let's unpickle it.")
                         return _unpickle_root_node(pickle_ver, pickle_ts)
                     if pickle_ver:
                         assert pickle_ver < database_ver
                         sleep_val = _compute_sleep_if_timestamp_ok(pickle_ts, recent_job_duration)
                         if sleep_val is not None:
-                            LOGGER.info("The pickled root node is sufficiently "
-                                        "new => let's unpickle it.")
+                            LOGGER.debug("The pickled root node is sufficiently "
+                                         "new => let's unpickle it.")
                             unpickled_root_node = _unpickle_root_node(pickle_ver, pickle_ts)
                             _set_sleep(sleep_val)
                             return unpickled_root_node
 
-                LOGGER.info("OK, it's time to obtain a fresh root node.")
+                LOGGER.debug("OK, it's time to obtain a fresh root node.")
                 assert isinstance(synchronizer, _InterprocessPrefetchingSynchronizer)
                 if synchronizer.designate_loading_and_pickling_job():
                     # OK, it is *us* (the current process) who has been
@@ -1309,19 +1355,19 @@ class AuthAPIWithPrefetching(AuthAPI):
 
         def _load_fresh_root_node():
             LOGGER.info('Root node loading *starts*...')
-            LOGGER.info('Fetching root node from database...')
+            LOGGER.debug('Fetching root node from database...')
             root_node = fetch_fresh_root_node()
-            LOGGER.info('Root node fetched from database.')
-            LOGGER.info('Executing time consuming methods to populate cache...')
+            LOGGER.debug('Root node fetched from database.')
+            LOGGER.debug('Executing time consuming methods to populate cache...')
             method_name_to_result = root_node['_method_name_to_result_']
             method_name_to_result.update(_call_methods(root_node))
-            LOGGER.info('Time consuming methods executed, cache populated.')
+            LOGGER.debug('Time consuming methods executed, cache populated.')
             LOGGER.info('Root node loading *finishes*.')
             return root_node
 
         def _call_methods(root_node):
             for method_name, method_obj in METHOD_NAME_TO_OBJ.items():
-                LOGGER.info('Executing method %a...', method_name)
+                LOGGER.debug('Executing method %a...', method_name)
                 result = method_obj(root_node)
                 LOGGER.info('Method %a executed.', method_name)
                 yield method_name, result
@@ -1379,9 +1425,9 @@ class AuthAPIWithPrefetching(AuthAPI):
                        else 'data obtained')
             extra = root_node['_extra_']
             utc_iso = _format_timestamp_as_utc_iso(extra['timestamp'])
-            LOGGER.info(f'Prefetching task *finishes*, {comment} '
-                        f'(data version: %a, timestamp: %a == %s).',
-                        extra['ver'], extra['timestamp'], utc_iso)
+            LOGGER.debug(f'Prefetching task *finishes*, {comment} '
+                         f'(data version: %a, timestamp: %a == %s).',
+                         extra['ver'], extra['timestamp'], utc_iso)
 
         def _format_timestamp_as_utc_iso(timestamp):
             return datetime.datetime.utcfromtimestamp(timestamp).isoformat() + 'Z'
@@ -1714,8 +1760,8 @@ class _IgnoreListsCriteriaResolver:
             for network in ignored_ip_networks))
 
     def __call__(self, record_dict: Mapping[str, object]) -> bool:
+        address: list[dict]
         if address := record_dict.get('address'):  # noqa
-            address: list[dict]
             return all(
                 addr['ip'] in self._ignored_ips
                 for addr in address)
@@ -1784,20 +1830,22 @@ class _DataPreparer:
         # (a visitor that takes a `Cond` and returns an SQLAlchemy object)
         return _CondToSQLAlchemyConverter()
 
-    def get_user_ids_to_org_ids(self, root_node):
-        result = {}
+    def get__nonblocked_user_ids_to_org_ids__and__all_user_ids_including_blocked(self, root_node):
+        nonblocked_user_ids_to_org_ids = {}
+        all_user_ids_including_blocked = set()
         org_id_to_node = root_node['ou']['orgs'].get('o', {})
         for org_id, org in org_id_to_node.items():
             self._check_org_length(org_id)
             user_id_to_node = org.get('n6login', {})
             for user_id, user in user_id_to_node.items():
+                all_user_ids_including_blocked.add(user_id)
                 user_is_blocked = self._is_flag_enabled(
                     user,
                     caption='the user {0!a}'.format(user_id),
                     attribute='n6blocked')
                 if user_is_blocked:
                     continue
-                stored_org_id = result.setdefault(user_id, org_id)
+                stored_org_id = nonblocked_user_ids_to_org_ids.setdefault(user_id, org_id)
                 if stored_org_id != org_id:
                     LOGGER.error(
                         'Problem with LDAP data: user %a belongs to '
@@ -1805,7 +1853,10 @@ class _DataPreparer:
                         '-- only the former will be stored in the '
                         'user-id-to-org-id mapping)',
                         user_id, stored_org_id, org_id)
-        return result
+        return (
+            nonblocked_user_ids_to_org_ids,
+            frozenset(all_user_ids_including_blocked),
+        )
 
     def get_org_ids(self, root_node):
         all_org_ids = frozenset(root_node['ou']['orgs'].get('o', frozenset()))
@@ -1876,6 +1927,13 @@ class _DataPreparer:
         #                 <an instance of `n6lib.data_selection_tools.Cond` (or of
         #                 `sqlalchemy.sql.expression.ColumnElement` in the legacy mode),
         #                 representing subsources criteria + `full_access` flag etc.>,
+        #                 ...
+        #             ],
+        #             ...
+        #         },
+        #         'access_zone_source_ids': {
+        #             <access zone: 'inside' or 'threats' or 'search'>: [
+        #                 <source id - anonymized if necessary (str)>,
         #                 ...
         #             ],
         #             ...
@@ -2105,13 +2163,16 @@ class _DataPreparer:
             if access_info is None:
                 access_info = {
                     'access_zone_conditions': {access_zone: [cond]},
+                    'access_zone_source_ids': {access_zone: [source_id]},
                     'rest_api_resource_limits': {},  # <- to be populated in _set_resource_limits()
                     'rest_api_full_access': full_access,
                 }
                 result[org_id] = access_info
             else:
                 access_info['access_zone_conditions'].setdefault(access_zone, []).append(cond)
+                access_info['access_zone_source_ids'].setdefault(access_zone, []).append(source_id)
         self._postprocess_access_info_filtering_cond_instances(result)
+        self._postprocess_access_info_source_ids(root_node, result)
         return result
 
     def _get_access_info_filtering_condition_builder(self):
@@ -2134,6 +2195,19 @@ class _DataPreparer:
         cond_unoptimized = self._cond_builder.or_(or_subconditions)
         cond_optimized = self._cond_optimizer(cond_unoptimized)
         return cond_optimized
+
+    def _postprocess_access_info_source_ids(self, root_node, org_ids_to_access_infos):
+        source_id_to_anon_id = self.get_anonymized_source_mapping(root_node)['forward_mapping']
+        for access_info in org_ids_to_access_infos.values():
+            full_access = access_info['rest_api_full_access']
+            for source_id_seq in access_info['access_zone_source_ids'].values():
+                self.tick_callback()
+                source_id_seq[:] = iter_deduplicated(source_id_seq.copy())
+                if not full_access:
+                    source_id_seq[:] = filter(None, (
+                        source_id_to_anon_id.get(source_id)
+                        for source_id in source_id_seq.copy()))
+                source_id_seq.sort()
 
     def _make_source_ids_to_subs_to_stream_api_access_infos(self, root_node, org_id_to_node):
         result = {}
@@ -2864,8 +2938,8 @@ class _InterprocessPrefetchingSynchronizer:
 
                 # But first -- when it comes to us -- let us wait until
                 # that process actually finishes the job...
-                LOGGER.info("Another process loads and pickles a "
-                            "fresh root node. Let's wait for it...")
+                LOGGER.debug("Another process loads and pickles a "
+                             "fresh root node. Let's wait for it...")
                 self._job_lock.acquire(shared=True)
 
                 self._activity_lock_acquire_in_shared_mode_immediately()

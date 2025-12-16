@@ -353,7 +353,7 @@ class ScriptArgumentParser(argparse.ArgumentParser):
                 f"installation (if applicable for an n6 package being "
                 f"installed); each EXTRA value must exist as a key in "
                 f"the \"project.optional-dependencies\" table in any "
-                f"n6 package's 'pyproject.toml', that is, must be one "
+                f"n6 package's `pyproject.toml`, that is, must be one "
                 f"of: {legal_extras_listing}; note: value duplicates "
                 f"(repeated occurrences of a value) and any '' values "
                 f"(empty strings) are ignored (which may occasionally "
@@ -369,7 +369,7 @@ class ScriptArgumentParser(argparse.ArgumentParser):
                 f"`-a`/`--action`) and force the n6 packages' *extras* "
                 f"list (see the option `-x`/`--n6-package-extras`) to "
                 f"include {EXTRA_DEV!a} (you can think of this option "
-                f"as a shortcut for `-a {ACTION_DEV} -x {EXTRA_DEV}`)"
+                f"as a shortcut for `-x {EXTRA_DEV} -a {ACTION_DEV}`)"
             ),
         )
         self.add_argument(
@@ -444,12 +444,12 @@ class ScriptArgumentParser(argparse.ArgumentParser):
             action='store_true',
             help=(
                 f"after successful installation, keep any newly created "
-                f"build artifacts ('build', 'dist', `n6*.egg-info`) if "
+                f"build artifacts (`build`, `dist`, `n6*.egg-info`) if "
                 f"they remained in the source code directories of the "
                 f"installed n6 packages, i.e., disable the default "
-                f"mechanism of auto-removal of 'build', 'dist' and "
+                f"mechanism of auto-removal of `build`, `dist` and "
                 f"`n6*.egg-info` when ACTION is {ACTION_INSTALL!a}, or "
-                f"just 'build' and 'dist' when ACTION is {ACTION_DEV!a} "
+                f"just `build` and `dist` when ACTION is {ACTION_DEV!a} "
                 f"(note that, anyway, that auto-removal mechanism is "
                 f"not applied to any paths that existed before the "
                 f"script execution; this contrasts with the thorough "
@@ -465,8 +465,8 @@ class ScriptArgumentParser(argparse.ArgumentParser):
                 "before installation of n6 packages/their dependencies, "
                 "for each n6 package whose source directory exists (not "
                 "only for those selected to be installed!), ruthlessly "
-                "remove any existing build artifacts, i.e., 'dist', "
-                "'build' and `n6*.egg-info` subpaths (regardless of "
+                "remove any existing build artifacts, i.e., `dist`, "
+                "`build` and `n6*.egg-info` subpaths (regardless of "
                 "what ACTION is); *WARNING*: removals are performed "
                 "without any interactive prompts or runtime warnings"
             ),

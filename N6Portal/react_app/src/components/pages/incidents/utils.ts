@@ -15,6 +15,7 @@ import {
   validateMd5Required,
   validateSha1Required,
   validateSourceRequired,
+  validateSourceOptionsRequired,
   validateCountryCodeRequired,
   validateTimeRequired,
   validateIdRequired,
@@ -25,7 +26,7 @@ import { isRequired } from 'components/forms/validation/validators';
 export interface IIncidentsForm
   extends Pick<
     IRequestParams,
-    'asn' | 'cc' | 'dport' | 'fqdn' | 'ip' | 'md5' | 'name' | 'sha1' | 'source' | 'sport' | 'target' | 'url'
+    'asn' | 'cc' | 'dport' | 'fqdn' | 'ip' | 'md5' | 'name' | 'sha1' | 'sport' | 'target' | 'url'
   > {
   startDate: string;
   startTime: string;
@@ -38,6 +39,7 @@ export interface IIncidentsForm
   category?: SelectOption<TCategory>[];
   proto?: SelectOption<TProto>[];
   restriction?: SelectOption<TRestriction>[];
+  source?: SelectOption<string>[] | string;
   client?: string;
   nameSub?: string;
 }
@@ -51,6 +53,7 @@ const categoryList = [
   { value: 'dns-query', label: 'DNS query' },
   { value: 'dos-attacker', label: 'DoS attacker' },
   { value: 'dos-victim', label: 'DoS victim' },
+  { value: 'exposed', label: 'Exposed' },
   { value: 'flow', label: 'Flow' },
   { value: 'flow-anomaly', label: 'Flow anomaly' },
   { value: 'fraud', label: 'Fraud' },
@@ -100,6 +103,14 @@ export type TFilter =
       options: SelectOption<string>[];
     }
   | {
+      type: 'selectableInput';
+      name: TFilterName;
+      label: string;
+      validate: Record<string, Validate<SelectOption<string | boolean | number> | null>>;
+      options: SelectOption<string>[];
+      validateInputOnly?: Record<string, Validate<string>>;
+    }
+  | {
       type: 'date';
       name: TFilterName;
       label: string;
@@ -109,7 +120,12 @@ export type TFilter =
     };
 
 type TStoreValue = {
-  value?: string | SelectOption<TCategory>[] | SelectOption<TProto>[] | SelectOption<TRestriction>[];
+  value?:
+    | string
+    | SelectOption<TCategory>[]
+    | SelectOption<TProto>[]
+    | SelectOption<TRestriction>[]
+    | SelectOption<string>[];
 };
 type TStoreFilter = ({ isDate: true } | TFilter) & TStoreValue;
 
@@ -158,7 +174,14 @@ export const allFilters: TFilter[] = [
     validate: { isRequired }
   },
   { name: 'sha1', label: 'incidents_form_sha1', type: 'input', validate: validateSha1Required },
-  { name: 'source', label: 'incidents_form_source', type: 'input', validate: validateSourceRequired },
+  {
+    name: 'source',
+    label: 'incidents_form_source',
+    type: 'selectableInput',
+    validate: validateSourceOptionsRequired,
+    options: [],
+    validateInputOnly: validateSourceRequired
+  },
   { name: 'sport', label: 'incidents_form_sport', type: 'input', validate: validatePortNumberRequired },
   {
     name: 'target',
@@ -180,6 +203,10 @@ export const convertDateAndTime = (date: string, time: string) => {
 export const convertObjectArrToString = (options: SelectOption<TCategory | TProto | TRestriction>[]): string =>
   options.map((opt) => opt.value).join(',');
 
+export const convertSelectableInputToString = (options: SelectOption<string>[] | string) => {
+  return typeof options === 'string' ? options : options.map((option) => option.value).join(',');
+};
+
 export const optLimit = 1000;
 
 export const parseIncidentsFormData = (data: IIncidentsForm): IRequestParams => {
@@ -195,6 +222,7 @@ export const parseIncidentsFormData = (data: IIncidentsForm): IRequestParams => 
     endDate,
     endTime,
     restriction,
+    source,
     ...rest
   } = data;
 
@@ -206,6 +234,7 @@ export const parseIncidentsFormData = (data: IIncidentsForm): IRequestParams => 
     ...(category ? { category: convertObjectArrToString(category) } : {}),
     ...(proto ? { proto: convertObjectArrToString(proto) } : {}),
     ...(restriction ? { restriction: convertObjectArrToString(restriction) } : {}),
+    ...(source ? { source: convertSelectableInputToString(source) } : {}),
     ...(fqdnSub ? { 'fqdn.sub': fqdnSub } : {}),
     ...(ipNet ? { 'ip.net': ipNet } : {}),
     ...(urlSub ? { 'url.sub': urlSub } : {}),

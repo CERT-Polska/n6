@@ -1101,6 +1101,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 # (P9 omitted as being same as P7)
             ]))],
         },
+        'access_zone_source_ids': {
+            'inside': ['source.one', 'source.two', 'xyz.some-other'],
+            'threats': ['source.one', 'source.two', 'xyz.some-other']
+        },
         'rest_api_full_access': True,
         'rest_api_resource_limits': {
             '/report/inside': _res_props(),
@@ -1161,6 +1165,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """,
             ]))],
         },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'threats': ['anon-source.one', 'anon-source.two']
+        },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
             # no '/report/inside'
@@ -1202,6 +1210,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                     AND event.source IN ('source.one', 'source.two')
                 """,
             )],
+        },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two'],
+            'threats': ['anon-source.one', 'anon-source.two']
         },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
@@ -1254,6 +1266,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                     AND event.name = 'foo'
                 """,
             ]))],
+        },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two'],
+            'threats': ['anon-source.one', 'anon-source.two'],
+            'search': ['anon-source.one']
         },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
@@ -1315,6 +1332,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """,
             ]))],
         },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'threats': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other']
+        },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
             '/report/inside': _res_props(),
@@ -1349,6 +1370,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
             ]))],
 
             # no 'threats'
+        },
+        'access_zone_source_ids': {
+            'search': ['source.one', 'source.two', 'xyz.some-other']
         },
         'rest_api_full_access': True,
         'rest_api_resource_limits': {
@@ -1436,6 +1460,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS = {
                 """,
             ]))],
         },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'search': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'threats': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other']
+        },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
             '/report/inside': _res_props(),
@@ -1490,6 +1519,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o8'] = (
                 AND (event.cc IS NULL OR event.cc != 'PL')
             """,
         ]))],
+    },
+    'access_zone_source_ids': {
+        'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+        'threats': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other']
     },
     'rest_api_full_access': False,
     'rest_api_resource_limits': {
@@ -1551,6 +1584,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS['o12'] = {
                 AND event.name = 'foo'
             """,
         ]))],
+    },
+    'access_zone_source_ids': {
+        'inside': ['anon-source.one', 'anon-source.two'],
+        'search': ['anon-source.one'],
+        'threats': ['anon-source.one', 'anon-source.two']
     },
     'rest_api_full_access': False,
     'rest_api_resource_limits': {}  # note: empty dict because no resources enabled
@@ -1635,6 +1673,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """,
                 # (P9 omitted as being same as P7)
             ]))],
+        },
+        'access_zone_source_ids': {
+            'inside': ['source.one', 'source.two', 'xyz.some-other'],
+            'threats': ['source.one', 'source.two', 'xyz.some-other']
         },
         'rest_api_full_access': True,
         'rest_api_resource_limits': {
@@ -1721,6 +1763,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """,
             ]))],
         },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'threats': ['anon-source.one', 'anon-source.two']
+        },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
             # no '/report/inside'
@@ -1793,6 +1839,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                     AND event.ignored IS NOT TRUE
                 """,
             ]))],
+        },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two'],
+            'threats': ['anon-source.one', 'anon-source.two']
         },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
@@ -1877,6 +1927,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """,
             ]))],
         },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two'],
+            'search': ['anon-source.one'],
+            'threats': ['anon-source.one', 'anon-source.two']
+        },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
             '/report/inside': _res_props(),
@@ -1954,6 +2009,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """,
             ]))],
         },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'threats': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other']
+        },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
             '/report/inside': _res_props(),
@@ -1988,6 +2047,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
             ]))],
 
             # no 'threats'
+        },
+        'access_zone_source_ids': {
+            'search': ['source.one', 'source.two', 'xyz.some-other']
         },
         'rest_api_full_access': True,
         'rest_api_resource_limits': {
@@ -2118,6 +2180,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION = {
                 """,
             ]))],
         },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'search': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'threats': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other']
+        },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
             '/report/inside': _res_props(),
@@ -2184,6 +2251,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o8'] = (
                 AND event.ignored IS NOT TRUE
             """,
         ]))],
+    },
+    'access_zone_source_ids': {
+        'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+        'threats': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other']
     },
     'rest_api_full_access': False,
     'rest_api_resource_limits': {
@@ -2286,6 +2357,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITHOUT_OPTIMIZATION['o12'] = {
             """,
         ]))],
     },
+    'access_zone_source_ids': {
+        'inside': ['anon-source.one', 'anon-source.two'],
+        'search': ['anon-source.one'],
+        'threats': ['anon-source.one', 'anon-source.two']
+    },
     'rest_api_full_access': False,
     'rest_api_resource_limits': {}  # note: empty dict because no resources enabled
 }
@@ -2384,6 +2460,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND event.cc NOT IN ('PL')
                 """,
             ])],
+        },
+        'access_zone_source_ids': {
+            'inside': ['source.one', 'source.two', 'xyz.some-other'],
+            'threats': ['source.one', 'source.two', 'xyz.some-other']
         },
         'rest_api_full_access': True,
         'rest_api_resource_limits': {
@@ -2494,6 +2574,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """,
             ])],
         },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'threats': ['anon-source.one', 'anon-source.two']
+        },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
             # no '/report/inside'
@@ -2566,6 +2650,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
+        },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two'],
+            'threats': ['anon-source.one', 'anon-source.two']
         },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
@@ -2649,6 +2737,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                     AND (event.ignored IS NULL OR event.ignored = 0)
                 """,
             ])],
+        },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two'],
+            'search': ['anon-source.one'],
+            'threats': ['anon-source.one', 'anon-source.two']
         },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
@@ -2745,6 +2838,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """,
             ])],
         },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'threats': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other']
+        },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
             '/report/inside': _res_props(),
@@ -2783,6 +2880,9 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
             ])],
 
             # no 'threats'
+        },
+        'access_zone_source_ids': {
+            'search': ['source.one', 'source.two', 'xyz.some-other']
         },
         'rest_api_full_access': True,
         'rest_api_resource_limits': {
@@ -2919,6 +3019,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS = {
                 """,
             ])],
         },
+        'access_zone_source_ids': {
+            'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'search': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+            'threats': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other']
+        },
         'rest_api_full_access': False,
         'rest_api_resource_limits': {
             '/report/inside': _res_props(),
@@ -3003,6 +3108,10 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o8'] = (
                 AND (event.ignored IS NULL OR event.ignored = 0)
             """,
         ])],
+    },
+    'access_zone_source_ids': {
+        'inside': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other'],
+        'threats': ['anon-source.one', 'anon-source.two', 'anon-xyz.some-other']
     },
     'rest_api_full_access': False,
     'rest_api_resource_limits': {
@@ -3122,6 +3231,11 @@ EXAMPLE_ORG_IDS_TO_ACCESS_INFOS_WITH_LEGACY_CONDITIONS['o12'] = {
                 AND (event.ignored IS NULL OR event.ignored = 0)
             """,
         ])],
+    },
+    'access_zone_source_ids': {
+        'inside': ['anon-source.one', 'anon-source.two'],
+        'search': ['anon-source.one'],
+        'threats': ['anon-source.one', 'anon-source.two']
     },
     'rest_api_full_access': False,
     'rest_api_resource_limits': {}  # note: empty dict because no resources enabled

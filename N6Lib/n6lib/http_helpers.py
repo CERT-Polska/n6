@@ -1,16 +1,21 @@
-# Copyright (c) 2019-2024 NASK. All rights reserved.
+# Copyright (c) 2019-2025 NASK. All rights reserved.
+
+from __future__ import annotations
 
 import datetime
 
 import requests
 import requests.packages
 from requests.adapters import HTTPAdapter
+from typing_extensions import Self
 from urllib3.util.retry import Retry
 assert Retry is requests.packages.urllib3.util.retry.Retry
 
+from n6lib.typing_helpers import KwargsDict
 from n6lib.datetime_helpers import parse_iso_datetime_to_utc
 
 
+# TODO: tests...
 class RequestPerformer:
 
     """
@@ -248,6 +253,7 @@ class RequestPerformer:
         self._retry_conf = self._get_retry_conf(retries=retries,
                                                 backoff_factor=backoff_factor)
         self._chunk_size = chunk_size if stream else None
+        self._with_externally_managed_session = False
 
     @classmethod
     def fetch(cls, /, *args, **kwargs):
@@ -274,26 +280,51 @@ class RequestPerformer:
             return perf.response.content
 
     def __enter__(self):
-        self.session = requests.Session()
+        if not self._with_externally_managed_session:
+            self.session = requests.Session()
         try:
-            self._set_custom_session_attrs()
-            self._set_up_retries()
+            if not self._with_externally_managed_session:
+                self._set_custom_session_attrs()
+                self._set_up_retries()
             self.response = self.session.request(**self._request_kwargs)
             self.response.raise_for_status()
             self._actual_iterator = self.response.iter_content(chunk_size=self._chunk_size)
-        except:
-            self.session.close()
+        except BaseException as exc:
+            self.__exit__(type(exc), exc, exc.__traceback__)
             raise
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.session.close()
+        if not self._with_externally_managed_session:
+            self.session.close()
 
     def __iter__(self):
         return self
 
     def __next__(self):
         return next(self._actual_iterator)
+
+    def set_externally_managed_session(self,
+                                       session=None,
+                                       *,
+                                       set_custom_attrs=True,
+                                       set_up_retries=True):
+        """
+        Advanced method, should *not* be invoked after `__enter__()`...
+
+        (TODO: doc)
+        """
+        if self.session is not None:
+            raise RuntimeError(f'{self.session=!a} is already present')
+        if session is None:
+            session = requests.Session()
+        self.session = session
+        if set_custom_attrs:
+            self._set_custom_session_attrs()
+        if set_up_retries:
+            self._set_up_retries()
+        self._with_externally_managed_session = True
+        return session
 
     def get_dt_header(self, header_key):
         """
@@ -365,6 +396,90 @@ class RequestPerformer:
             for http_prefix in self.SUPPORTED_URL_PREFIXES:
                 self.session.mount(http_prefix,
                                    _HTTPAdapterForRetries(max_retries=self._retry_conf))
+
+
+class MultiRequestPerformer:
+
+    """
+    TODO: doc, tests...
+    """
+
+    def __init__(self,
+                 method: str | None = None,
+                 url: str | None = None,
+                 **request_performer_kwargs):
+        self._default_method = method
+        self._default_url = url
+        self._request_performer_kwargs = request_performer_kwargs
+        self._entered = False
+        self.session = None
+
+    def __enter__(self) -> Self:
+        self._verify_not_entered()
+        self._entered = True
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self._verify_entered()
+        if self.session is not None:
+            self.session.close()
+        self._entered = False
+
+    def fetch(self, /, *args, **kwargs) -> bytes:
+        with self.performer(*args, stream=False, **kwargs) as perf:
+            return perf.response.content
+
+    def performer(self,
+                  method: str | None = None,
+                  url: str | None = None,
+                  **request_performer_kwarg_overrides) -> RequestPerformer:
+        self._verify_no_illegal_kwarg_overrides(request_performer_kwarg_overrides)
+        self._verify_entered()
+        method = self._check_against_default_method(method)
+        url = self._check_against_default_url(url)
+        perf_effective_kwargs = self._request_performer_kwargs | request_performer_kwarg_overrides
+        perf = RequestPerformer(method, url, **perf_effective_kwargs)
+        perf.set_externally_managed_session(self.session)
+        if self.session is None:
+            self.session = perf.session
+        assert self.session is perf.session is not None
+        return perf
+
+    def _verify_no_illegal_kwarg_overrides(self,
+                                           request_performer_kwarg_overrides: KwargsDict) -> None:
+        illegal_kwargs = request_performer_kwarg_overrides.keys() & {
+            # These are related to the session (that may have already
+            # been configured), so they cannot be overridden:
+            'retries',
+            'backoff_factor',
+            'custom_session_attrs',
+        }
+        if illegal_kwargs:
+            listing = ', '.join(map(ascii, sorted(illegal_kwargs)))
+            raise TypeError(f'{type(self).performer.__qualname__}() got '
+                            f'unexpected keyword arguments: {listing}')
+
+    def _verify_entered(self):
+        if not self._entered:
+            raise RuntimeError(f'not entered ({type(self).__enter__.__qualname__}() not invoked)')
+
+    def _verify_not_entered(self):
+        if self._entered:
+            raise RuntimeError(f'already entered ({type(self).__enter__.__qualname__}() invoked)')
+
+    def _check_against_default_method(self, method: str | None) -> str:
+        if method is None:
+            if self._default_method is None:
+                raise RuntimeError('no HTTP method provided (you need to specify `method`)')
+            method = self._default_method
+        return method
+
+    def _check_against_default_url(self, url: str | None) -> str:
+        if url is None:
+            if self._default_url is None:
+                raise RuntimeError('no URL provided (you need to specify `url`)')
+            url = self._default_url
+        return url
 
 
 class _HTTPAdapterForRetries(HTTPAdapter):

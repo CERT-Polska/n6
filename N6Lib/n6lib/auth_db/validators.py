@@ -303,8 +303,10 @@ class AuthDBValidators(object):
             make_adjuster_using_data_spec('http_absolute_url')),
         _adjust_to_none_if_empty_or_whitespace)
 
-
     validator_for__recent_write_op_commit__made_at = _adjust_time_keeping_microseconds
+
+    validator_for__auxiliary_cache_entry__key = _adjust_ascii_only_to_unicode
+    validator_for__auxiliary_cache_entry__updated_at = _adjust_time
 
     # (2) *unqualified* (*generic*) validator methods:
 

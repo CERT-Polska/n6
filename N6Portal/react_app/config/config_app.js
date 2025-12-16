@@ -105,7 +105,7 @@ class OidcConfig {
     try {
       return JSON.parse(fs.readFileSync(this.configPath, 'utf-8'));
     } catch (e) {
-      return '';
+      return {};
     }
   }
 

@@ -47,6 +47,7 @@ dev = [
     "pylint",
     "pytest",
     "pytest-cov",
+    "pytest-httpserver",
     "unittest-expander",
 
     # web-specific:
@@ -56,6 +57,7 @@ dev = [
 tests = [
     "pytest",
     "pytest-cov",
+    "pytest-httpserver",
     "coverage",
     "unittest-expander",
 ]

@@ -14,14 +14,6 @@ html
         p
           | If you want to enable the single sign-on authentication with external (e.g. Keycloak)
           | identity provider, check the "Enable OpenID Connect SSO".
-        p
-          | Then, you need to paste the configuration of the client that is assigned as the client
-          | of GUI into the "JSON Configuration of GUI Client" input.
-        p
-          | In case you are using Keycloak as the identity provider, log in to admin panel,
-          | go to client's settings, to the "Installation" tab. Select the "Keycloak OIDC
-          | JSON" format. Copy and paste the options. They will be saved as "keycloak.json"
-          | file and used by Keycloak JavaScript adapter.
     div#buttons
       button(type="button")#sendBtn= "Save current settings"
       button(type="button")#resetBtn= "Reset forms"
@@ -72,27 +64,6 @@ html
           newInput.classList.add('invalidField');
         }
       }
-      const oidcConfig = JSON.stringify(data['OIDC_CONFIG'], null, 2);
-      const [oidcInput] = addInputPair(parentNode,
-        data['_oidc_schema']['OIDC_CONFIG'],
-        'oidc_config',
-        oidcConfig,
-        'textarea'
-      );
-      oidcInput.setAttribute('rows', 15);
-      if (!enabledCheckbox.checked) {
-        oidcInput.setAttribute('disabled', '');
-      } else if (!oidcInput.value) {
-        configReady = false;
-        oidcInput.classList.add('invalidField');
-      }
-      enabledCheckbox.onchange = (e) => {
-        if (e.target.checked) {
-          oidcInput.removeAttribute('disabled');
-        } else {
-          oidcInput.setAttribute('disabled', '');
-        }
-      }
       return configReady;
     }
 
@@ -125,7 +96,6 @@ html
           console.log(e);
           return;
         });
-      configData['OIDC_CONFIG'] = oidcConfigData;
       fillForm(configData);
     }
 
@@ -134,13 +104,11 @@ html
       const enabledCheckbox = form.querySelector('input[name="enabled_checkbox"]');
       const btnLabelEn = form.querySelector('input[name="button_label_en"]');
       const btnLabelPl = form.querySelector('input[name="button_label_pl"]');
-      const oidcConfig = form.querySelector('textarea');
       const isOidcEnabled = enabledCheckbox.checked;
       return {
         REACT_APP_OIDC_AUTH_ENABLED: isOidcEnabled,
         REACT_APP_OIDC_BUTTON_LABEL_EN: btnLabelEn.value,
         REACT_APP_OIDC_BUTTON_LABEL_PL: btnLabelPl.value,
-        OIDC_CONFIG: isOidcEnabled ? oidcConfig.value : ''
       };
     }
 
