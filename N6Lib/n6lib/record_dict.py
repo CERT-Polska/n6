@@ -1066,6 +1066,8 @@ class RecordDict(collections_abc.MutableMapping):
 
     adjust_user_agent = make_adjuster_using_data_spec(
         'user_agent', on_too_long=trim)
+    
+    adjust_score = make_adjuster_using_data_spec('score')
 
     adjust_sender = make_adjuster_using_data_spec(
         'sender', on_too_long=trim)

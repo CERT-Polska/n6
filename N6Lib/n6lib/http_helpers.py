@@ -307,21 +307,25 @@ class RequestPerformer:
     def set_externally_managed_session(self,
                                        session=None,
                                        *,
-                                       set_custom_attrs=True,
-                                       set_up_retries=True):
+                                       set_custom_attrs_on_given_session=False,
+                                       set_up_retries_on_given_session=False):
         """
         Advanced method, should *not* be invoked after `__enter__()`...
 
         (TODO: doc)
         """
+        if session is None:
+            return self.set_externally_managed_session(
+                session=requests.Session(),
+                set_custom_attrs_on_given_session=True,
+                set_up_retries_on_given_session=True,
+            )
         if self.session is not None:
             raise RuntimeError(f'{self.session=!a} is already present')
-        if session is None:
-            session = requests.Session()
         self.session = session
-        if set_custom_attrs:
+        if set_custom_attrs_on_given_session:
             self._set_custom_session_attrs()
-        if set_up_retries:
+        if set_up_retries_on_given_session:
             self._set_up_retries()
         self._with_externally_managed_session = True
         return session

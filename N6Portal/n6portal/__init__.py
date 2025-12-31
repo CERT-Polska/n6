@@ -192,7 +192,7 @@ class N6PortalStreamView(KnowledgeBaseRelatedViewMixin,
         else:
             view_class._category_to_phrase_to_knowledge_base_urls = {}
             view_class._category_to_phrase_regex = {}
-        
+
         assert (
             view_class._category_to_phrase_regex.keys()
             == view_class._category_to_phrase_to_knowledge_base_urls.keys()

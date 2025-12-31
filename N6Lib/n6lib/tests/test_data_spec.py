@@ -101,6 +101,7 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'misp_eventdid',  # use of the field is deprecated
         'misp_attr_uuid',
         'misp_event_uuid',
+        'score',
         'snitch_uuid',
         'sysdesc',
         'version',

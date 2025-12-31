@@ -56,6 +56,9 @@ n6collector_spam404comscamlistbl = n6datasources.collectors.spam404_com:Spam404C
 ## stopforum.*
 n6collector_stopforumspam = n6datasources.collectors.stopforum:StopForumSpamCollector_main
 
+## tu-dresden-de.resolvers
+n6collector_tudresdenderesolvers = n6datasources.collectors.tu_dresden_de:TuDresdenDeResolversCollector_main
+
 ## turris-cz.*
 n6collector_turrisczgreylistcsv = n6datasources.collectors.turris_cz:TurrisCzGreylistCsvCollector_main
 
@@ -204,6 +207,9 @@ n6parser_spam404comscamlistbl = n6datasources.parsers.spam404_com:Spam404ComScam
 
 ## stopforum.*
 n6parser_stopforumspam = n6datasources.parsers.stopforum:StopForumSpamParser_main
+
+## tu-dresden-de.resolvers
+n6parser_tudresdenderesolvers = n6datasources.parsers.tu_dresden_de:TuDresdenDeResolversParser_main
 
 ## turris-cz.*
 n6parser_turrisczgreylistcsv202401 = n6datasources.parsers.turris_cz:TurrisCzGreylistCsv202401Parser_main

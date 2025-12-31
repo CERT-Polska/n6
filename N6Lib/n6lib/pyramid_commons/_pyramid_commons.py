@@ -28,6 +28,7 @@ from pyramid.security import (
 from pyramid.tweens import EXCVIEW
 from requests.exceptions import RequestException
 
+from n6sdk.pyramid_commons import exc_to_http_exc
 from n6lib.auth_api import (
     EVENT_DATA_RESOURCE_IDS,
     AuthAPIUnauthenticatedError,
@@ -133,6 +134,11 @@ from n6sdk.pyramid_commons import (
 
 LOGGER = get_logger(__name__)
 
+SETTING_ALIASES = {
+    'debug_all': ['debug_all', 'pyramid.debug_all'],
+    'debug_notfound': ['debug_notfound', 'pyramid.debug_notfound'],
+    'debug_authorization': ['debug_authorization', 'pyramid.debug_authorization'],
+}
 
 #
 # Debugging info helpers
@@ -144,6 +150,24 @@ def log_debug_info_on_http_exc(http_exc):
             'Condensed debug info related to %a:\n%s',
             http_exc, make_condensed_debug_msg())
 
+def _should_preserve_comment(http_exc, settings):
+    if _is_set_to_boolean_true(settings, 'debug_all'):
+        return True
+
+    status_code = getattr(http_exc, 'code', None)
+    if status_code == 404:
+        return _is_set_to_boolean_true(settings, 'debug_notfound')
+    if status_code == 403:
+        return _is_set_to_boolean_true(settings, 'debug_authorization')
+
+    return False
+
+def _is_set_to_boolean_true(settings, key):
+    for name in SETTING_ALIASES.get(key, [key]):
+        value = settings.get(name)
+        if isinstance(value, bool) and value:
+            return True
+    return False
 
 #
 # SSL/TLS-based-auth helpers
@@ -1856,7 +1880,19 @@ class N6ConfigHelper(ConfigHelper):
 
     @classmethod
     def exception_view(cls, exc, request):
-        http_exc = super().exception_view(exc, request)
+        http_exc = exc_to_http_exc(exc)
+        if not _should_preserve_comment(http_exc, request.registry.settings):
+            for attr in ('detail', 'comment'):
+                if hasattr(http_exc, attr):
+                    try:
+                        setattr(http_exc, attr, None)
+                    except Exception:
+                        pass
+
+        environ_copy = request.environ.copy()
+        environ_copy.pop('HTTP_ACCEPT', None)
+        http_exc.prepare(environ_copy)
+
         log_debug_info_on_http_exc(http_exc)
         return http_exc
 

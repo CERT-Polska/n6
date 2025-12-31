@@ -638,6 +638,7 @@ class N6DataSpec(DataSpec):
     filename = SomeUnicodeFieldForN6(in_result='optional')
     min_amplification = SomeUnicodeFieldForN6(in_result='optional')
     rt = SomeUnicodeFieldForN6(in_result='optional')
+    score = SomeUnicodeFieldForN6(in_result='optional')
     x509issuer = SomeUnicodeFieldForN6(in_result=('optional', 'unrestricted'))
     x509subject = SomeUnicodeFieldForN6(in_result=('optional', 'unrestricted'))
 
@@ -759,6 +760,7 @@ class N6DataSpec(DataSpec):
         'request',
         'revision',
         'rt',
+        'score',
         'sender',
         'snitch_uuid',
         'subject_common_name',

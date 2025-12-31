@@ -25,13 +25,70 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [4.40.0] (2025-12-31)
+
+#### General Audience Stuff
+
+- [data sources, config] A new data source: `tu-dresden-de.resolvers`
+  (collector and parser).
+
+- [portal, docs, config, setup, lib, etc/docker] Regarding the recently
+  added *Name Details* feature (see the *release notes* for `v4.38.0`...),
+  added -- in `etc/knowledge_base` (which is the source code repository's
+  subdirectory where the default *n6 Knowledge Base* initialization data
+  resides) -- a bunch of new *Knowledge Base* articles. Each of them
+  describes some `category` of events, and certain of those articles specify
+  (in level-3 headers) and describe (in the paragraphs accompanying those
+  headers) common *name detail* phrases (to be searched in events' `name`
+  by the *Name Details* mechanism). *Note*: previously, `etc/knowledge_base`
+  contained just fake/example stuff; from now on, a useful initial content
+  of your *Knowledge Base* is provided there. Also, to ease configuration
+  of the feature, enriched the relevant *n6 Portal*-related `*.ini`
+  configuration prototype files with comments suggesting a suitable value
+  of the configuration option `name_details.category_to_n6kb_article_ids`.
+
+- [docs] Made a few minor updates/improvements to the
+  [documentation](https://n6.readthedocs.io/) (including minor fixes to
+  this changelog).
+
+#### System/Configuration/Programming-Only
+
+- [lib] `n6lib.data_spec.N6DataSpec` and `n6lib.record_dict...`: added a new
+  event field -- `score` (optional, custom, visible only to privileged users).
+
+- [lib] `n6lib.http_helpers`: made a backward incompatible change to
+  `RequestPerformer.set_externally_managed_session()` -- namely, replaced
+  the keyword arguments `set_custom_attrs` and `set_up_retries` with new
+  ones: `set_custom_attrs_on_given_session` and
+  `set_up_retries_on_given_session`. The key difference is that the new
+  arguments are relevant only if the `session` argument is given and is
+  not `None` -- otherwise, when the session is automatically created, it
+  unconditionally obtains the `RequestPerformer`'s custom session
+  attributes and configuration of retries; and that the default value of
+  each of the new arguments is `False`, rather than `True`. Thanks to
+  these changes, the method's behavior is more intuitive and, moreover,
+  the `MultiRequestPerformer`'s machinery no longer re-sets custom
+  attributes and re-configures retries on the same session object again
+  and again, on each request (that behavior was harmless but redundant).
+
+- [portal, rest api, lib, ...] Regarding some HTTP error response bodies,
+  got rid of certain unnecessary details (by modifying the behavior of the
+  `n6lib.pyramid_commons._pyramid_commons.N6ConfigHelper.exception_view()`
+  method -- utilizing the `exc_to_http_exc()` method and conditionally
+  clearing `detail` and `comment` attributes, based on debugging-related
+  settings specific to the Pyramid framework...).
+
+- [tests] Added/improved some tests.
+
+
 ## [4.38.0] (2025-12-16)
 
 #### General Audience Stuff
 
 - [data sources, config] A new *Shadowserver* data source:
-  `shadowserver.device-info` (parser). See the relevant additions
-  in the configuration prototype file `etc/n6/60_shadowserver.conf`.
+  `shadowserver.device-info` (parser). When it comes to its configuration,
+  see the relevant additions made to the configuration prototype file
+  `etc/n6/60_shadowserver.conf`.
 
 - [data sources] Fixed the `turris-cz.greylist-csv` source by changing the
   parser's `expires` interval to 48h -- in particular, to be consistent
@@ -45,15 +102,17 @@ Some features of this document's layout were inspired by
   **What is important** from the point of view of the administrators of an
   *n6* instance is that the schema of the production Event DB needs to be
   manually adjusted to accommodate this enhancement (see the relevant
-  fragment of `etc/mysql/initdb/1_create_tables.sql`).
+  fragment of `etc/mysql/initdb/1_create_tables.sql`...).
 
-- [data pipeline, tests] Applied two changes/fixes to `n6recorder`. From
-  now on, it publishes *every* new event to the `n6counter`'s input queue
-  after the successful insertion of that event into the Event DB -- *also*
+- [data pipeline] Applied two changes/fixes to `n6recorder` -- having an
+  impact on input data for `n6counter` and, consequently, influencing
+  *e-mail notifications* about events, sent by `n6notifier`. From now on,
+  `n6recorder` pushes *every new* event to the `n6counter`'s input queue
+  after successfully inserting that event into the Event DB -- *also*
   in the cases of "fallback" insertions of `bl-update`/`suppress` events
   (when no records were found that could be updated), *not only* in the
-  cases of unconditional insertions of `event`, `bl-new` or `bl-change`
-  ones. Also, fixed the bug that -- in the case of an *unsuccessful*
+  usual cases of unconditional insertions of `event`/`bl-new`/`bl-change`
+  ones. Also, fixed a bug which -- in the case of an *unsuccessful*
   (rolled back) insertion of a `bl-change` event (that is, if an
   event-duplication-caused `IntegrationError` occurred while trying to
   insert a `bl-change` event into the Event DB) -- caused an undesirable
@@ -68,7 +127,7 @@ Some features of this document's layout were inspired by
   feature, called by us *Name Details*, which allows users to learn more
   about certain important details of the searched events' `name` attribute
   values: from now on -- when showing search results -- some values in the
-  *Name* column may be accompanied by a *light bulb icon*; when you click
+  *Name* column may be accompanied by a *light bulb* icon; when you click
   it, a pop-up window appears, containing links to external sites and/or
   internal *n6 Knowledge Base* pages describing certain tags and phrases
   found in the concerned event's `name`, in particular, vulnerability
@@ -100,7 +159,7 @@ Some features of this document's layout were inspired by
 
 - [portal, lib] The *n6 Portal*'s *Incidents* page: now the *source*
   search filter is based on a new type of filter, `selectableInput` --
-  providing the user with a list of all data sources available to that
+  providing the user with a list of all data sources available to the
   user, depending on the selected access zone. Under the hood, the Portal
   API gained the following new endpoints: `/report/inside/sources.json`,
   `/report/threats/sources.json` and `/search/events/sources.json` -- each
@@ -166,9 +225,9 @@ Some features of this document's layout were inspired by
   SSO feature); see the relevant fragment of the `etc/web/conf/portal.ini`
   configuration prototype file.
 
-- [portal, rest api, lib] From now on, a newly created user, if they manage
-  to authenticate *and* really exist in the Auth DB as a non-blocked user
-  belonging to the claimed organization, gain access to the organization's
+- [portal, rest api, lib] From now on, a newly created user, if managed
+  to authenticate *and* really exists in the Auth DB as a non-blocked user
+  belonging to the claimed organization, gains access to the organization's
   resources immediately, i.e., without the necessity to wait for the *Auth
   API* machinery to refresh its cache. To implement this change, we modified
   the behavior of the method `is_access_zone_available()` of all view classes
@@ -199,7 +258,7 @@ Some features of this document's layout were inspired by
 
 - [portal, config] From now on, the value of the `knowledge_base.base_dir`
   configuration option must always be an absolute path (note that paths
-  starting with `~` and `~user` placeholders are OK).
+  starting with a `~` or `~user` placeholder are OK).
 
 - [lib, cli, ..., setup, etc/docker, tests, docs] Made several updates,
   adjustments and additions accompanying the changes and additions
@@ -213,8 +272,8 @@ Some features of this document's layout were inspired by
 - [portal, setup, tests] Regarding the implementation of the *n6 Portal*'s
   frontend (*React*-based TS/JS code and related resources...): made a
   bunch of additions, enhancements, adjustments and fixes. In particular,
-  **reworked the stuff related to configuring the *Terms of Service*
-  document's content** -- by replacing the use of an interactive tool and
+  reworked the utilities related to configuring the *Terms of Service*
+  document's content -- by replacing the use of an interactive tool and
   environment variables with a script-based approach and Markdown files (+
   moving the `API_URL` and `OIDC_BUTTONS_LABEL` environment variables to a
   separate JSON file); **from now on, to generate *Terms of Service* the
@@ -226,10 +285,10 @@ Some features of this document's layout were inspired by
 
 - [lib, auth db] A new programming facility provided by `n6lib`, and (what
   is important) utilized to implement the *Name Details* feature described
-  above): *Auxiliary Cache* -- a simple, general-purpose, *n6*-wide cache.
-  Provided by a new module, `n6lib.auth_db.auxiliary_cache` -- containing
-  the `AuxiliaryCacheEntryRetriever` and `AuxiliaryCacheEntryHandle` classes
-  (plus one static type variable: `ContentT`). To implement the underlying
+  above: *Auxiliary Cache* -- a simple, general-purpose, *n6*-wide cache.
+  Provided by a new module, `n6lib.auth_db.auxiliary_cache`, containing the
+  `AuxiliaryCacheEntryRetriever` class (plus a helper class and type alias:
+  `AuxiliaryCacheEntryHandle` and `ContentT`). To implement the underlying
   machinery, a new Auth DB table was added: `auxiliary_cache_entry` (with
   the corresponding model class: `n6lib.auth_db.modelsAuxiliaryCacheEntry`);
   also, the class `n6lib.auth_db_api.AuthManageAPI` gained a new instance
@@ -247,11 +306,11 @@ Some features of this document's layout were inspired by
 
 - [lib] `n6lib.http_helpers`: a new class, `MultiRequestPerformer`, making
   it possible to send multiple HTTP(S) requests, using the same instance
-  of `request.Session` -- allowing (in particular) to make the stuff more
-  efficient by re-using TCP connections. The new class makes use of an
-  existing one: `RequestPerformer` (provided by the `n6lib.http_helpers`
-  module as well). And `RequestPerformer` itself gained a new method:
-  `set_externally_managed_session()`.
+  of `requests.Session` -- which, apart from other advantages, typically
+  makes the stuff more efficient thanks to re-using TCP connections. The
+  new class makes use of an existing one: `RequestPerformer` (provided by
+  the `n6lib.http_helpers` module as well). And `RequestPerformer` itself
+  gained a new method: `set_externally_managed_session()`.
 
 - [lib] `n6lib.jwt_helpers`: the `jwt_decode()` function gained a new
   optional argument: `issuer`.
@@ -630,8 +689,8 @@ Some features of this document's layout were inspired by
   (*bookworm*) is, still, the recommended operating system, and CPython
   3.11 is the recommended implementation of Python.
 
-- [data sources] A new data source: `phishtank.verified` (collector and
-  parser).
+- [data sources, config] A new data source: `phishtank.verified` (collector
+  and parser).
 
 - [data pipeline] New components for e-mail notifications: `n6counter`,
   `n6notifier` and `n6notifier_templates_renderer` (implemented,
@@ -853,9 +912,9 @@ Some features of this document's layout were inspired by
   now the officially recommended operating system and Python implementation.
   (CPython 3.9 is still supported.)
 
-- [data sources] New data sources: `turris-cz.greylist-csv` (collector and
-  parser), `withaname.ddosia` (collector and parser) and `shadowserver.bgp`
-  (just another `shadowerver` parser).
+- [data sources, config] New data sources: `turris-cz.greylist-csv`
+  (collector and parser), `withaname.ddosia` (collector and parser) and
+  `shadowserver.bgp` (just another `shadowerver` parser).
 
 - [data sources] Changed the `shadowserver.ftp` parser's constant value of
   the `name` event attribute to `"ftp allow password wo ssl"` (previously
@@ -865,7 +924,7 @@ Some features of this document's layout were inspired by
   removing the (mistakenly kept) rigid limit on numbers of events being
   sent.
 
-- [data sources] Removed the `malwarepatrol.malurl` collector.
+- [data sources, config] Removed the `malwarepatrol.malurl` collector.
 
 - [portal, rest api, stream api, admin panel, data pipeline] Added a new
   feature: *Ignore Lists*. From now on, *n6* administrators/operators can
@@ -1631,6 +1690,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **The first public release of *n6*.**
 
 
+[4.40.0]: https://github.com/CERT-Polska/n6/compare/v4.38.0...v4.40.0
 [4.38.0]: https://github.com/CERT-Polska/n6/compare/v4.31.3...v4.38.0
 [4.31.3]: https://github.com/CERT-Polska/n6/compare/v4.31.0...v4.31.3
 [4.31.0]: https://github.com/CERT-Polska/n6/compare/v4.23.10...v4.31.0

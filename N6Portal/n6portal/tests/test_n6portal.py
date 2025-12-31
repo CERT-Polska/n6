@@ -28,7 +28,10 @@ from n6lib.auth_api import EVENT_DATA_RESOURCE_IDS
 from n6lib.auth_db import models
 from n6lib.auth_db.api import AuthManageAPI
 from n6lib.config import ConfigError
-from n6lib.file_helpers import FilesystemPathMapping
+from n6lib.file_helpers import (
+    FilesystemPathMapping,
+    as_path,
+)
 from n6lib.moje_api_client import MojeCveAdvisoriesFullInfo
 from n6lib.pyramid_commons import N6LimitedStreamView
 from n6lib.pyramid_commons.knowledge_base_helpers import KnowledgeBaseDataError
@@ -55,7 +58,7 @@ class TestEnrichingEventsWithNameDetailsByN6PortalStreamView:
 
     KNOWLEDGE_BASE_FILESYSTEM_TREE_DATA = {
         'en': {
-            '_title.txt': 'Our Example Knowledge Base',
+            '_title.txt': 'Fake Knowledge Base Just For Tests',
 
             '10-bots': {
                 '_title.txt': 'About Bots',
@@ -117,7 +120,7 @@ class TestEnrichingEventsWithNameDetailsByN6PortalStreamView:
         },
 
         'pl': {
-            '_title.txt': 'Nasza przykładowa Baza Wiedzy',
+            '_title.txt': 'Udawana Baza Wiedzy na potrzeby testów',
 
             '10-o-botach': {
                 '_title.txt': 'O botach',
@@ -1221,7 +1224,7 @@ class TestEnrichingEventsWithNameDetailsByN6PortalStreamView:
         assert processed_event == given_event
 
 
-    def test_raises_config_error_at_start_if_name_details_n6kb_stuff_is_configured_but_n6kb_itself_is_inactive(
+    def test_raises_config_error_at_start_if_name_details_n6kb_stuff_is_configured_but_n6kb_itself_is_inactive(  # noqa
         self,
     ):
         settings = {
@@ -1366,7 +1369,7 @@ class TestEnrichingEventsWithNameDetailsByN6PortalStreamView:
         ],
         indirect=True,
     )
-    def test_logs_warning_at_start_if_n6kb_article_contains_unmatchable_phrase_with_non_ascii_characters(
+    def test_logs_warning_at_start_if_n6kb_article_contains_unmatchable_phrase_with_non_ascii_characters(  # noqa
         self,
         knowledge_base_fs_tree: FilesystemPathMapping,
         caplog: pytest.LogCaptureFixture,
@@ -1547,6 +1550,45 @@ class TestEnrichingEventsWithNameDetailsByN6PortalStreamView:
         assert "Could not retrieve `moje.cert.pl`'s CVE-related advisories" in caplog.text
 
 
+def test_standard_knowledge_base_in_etc_has_no_obvious_defects(caplog: pytest.LogCaptureFixture):
+    # This is a quick-and-dirty way to provide a
+    # validity check for `etc/knowledge_base/**`.
+    # TODO later: make it a proper test in new `tests/` stuff...
+
+    n6_project_top_path = as_path(__file__).parent.parent.parent.parent
+    knowledge_base_path = n6_project_top_path / 'etc' / 'knowledge_base'
+    try:
+        knowledge_base_dir = str(knowledge_base_path.resolve(strict=True))
+    except Exception as exc:  # noqa
+        pytest.skip(
+            f'cannot resolve knowledge base path '
+            f'{str(knowledge_base_path)!a} '
+            f'({str(exc)!a})',
+        )
+    else:
+        settings = {
+            'knowledge_base.active': 'true',
+            'knowledge_base.base_dir': knowledge_base_dir,
+            'name_details.active': 'true',
+            'name_details.category_to_n6kb_article_ids': (
+                "{"
+                "'amplifier': [1010],"
+                "'bots': [1020],"
+                "'cnc': [1030],"
+                "'malurl': [1050],"
+                "'scanning': [1070],"
+                "'server-exploit': [1080],"
+                "'vulnerable': [1090],"
+                "}"
+            ),
+            'portal_frontend_properties.base_url': 'https://n6portal.example.com/whatever',
+        }
+        caplog.set_level(logging.ERROR, logger=None)
+
+        _prepare_and_instantiate_view(settings, auth_db_faker=None)
+        assert not caplog.text
+
+
 #
 # Module-local helpers
 #
@@ -1650,26 +1692,27 @@ def _prepare_and_instantiate_view(
                 registry=SimpleNamespace(settings=settings),
             ),
         )
-    with patch.object(N6LimitedStreamView, '__init__', return_value=None) as init_mock:
-        view_instance = view_class()
 
-    assert init_mock.mock_calls == [call()], 'internal assumption'
     assert view_class is _N6PortalStreamView_subclass, 'internal assumption'
-    assert isinstance(view_instance, _N6PortalStreamView_subclass), 'internal assumption'
-    assert isinstance(view_instance, N6PortalStreamView)
-    assert view_instance.config_full.keys() == {
-        'name_details',
-        'portal_frontend_properties',
-        'knowledge_base',
-    }
-    assert set(dir(view_instance)) >= {
+    assert set(dir(view_class)) >= {
+        'config_full',
         '_name_details_config',
         '_portal_base_url',
         '_knowledge_base_data',
         '_category_to_phrase_to_knowledge_base_urls',
         '_category_to_phrase_regex',
     }
+    assert view_class.config_full.keys() == {
+        'name_details',
+        'portal_frontend_properties',
+        'knowledge_base',
+    }
 
+    with patch.object(N6LimitedStreamView, '__init__', return_value=None) as init_mock:
+        view_instance = view_class()
+    assert init_mock.mock_calls == [call()], 'internal assumption'
+    assert isinstance(view_instance, _N6PortalStreamView_subclass), 'internal assumption'
+    assert isinstance(view_instance, N6PortalStreamView)
     if auth_db_faker is not None:
         view_instance.request = SimpleNamespace(
             registry=SimpleNamespace(
