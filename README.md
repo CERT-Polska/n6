@@ -19,7 +19,7 @@ Contact us via e-mail: [n6@cert.pl](mailto:n6@cert.pl).
 
 ## Copyright and License
 
-Copyright (c) 2013-2025
+Copyright (c) 2013-2026
 [Naukowa i Akademicka Sieć Komputerowa (Research and Academic Computer Network)](https://nask.pl/en/).
 All rights reserved.
 
