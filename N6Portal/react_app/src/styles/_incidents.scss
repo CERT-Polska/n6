@@ -362,12 +362,14 @@
   --bs-tertiary-bg: #e9ecef !important;
 }
 
+.trimmed-url-copy-icon,
 .lightbulb-icon-incident {
   background-color: transparent;
   height: 18px;
   width: 18px;
 }
 
+.trimmed-url-copy-button,
 .lightbulb-icon-button {
   background-color: transparent;
   width: 30px;
@@ -378,6 +380,14 @@
   :active {
     scale: 0.9;
   }
+}
+
+.trimmed-url-copy-button {
+  visibility: hidden;
+}
+
+.td:hover .trimmed-url-copy-button {
+  visibility: visible;
 }
 
 .lightbulb-icon-button:hover {

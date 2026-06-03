@@ -1,9 +1,10 @@
-import { FC, useState } from 'react';
+import { FC, useEffect, useState } from 'react';
 import { OverlayTrigger, Tooltip } from 'react-bootstrap';
 import Popover from 'react-bootstrap/Popover';
 import { useTypedIntl } from 'utils/useTypedIntl';
 import { copyTextToClipboard } from 'utils/copyTextToClipboard';
 import { trimUrl } from 'utils/trimUrl';
+import { ReactComponent as CopyIcon } from 'images/copy.svg';
 
 interface IProps {
   value: string | undefined;
@@ -22,25 +23,33 @@ const TrimmedUrl: FC<IProps> = ({ value, trimmedLength, id }) => {
   );
   const copyTooltip = <Tooltip id={`trimmed-url-tooltip-${id}`}>{messages.incidents_copied_to_clipboard}</Tooltip>;
 
-  const [tooltipMessage, setTooltipMessage] = useState(popover);
+  const [showCopyTooltip, setShowCopyTooltip] = useState(false);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => setShowCopyTooltip(false), 1000);
+    return () => clearTimeout(timeout);
+  }, [showCopyTooltip]);
 
   if (!value) return null;
   const trimmedValue = trimUrl(trimmedLength, value);
   const displayClipboardNotification = () => {
-    setTooltipMessage(copyTooltip);
-    setTimeout(() => setTooltipMessage(popover), 1000);
+    setShowCopyTooltip(true);
   };
   const copyValue = () => copyTextToClipboard(value, displayClipboardNotification);
 
   return (
-    <div className="trimmed-url">
-      <span>{trimmedValue}</span>
-      <OverlayTrigger placement="auto" overlay={tooltipMessage}>
-        <button className="td-hover-url z-index-2" onClick={copyValue}>
-          {trimmedValue}
-        </button>
-      </OverlayTrigger>
-    </div>
+    <>
+      <div className="trimmed-url">
+        <OverlayTrigger placement="left" overlay={popover}>
+          <span className="ps-3">{trimmedValue}</span>
+        </OverlayTrigger>
+        <OverlayTrigger placement="top" overlay={copyTooltip} trigger="click" show={showCopyTooltip}>
+          <button className="trimmed-url-copy-button" onClick={() => copyValue()}>
+            <CopyIcon className="trimmed-url-copy-icon" />
+          </button>
+        </OverlayTrigger>
+      </div>
+    </>
   );
 };
 

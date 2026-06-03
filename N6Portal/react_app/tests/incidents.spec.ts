@@ -1,11 +1,18 @@
 import * as fs from 'fs';
 import { test, expect, Page, Locator } from '@playwright/test';
 import { format, subDays } from 'date-fns';
-import { expectToBeVisibleAndEnabled, expectHeaderIsVisibleAndEnabled, fillInput } from './utils/tools';
-import { MockedApi, mockedEvents } from './utils/mockedApi';
+import {
+  expectToBeVisibleAndEnabled,
+  expectHeaderIsVisibleAndEnabled,
+  fillInput,
+  goToIncidentsPage,
+  expectTabsToBeVisible
+} from './utils/tools';
+import { MockedApi } from './utils/mockedApi';
 import { dictionary } from '../src/dictionary';
 import { MockedUser, availableResources, listOfUsers } from './utils/mockedUsers';
 import { TestRunner } from './utils/TestRunner';
+import { allFilters } from '../src/components/pages/incidents/utils';
 
 const columnsFilterTestIds = [
   {
@@ -483,9 +490,16 @@ function execIncidentsTests(user: MockedUser) {
           });
         } else {
           const filterInput = page.getByTestId(`incidents-filter-${filter}-input`);
-          await expectToBeVisibleAndEnabled(filterInput, async () => {
-            await expect(filterInput).toBeEditable();
-          });
+          const filterDefinition = allFilters.find(({ name }) => name === filter);
+          const shouldBeEditable = filterDefinition?.type === 'input';
+
+          if (shouldBeEditable) {
+            await expectToBeVisibleAndEnabled(filterInput, async () => {
+              await expect(filterInput).toBeEditable();
+            });
+          } else {
+            await expectToBeVisibleAndEnabled(filterInput);
+          }
         }
       }
     });
@@ -666,27 +680,6 @@ function execIncidentsTests(user: MockedUser) {
     });
   });
 }
-const goToIncidentsPage = async (page: Page) => {
-  await page.goto('/incidents');
-  await page.waitForURL('/incidents');
-  await page.waitForTimeout(1000);
-};
-
-const expectTabsToBeVisible = async (
-  page: Page,
-  ...visibleTabs: Array<(typeof availableResources)[keyof typeof availableResources]>
-) => {
-  const allResources = Object.values(availableResources);
-
-  for (const resource of allResources) {
-    const tabElement = page.getByTestId(`${resource}_tab`);
-    if (visibleTabs.includes(resource)) {
-      await expect(tabElement).toBeVisible();
-    } else {
-      await expect(tabElement).not.toBeVisible();
-    }
-  }
-};
 
 const runner = TestRunner.builder
   .withTestName('Incidents Tests')

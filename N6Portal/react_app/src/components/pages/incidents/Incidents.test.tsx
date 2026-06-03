@@ -18,8 +18,31 @@ import { dictionary } from 'dictionary';
 import userEvent from '@testing-library/user-event';
 import { IFilterResponse } from 'api/services/search';
 import { format, subDays } from 'date-fns';
-import { ICustomResponse, IResponse } from 'api/services/globalTypes';
+import { ICustomResponse, INameDetails, IResponse } from 'api/services/globalTypes';
 import { IIncidentsForm, parseIncidentsFormData } from './utils';
+
+jest.mock('./EnrichmentModalContent', () => ({
+  EnrichmentModalContent: ({ nameDetailsData }: { nameDetailsData: unknown }) => (
+    <div data-testid="enrichment-modal-content-mock">{nameDetailsData ? 'has data' : 'no data'}</div>
+  )
+}));
+
+jest.mock('components/shared/VirtualizedList', () => {
+  const VirtualizedListMock = ({
+    children: RenderRow,
+    itemCount
+  }: {
+    children: React.ComponentType<{ index: number; style: React.CSSProperties }>;
+    itemCount: number;
+  }) => (
+    <div>
+      {Array.from({ length: itemCount }, (_, i) => (
+        <RenderRow key={i} index={i} style={{}} />
+      ))}
+    </div>
+  );
+  return VirtualizedListMock;
+});
 
 const mockedOffsetHeight = 10000;
 const mockedOffsetWidth = 12000;
@@ -379,5 +402,125 @@ describe('<Incidents />', () => {
       expect(screen.getByTestId('incidents-table')).toBeInTheDocument();
     });
     expect(columns[6]).toHaveTextContent('Anonymized Destination IP');
+  });
+
+  describe('Enrichment feature', () => {
+    const nameDetailsData: INameDetails = {
+      cve: {
+        'cve-0000-0000': {
+          enisa: ['https://euvd.enisa.europa.eu/vulnerability/cve-0000-0000']
+        }
+      }
+    };
+
+    const enrichedResultObj: IResponse & ICustomResponse = {
+      ...fullResultObj,
+      name: 'test-enriched-name' as any,
+      name_details: nameDetailsData
+    };
+
+    const resultWithoutEnrichment: IResponse & ICustomResponse = {
+      ...fullResultObj,
+      name: 'test-plain-name' as any
+    };
+
+    const enrichedQueryResult: IFilterResponse = {
+      target: '/report/threats',
+      data: [enrichedResultObj, resultWithoutEnrichment]
+    };
+
+    const renderIncidentsAndSearch = async () => {
+      window.innerWidth = 10000;
+      window.dispatchEvent(new Event('resize'));
+      jest.spyOn(getSearchModule, 'getSearch').mockResolvedValue(enrichedQueryResult);
+
+      render(
+        <AuthContext.Provider value={AuthContextValue}>
+          <QueryClientProviderTestWrapper>
+            <LanguageProviderTestWrapper>
+              <Incidents />
+            </LanguageProviderTestWrapper>
+          </QueryClientProviderTestWrapper>
+        </AuthContext.Provider>
+      );
+
+      const submitButton = screen.getByTestId('incidents-search-submit-btn');
+      await userEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('incidents-table')).toBeInTheDocument();
+      });
+    };
+
+    it('renders lightbulb icon button only for rows with name_details', async () => {
+      await renderIncidentsAndSearch();
+
+      const lightbulbButtons = screen.getAllByTestId('enrichment-lightbulb-icon-btn');
+      expect(lightbulbButtons).toHaveLength(1);
+    });
+
+    it('opens enrichment modal when lightbulb icon is clicked (handleEnrichmentClick)', async () => {
+      await renderIncidentsAndSearch();
+
+      expect(screen.queryByTestId('enrichment-modal-title')).not.toBeInTheDocument();
+
+      const lightbulbButton = screen.getByTestId('enrichment-lightbulb-icon-btn');
+      await userEvent.click(lightbulbButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('enrichment-modal-title')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('enrichment-modal-title')).toHaveTextContent(
+        dictionary['en']['incidents_extended_name_info_header']
+      );
+    });
+
+    it('renders enrichment modal with EnrichmentModalContent and close button', async () => {
+      await renderIncidentsAndSearch();
+
+      const lightbulbButton = screen.getByTestId('enrichment-lightbulb-icon-btn');
+      await userEvent.click(lightbulbButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('enrichment-modal-title')).toBeInTheDocument();
+      });
+
+      // Modal title
+      expect(screen.getByTestId('enrichment-modal-title')).toHaveTextContent(
+        dictionary['en']['incidents_extended_name_info_header']
+      );
+
+      // Close button with correct text
+      const closeButton = screen.getByTestId('enrichment-modal-close-btn');
+      expect(closeButton).toBeInTheDocument();
+      expect(closeButton).toHaveTextContent(dictionary['en']['incidents_extended_name_modal_button']);
+    });
+
+    it('closes enrichment modal when close button is clicked', async () => {
+      await renderIncidentsAndSearch();
+
+      const lightbulbButton = screen.getByTestId('enrichment-lightbulb-icon-btn');
+      await userEvent.click(lightbulbButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('enrichment-modal-title')).toBeInTheDocument();
+      });
+
+      const closeButton = screen.getByTestId('enrichment-modal-close-btn');
+      await userEvent.click(closeButton);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('enrichment-modal-title')).not.toBeInTheDocument();
+      });
+    });
+
+    it('renders name column with enrichment wrapper containing both value and lightbulb icon', async () => {
+      await renderIncidentsAndSearch();
+
+      const lightbulbButton = screen.getByTestId('enrichment-lightbulb-icon-btn');
+      const nameCell = lightbulbButton.closest('.incident-name-row-table');
+      expect(nameCell).toBeInTheDocument();
+      expect(nameCell).toHaveClass('d-flex', 'align-items-center', 'justify-content-between');
+    });
   });
 });

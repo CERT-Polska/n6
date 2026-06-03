@@ -181,3 +181,20 @@ destination:/exchange/example.org/*.*.*.*
 
     Typically, you have only a few seconds to send a `CONNECT` frame before
     the connection is automatically closed.
+
+### Example 4
+
+Using the [`stomp.py`](https://pypi.org/project/stomp.py/)'s command line
+tool to connect to the server, authenticate and subscribe:
+
+First, create and activate a Python virtual environment, and install `stomp.py`:
+
+```bashcmd
+python3 -m venv stomp-venv && source stomp-venv/bin/activate && pip install stomp.py
+```
+
+Now you can connect to the STOMP server with your *n6* credentials:
+
+```bashcmd
+stomp -H "n6stream.cert.pl" -P 61614 --ssl -U "username@example.org" -W "your_n6_api_key" -L "/exchange/example.org/*.*.*.*"
+```

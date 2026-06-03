@@ -208,7 +208,7 @@ Retrieved events are always sorted by their `time`, descendingly.
 All *event attributes* and *query parameters* supported by the current
 version of *n6* are listed in the following sections -- except that in
 this document we do *not* cover any attributes/parameters that are
-visible/available *only* for *privileged* users [*technically: those
+visible/available *only* to *privileged* users [*technically: those
 users whose organizations have the `full_access` flag set to `True` in
 the n6's Auth DB*].
 
@@ -221,6 +221,7 @@ are noted in round brackets.
 
 - `action` (*string*) Action taken by malware (e.g., `"redirect"`,
   `"screen grab"`).
+- `additional_data` (*string*) Additional information about the event.
 - `address` (*array of objects*) IP addresses related to the threat. For
   malicious websites -- `A` records in DNS; for connections to sinkhole
   and scanning hosts -- source IP addresses. Attributes of child objects:
@@ -264,6 +265,11 @@ are noted in round brackets.
 - `confidence` (*string*) **[mandatory]** Level of trust that the
   information is accurate. Possible values: `"low"`, `"medium"`,
   `"high"`.
+- `device_id` (*string*) ID of the device.
+- `device_model` (*string*) Model name of the device.
+- `device_type` (*string*) Type of the device.
+- `device_vendor` (*string*) Name of the device vendor.
+- `device_version` (*string*) Version of the device.
 - `dip` (*string*) Destination IP address (e.g., of a sinkhole or
   honeypot) in dot-decimal notation. The attribute does not apply to
   addresses of malicious websites. *Note:* for most data sources, to
@@ -362,6 +368,10 @@ are noted in round brackets.
 - `url_pattern` (*string*) Wildcard pattern or regular expression
   triggering injects, used by banking trojans.
 - `username` (*string*) Local identifier (login) of the affected user.
+- `vendor` (*string*) Vendor name related to the event (typically,
+  of some related software).
+- `version` (*string*) Version identifier related to the event
+  (typically, of some related software).
 - `x509fp_sha1` (*string*) SHA-1 fingerprint (hexadecimal) of an
   SSL/X.509 certificate.
 - `x509issuer` (*string*) Issuer of an SSL/X.509 certificate.
@@ -485,6 +495,7 @@ multiple values* of a parameter are allowed).
 | Event Attribute                  | Attribute Type      | Attribute Restrictions | Corresponding Query Parameter(s)    | Parameter Restrictions             |
 |----------------------------------|---------------------|------------------------|-------------------------------------|------------------------------------|
 | `action`                         | *string*            |                        | –                                   |                                    |
+| `additional_data`                | *string*            |                        | –                                   |                                    |
 | `address`                        | *array of objects*  |                        | `ip`                                |                                    |
 |                                  |                     |                        | `ip.net`                            |                                    |
 |                                  |                     |                        | `cc`                                |                                    |
@@ -493,6 +504,11 @@ multiple values* of a parameter are allowed).
 | `block`                          | *boolean*           |                        | –                                   |                                    |
 | `category`                       | *string* (enum)     | mandatory              | `category`                          |                                    |
 | `confidence`                     | *string* (enum)     | mandatory              | `confidence`                        |                                    |
+| `device_id`                      | *string*            |                        | –                                   |                                    |
+| `device_model`                   | *string*            |                        | –                                   |                                    |
+| `device_type`                    | *string*            |                        | –                                   |                                    |
+| `device_vendor`                  | *string*            |                        | –                                   |                                    |
+| `device_version`                 | *string*            |                        | –                                   |                                    |
 | `dip`                            | *string*            |                        | –                                   |                                    |
 | `dport`                          | *integer*           |                        | `dport`                             |                                    |
 | `email`                          | *string*            |                        | –                                   |                                    |
@@ -529,6 +545,8 @@ multiple values* of a parameter are allowed).
 |                                  |                     |                        | `url.sub`                           |                                    |
 | `url_pattern`                    | *string*            |                        | –                                   |                                    |
 | `username`                       | *string*            |                        | –                                   |                                    |
+| `vendor`                         | *string*            |                        | –                                   |                                    |
+| `version`                        | *string*            |                        | –                                   |                                    |
 | `x509fp_sha1`                    | *string*            |                        | –                                   |                                    |
 | `x509issuer`                     | *string*            |                        | –                                   |                                    |
 | `x509subject`                    | *string*            |                        | –                                   |                                    |
@@ -540,6 +558,21 @@ multiple values* of a parameter are allowed).
 
 
 ## API Changelog
+
+### **4.42.0** (2026-06-03)
+
+New event attributes available to non-privileged users:
+
+* `additional_data`
+* `device_id`
+* `device_model`
+* `device_type`
+* `device_vendor`
+* `device_version`
+* `vendor`
+* `version`
+
+(previously, they were only available to privileged users).
 
 ### **4.38.0** (2025-12-16)
 

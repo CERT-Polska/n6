@@ -64,8 +64,63 @@ const mockedEvents = {
     url: 'http://test2domain.com/internal',
     id: '1233384e2707a865c24a3ab3803f9f97',
     restriction: 'internal'
+  },
+  3: {
+    category: 'vulnerable',
+    address: [
+      {
+        cc: 'CA',
+        ip: '99.99.99.99',
+        asn: 123456
+      },
+      {
+        cc: 'CA',
+        ip: '123.123.123.123',
+        asn: 123456
+      },
+      {
+        cc: 'PL',
+        ip: '234.234.234.234',
+        asn: 54321
+      },
+      {
+        cc: 'RU',
+        ip: '236.234.234.234',
+        asn: 123456
+      }
+    ],
+    modified: '2014-04-21T22:22:22Z',
+    fqdn: 'domain.com',
+    time: '2014-04-21T22:22:22Z',
+    id: '023a00e7c2ef04ee5b0f767ba73ee391',
+    dip: '1.1.1.1',
+    dport: 445,
+    sport: 2147,
+    source: 'source3.channel3',
+    proto: 'tcp',
+    restriction: 'need-to-know',
+    sha1: '3032336130306537633265663034656535623066',
+    confidence: 'low',
+    name: 'CVE-2025-14847, adb',
+    rid: '023a00e7c2ef04ee5b0f767ba73ee391',
+    url: 'http://example.pl/???',
+    client: ['client3.com'],
+    name_details: {
+      cve: {
+        'cve-2025-14847': {
+          enisa: ['https://euvd.enisa.europa.eu/vulnerability/cve-2025-14847'],
+          moje: ['https://moje.cert.pl/komunikaty/2025/69/podatnosc-cve-2025-14847-w-oprogramowaniu-mongodb/']
+        }
+      },
+      phrase: {
+        adb: {
+          n6kb: ['https://localhost/knowledge_base/articles/1090#n6kb-adb']
+        }
+      }
+    }
   }
 };
+
 export const MFA_CONFIG_RESPONSE = {
   secret_key: 'secretKey',
   secret_key_qr_code_url:
@@ -204,5 +259,15 @@ export class MockedApi {
   static async getTwoIncidentEvents(page: Page, service: AvailableResource[number]) {
     const url = this.buildIncidentSearchUrl(service);
     await this.mockApiRoute(page, url, [mockedEvents[1], mockedEvents[2]]);
+  }
+
+  /**
+   * Mocks the API route to get a single incident event for the "Name/Details" feature service.
+   * @param page - The Playwright page instance.
+   * @param service - The service for which to get the incident event.
+   */
+  static async getNameDetailsIncidentEvent(page: Page, service: AvailableResource[number]) {
+    const url = this.buildIncidentSearchUrl(service);
+    await this.mockApiRoute(page, url, [mockedEvents[3]]);
   }
 }

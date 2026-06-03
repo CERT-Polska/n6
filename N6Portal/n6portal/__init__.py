@@ -289,13 +289,13 @@ class N6PortalStreamView(KnowledgeBaseRelatedViewMixin,
 
     @classmethod
     def _convert_phrase_to_anchor(cls, phrase: str) -> str:
-        adjusted = cls._ANCHOR_UNWANTED_CHARS_REGEX.sub(
+        adjusted = cls._ANCHOR_UNWANTED_CHAR_REGEX.sub(
             cls._replace_char_in_anchor,
             phrase,
         )
         return f'n6kb-{adjusted}'
 
-    _ANCHOR_UNWANTED_CHARS_REGEX = re.compile(r'[^a-z0-9]')
+    _ANCHOR_UNWANTED_CHAR_REGEX = re.compile(r'[^a-z0-9]')
 
     @staticmethod
     def _replace_char_in_anchor(match: re.Pattern[str]) -> str:
@@ -310,21 +310,23 @@ class N6PortalStreamView(KnowledgeBaseRelatedViewMixin,
         for category, phrase_keyed_dict in cls._category_to_phrase_to_knowledge_base_urls.items():
             phrase_alternatives = phrase_keyed_dict.keys()
             assert all(
-                phrase and phrase.isascii() and phrase == phrase.strip()
+                phrase and phrase.isascii() and phrase == phrase.strip() == phrase.lower()
                 for phrase in phrase_alternatives
             )
             category_to_phrase_regex[category] = re.compile(
                 '|'.join(sorted(
                     (
-                        (r'(?:\b|^)' if phrase[0].isalnum() or phrase.startswith('_') else '')
+                        (r'\b' if cls._WORD_CHAR_REGEX.search(phrase[0]) else '')
                         + re.escape(phrase)
-                        + (r'(?:\b|$)' if phrase[-1].isalnum() or phrase.endswith('_') else '')
+                        + (r'\b' if cls._WORD_CHAR_REGEX.search(phrase[-1]) else '')
                     )
                     for phrase in phrase_alternatives
                 )),
                 re.IGNORECASE,
             )
         return category_to_phrase_regex
+
+    _WORD_CHAR_REGEX = re.compile(r'\w')
 
     @functools.cached_property
     def _cve_id_to_urls(self) -> dict[str, list[str]]:

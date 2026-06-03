@@ -95,6 +95,7 @@ const LoginForm: FC = () => {
                 label={`${messages.login_username_label}`}
                 maxLength="255"
                 validate={validateLoginEmail}
+                disableWhitespaces
               />
               <FormInput
                 dataTestId="passwordInput"

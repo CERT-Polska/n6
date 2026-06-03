@@ -104,7 +104,7 @@
 .custom-radiobtn {
   position: absolute;
   top: 50%;
-  left: sizeToRem(0);
+  left: sizeToRem(8);
   height: sizeToRem(26);
   width: sizeToRem(26);
   border-radius: 50%;
@@ -134,7 +134,7 @@
     position: absolute;
     opacity: 0;
     top: 50%;
-    left: sizeToRem(0);
+    left: sizeToRem(8);
     height: sizeToRem(26);
     width: sizeToRem(26);
     transform: translateY(-50%);

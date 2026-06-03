@@ -19,6 +19,7 @@
 
   &:hover .td-hover-url {
     display: inline-block;
+    cursor: copy;
   }
 }
 
@@ -66,6 +67,7 @@
         justify-content: center;
         text-align: center;
         margin: 0;
+        word-break: keep-all;
       }
 
       .th {
@@ -142,6 +144,9 @@
 
 .trimmed-url {
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .td-break {

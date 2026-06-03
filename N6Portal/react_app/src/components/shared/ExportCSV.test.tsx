@@ -30,9 +30,9 @@ describe('<ExportCSV/>', () => {
   });
 
   it.each([
-    { resource: 'search/events', expectedDownloadPrefix: 'n6search-events' },
-    { resource: 'report/threats', expectedDownloadPrefix: 'n6report-threats' },
-    { resource: 'report/inside', expectedDownloadPrefix: 'n6report-inside' }
+    { resource: 'search/events', expectedDownloadPrefix: 'n6search-events-' },
+    { resource: 'report/threats', expectedDownloadPrefix: 'n6report-threats-' },
+    { resource: 'report/inside', expectedDownloadPrefix: 'n6report-inside-' }
   ])('renders react-csv CSVLink component when given resource', ({ resource, expectedDownloadPrefix }) => {
     const data: IResponse[] = [
       {
@@ -55,7 +55,7 @@ describe('<ExportCSV/>', () => {
     );
     jest.useRealTimers();
 
-    const timeString = format(now, 'yyyyMMddHHmmss');
+    const timeString = format(now, 'yyyyMMdd-HHmmss');
     const expectedFilename = expectedDownloadPrefix + timeString + '.csv';
 
     const linkElement = screen.getByRole('link') as HTMLLinkElement;

@@ -85,6 +85,7 @@ const LoginConfigMfaForm: FC = () => {
                 maxLength="8"
                 validate={validateMfaCode}
                 autoComplete="off"
+                disableWhitespaces
               />
               <div className="d-flex mt-4">
                 <CustomButton

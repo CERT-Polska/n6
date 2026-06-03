@@ -204,6 +204,8 @@ export const dictionary = {
     agreements_error_msg: 'Podczas zmiany zgód nastąpił błąd. Odśwież proszę stronę.',
     agreements_no_data: 'Administrator nie przewiduje obecnie dodatkowych zgód do akceptacji.',
     edit_settings_title: 'Edytuj ustawienia organizacji',
+    edit_settings_notification_heading: 'Ustawienia powiadomień',
+    edit_settings_inside_criteria_heading: 'Ustawienia sieci wewnętrznej',
     edit_settings_submit_message:
       'Prośba o zmianę ustawień została wysłana. Twoje ustawienia zaczną obowiązywać po zatwierdzeniu prośby przez administratora.',
     edit_settings_submit_error: 'Twoja prośba nie została zaakceptowana.',
@@ -235,6 +237,10 @@ export const dictionary = {
     edit_settings_label_email_address_for_notifications: 'Adres e-mail dla powiadomień',
     edit_settings_label_asn: 'ASN',
     edit_settings_label_ip_network: 'Sieć IP',
+    edit_settings_api_key_confirmation_title: 'Zatwierdź zmiany',
+    edit_settings_api_key_confirmation_description: 'Potwierdź zmiany w ustawieniach organizacji:',
+    edit_settings_api_key_confirmation_cancel_btn: 'Wróć do edycji',
+    edit_settings_api_key_confirmation_confirm_btn: 'Wyślij',
     user_settings_title: 'Ustawienia użytkownika',
     user_settings_mfa_title: 'Uwierzytelnianie wieloskładnikowe',
     user_settings_mfa_edit_cta: 'Usuń i skonfiguruj ponownie',
@@ -500,7 +506,8 @@ export const dictionary = {
     calendar_month_11: 'Listopad',
     calendar_month_12: 'Grudzień',
     incidents_table_collapse: 'Minimalizuj tabelę',
-    incidents_table_expand: 'Powiększ tabelę'
+    incidents_table_expand: 'Powiększ tabelę',
+    none: 'Brak'
   },
   en: {
     errApiLoader_header: 'Oops... Something went wrong.',
@@ -634,7 +641,7 @@ export const dictionary = {
     signup_terms_checkbox_label: 'I accept the Terms and Conditions',
     signup_domain_label: 'Organization domain',
     signup_domain_tooltip: "Official organization's domain.",
-    signup_entity_label: 'Entity name',
+    signup_entity_label: 'Organization name',
     signup_entity_tooltip: 'Official name of organization.',
     signup_email_label: 'E-mail',
     signup_email_tooltip: "Your e-mail address in organization's domain.",
@@ -706,6 +713,8 @@ export const dictionary = {
     agreements_error_msg: 'Error caught during agreements update. Please refresh the page.',
     agreements_no_data: 'Admin does not provide any additional agreements to accept.',
     edit_settings_title: 'Edit organization settings',
+    edit_settings_notification_heading: 'Notification settings',
+    edit_settings_inside_criteria_heading: 'Inside network settings',
     edit_settings_submit_message:
       'The settings change request has been sent. Your settings change request will take effect after the approval of the administrator.',
     edit_settings_submit_error: 'Your request has not been accepted.',
@@ -737,6 +746,10 @@ export const dictionary = {
     edit_settings_label_email_address_for_notifications: 'Email address for notifications',
     edit_settings_label_asn: 'ASN',
     edit_settings_label_ip_network: 'IP network',
+    edit_settings_api_key_confirmation_title: 'Confirm changes',
+    edit_settings_api_key_confirmation_description: 'Confirm changes to organization settings:',
+    edit_settings_api_key_confirmation_cancel_btn: 'Go back to edit',
+    edit_settings_api_key_confirmation_confirm_btn: 'Send',
     user_settings_title: 'User settings',
     user_settings_mfa_title: 'Multi-factor Authentication',
     user_settings_mfa_edit_cta: 'Erase and configure new',
@@ -999,7 +1012,8 @@ export const dictionary = {
     calendar_month_11: 'November',
     calendar_month_12: 'December',
     incidents_table_collapse: 'Collapse table',
-    incidents_table_expand: 'Expand table'
+    incidents_table_expand: 'Expand table',
+    none: 'None'
   }
 };
 

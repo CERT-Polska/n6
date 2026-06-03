@@ -18,9 +18,9 @@ describe('<ExportJSON />', () => {
   });
 
   it.each([
-    { resource: 'search/events', expectedDownloadPrefix: 'n6search-events' },
-    { resource: 'report/threats', expectedDownloadPrefix: 'n6report-threats' },
-    { resource: 'report/inside', expectedDownloadPrefix: 'n6report-inside' }
+    { resource: 'search/events', expectedDownloadPrefix: 'n6search-events-' },
+    { resource: 'report/threats', expectedDownloadPrefix: 'n6report-threats-' },
+    { resource: 'report/inside', expectedDownloadPrefix: 'n6report-inside-' }
   ])(
     'renders button with download onClick function when given resource',
     async ({ resource, expectedDownloadPrefix }) => {
@@ -52,7 +52,7 @@ describe('<ExportJSON />', () => {
 
       await userEvent.click(buttonElement);
 
-      const downloadValue = expectedDownloadPrefix + format(now, 'yyyyMMddHHmmss') + '.json';
+      const downloadValue = expectedDownloadPrefix + format(now, 'yyyyMMdd-HHmmss') + '.json';
 
       expect(linkElement).toHaveAttribute('download', downloadValue);
       expect(linkElement).toHaveAttribute('href');

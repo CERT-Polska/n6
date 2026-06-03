@@ -82,7 +82,8 @@
   }
 }
 
-.user-settings-confirmation-modal {
+.user-settings-confirmation-modal,
+.edit-settings-confirmation-modal {
   .modal-dialog {
     max-width: sizeToRem(600);
   }
@@ -155,4 +156,62 @@
   color: $danger;
   text-align: center;
   margin-top: sizeToRem(16);
+}
+
+.edit-settings-comparison {
+  margin-top: sizeToRem(16);
+}
+
+.edit-settings-comparison-header {
+  // me-2 font-weight-bold
+  font-weight: bold;
+}
+
+.edit-settings-comparison-arrow-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.edit-settings-comparison-arrow {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.edit-settings-comparison-difference-row {
+  display: flex;
+  justify-content: space-evenly;
+}
+
+.edit-settings-comparison-added {
+  list-style: none;
+  padding-left: 0;
+
+  li {
+    display: flex;
+    align-content: start;
+
+    &::before {
+      content: '+';
+      font-weight: bolder;
+      margin-right: 4px;
+    }
+  }
+}
+
+.edit-settings-comparison-removed {
+  list-style: none;
+  padding-left: 0;
+
+  li {
+    display: flex;
+    align-content: start;
+
+    &::before {
+      content: '-';
+      font-weight: bolder;
+      margin-right: 4px;
+    }
+  }
 }

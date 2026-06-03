@@ -155,6 +155,7 @@ const SignUpStepTwo: FC<IProps> = ({ changeStep, tosVersions, agreements }) => {
               name="email"
               label={`${messages.signup_email_label}`}
               validate={validateEmail}
+              disableWhitespaces
             />
             <Tooltip
               dataTestId="singupTwo-tooltip-email"

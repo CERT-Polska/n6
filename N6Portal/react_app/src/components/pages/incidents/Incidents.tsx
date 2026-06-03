@@ -387,6 +387,7 @@ const Incidents: FC = () => {
                   type="button"
                   className="lightbulb-icon-button"
                   onClick={(e) => handleEnrichmentClick(e, rowData)}
+                  data-testid="enrichment-lightbulb-icon-btn"
                 >
                   <LightbulbIcon className="lightbulb-icon-incident" />
                 </button>
@@ -461,17 +462,27 @@ const Incidents: FC = () => {
   return (
     <>
       {showEnrichmentModal && (
-        <Modal show={showEnrichmentModal} onHide={() => setShowEnrichmentModal(false)} centered={true}>
+        <Modal
+          data-testid="enrichment-modal"
+          show={showEnrichmentModal}
+          onHide={() => setShowEnrichmentModal(false)}
+          centered={true}
+        >
           <Modal.Header closeButton={false}>
             <Modal.Title>
-              <b>{messages.incidents_extended_name_info_header}</b>
+              <b data-testid="enrichment-modal-title">{messages.incidents_extended_name_info_header}</b>
             </Modal.Title>
           </Modal.Header>
           <Modal.Body>
             <EnrichmentModalContent nameDetailsData={nameDetailsData} />
           </Modal.Body>
           <Modal.Footer>
-            <Button type="button" variant="primary" onClick={() => setShowEnrichmentModal(false)}>
+            <Button
+              data-testid="enrichment-modal-close-btn"
+              type="button"
+              variant="primary"
+              onClick={() => setShowEnrichmentModal(false)}
+            >
               {messages.incidents_extended_name_modal_button}
             </Button>
           </Modal.Footer>

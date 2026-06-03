@@ -66,16 +66,14 @@ function executeHeaderTests(user: MockedUser) {
     });
 
     test('(EN | PL) Language selection, should change page translation', async ({ page }) => {
-      const enBtn = page.getByTestId('languagePickerEN');
-      const plBtn = page.getByTestId('languagePickerPL');
-      await expectToBeVisibleAndEnabled(enBtn);
-      await expectToBeVisibleAndEnabled(plBtn);
+      const languagePickerButton = page.getByTestId('languagePickerMenu');
+      await expectToBeVisibleAndEnabled(languagePickerButton);
 
-      await plBtn.click();
+      await languagePickerButton.click();
       await expect(page.getByTestId('navIncidents')).toContainText('Incydenty');
 
       await page.getByTestId('userMenuNavBtn').click();
-      await enBtn.click();
+      await languagePickerButton.click();
       await expect(page.getByTestId('navIncidents')).toContainText('All incidents');
     });
 

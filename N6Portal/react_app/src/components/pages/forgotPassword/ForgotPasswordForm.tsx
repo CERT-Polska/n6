@@ -72,6 +72,7 @@ const ForgotPasswordForm: FC = () => {
                 label={`${messages.forgot_password_label}`}
                 maxLength="255"
                 validate={validateLoginEmail}
+                disableWhitespaces
               />
               <div className="d-flex mt-4">
                 <CustomButton

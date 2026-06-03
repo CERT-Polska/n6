@@ -200,4 +200,30 @@ button,
   &.selected {
     opacity: 1;
   }
+
+  &.fill-parent {
+    width: 100%;
+    height: 100%;
+
+    --bs-dropdown-item-padding-x: 0 !important;
+    --bs-dropdown-item-padding-y: 0 !important;
+    --bs-dropdown-border-radius: 0 !important;
+    --bs-dropdown-border-width: 0 !important;
+  }
+}
+
+.language-picker-menu-label {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  gap: 2%;
+  padding-left: 6%;
+  padding-top: $spacer;
+  padding-bottom: $spacer;
+}
+
+.dropdown-item:has(.language-picker-button) {
+  padding: 0 !important;
+  border-radius: 0 !important;
 }

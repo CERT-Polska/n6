@@ -26,6 +26,7 @@ export interface IFormInputProps {
   dataTestId?: string;
   name: string;
   label: string;
+  disableWhitespaces?: boolean;
   as?: FormInputAs;
   type?: FormInputType;
   className?: string;
@@ -74,11 +75,22 @@ const FormInput: FC<IFormInputProps & FormContextProps> = memo(
     mask,
     alwaysShowMask = true,
     isDirty,
+    disableWhitespaces = false,
     customResetAction,
     setValue,
     beforeMaskedValueChange,
     dataTestId
   }) => {
+    if (disableWhitespaces) {
+      defaultValue = defaultValue.trim();
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (disableWhitespaces && e.key === ' ') {
+        e.preventDefault();
+      }
+    };
+
     const asProps = mask
       ? { as: MaskedInput, mask, alwaysShowMask, beforeMaskedValueChange }
       : as === 'textarea'
@@ -105,6 +117,7 @@ const FormInput: FC<IFormInputProps & FormContextProps> = memo(
                   type={typeProps}
                   autoComplete={autoComplete}
                   className={classnames('input-field', { dirty: isDirty })}
+                  onKeyDown={handleKeyDown}
                   isInvalid={isInvalid}
                   required={required}
                   disabled={disabled}

@@ -386,12 +386,35 @@ describe('EditSettingsForm', () => {
 });
 
 describe('Form Submission', () => {
-  const setupSubmissionTest = async (lang: 'en' | 'pl') => {
+  // 6 fails
+  const setupInitialSubmitButton = async (lang: 'en' | 'pl') => {
     renderComponent(lang);
     const actualNameInput = screen.getByDisplayValue('Test Org');
     await userEvent.clear(actualNameInput);
     await userEvent.type(actualNameInput, 'New Org Name');
     return screen.getByRole('button', { name: dictionary[lang]['edit_settings_btn_submit'] });
+  };
+
+  it.skip.each(['en', 'pl'] as const)(
+    'shows confirmation modal after initial submission (%s)',
+    async (lang) => {
+      mockPostOrgConfig.mockResolvedValueOnce({
+        ...defaultCurrentSettings,
+        post_accepted: true
+      });
+
+      const initialSubmitButton = await setupInitialSubmitButton(lang);
+      await userEvent.click(initialSubmitButton);
+
+      // TEST here
+    },
+    TEST_TIMEOUT
+  );
+
+  const setupModalSubmitButton = async (lang: 'en' | 'pl') => {
+    const openModalSubmitButton = await setupInitialSubmitButton(lang);
+    await userEvent.click(openModalSubmitButton);
+    return screen.getByRole('button', { name: dictionary[lang]['edit_settings_api_key_confirmation_confirm_btn'] });
   };
 
   it.each(['en', 'pl'] as const)(
@@ -402,7 +425,7 @@ describe('Form Submission', () => {
         post_accepted: true
       });
 
-      const submitButton = await setupSubmissionTest(lang);
+      const submitButton = await setupModalSubmitButton(lang);
       await userEvent.click(submitButton);
 
       await waitFor(() => {
@@ -417,7 +440,7 @@ describe('Form Submission', () => {
     async (lang) => {
       mockPostOrgConfig.mockRejectedValueOnce(new Error('Failed'));
 
-      const submitButton = await setupSubmissionTest(lang);
+      const submitButton = await setupModalSubmitButton(lang);
       await userEvent.click(submitButton);
 
       await waitFor(() => {
@@ -442,7 +465,7 @@ describe('Form Submission', () => {
     async (lang) => {
       const mockToast = jest.fn();
       (toast as unknown as jest.Mock).mockImplementation(mockToast);
-      const submitButton = await setupSubmissionTest(lang);
+      const submitButton = await setupInitialSubmitButton(lang);
 
       // Add invalid email
       const emailField = screen.getByTestId('notification_emails-entry-field');
@@ -464,6 +487,7 @@ describe('Form Submission', () => {
   );
 
   it.each(['en', 'pl'] as const)(
+    // 2 fails
     'refetches data after successful submission (%s)',
     async (lang) => {
       const mockRefetch = jest.fn();
@@ -473,7 +497,7 @@ describe('Form Submission', () => {
         post_accepted: true
       });
 
-      const submitButton = await setupSubmissionTest(lang);
+      const submitButton = await setupModalSubmitButton(lang);
       await userEvent.click(submitButton);
 
       await waitFor(() => {

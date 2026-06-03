@@ -55,6 +55,7 @@ from n6datasources.parsers.shadowserver import (
     ShadowserverRdpeudp202204Parser,
     ShadowserverDvrDhcpdiscover202204Parser,
     ShadowserverHttp202204Parser,
+    ShadowserverHttpTldPl202601Parser,
     ShadowserverFtp202204Parser,
     ShadowserverMqtt202204Parser,
     ShadowserverLdapTcp202204Parser,
@@ -2845,7 +2846,44 @@ class TestShadowserverHttp202204Parser(ParserTestMixin, unittest.TestCase):
         )
 
 
-class TestShadowserverFtp202204Parserr(ParserTestMixin, unittest.TestCase):
+class TestShadowserverHttpTldPl202601Parser(ParserTestMixin, unittest.TestCase):
+
+    PARSER_SOURCE = 'shadowserver.http-tld-pl'
+    PARSER_RAW_FORMAT_VERSION_TAG = '202601'
+    PARSER_CLASS = ShadowserverHttpTldPl202601Parser
+    PARSER_BASE_CLASS = _BaseShadowserverParser
+    PARSER_CONSTANT_ITEMS = {
+        'restriction': 'need-to-know',
+        'confidence': 'medium',
+        'category': 'vulnerable',
+    }
+
+    def cases(self):
+        yield (
+            b'"timestamp","severity","ip","protocol","port","hostname","tag","asn","geo","region","city",'
+            b'"naics","hostname_source","sector","http","http_code","http_reason","content_type","connection",'
+            b'"www_authenticate","set_cookie","server","content_length","transfer_encoding","http_date","version",'
+            b'"build_date","detail","build_branch"\n'
+
+            b'"2026-01-07 00:01:46","medium","1.1.1.1","tcp",80,"1.1.1.1.in-addr.pl","basic-auth;http",'
+            b'12345,"PL","JAKISREGION","MIASTOMOJEAWNIM",'
+            b',"ptr",,"HTTP/1.1",401,"Unauthorized","text/html; charset=iso-8859-1",,"Basic realm=""HAHAHA""",'
+            b',"Apache/2.4.424242 (Debian)",123,,"2026-01-07 00:01:46",,,,'
+        ,
+            [
+                dict(
+                    time='2026-02-07 00:01:31',
+                    fqdn='1.1.1.1.in-addr.pl',
+                    address=[{'ip': '1.1.1.1'}],
+                    dport=80,
+                    proto='tcp',
+                    name='basic-auth;http',
+                ),
+            ]
+        )
+
+
+class TestShadowserverFtp202204Parser(ParserTestMixin, unittest.TestCase):
 
     PARSER_SOURCE = 'shadowserver.ftp'
     PARSER_RAW_FORMAT_VERSION_TAG = '202204'

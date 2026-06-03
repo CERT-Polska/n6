@@ -76,3 +76,34 @@ export function generateMockedBinaryListOfIncidentsForMonth(year: number, month:
 
   return Array.from({ length: daysInMonth }, (_, i) => (i === 1 ? 1 : 0));
 }
+
+export const goToIncidentsPage = async (page: Page) => {
+  await page.goto('/incidents');
+  await page.waitForURL('/incidents');
+  await page.waitForTimeout(1000);
+};
+
+export const expectTabsToBeVisible = async (
+  page: Page,
+  ...visibleTabs: Array<(typeof availableResources)[keyof typeof availableResources]>
+) => {
+  const allResources = Object.values(availableResources);
+
+  for (const resource of allResources) {
+    const tabElement = page.getByTestId(`${resource}_tab`);
+    if (visibleTabs.includes(resource)) {
+      await expect(tabElement).toBeVisible();
+    } else {
+      await expect(tabElement).not.toBeVisible();
+    }
+  }
+};
+
+export async function expectExternalLink(page: Page, testId: string, urlRegex: RegExp) {
+  const link = page.getByTestId(testId);
+
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(link).toHaveAttribute('rel', /noopener/);
+  await expect(link).toHaveAttribute('href', urlRegex);
+}

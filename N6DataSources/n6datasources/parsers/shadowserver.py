@@ -22,6 +22,7 @@
 * `shadowserver.ftp`
 * `shadowserver.hadoop`
 * `shadowserver.http`
+* `shadowserver.http-tld-pl`
 * `shadowserver.ics`
 * `shadowserver.ipmi`
 * `shadowserver.ipp`
@@ -1191,6 +1192,25 @@ class ShadowserverHttp202204Parser(_BaseShadowserverParser):
     n6_field_to_data_key_mapping = {
         'time': 'timestamp',
         'address': 'ip',
+        'dport': 'port',
+        'proto': 'protocol',
+        'name': 'tag',
+    }
+
+
+class ShadowserverHttpTldPl202601Parser(_BaseShadowserverParser):
+
+    default_binding_key = 'shadowserver.http-tld-pl.202601'
+    constant_items = {
+        'restriction': 'need-to-know',
+        'confidence': 'medium',
+        'category': 'vulnerable',
+    }
+
+    n6_field_to_data_key_mapping = {
+        'time': 'timestamp',
+        'address': 'ip',
+        'fqdn': 'hostname',
         'dport': 'port',
         'proto': 'protocol',
         'name': 'tag',

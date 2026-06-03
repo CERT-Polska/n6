@@ -87,7 +87,8 @@ describe('<UserSettingsMfaConfigForm />', () => {
         maxLength: '8',
         validate: validateMfaCode,
         dataTestId: 'user-settings-mfa-config-input',
-        autoComplete: 'off'
+        autoComplete: 'off',
+        disableWhitespaces: true
       },
       {}
     );

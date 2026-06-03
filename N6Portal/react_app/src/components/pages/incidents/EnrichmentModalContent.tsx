@@ -7,6 +7,13 @@ type EnrichmentModalContentProps = {
   nameDetailsData: INameDetails | null;
 };
 
+const getKnowledgeProviderTestId = (url: string): string | undefined => {
+  if (url.includes('euvd.enisa.europa.eu')) return 'enisa_link';
+  if (url.includes('moje.cert.pl')) return 'moje_cert_pl_link';
+  if (url.includes('/knowledge_base/articles')) return 'knowledge_base_link';
+  return undefined;
+};
+
 const collectUrlsInPreferredOrder = (sources: any): string[] => {
   if (!sources) return [];
 
@@ -73,7 +80,7 @@ const renderSection = (title: string, sources: any, messages: Record<string, str
 
   return (
     <div key={title} className="mb-3">
-      <h6 className="mb-2">
+      <h6 className="mb-2" data-testid="enrichment-modal-about-record-header">
         {messages.incidents_extended_name_about}
         <i>{title}</i>
       </h6>
@@ -84,7 +91,12 @@ const renderSection = (title: string, sources: any, messages: Record<string, str
 
           return (
             <li key={sanitizedUrl}>
-              <a href={sanitizedUrl} target="_blank" rel="noopener noreferrer">
+              <a
+                href={sanitizedUrl}
+                data-testid={getKnowledgeProviderTestId(sanitizedUrl)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
                 {usePickKnowledgeProvider(sanitizedUrl)}
               </a>
             </li>
@@ -98,7 +110,11 @@ const renderSection = (title: string, sources: any, messages: Record<string, str
 export const EnrichmentModalContent: FC<EnrichmentModalContentProps> = ({ nameDetailsData }) => {
   const { messages } = useTypedIntl();
   if (!nameDetailsData) {
-    return <p className="text-muted">{messages.incidents_extended_name_no_data_info}</p>;
+    return (
+      <p data-testid="enrichment-no-data-info" className="text-muted">
+        {messages.incidents_extended_name_no_data_info}
+      </p>
+    );
   }
 
   const cveData = nameDetailsData.cve || {};
@@ -108,7 +124,11 @@ export const EnrichmentModalContent: FC<EnrichmentModalContentProps> = ({ nameDe
   const hasPhraseData = Object.keys(phraseData).length > 0;
 
   if (!hasCveData && !hasPhraseData) {
-    return <p className="text-muted">{messages.incidents_extended_name_no_data_info}</p>;
+    return (
+      <p data-testid="enrichment-no-data-info" className="text-muted">
+        {messages.incidents_extended_name_no_data_info}
+      </p>
+    );
   }
 
   return (

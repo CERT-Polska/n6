@@ -4,11 +4,73 @@ const path = require('path');
 const matter = require('gray-matter');
 const crypto = require('crypto');
 
-const ALLOWED_LANG = new Set(["en", "pl"]);
+const ALLOWED_LANG = new Set(['en', 'pl']);
+
+function isPathInside(childPath, parentPath) {
+  const normalizedParent = parentPath.endsWith(path.sep) ? parentPath : `${parentPath}${path.sep}`;
+  return childPath === parentPath || childPath.startsWith(normalizedParent);
+}
+
+function copyDirectoryRecursive(src, dest, srcRootRealPath) {
+  fs.mkdirSync(dest, { recursive: true });
+  const entries = fs.readdirSync(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    let entryRealPath;
+    try {
+      entryRealPath = fs.realpathSync(srcPath);
+    } catch (err) {
+      console.warn(`Skipping ${srcPath}: unable to resolve real path (${err.message})`);
+      continue;
+    }
+
+    if (!isPathInside(entryRealPath, srcRootRealPath)) {
+      console.warn(`Skipping ${srcPath}: resolved path escapes allowed source tree`);
+      continue;
+    }
+
+    if (entry.isSymbolicLink()) {
+      console.warn(`Skipping symbolic link during locale sync: ${srcPath}`);
+      continue;
+    }
+
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirectoryRecursive(srcPath, destPath, srcRootRealPath);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(srcPath, destPath);
+    } else {
+      console.warn(`Skipping unsupported entry type during locale sync: ${srcPath}`);
+    }
+  }
+}
+
+function copyDocsLocaleIfPresent() {
+  const docsRoot = path.resolve(__dirname, '..', '..', '..', 'docs-nonpub');
+  if (!fs.existsSync(docsRoot)) {
+    console.log('docs-nonpub directory not found; skipping locale sync.');
+    return;
+  }
+
+  const srcLocaleDir = path.resolve(docsRoot, 'portal_gui', 'locale');
+  if (!fs.existsSync(srcLocaleDir)) {
+    console.log(`docs-nonpub found but locale path is missing (${srcLocaleDir}); skipping locale sync.`);
+    return;
+  }
+
+  const destLocaleDir = path.resolve(__dirname, '..', 'src', 'config', 'locale');
+  try {
+    const srcLocaleRealPath = fs.realpathSync(srcLocaleDir);
+    copyDirectoryRecursive(srcLocaleDir, destLocaleDir, srcLocaleRealPath);
+    console.log(`Copied locale resources from ${srcLocaleDir} to ${destLocaleDir}`);
+  } catch (err) {
+    console.warn(`Failed to copy locale resources from docs-nonpub: ${err.message}`);
+  }
+}
 
 function pickSourcePath(lang) {
   if (!ALLOWED_LANG.has(lang)) {
-    throw new Error("Invalid language");
+    throw new Error('Invalid language');
   }
   return path.resolve(__dirname, '..', 'src', 'config', 'locale', 'tos', lang, 'terms.md');
 }
@@ -94,8 +156,7 @@ function emitLocaleModule(lang) {
   }
 }
 
+copyDocsLocaleIfPresent();
 ['en', 'pl'].forEach(emitLocaleModule);
 
 console.log('Emit TOS modules completed.');
-
-

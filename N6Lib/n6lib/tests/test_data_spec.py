@@ -146,10 +146,15 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'until',
         'count',
     } | CUSTOM_RESULT_KEYS - {
+        'action',
+        'additional_data',
         'adip',
         'block',
-        'url_pattern',
-        'username',
+        'device_id',
+        'device_model',
+        'device_type',
+        'device_vendor',
+        'device_version',
         'email',
         'iban',
         'injects',
@@ -157,10 +162,13 @@ class TestN6DataSpec(TestCaseMixin, unittest.TestCase):
         'phone',
         'product',
         'registrar',
+        'url_pattern',
+        'username',
+        'vendor',
+        'version',
         'x509fp_sha1',
         'x509issuer',
         'x509subject',
-        'action',
     }
 
     ANONYMIZED_RESULT_KEYS = {

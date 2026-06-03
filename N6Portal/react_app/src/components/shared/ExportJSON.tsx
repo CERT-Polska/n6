@@ -12,8 +12,8 @@ interface IProps {
 const ExportJSON: FC<IProps> = ({ data, resource = 'empty' }) => {
   const { messages } = useTypedIntl();
 
-  const time = format(new Date(), 'yyyyMMddHHmmss');
-  const filename = `n6${resource.replaceAll('/', '-')}${time}.json`;
+  const time = format(new Date(), 'yyyyMMdd-HHmmss');
+  const filename = `n6${resource.replaceAll('/', '-')}-${time}.json`;
 
   const stringifiedJson = data ? JSON.stringify(data, null, 2) : '{}';
 

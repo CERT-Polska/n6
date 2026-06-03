@@ -62,7 +62,7 @@ describe('<UserMenuNavigation />', () => {
     await userEvent.click(buttonElement);
     buttonElement = screen.getByRole('button', { expanded: true });
     expect(buttonElement).toHaveAttribute('aria-expanded', 'true');
-    expect(LanguagePickerSpy).toHaveBeenCalledWith({ mode: 'text' }, {});
+    expect(LanguagePickerSpy).toHaveBeenCalledWith({ mode: 'menu' }, {});
 
     expect(screen.getAllByRole('separator').length).toBe(3);
     expect(screen.getAllByRole('link').length).toBe(4);

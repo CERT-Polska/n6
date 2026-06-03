@@ -87,8 +87,8 @@ const createHeaders = (data: IResponse[], messages: Record<string, string>) => {
 const ExportCSV: FC<IProps> = ({ data, resource = 'empty' }) => {
   const { messages } = useTypedIntl();
 
-  const time = format(new Date(), 'yyyyMMddHHmmss');
-  const filename = `n6${resource.replaceAll('/', '-')}${time}.csv`;
+  const time = format(new Date(), 'yyyyMMdd-HHmmss');
+  const filename = `n6${resource.replaceAll('/', '-')}-${time}.csv`;
 
   const parsedData = parseResponseDataForCsv(data);
   const headers = useMemo(() => createHeaders(parsedData, messages), [parsedData]);

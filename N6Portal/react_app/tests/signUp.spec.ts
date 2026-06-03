@@ -16,7 +16,7 @@ const fieldsTestData = [
     tooltip_text: dictionary.en.signup_domain_tooltip
   },
   {
-    label: 'Entity name',
+    label: 'Organization name',
     labelID: 'signupTwo-actual-name-input_label',
     inputID: 'signupTwo-actual-name-input',
     validValue: 'Valid entity name',

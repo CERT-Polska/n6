@@ -25,6 +25,51 @@ Some features of this document's layout were inspired by
 [Keep a Changelog](https://keepachangelog.com/).
 
 
+## [4.42.0] (2026-06-03)
+
+#### General Audience Stuff
+
+- [data sources, config] A new *Shadowserver* data source:
+  `shadowserver.http-tld-pl` (parser). When it comes to its configuration,
+  see the relevant additions to the configuration prototype file
+  `etc/n6/60_shadowserver.conf`.
+
+- [portal, rest api, lib, docs] Eight event attributes made available to
+  *non-privileged users*: `additional_data`, `device_id`, `device_model`,
+  `device_type`, `device_vendor`, `device_version`, `vendor`, `version`
+  (previously, they were only available to *privileged users*, i.e., those
+  whose organizations have `full_access=True` in Auth DB).
+
+- [portal] A bunch of GUI/UX improvements and fixes.
+
+- [portal, docs] Fixed/enhanced the *n6 Knowledge Base* default content
+  (in particular, added missing Polish translations in the *bots* category).
+
+- [docs] The [public documentation for *n6 Stream
+  API*](https://n6.readthedocs.io/usage/streamapi/)
+  gained a `stomp.py` CLI one-liner example.
+
+#### System/Configuration/Programming-Only
+
+- [data pipeline] Now multiple instances of `n6recorder` can be run
+  concurrently (`n6datapipeline.recorder.Recorder.single_instance` is
+  now `False`), so recorders of the same type became able to consume
+  events from the same queue (and write them to *Event DB*) -- which
+  helps to decrease the risk of broker queues overflowing and, overall,
+  the time spent by events in the pipeline.
+
+- [portal, tests] Regarding the *n6 Portal*'s frontend, added a bunch
+  of functional and unit tests.
+
+- [portal, ..., lib, setup, tests, docs] Minor fixes, enhancements,
+  updates and cleanups regarding various elements, also regarding
+  the *n6 Portal*'s frontend (its *React*-based TS/JS code and related
+  resources, together with the development tooling). Among others, in
+  the `N6Portal/react_app/scripts/emit_tos.js` script, added automatic
+  syncing of *Terms of Service* locale files (from the `docs-nonpub`
+  directory, if it is provided).
+
+
 ## [4.40.0] (2025-12-31)
 
 #### General Audience Stuff
@@ -69,7 +114,8 @@ Some features of this document's layout were inspired by
   these changes, the method's behavior is more intuitive and, moreover,
   the `MultiRequestPerformer`'s machinery no longer re-sets custom
   attributes and re-configures retries on the same session object again
-  and again, on each request (that behavior was harmless but redundant).
+  and again, on each request (that behavior was, typically, harmless but
+  redundant).
 
 - [portal, rest api, lib, ...] Regarding some HTTP error response bodies,
   got rid of certain unnecessary details (by modifying the behavior of the
@@ -116,7 +162,7 @@ Some features of this document's layout were inspired by
   (rolled back) insertion of a `bl-change` event (that is, if an
   event-duplication-caused `IntegrationError` occurred while trying to
   insert a `bl-change` event into the Event DB) -- caused an undesirable
-  publication of the event to the `n6counter`'s input queue. A side effect
+  publication of the event to the `n6counter`'s input queue. One effect
   of these two changes/fixes is that, from now on, *any* publication to
   the `n6counter`'s input queue (of an event that has just been inserted
   to the Event DB) is made by `n6recorder` *only after* committing the
@@ -222,8 +268,8 @@ Some features of this document's layout were inspired by
   option `oidc_provider_api.active` to `oidc_provider_api.enabled`, and
   introduced a bunch of new `oidc_provider_api.*` options (formally, these
   are not required, but some of them are needed to make use of the OpenID
-  SSO feature); see the relevant fragment of the `etc/web/conf/portal.ini`
-  configuration prototype file.
+  Connect SSO feature); see the relevant fragment of the
+  `etc/web/conf/portal.ini` configuration prototype file.
 
 - [portal, rest api, lib] From now on, a newly created user, if managed
   to authenticate *and* really exists in the Auth DB as a non-blocked user
@@ -1690,6 +1736,7 @@ Python-3-only (more precisely: are compatible with CPython 3.9).
 **The first public release of *n6*.**
 
 
+[4.42.0]: https://github.com/CERT-Polska/n6/compare/v4.40.0...v4.42.0
 [4.40.0]: https://github.com/CERT-Polska/n6/compare/v4.38.0...v4.40.0
 [4.38.0]: https://github.com/CERT-Polska/n6/compare/v4.31.3...v4.38.0
 [4.31.3]: https://github.com/CERT-Polska/n6/compare/v4.31.0...v4.31.3

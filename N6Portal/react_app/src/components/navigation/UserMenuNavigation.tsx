@@ -81,8 +81,8 @@ const UserMenuNavigation: FC = () => {
           <></>
         )}
         <Dropdown.Divider className="m-0" />
-        <Dropdown.Item className="p-3">
-          <LanguagePicker mode="text" />
+        <Dropdown.Item>
+          <LanguagePicker mode="menu" />
         </Dropdown.Item>
         <Dropdown.Divider className="m-0" />
         <Dropdown.Item

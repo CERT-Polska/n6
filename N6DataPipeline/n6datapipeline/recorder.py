@@ -144,6 +144,8 @@ class Recorder(LegacyQueuedBase):
         "exchange_type": "topic",
     }
 
+    single_instance = False
+
     def __init__(self, **kwargs):
         LOGGER.info("Recorder Start")
         config = Config(required={"recorder": ("uri",)})

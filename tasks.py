@@ -226,7 +226,7 @@ def delete_pycs(
 )
 def pytest(
     c: Context,
-    doctests: str = True,
+    doctests: bool = True,
     pytest_args: str = '',
     tasks_module_doctests: bool = False,
 ) -> None:
@@ -956,7 +956,7 @@ def _get_kind_specific_filename_stem_suffix(kind: InstallKind) -> str:
         case extra if extra in _get_all_n6_package_extras():
             stem_suffix = f'-{extra}'
         case wrong:
-            assert_never(wrong)
+            assert_never(wrong)  # noqa
     return stem_suffix
 
 

@@ -57,7 +57,6 @@ const IncidentsForm: FC<IProps> = ({ dataLength, refetchData, currentTab }) => {
     refetchData(parsedData, {
       onSuccess: async (_refetchData) => {
         if (!storageAvailable('localStorage')) return;
-        if (isInsideTab) removeFilter(['client']);
 
         const assignedFilters: Partial<TStoredFilter> = {};
         selectedFilters.forEach((filter) => {
@@ -142,7 +141,7 @@ const IncidentsForm: FC<IProps> = ({ dataLength, refetchData, currentTab }) => {
     } catch {
       localStorage.removeItem(FILTERS_STORAGE);
     }
-  }, [setValue]);
+  }, [setValue, isInsideTab]);
 
   return (
     <div className="w-100">

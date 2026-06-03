@@ -21,6 +21,7 @@ module.exports = {
     'images/chevron.svg': '<rootDir>/src/__mocks__/chevron.js',
     'images/close.svg': '<rootDir>/src/__mocks__/close.js',
     'images/compress-ico.svg': '<rootDir>/src/__mocks__/compress-ico.js',
+    'images/copy.svg': '<rootDir>/src/__mocks__/copy.js',
     'images/download.svg': '<rootDir>/src/__mocks__/download.js',
     'images/email.svg': '<rootDir>/src/__mocks__/email.js',
     'images/en-icon.svg': '<rootDir>/src/__mocks__/en-icon.js',

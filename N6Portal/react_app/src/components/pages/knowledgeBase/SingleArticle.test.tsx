@@ -133,6 +133,93 @@ describe('<SingleArticle />', () => {
     );
   });
 
+  it('scrolls to the element matching window.location.hash when data is loaded', () => {
+    const scrollIntoViewMock = jest.fn();
+    const hashId = 'test-section';
+    (window as any).location = { hash: `#${hashId}` };
+
+    const articleData: IArticle = {
+      id: 1,
+      chapter_id: 1,
+      content: { pl: 'test', en: 'test' }
+    };
+    const useArticleReturnValue = { data: articleData } as UseQueryResult<IArticle, AxiosError>;
+    jest.spyOn(useArticleModule, 'useArticle').mockReturnValue(useArticleReturnValue);
+    useParamsMock.mockReturnValue({ articleId: '1' });
+
+    const targetElement = document.createElement('div');
+    targetElement.id = hashId;
+    targetElement.scrollIntoView = scrollIntoViewMock;
+    document.body.appendChild(targetElement);
+
+    render(
+      <BrowserRouter>
+        <QueryClientProviderTestWrapper>
+          <LanguageProviderTestWrapper>
+            <SingleArticle />
+          </LanguageProviderTestWrapper>
+        </QueryClientProviderTestWrapper>
+      </BrowserRouter>
+    );
+
+    expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' });
+    document.body.removeChild(targetElement);
+  });
+
+  it('does not scroll to hash element when there is no matching element in the DOM', () => {
+    (window as any).location = { hash: '#nonexistent-id' };
+
+    const articleData: IArticle = {
+      id: 1,
+      chapter_id: 1,
+      content: { pl: 'test', en: 'test' }
+    };
+    const useArticleReturnValue = { data: articleData } as UseQueryResult<IArticle, AxiosError>;
+    jest.spyOn(useArticleModule, 'useArticle').mockReturnValue(useArticleReturnValue);
+    useParamsMock.mockReturnValue({ articleId: '1' });
+
+    render(
+      <BrowserRouter>
+        <QueryClientProviderTestWrapper>
+          <LanguageProviderTestWrapper>
+            <SingleArticle />
+          </LanguageProviderTestWrapper>
+        </QueryClientProviderTestWrapper>
+      </BrowserRouter>
+    );
+
+    // No error should be thrown, scrollIntoView should not be called on any hash element
+    expect(document.getElementById('nonexistent-id')).toBeNull();
+  });
+
+  it('does not scroll to hash element when data is not yet loaded', () => {
+    (window as any).location = { hash: '#some-id' };
+
+    const useArticleReturnValue = { data: undefined, isLoading: false } as UseQueryResult<IArticle, AxiosError>;
+    jest.spyOn(useArticleModule, 'useArticle').mockReturnValue(useArticleReturnValue);
+    useParamsMock.mockReturnValue({ articleId: '1' });
+
+    const targetElement = document.createElement('div');
+    targetElement.id = 'some-id';
+    const scrollIntoViewMock = jest.fn();
+    targetElement.scrollIntoView = scrollIntoViewMock;
+    document.body.appendChild(targetElement);
+
+    render(
+      <BrowserRouter>
+        <QueryClientProviderTestWrapper>
+          <LanguageProviderTestWrapper>
+            <SingleArticle />
+          </LanguageProviderTestWrapper>
+        </QueryClientProviderTestWrapper>
+      </BrowserRouter>
+    );
+
+    // scrollIntoView for the hash element should NOT be called because data is undefined
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    document.body.removeChild(targetElement);
+  });
+
   it('renders article page with provided content', async () => {
     const exampleContent = 'test example content of the article';
     const articleData: IArticle = {

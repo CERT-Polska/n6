@@ -87,10 +87,10 @@ async function setupKnowledgeBaseResponse(page: Page, user: MockedUser, response
   await page.waitForTimeout(1000);
 }
 
-async function switchLanguage(page: Page, language: 'PL' | 'EN') {
+async function switchLanguage(page: Page) {
   await page.getByTestId('userMenuNavBtn').click();
-  await page.waitForSelector(`[data-testid="languagePicker${language}"]`, { state: 'visible' });
-  await page.getByTestId(`languagePicker${language}`).click();
+  await page.waitForSelector(`[data-testid="languagePickerMenu"]`, { state: 'visible' });
+  await page.getByTestId(`languagePickerMenu`).click();
   await page.waitForTimeout(500);
 }
 
@@ -422,7 +422,7 @@ function execKnowledgeBaseTests(user: MockedUser) {
           await downloadArticleAndCheckFilename(page, '1', 'en');
 
           // Switch to Polish
-          await switchLanguage(page, 'PL');
+          await switchLanguage(page);
 
           await downloadArticleAndCheckFilename(page, '1', 'pl');
         });
@@ -527,11 +527,11 @@ function execKnowledgeBaseTests(user: MockedUser) {
 
           await expectArticlePlaceholderToContainText(page, dictionary.en['knowledge_base_article_not_found']);
 
-          await switchLanguage(page, 'PL');
+          await switchLanguage(page);
 
           await expectArticlePlaceholderToContainText(page, dictionary.pl['knowledge_base_article_not_found']);
 
-          await switchLanguage(page, 'EN');
+          await switchLanguage(page);
 
           await expectArticlePlaceholderToContainText(page, dictionary.en['knowledge_base_article_not_found']);
         });
@@ -541,7 +541,7 @@ function execKnowledgeBaseTests(user: MockedUser) {
 
           await expectArticlePlaceholderToContainText(page, dictionary.en['knowledge_base_invalid_article_id']);
 
-          await switchLanguage(page, 'PL');
+          await switchLanguage(page);
 
           await expectArticlePlaceholderToContainText(page, dictionary.pl['knowledge_base_invalid_article_id']);
         });
@@ -552,7 +552,7 @@ function execKnowledgeBaseTests(user: MockedUser) {
 
           await expectArticlePlaceholderToContainText(page, dictionary.en['knowledge_base_request_error']);
 
-          await switchLanguage(page, 'PL');
+          await switchLanguage(page);
 
           await expectArticlePlaceholderToContainText(page, dictionary.pl['knowledge_base_request_error']);
         });
@@ -569,12 +569,12 @@ function execKnowledgeBaseTests(user: MockedUser) {
 
       await expect(page.getByText('ArticleTitleMarkdown')).toBeVisible();
 
-      await switchLanguage(page, 'PL');
+      await switchLanguage(page);
 
       await expect(page.getByText('TytułArtykułuMarkdown')).toBeVisible();
       await expect(page.getByText('TreśćArtykułuMarkdown')).toBeVisible();
 
-      await switchLanguage(page, 'EN');
+      await switchLanguage(page);
 
       await expect(page.getByText('ArticleTitleMarkdown')).toBeVisible();
     });
@@ -587,7 +587,7 @@ function execKnowledgeBaseTests(user: MockedUser) {
 
       await expect(page.getByTestId('kb-chapter-1-link-1')).toContainText('Article 1');
 
-      await switchLanguage(page, 'PL');
+      await switchLanguage(page);
 
       await expect(page.getByText('Nazwa rozdziału 1')).toBeVisible();
       await expect(page.getByText('Nazwa rozdziału 2')).toBeVisible();
@@ -604,12 +604,12 @@ function execKnowledgeBaseTests(user: MockedUser) {
 
       await expect(page.getByTestId('kb-search-results-item-title-1')).toContainText('Article 1');
 
-      await switchLanguage(page, 'PL');
+      await switchLanguage(page);
       await page.waitForTimeout(500);
 
       await expect(page.getByTestId('kb-search-results-item-title-1')).toContainText('Artykuł 1');
 
-      await switchLanguage(page, 'EN');
+      await switchLanguage(page);
       await page.waitForTimeout(500);
 
       await expect(page.getByTestId('kb-search-results-item-title-1')).toContainText('Article 1');

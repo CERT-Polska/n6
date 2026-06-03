@@ -25,8 +25,8 @@ describe('<TrimmedUrl />', () => {
       shouldDisplayPopover: false
     }
   ])(
-    'renders clickable cell which upon hovering displays full value of cell \
-    and upon clicking saves value to clipboard and displays success tooltip for 1 second',
+    'renders text value which upon hovering displays full value of cell if it was trimmed \
+    and copy button which upon clicking saves value to clipboard and displays success tooltip for 1 second',
     async ({ value, trimmedLength, trimmedValue, shouldDisplayPopover }) => {
       const id = 'test-trimmed-id';
 
@@ -38,14 +38,22 @@ describe('<TrimmedUrl />', () => {
         </LanguageProviderTestWrapper>
       );
 
-      expect(container.firstChild?.firstChild).toHaveTextContent(trimmedValue);
-      expect(container.firstChild?.firstChild).toHaveRole('generic');
+      // text value
+      const spanElement = container.firstChild?.firstChild as HTMLElement;
+      expect(spanElement).toHaveTextContent(trimmedValue);
+      expect(spanElement).toHaveRole('generic');
 
-      const buttonElement = screen.getByRole('button');
-      expect(buttonElement).toHaveTextContent(trimmedValue); // hidden behind span
+      // copy button
+      screen.debug();
+      const copyButtonElement = screen.getByRole('button');
+      expect(copyButtonElement).toBeVisible(); // button is visible because it is hidden only as child of `td` styled element (as per _incidents.scss)
+      expect(copyButtonElement).toHaveClass('trimmed-url-copy-button');
+      expect(copyButtonElement.querySelector('svg-copy-mock')).toBeInTheDocument();
       expect(screen.queryByRole('tooltip')).toBe(null);
 
-      await userEvent.hover(buttonElement as HTMLElement);
+      // text popover
+      await userEvent.hover(spanElement);
+      expect(copyButtonElement).toBeVisible();
       if (shouldDisplayPopover) {
         const popoverElement = screen.getByRole('tooltip');
         expect(popoverElement).toBeVisible();
@@ -55,8 +63,10 @@ describe('<TrimmedUrl />', () => {
       } else {
         expect(screen.queryByRole('tooltip')).toBe(null);
       }
+      await userEvent.unhover(spanElement);
 
-      await userEvent.click(buttonElement);
+      // copy functionality
+      await userEvent.click(copyButtonElement);
       expect(copyTextSpy).toHaveBeenCalledWith(value, expect.any(Function));
       const tooltipElement = screen.getByRole('tooltip');
       expect(tooltipElement).toBeVisible();

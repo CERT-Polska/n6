@@ -94,7 +94,7 @@ const Table: FC<IProps> = ({ getTableProps, getTableBodyProps, headerGroups, row
 
   return (
     <>
-      <div className={classnames('full-view-backdrop', { active: fullView })} style={{ zIndex: 1 }} />
+      <div className={classnames('full-view-backdrop', { active: fullView })} style={{ zIndex: 2 }} />
       <div
         ref={tableContainerRef}
         className="position-relative content-wrapper flex-grow-1"

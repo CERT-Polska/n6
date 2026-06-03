@@ -6,7 +6,7 @@ import { ReactComponent as En } from 'images/en-icon.svg';
 import useLanguageContext from 'context/LanguageProvider';
 
 interface IProps {
-  mode: 'text' | 'icon';
+  mode: 'text' | 'icon' | 'menu';
   fullDictName?: boolean;
   buttonClassName?: string;
 }
@@ -14,7 +14,24 @@ interface IProps {
 const LanguagePicker: FC<IProps> = ({ mode, fullDictName, buttonClassName }) => {
   const { handleChangeLang } = useLanguageContext();
   const { locale, messages } = useTypedIntl();
-  return (
+  return mode === 'menu' ? (
+    <button
+      data-testid="languagePickerMenu"
+      onClick={() => handleChangeLang(locale === 'en' ? 'pl' : 'en')}
+      className={classNames('language-picker-button fill-parent', buttonClassName)}
+      aria-label={`${messages.language_picker_aria_label}`}
+    >
+      <div className="language-picker-menu-label">
+        <div style={locale === 'en' ? { opacity: 1, fontWeight: 'bolder' } : {}}>
+          {messages.language_picker_en_short}
+        </div>{' '}
+        |{' '}
+        <div style={locale === 'pl' ? { opacity: 1, fontWeight: 'bolder' } : {}}>
+          {messages.language_picker_pl_short}
+        </div>
+      </div>
+    </button>
+  ) : (
     <>
       <button
         data-testid="languagePickerEN"

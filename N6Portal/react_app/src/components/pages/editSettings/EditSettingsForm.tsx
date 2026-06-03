@@ -25,6 +25,8 @@ import { maxLength } from 'components/forms/validation/validators';
 import CustomFieldArray from 'components/shared/CustomFieldArray';
 import { prepareDefaultValues, prepareUpdatedValues, parseSubmitData } from 'components/pages/editSettings/utils';
 import { TApiResponse } from 'components/forms/utils';
+// import { noop } from 'utils/noop';
+import EditSettingsConfirmationModal from 'components/pages/editSettings/EditSettingsConfirmationModal';
 
 interface IProps {
   currentSettings: IOrgConfig;
@@ -48,6 +50,8 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
   const { messages } = useTypedIntl();
   const queryClient = useQueryClient();
   const feedbackRef = useRef<HTMLDivElement>(null);
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [dataToCorrect, setDataToCorrect] = useState<FormData>(new FormData());
 
   // prepare defaultValues and updatedValues if available
   const [defaultValues, updatedValues] = useMemo(() => {
@@ -103,8 +107,13 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
 
     Object.keys(parsedSettingsData).forEach((key) => formData.append(key, parsedSettingsData[key]));
 
+    setDataToCorrect(formData);
+    setShowConfirmationModal(true);
+  };
+
+  const sendDataToCorrect = async (data: FormData) => {
     try {
-      await sendOrgConfigData(formData, {
+      await sendOrgConfigData(data, {
         onSuccess: async (data) => {
           setSubmitResponse(data.post_accepted ? 'success' : 'error');
           feedbackRef.current?.scrollIntoView();
@@ -197,6 +206,7 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
                 disabled={isFormDisabled}
               />
             </div>
+            <h2 className="my-5">{messages.edit_settings_notification_heading}</h2>
             <div className="edit-settings-input-wrapper-small  mb-4">
               <FormCheckbox
                 name="notification_enabled"
@@ -267,6 +277,7 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
                 }
               />
             </div>
+            <h2 className="my-5">{messages.edit_settings_inside_criteria_heading}</h2>
             <div className="edit-settings-input-wrapper mb-3">
               <CustomFieldArray
                 name="fqdns"
@@ -377,6 +388,16 @@ const EditSettingsForm: FC<IProps> = ({ currentSettings }) => {
           hideProgressBar={true}
           draggable={false}
           enableMultiContainer={false}
+        />
+        <EditSettingsConfirmationModal
+          show={showConfirmationModal}
+          onHide={() => setShowConfirmationModal(false)}
+          onConfirm={() => {
+            sendDataToCorrect(dataToCorrect);
+            setShowConfirmationModal(false);
+          }}
+          currentSettings={currentSettings}
+          dataToCorrect={dataToCorrect}
         />
       </div>
     </div>
