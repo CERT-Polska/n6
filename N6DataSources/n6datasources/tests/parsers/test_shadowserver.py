@@ -2865,10 +2865,10 @@ class TestShadowserverHttpTldPl202601Parser(ParserTestMixin, unittest.TestCase):
             b'"www_authenticate","set_cookie","server","content_length","transfer_encoding","http_date","version",'
             b'"build_date","detail","build_branch"\n'
 
-            b'"2026-01-07 00:01:46","medium","1.1.1.1","tcp",80,"1.1.1.1.in-addr.pl","basic-auth;http",'
+            b'"2026-02-07 00:01:31","medium","1.1.1.1","tcp",80,"1.1.1.1.in-addr.pl","basic-auth;http",'
             b'12345,"PL","JAKISREGION","MIASTOMOJEAWNIM",'
             b',"ptr",,"HTTP/1.1",401,"Unauthorized","text/html; charset=iso-8859-1",,"Basic realm=""HAHAHA""",'
-            b',"Apache/2.4.424242 (Debian)",123,,"2026-01-07 00:01:46",,,,'
+            b',"Apache/2.4.424242 (Debian)",123,,"Tue, 7 February 2026 00:00:55 GMT",,,,'
         ,
             [
                 dict(
